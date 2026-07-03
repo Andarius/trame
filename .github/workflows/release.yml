@@ -97,6 +97,14 @@ jobs:
         with:
           deno-version: "2.9"
 
+      - name: Free disk space (intel runner is tight)
+        if: matrix.target == 'macos-x64'
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /Library/Developer/CoreSimulator/Profiles/Runtimes 2>/dev/null || true
+          sudo rm -rf ~/Library/Developer/CoreSimulator 2>/dev/null || true
+          df -h / | tail -1
+
       - name: Build frontend
         run: cd app && deno task web:build
 

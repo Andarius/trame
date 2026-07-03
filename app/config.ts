@@ -22,7 +22,9 @@ export const PORT_FILE = Deno.env.get("TRACKER_PORT_FILE") ?? `${dataHome}/sessi
 // Persisted window geometry (desktop mode).
 export const WINDOW_FILE = `${dataHome}/session-tracker/window.json`;
 // App settings editable from the UI (report folders, …). Device-local, not synced.
-export const SETTINGS_FILE = `${dataHome}/session-tracker/settings.json`;
+// Overridable for test isolation.
+export const SETTINGS_FILE = Deno.env.get("TRACKER_SETTINGS_FILE") ??
+  `${dataHome}/session-tracker/settings.json`;
 export const HOME_DIR = home;
 // Colon-separated directories scanned for *.html exploration reports (Explore view).
 export const REPORT_PATHS = (Deno.env.get("TRACKER_REPORT_PATHS") ?? "")

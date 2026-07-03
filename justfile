@@ -71,6 +71,11 @@ hack:
 sync:
     cd app && deno task sync
 
+# Run Playwright e2e tests (isolated backend in /tmp/trame-e2e)
+[group('dev')]
+e2e *args:
+    cd app/web && npx playwright test {{ args }}
+
 # Lint
 [group('dev')]
 lint:
