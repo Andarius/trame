@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "trame": {
+      "command": "deno",
+      "args": ["run", "-A", "mcp/server.ts"]
+    }
+  }
+}

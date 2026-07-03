@@ -1,0 +1,19 @@
+# desktop build artifacts
+app/app/
+dist/
+app/embed.ts
+*.so
+*.AppImage
+*.app/
+*.dmg
+*.deb
+*.rpm
+*.msi
+*.snap
+
+# frontend build + deps
+app/web/dist/
+node_modules/
+
+# local runtime state / secrets
+.env

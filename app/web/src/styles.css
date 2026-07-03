@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+/* Trame design tokens — from the Figma file */
+@theme {
+  --color-canvas: #0c0d10;
+  --color-sidebar: #0a0b0d;
+  --color-panel: #14161b;
+  --color-card: #1d2129;
+  --color-line: #232633;
+  --color-line-soft: #1a1d24;
+  --color-chipline: #2f3542;
+  --color-ink: #e6e9ef;
+  --color-ink-soft: #a9b2c3;
+  --color-ink-muted: #8b93a3;
+  --color-copper: #c98a63;
+  --color-copper-ink: #120e0b;
+  --color-active: #7bd88f;
+  --color-paused: #e3c567;
+  --color-blocked: #e06c75;
+  --color-done: #6b7280;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}

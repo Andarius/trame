@@ -1,0 +1,169 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing git tag to publish, for example v0.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.value }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${{ inputs.tag }}"
+            tag="${tag#refs/tags/}"
+            [[ "${tag}" != v* ]] && tag="v${tag}"
+          else
+            tag="${GITHUB_REF_NAME}"
+          fi
+          [[ -z "${tag}" ]] && { echo "Release tag is required" >&2; exit 1; }
+          git fetch --tags --force
+          git rev-parse "${tag}^{commit}" >/dev/null
+          echo "value=${tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout release tag
+        run: git checkout "${{ steps.tag.outputs.value }}"
+
+      - name: Verify tag matches app version
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          version="$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' app/deno.json | head -n1)"
+          if [ "${RELEASE_TAG}" != "v${version}" ]; then
+            echo "Tag ${RELEASE_TAG} does not match app/deno.json version v${version}" >&2
+            exit 1
+          fi
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          if gh release view "${RELEASE_TAG}" --repo "${GH_REPO}" >/dev/null 2>&1; then
+            echo "Release ${RELEASE_TAG} already exists"
+          else
+            gh release create "${RELEASE_TAG}" --repo "${GH_REPO}" --draft --generate-notes --title "${RELEASE_TAG}"
+          fi
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: linux-x64
+            tasks: "bundle bundle:deb"
+            assets: "dist/linux/Trame.AppImage dist/linux/trame.deb"
+          - runner: macos-latest
+            target: macos-arm64
+            tasks: "bundle:mac"
+            assets: "dist/macos/Trame.dmg"
+          - runner: macos-15-intel
+            target: macos-x64
+            tasks: "bundle:mac"
+            assets: "dist/macos/Trame.dmg"
+    runs-on: ${{ matrix.runner }}
+    env:
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.9"
+
+      - name: Build frontend
+        run: cd app && deno task web:build
+
+      - name: Build bundles
+        shell: bash
+        run: |
+          cd app
+          for task in ${{ matrix.tasks }}; do
+            deno task "${task}"
+          done
+
+      - name: Upload release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          for asset in ${{ matrix.assets }}; do
+            base="$(basename "${asset}")"
+            named="${base%.*}-${RELEASE_TAG}-${{ matrix.target }}.${base##*.}"
+            cp "${asset}" "${named}"
+            gh release upload "${RELEASE_TAG}" "${named}" --repo "${GH_REPO}" --clobber
+          done
+
+  snap:
+    needs:
+      - prepare
+      - build
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.9"
+
+      - name: Build frontend
+        run: cd app && deno task web:build
+
+      - name: Build app bundle
+        run: cd app && deno task bundle:dir
+
+      - name: Build snap
+        uses: snapcore/action-build@v1
+        id: snapcraft
+
+      - name: Upload snap to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "${RELEASE_TAG}" "${{ steps.snapcraft.outputs.snap }}" --repo "${GH_REPO}" --clobber
+
+  publish:
+    needs:
+      - prepare
+      - build
+      - snap
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release edit "${RELEASE_TAG}" --repo "${GH_REPO}" --draft=false

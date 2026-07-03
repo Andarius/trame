@@ -1,0 +1,349 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  type BoardData,
+  deleteReportFile,
+  type FileHit,
+  getReport,
+  getReportFileContent,
+  getReportFiles,
+  getReports,
+  getSettings,
+  openInBrowser,
+  patchSettings,
+  type ReportMeta,
+} from "./api";
+import { ClientChip, timeAgo } from "./ui";
+
+type Selected = {
+  kind: "db" | "file";
+  id?: string;
+  path?: string;
+  title: string;
+  date?: string;
+  html: string;
+};
+
+const HOME_RE = /^\/home\/[^/]+\/|^\/Users\/[^/]+\//;
+
+export function Explore(
+  { board, onOpenSettings }: { board: BoardData; onOpenSettings?: () => void },
+) {
+  const [reports, setReports] = useState<ReportMeta[]>([]);
+  const [files, setFiles] = useState<FileHit[]>([]);
+  const [q, setQ] = useState("");
+  const [selected, setSelected] = useState<Selected | null>(null);
+  const [selKey, setSelKey] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const [starred, setStarred] = useState<string[]>([]);
+  const [htmlFilter, setHtmlFilter] = useState<"smart" | "all">("smart");
+
+  const load = (force = false, selectFirst = false) => {
+    setRefreshing(true);
+    Promise.allSettled([
+      getReports().then((list) => {
+        if (!Array.isArray(list)) return;
+        setReports(list);
+        if (selectFirst && list.length) selectDb(list[0]);
+      }),
+      getReportFiles(force).then((f) => Array.isArray(f) && setFiles(f)),
+      getSettings().then((s) => {
+        setStarred(s.starred ?? []);
+        setHtmlFilter(s.htmlFilter ?? "smart");
+      }),
+    ]).finally(() => setRefreshing(false));
+  };
+  useEffect(() => load(false, true), []);
+
+  const toggleFilter = () => {
+    const next = htmlFilter === "smart" ? "all" : "smart";
+    setHtmlFilter(next);
+    patchSettings({ htmlFilter: next }).then(() => load(true));
+  };
+  const toggleStar = (dir: string) => {
+    const next = starred.includes(dir) ? starred.filter((d) => d !== dir) : [...starred, dir];
+    setStarred(next);
+    patchSettings({ starredPaths: next });
+  };
+  const ignoreFolder = (dir: string) => {
+    // warn only on first use — afterwards ⊘ applies immediately (undo lives in ⚙ Settings)
+    if (!localStorage.getItem("trame:ignore-warned")) {
+      if (!confirm(`Ignore ${dir}?\n\nIgnored folders can be restored in ⚙ Settings.\n(This warning is only shown once.)`)) {
+        return;
+      }
+      localStorage.setItem("trame:ignore-warned", "1");
+    }
+    getSettings()
+      .then((s) => patchSettings({ ignorePaths: [...(s.ignore ?? []), dir] }))
+      .then(() => load(true));
+  };
+
+  const selectDb = (r: ReportMeta) => {
+    setSelKey(`db:${r.id}`);
+    getReport(r.id).then((full) =>
+      setSelected({ kind: "db", id: r.id, title: full.title, date: full.created_at, html: full.html })
+    );
+  };
+  const selectFile = (f: FileHit) => {
+    setSelKey(`file:${f.path}`);
+    getReportFileContent(f.path).then((c) =>
+      setSelected({ kind: "file", title: f.name, date: f.mtime, html: c.html, path: f.path })
+    ).catch(() => {});
+  };
+
+  const needle = q.trim().toLowerCase();
+  const shownReports = needle
+    ? reports.filter((r) => r.title.toLowerCase().includes(needle))
+    : reports;
+  const shownFiles = needle
+    ? files.filter((f) => f.path.toLowerCase().includes(needle))
+    : files;
+
+  // group file hits by containing folder — starred groups pinned first,
+  // then ordered by each group's freshest file (files arrive mtime-desc)
+  const folders = useMemo(() => {
+    const m = new Map<string, FileHit[]>();
+    for (const f of shownFiles) {
+      const dir = f.path.slice(0, f.path.lastIndexOf("/"));
+      const arr = m.get(dir);
+      if (arr) arr.push(f);
+      else m.set(dir, [f]);
+    }
+    const entries = [...m.entries()];
+    entries.sort((a, b) => Number(starred.includes(b[0])) - Number(starred.includes(a[0])));
+    return entries;
+  }, [shownFiles, starred]);
+
+  // ↑/↓ moves the selection through the visible list (reports then files, display order)
+  const flat = [
+    ...shownReports.map((r) => ({ key: `db:${r.id}`, sel: () => selectDb(r) })),
+    ...folders.flatMap(([, hits]) => hits.map((f) => ({ key: `file:${f.path}`, sel: () => selectFile(f) }))),
+  ];
+  const flatRef = useRef(flat);
+  flatRef.current = flat;
+  const selKeyRef = useRef(selKey);
+  selKeyRef.current = selKey;
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (e.key === "Delete") {
+        // Suppr deletes the selected file — but never while typing
+        if (t.tagName === "TEXTAREA" || t.tagName === "INPUT") return;
+        deleteRef.current();
+        return;
+      }
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      if (t.tagName === "TEXTAREA") return;
+      if (t.tagName === "INPUT" && t.getAttribute("data-nav") !== "1") return;
+      const list = flatRef.current;
+      if (!list.length) return;
+      e.preventDefault();
+      const idx = list.findIndex((f) => f.key === selKeyRef.current);
+      const next = idx === -1
+        ? 0
+        : e.key === "ArrowDown"
+        ? Math.min(idx + 1, list.length - 1)
+        : Math.max(idx - 1, 0);
+      const item = list[next];
+      item.sel();
+      requestAnimationFrame(() =>
+        document.querySelector(`[data-key="${CSS.escape(item.key)}"]`)?.scrollIntoView({ block: "nearest" })
+      );
+    };
+    addEventListener("keydown", h);
+    return () => removeEventListener("keydown", h);
+  }, []);
+
+  const openExternal = () => {
+    if (!selected) return;
+    const target = selected.kind === "db"
+      ? `/report/${selected.id}`
+      : `/report-file?path=${encodeURIComponent(selected.path!)}`;
+    openInBrowser(target);
+  };
+
+  // delete the selected FILE (button or Suppr key) — trash when available, neighbor selected after
+  const deleteCurrent = () => {
+    if (!selected || selected.kind !== "file" || !selected.path) return;
+    if (!confirm(`Delete ${selected.title}?\n(moved to the system trash when available)`)) return;
+    const list = flatRef.current;
+    const idx = list.findIndex((f) => f.key === selKeyRef.current);
+    const neighbor = list[idx + 1] ?? list[idx - 1] ?? null;
+    deleteReportFile(selected.path).then((r) => {
+      if (!r.ok) return;
+      if (neighbor) neighbor.sel();
+      else {
+        setSelected(null);
+        setSelKey("");
+      }
+      load(true);
+    }).catch(() => {});
+  };
+  const deleteRef = useRef(deleteCurrent);
+  deleteRef.current = deleteCurrent;
+
+  const sectionLbl = "px-2 pb-1 pt-3 text-[10px] font-medium tracking-[0.7px] text-ink-muted/70";
+
+  return (
+    <div className="flex min-h-0 flex-1">
+      <div className="flex w-[330px] shrink-0 flex-col overflow-y-auto border-r border-line p-3">
+        <div className="mb-1 flex gap-1.5">
+          <input
+            data-nav="1"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search reports & files…  (↑↓ to browse)"
+            className="min-w-0 flex-1 rounded-md border border-chipline bg-transparent px-2.5 py-1.5 text-xs text-ink outline-none placeholder:text-ink-muted/50 focus:border-copper/60"
+          />
+          <button
+            onClick={toggleFilter}
+            disabled={refreshing}
+            title={htmlFilter === "smart"
+              ? "smart: only self-contained reports (app/build html hidden) — click to show all"
+              : "all: every html file — click to filter to reports only"}
+            className={`rounded-md border px-2 text-[10.5px] disabled:opacity-40 ${
+              htmlFilter === "smart"
+                ? "border-copper/50 text-copper"
+                : "border-chipline text-ink-muted hover:text-ink-soft"
+            }`}
+          >
+            {htmlFilter}
+          </button>
+          <button
+            onClick={() => load(true)}
+            disabled={refreshing}
+            title="Rescan folders"
+            className="rounded-md border border-chipline px-2 text-[13px] text-ink-muted hover:text-ink-soft disabled:opacity-40"
+          >
+            <span className={refreshing ? "inline-block animate-spin" : ""}>↻</span>
+          </button>
+        </div>
+        {shownReports.length > 0 && <div className={sectionLbl}>PUBLISHED</div>}
+        {shownReports.map((r) => {
+          const client = board.clients.find((c) => c.id === r.client_id);
+          const active = selKey === `db:${r.id}`;
+          return (
+            <button
+              key={r.id}
+              data-key={`db:${r.id}`}
+              onClick={() => selectDb(r)}
+              className={`flex flex-col items-start gap-1 rounded-lg px-2.5 py-2 text-left ${
+                active ? "bg-[#1a1d26]" : "hover:bg-[#14161c]"
+              }`}
+            >
+              <span className={`text-[12.5px] font-medium leading-snug ${active ? "" : "text-[#c7cbd4]"}`}>
+                {r.title}
+              </span>
+              <span className="flex items-center gap-1.5">
+                {client && <ClientChip name={client.name} color={client.color} />}
+                <span className="text-[10.5px] text-ink-muted">{timeAgo(r.created_at)}</span>
+              </span>
+            </button>
+          );
+        })}
+        {folders.length > 0 && <div className={sectionLbl}>FILES</div>}
+        {folders.map(([dir, hits]) => {
+          const isStarred = starred.includes(dir);
+          return (
+          <div key={dir} className="flex flex-col">
+            <div className="group flex items-center gap-1.5 px-2 pb-0.5 pt-2">
+              <span className="min-w-0 flex-1 truncate text-[10px] text-ink-muted/60" title={dir}>
+                {dir.replace(HOME_RE, "~/")}
+              </span>
+              <button
+                onClick={() => toggleStar(dir)}
+                title={isStarred ? "unstar" : "star — pin this folder on top"}
+                className={`text-[11px] leading-none ${
+                  isStarred ? "text-copper" : "text-ink-muted/40 opacity-0 group-hover:opacity-100"
+                } hover:text-copper`}
+              >
+                ★
+              </button>
+              <button
+                onClick={() => ignoreFolder(dir)}
+                title="ignore this folder"
+                className="text-[11px] leading-none text-ink-muted/40 opacity-0 hover:text-blocked group-hover:opacity-100"
+              >
+                ⊘
+              </button>
+            </div>
+            {hits.map((f) => {
+              const active = selKey === `file:${f.path}`;
+              return (
+                <button
+                  key={f.path}
+                  data-key={`file:${f.path}`}
+                  onClick={() => selectFile(f)}
+                  className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left ${
+                    active ? "bg-[#1a1d26]" : "hover:bg-[#14161c]"
+                  }`}
+                >
+                  <span
+                    className={`min-w-0 flex-1 truncate text-[12.5px] font-medium leading-snug ${
+                      active ? "" : "text-[#c7cbd4]"
+                    }`}
+                  >
+                    {f.name}
+                  </span>
+                  {f.mtime && <span className="shrink-0 text-[10px] text-ink-muted">{timeAgo(f.mtime)}</span>}
+                </button>
+              );
+            })}
+          </div>
+          );
+        })}
+        {files.length === 0 && (
+          <p className="px-2 py-2 text-[11px] leading-relaxed text-ink-muted/80">
+            No indexed files —{" "}
+            <button className="text-ink-soft underline underline-offset-2 hover:text-copper" onClick={onOpenSettings}>
+              configure folders
+            </button>{" "}
+            to search HTML reports on disk.
+          </p>
+        )}
+        {reports.length === 0 && (
+          <p className="px-2 py-2 text-[11px] leading-relaxed text-ink-muted/80">
+            No published reports yet — ask Claude to use the <code>trame_report</code> MCP tool.
+          </p>
+        )}
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        {selected
+          ? (
+            <>
+              <div className="flex items-center gap-2.5 border-b border-line px-5 py-2.5">
+                <span className="text-[12.5px] font-medium text-[#d9dde5]">{selected.title}</span>
+                {selected.path && (
+                  <span className="max-w-[380px] truncate text-[10.5px] text-ink-muted" title={selected.path}>
+                    {selected.path.replace(HOME_RE, "~/")}
+                  </span>
+                )}
+                {selected.date && <span className="text-[11px] text-ink-muted">{timeAgo(selected.date)}</span>}
+                <span className="flex-1" />
+                {selected.kind === "file" && (
+                  <button
+                    className="text-[11.5px] text-ink-muted hover:text-blocked"
+                    title="delete file (Suppr) — system trash when available"
+                    onClick={deleteCurrent}
+                  >
+                    🗑 Delete
+                  </button>
+                )}
+                <button className="text-[11.5px] text-ink-muted hover:text-ink-soft" onClick={openExternal}>
+                  ↗ Open in browser
+                </button>
+              </div>
+              <div className="min-h-0 flex-1 p-5">
+                <iframe
+                  sandbox=""
+                  srcDoc={selected.html}
+                  className="h-full w-full rounded-[10px] border-0 bg-[#f6f5f2]"
+                  title={selected.title}
+                />
+              </div>
+            </>
+          )
+          : <p className="p-6 text-ink-muted">Select a report</p>}
+      </div>
+    </div>
+  );
+}
