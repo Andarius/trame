@@ -23,3 +23,17 @@ jobs:
 
       - name: Lint
         run: cd app && deno lint
+
+      - name: Install Playwright Chromium
+        run: cd app/web && npx playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        run: cd app/web && npx playwright test
+
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: app/web/test-results
+          if-no-files-found: ignore

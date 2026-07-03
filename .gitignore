@@ -15,5 +15,9 @@ app/embed.ts
 app/web/dist/
 node_modules/
 
+# e2e artifacts
+app/web/test-results/
+app/web/playwright-report/
+
 # local runtime state / secrets
 .env
