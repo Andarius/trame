@@ -1,0 +1,33 @@
+name: trame
+adopt-info: trame
+summary: Local-first session tracker for Claude Code work
+description: |
+  Trame tracks parallel Claude Code sessions as a kanban board — sessions ladder
+  up to objectives, HTML exploration reports are searchable in-app. Local-first
+  (embedded Postgres via PGlite), built with Deno desktop and React.
+license: MIT
+grade: stable
+confinement: classic
+base: core24
+platforms:
+  amd64:
+    build-on: [amd64]
+    build-for: [amd64]
+
+apps:
+  trame:
+    command: opt/trame/trame
+
+parts:
+  trame:
+    plugin: dump
+    # Prebuilt by CI (deno task bundle:dir) before snapcraft runs — see release.yml
+    source: dist/linux/trame
+    override-pull: |
+      craftctl default
+      version="$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "${CRAFT_PROJECT_DIR}/app/deno.json" | head -n1)"
+      craftctl set version="${version}"
+    organize:
+      "*": opt/trame/
+    stage-packages:
+      - libwebkit2gtk-4.1-0

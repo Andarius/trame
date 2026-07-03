@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.9"
+
+      - name: Build frontend (generates embed.ts)
+        run: cd app && deno task web:build
+
+      - name: Typecheck
+        run: cd app && deno check main.ts ../track/track.ts ../mcp/server.ts
+
+      - name: Lint
+        run: cd app && deno lint

@@ -1,0 +1,26 @@
+# Runs on the mini (linux-mini). Postgres = the sync hub / source of truth.
+# Put it behind your existing Traefik + Tailscale; the laptops reach it over Tailscale.
+services:
+  tracker-db:
+    image: postgres:17
+    container_name: tracker-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tracker
+      POSTGRES_USER: tracker
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    ports:
+      # Bind to the Tailscale IP (or 127.0.0.1 + Traefik TCP route). Do NOT expose to 0.0.0.0.
+      - "5433:5432"
+    volumes:
+      - tracker-db-data:/var/lib/postgresql/data
+      # Schema is applied once on first boot of an empty data dir:
+      - ../db/schema.sql:/docker-entrypoint-initdb.d/10-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tracker -d tracker"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  tracker-db-data:

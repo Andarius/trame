@@ -1,0 +1,34 @@
+{
+  "name": "trame",
+  "version": "0.1.0",
+  "unstable": ["raw-imports"],
+  "desktop": {
+    "app": {
+      "name": "Trame",
+      "identifier": "sh.trame.app",
+      "icons": {
+        "linux": "./assets/icon.png",
+        "macos": "./assets/icon.png"
+      }
+    }
+  },
+  "tasks": {
+    "//": "Deno 2.9+ required for `deno desktop`. Confirm flags with `deno desktop --help`.",
+    "dev": "TRACKER_DESKTOP=1 deno desktop --hmr -A main.ts",
+    "bundle": "TRACKER_DESKTOP=1 deno desktop -A --compress --output ../dist/linux/Trame.AppImage main.ts",
+    "bundle:deb": "TRACKER_DESKTOP=1 deno desktop -A --compress --output ../dist/linux/trame.deb main.ts",
+    "bundle:dir": "TRACKER_DESKTOP=1 deno desktop -A --output ../dist/linux/trame main.ts",
+    "bundle:mac": "TRACKER_DESKTOP=1 deno desktop -A --compress --output ../dist/macos/Trame.dmg main.ts",
+    "serve": "deno run -A main.ts",
+    "sync": "deno run -A sync.ts once",
+    "web:dev": "cd web && npm install && npm run dev",
+    "web:build": "cd web && npm install && npm run build && cd .. && deno run -A ../scripts/gen-embed.ts"
+  },
+  "imports": {
+    "@electric-sql/pglite": "npm:@electric-sql/pglite@^0.2",
+    "postgres": "npm:postgres@^3.4"
+  },
+  "compilerOptions": {
+    "lib": ["deno.window", "dom", "dom.iterable"]
+  }
+}
