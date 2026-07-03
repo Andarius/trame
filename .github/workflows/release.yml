@@ -80,10 +80,9 @@ jobs:
             target: macos-arm64
             tasks: "bundle:mac"
             assets: "dist/macos/Trame.dmg"
-          - runner: macos-15-intel
-            target: macos-x64
-            tasks: "bundle:mac"
-            assets: "dist/macos/Trame.dmg"
+          # macos-x64 (Intel) dropped: modern Macs are Apple Silicon, and the
+          # macos-15-intel runner hits a flaky hdiutil ENOSPC (APFS container quirk,
+          # runner being deprecated). Re-add a matrix entry if Intel support is needed.
     runs-on: ${{ matrix.runner }}
     env:
       RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
@@ -96,14 +95,6 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: "2.9"
-
-      - name: Free disk space (intel runner is tight)
-        if: matrix.target == 'macos-x64'
-        run: |
-          df -h / | tail -1
-          sudo rm -rf /Library/Developer/CoreSimulator/Profiles/Runtimes 2>/dev/null || true
-          sudo rm -rf ~/Library/Developer/CoreSimulator 2>/dev/null || true
-          df -h / | tail -1
 
       - name: Build frontend
         run: cd app && deno task web:build
