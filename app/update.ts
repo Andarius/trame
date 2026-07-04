@@ -16,6 +16,7 @@ export type UpdateInfo = {
   available: boolean;
   releaseUrl: string;
   canSelfUpdate: boolean; // AppImage on Linux — apply replaces the image in place
+  applied: boolean; // a newer image is already in place — next launch runs it
 };
 
 const newer = (a: string, b: string): boolean => {
@@ -31,6 +32,7 @@ const appImagePath = () => Deno.env.get("APPIMAGE") ?? null;
 
 let cache: { at: number; info: UpdateInfo } | null = null;
 let latestAssetUrl: string | null = null;
+let applied = false;
 
 export async function checkUpdate(force = false): Promise<UpdateInfo> {
   if (!force && cache && Date.now() - cache.at < CHECK_TTL_MS) return cache.info;
@@ -40,6 +42,7 @@ export async function checkUpdate(force = false): Promise<UpdateInfo> {
     available: false,
     releaseUrl: `https://github.com/${REPO}/releases/latest`,
     canSelfUpdate: Deno.build.os === "linux" && Boolean(appImagePath()),
+    applied,
   };
   try {
     const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
@@ -74,10 +77,24 @@ export async function applyUpdate(): Promise<{ ok: boolean; error?: string }> {
     await res.body.pipeTo(f.writable); // closes f
     await Deno.chmod(tmp, 0o755);
     await Deno.rename(tmp, target); // atomic: the running image keeps its inode
+    applied = true;
     cache = null;
     return { ok: true };
   } catch (e) {
     await Deno.remove(tmp).catch(() => {});
     return { ok: false, error: (e as Error).message };
   }
+}
+
+// Background auto-update: silently swap the AppImage when a newer release exists;
+// the pill flips to "restart" and the next launch runs the new version.
+export async function autoUpdateTick(enabled: () => Promise<boolean>): Promise<void> {
+  try {
+    if (applied || !(await enabled())) return;
+    const info = await checkUpdate();
+    if (info.available && info.canSelfUpdate) {
+      const r = await applyUpdate();
+      if (r.ok) console.log(`auto-updated to v${info.latest} — restart to run it`);
+    }
+  } catch { /* next tick retries */ }
 }

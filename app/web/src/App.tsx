@@ -298,7 +298,7 @@ function Sidebar(
               : `Local only · ${status.nodeId}`
             : "…"}
         </span>
-        {update?.available && (
+        {(update?.available || update?.applied) && (
           <button
             type="button"
             className="rounded bg-copper/15 px-1.5 py-0.5 text-[10.5px] font-medium text-copper hover:bg-copper/25 disabled:opacity-60"
@@ -352,7 +352,10 @@ export function App() {
   useEffect(() => {
     refresh();
     const t = setInterval(refresh, 5000);
-    getUpdate().then(setUpdate).catch(() => {});
+    getUpdate().then((u) => {
+      setUpdate(u);
+      if (u.applied) setUpdateState("done");
+    }).catch(() => {});
     return () => clearInterval(t);
   }, []);
 
