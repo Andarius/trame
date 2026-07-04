@@ -29,6 +29,68 @@ import {
   upsertSession,
 } from "./db.ts";
 import { syncOnce } from "./sync.ts";
+import { attachUdbToPage, createPage, deletePage, getPage, listPages, movePage, updatePage } from "./pages.ts";
+import {
+  createProperty,
+  createRow,
+  createUdb,
+  deleteProperty,
+  deleteRow,
+  deleteUdb,
+  getUdb,
+  listIcons,
+  listUdbs,
+  patchRow,
+  setLink,
+  updateProperty,
+  updateUdb,
+} from "./udb.ts";
+
+const DESKTOP = Deno.env.get("TRACKER_DESKTOP") === "1";
+
+// Native file picker for the desktop webview (it can't show <input type=file> dialogs,
+// same as window.open — see /api/open). Returns the image as a data URI.
+const IMAGE_MIME: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  svg: "image/svg+xml",
+};
+async function pickImage(): Promise<{ dataUri: string } | { error: string; cancelled?: boolean }> {
+  const dialogs: string[][] = Deno.build.os === "darwin"
+    ? [["osascript", "-e", 'POSIX path of (choose file with prompt "Choose an icon" of type {"public.image"})']]
+    : [
+      ["zenity", "--file-selection", "--title=Choose an icon", "--file-filter=Images | *.png *.jpg *.jpeg *.gif *.webp *.svg"],
+      ["kdialog", "--getopenfilename", ".", "image/*"],
+    ];
+  for (const [cmd, ...args] of dialogs) {
+    let out: Deno.CommandOutput;
+    try {
+      out = await new Deno.Command(cmd, { args, stdout: "piped", stderr: "null" }).output();
+    } catch {
+      continue; // dialog tool not installed — try the next one
+    }
+    if (!out.success) return { error: "cancelled", cancelled: true };
+    const path = new TextDecoder().decode(out.stdout).trim();
+    if (!path) return { error: "cancelled", cancelled: true };
+    let data: Uint8Array;
+    try {
+      data = await Deno.readFile(path);
+    } catch {
+      return { error: `cannot read ${path}` };
+    }
+    if (data.length > 10_000_000) return { error: "file too large (max 10 MB)" };
+    const ext = path.toLowerCase().split(".").pop() ?? "";
+    const mime = IMAGE_MIME[ext];
+    if (!mime) return { error: `not an image: .${ext}` };
+    let bin = "";
+    for (let i = 0; i < data.length; i += 0x8000) bin += String.fromCharCode(...data.subarray(i, i + 0x8000));
+    return { dataUri: `data:${mime};base64,${btoa(bin)}` };
+  }
+  return { error: "no file dialog available (install zenity or kdialog)" };
+}
 
 let lastSync: { at: string; pulled: number; pushed: number } | null = null;
 async function runSync() {
@@ -96,7 +158,7 @@ async function handler(req: Request): Promise<Response> {
 
   if (pathname === "/api/board") return json(await getBoard());
   if (pathname === "/api/status") {
-    return json({ nodeId: NODE_ID, remote: Boolean(REMOTE_PG), lastSync });
+    return json({ nodeId: NODE_ID, remote: Boolean(REMOTE_PG), lastSync, dataDir: DATA_DIR, desktop: DESKTOP });
   }
   if (pathname === "/api/sync" && req.method === "POST") return json(await runSync());
   if (pathname === "/api/sessions" && req.method === "POST") {
@@ -161,6 +223,88 @@ async function handler(req: Request): Promise<Response> {
   if (m && req.method === "POST") {
     await setSessionStatus(m[1], (await req.json()).status);
     return json({ ok: true });
+  }
+
+  // pages — the nestable tree; project pages also serve /api/objectives above
+  if (pathname === "/api/pages" && req.method === "POST") {
+    return json({ id: await createPage(await req.json()) });
+  }
+  if (pathname === "/api/pages") return json(await listPages());
+  const pgm = pathname.match(/^\/api\/pages\/([^/]+)(\/delete|\/move)?$/);
+  if (pgm && req.method === "POST") {
+    try {
+      if (pgm[2] === "/delete") await deletePage(pgm[1]);
+      else if (pgm[2] === "/move") await movePage(pgm[1], await req.json());
+      else await updatePage(pgm[1], await req.json());
+    } catch (e) {
+      return json({ error: (e as Error).message }, 400);
+    }
+    return json({ ok: true });
+  }
+  if (pgm && !pgm[2]) {
+    const page = await getPage(pgm[1]);
+    return page ? json(page) : json({ error: "not found" }, 404);
+  }
+
+  // user-defined databases — specific routes before the /api/udb/:id catch-all
+  if (pathname === "/api/udb" && req.method === "POST") {
+    return json({ id: await createUdb((await req.json()).name ?? "Untitled") });
+  }
+  if (pathname === "/api/udb") return json(await listUdbs());
+  if (pathname === "/api/udb/icons") return json(await listIcons());
+  if (pathname === "/api/pick-image" && req.method === "POST") return json(await pickImage());
+  if (pathname === "/api/udb/links" && req.method === "POST") {
+    const b = await req.json();
+    await setLink(b.prop_id, b.from_row, b.to_row, Boolean(b.remove));
+    return json({ ok: true });
+  }
+  const upd = pathname.match(/^\/api\/udb\/props\/([^/]+)(\/delete)?$/);
+  if (upd && req.method === "POST") {
+    if (upd[2]) await deleteProperty(upd[1]);
+    else {
+      try {
+        await updateProperty(upd[1], await req.json());
+      } catch (e) {
+        return json({ error: (e as Error).message }, 400);
+      }
+    }
+    return json({ ok: true });
+  }
+  const urw = pathname.match(/^\/api\/udb\/rows\/([^/]+)(\/delete)?$/);
+  if (urw && req.method === "POST") {
+    if (urw[2]) await deleteRow(urw[1]);
+    else {
+      const b = await req.json();
+      await patchRow(urw[1], b.vals ?? {}, "icon" in b ? b.icon : undefined);
+    }
+    return json({ ok: true });
+  }
+  const usub = pathname.match(/^\/api\/udb\/([^/]+)\/(props|rows|delete)$/);
+  if (usub && req.method === "POST") {
+    if (usub[2] === "delete") {
+      await deleteUdb(usub[1]);
+      return json({ ok: true });
+    }
+    if (usub[2] === "props") {
+      try {
+        return json({ id: await createProperty(usub[1], await req.json()) });
+      } catch (e) {
+        return json({ error: (e as Error).message }, 400);
+      }
+    }
+    const rb = await req.json();
+    return json({ id: await createRow(usub[1], rb.vals, rb.icon ?? null) });
+  }
+  const udm = pathname.match(/^\/api\/udb\/([^/]+)$/);
+  if (udm && req.method === "POST") {
+    const b = await req.json();
+    if ("page_id" in b) await attachUdbToPage(udm[1], b.page_id);
+    await updateUdb(udm[1], b);
+    return json({ ok: true });
+  }
+  if (udm) {
+    const data = await getUdb(udm[1]);
+    return data ? json(data) : json({ error: "not found" }, 404);
   }
   if (!pathname.startsWith("/api/")) return serveStatic(pathname);
   return json({ error: "not found" }, 404);

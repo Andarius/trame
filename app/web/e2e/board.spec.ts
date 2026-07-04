@@ -49,17 +49,19 @@ test("list view shows the session", async ({ page }) => {
   await expect(page.getByText("e2e — first session")).toBeVisible();
 });
 
-test("objective can be created and lists its threads", async ({ page }) => {
-  await page.goto("/?view=objectives");
-  await page.getByRole("button", { name: /New objective/ }).click();
+test("project page can be created from the sidebar", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /New project/ }).click();
   await page.getByPlaceholder("What are we trying to achieve?").fill("E2E Objective");
-  await page.getByRole("button", { name: /Create objective/ }).click();
-  await expect(page.getByText("E2E Objective")).toBeVisible();
-  await expect(page.getByText("0 / 0 done")).toBeVisible();
+  await page.getByRole("button", { name: /Create project/ }).click();
+  // creating a project opens its page
+  await expect(page.getByText("no sessions yet")).toBeVisible();
+  // and it appears in the sidebar tree
+  await expect(page.getByRole("button", { name: /E2E Objective/ })).toBeVisible();
 });
 
-test("group-by-objective swimlanes render", async ({ page }) => {
+test("group-by-project swimlanes render", async ({ page }) => {
   await page.goto("/?view=board&group=objective");
-  await expect(page.getByRole("button", { name: /Group · Objective/ })).toBeVisible();
-  await expect(page.getByText("— No objective")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Group · Project/ })).toBeVisible();
+  await expect(page.getByText("— No project")).toBeVisible();
 });

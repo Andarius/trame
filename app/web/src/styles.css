@@ -26,6 +26,12 @@ body,
   height: 100%;
 }
 
+/* dark, thin scrollbars everywhere (the platform-native ones glare on this theme) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-chipline) transparent;
+}
+
 body {
   margin: 0;
   background: var(--color-canvas);

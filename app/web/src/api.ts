@@ -6,6 +6,7 @@ export type Session = {
   status: Status;
   client_id: string | null;
   objective_id: string | null;
+  page_id: string | null;
   repo_path: string | null;
   branch: string | null;
   next_step: string | null;
@@ -20,6 +21,8 @@ export type AppStatus = {
   nodeId: string;
   remote: boolean;
   lastSync: { at: string; pulled: number; pushed: number } | null;
+  dataDir?: string;
+  desktop?: boolean;
 };
 
 export type ReportMeta = {
@@ -95,3 +98,138 @@ export const setStatus = (id: string, status: Status) =>
   });
 
 export const syncNow = () => fetch("/api/sync", { method: "POST" });
+
+// user-defined databases
+
+export type PropType =
+  | "title"
+  | "text"
+  | "number"
+  | "select"
+  | "multi_select"
+  | "date"
+  | "url"
+  | "checkbox"
+  | "relation"
+  | "formula"
+  | "rollup";
+
+export type SelectOption = { id: string; name: string; color: string };
+export type PropConfig = {
+  format?: "plain" | "euro" | "dollar" | "percent";
+  precision?: number;
+  options?: SelectOption[];
+  end?: boolean;
+  target_db?: string;
+  pair?: string;
+  owner?: boolean;
+  reverse_name?: string;
+  expr?: string;
+  relation_prop?: string;
+  target_prop?: string;
+  agg?: "count" | "sum" | "avg" | "min" | "max" | "latest";
+  date_prop?: string;
+};
+
+export type UdbProp = {
+  id: string;
+  db_id: string;
+  name: string;
+  type: PropType;
+  config: PropConfig;
+  sort_key: string;
+  width: number | null;
+};
+
+export type UdbMeta = {
+  id: string;
+  name: string;
+  icon: string | null;
+  page_id: string | null;
+  sort_key: string;
+  row_count: number;
+};
+export type RelChip = { id: string; title: string };
+export type Derived = number | string | null | { error: string };
+export type UdbRow = {
+  id: string;
+  icon: string | null;
+  sort_key: string;
+  vals: Record<string, unknown>;
+  relations: Record<string, RelChip[]>;
+  derived: Record<string, Derived>;
+};
+export type Udb = { db: { id: string; name: string; icon: string | null }; properties: UdbProp[]; rows: UdbRow[] };
+
+const jsonOrThrow = async (r: Response) => {
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.error ?? `HTTP ${r.status}`);
+  return body;
+};
+
+export const listUdbs = () => fetch("/api/udb").then((r) => r.json() as Promise<UdbMeta[]>);
+export const getUdb = (id: string) => fetch(`/api/udb/${id}`).then((r) => r.json() as Promise<Udb>);
+export const createUdb = (name: string) => post("/api/udb", { name }).then((r) => r.json() as Promise<{ id: string }>);
+export const updateUdb = (id: string, patch: { name?: string; icon?: string | null }) => post(`/api/udb/${id}`, patch);
+export const deleteUdb = (id: string) => post(`/api/udb/${id}/delete`, {});
+export const createUdbProp = (dbId: string, p: { name: string; type: PropType; config?: PropConfig }) =>
+  post(`/api/udb/${dbId}/props`, p).then(jsonOrThrow) as Promise<{ id: string }>;
+export const updateUdbProp = (
+  id: string,
+  patch: { name?: string; config?: PropConfig; width?: number | null; sort_key?: string },
+) => post(`/api/udb/props/${id}`, patch).then(jsonOrThrow);
+export const deleteUdbProp = (id: string) => post(`/api/udb/props/${id}/delete`, {});
+export const createUdbRow = (dbId: string, vals?: Record<string, unknown>, icon?: string | null) =>
+  post(`/api/udb/${dbId}/rows`, { vals, icon }).then((r) => r.json() as Promise<{ id: string }>);
+export const patchUdbRow = (id: string, vals: Record<string, unknown>, icon?: string | null) =>
+  post(`/api/udb/rows/${id}`, icon === undefined ? { vals } : { vals, icon });
+export const deleteUdbRow = (id: string) => post(`/api/udb/rows/${id}/delete`, {});
+export const setUdbLink = (propId: string, fromRow: string, toRow: string, remove = false) =>
+  post("/api/udb/links", { prop_id: propId, from_row: fromRow, to_row: toRow, remove });
+export const listUdbIcons = () => fetch("/api/udb/icons").then((r) => r.json() as Promise<string[]>);
+
+// pages — the nestable tree; kind='project' pages are the former objectives
+
+export type PageKind = "page" | "project";
+export type Block =
+  | { type: "text" | "heading" | "todo"; text: string; done?: boolean }
+  | { type: "database"; db_id: string }
+  | { type: "subpage"; page_id: string };
+export type PageMeta = {
+  id: string;
+  parent_id: string | null;
+  kind: PageKind;
+  title: string;
+  icon: string | null;
+  status: string;
+  client_id: string | null;
+  sort_key: string;
+};
+export type PageDetail = PageMeta & {
+  story: string;
+  content: Block[];
+  children: PageMeta[];
+  databases: { id: string; name: string; icon: string | null; row_count: number }[];
+  sessions: Session[];
+};
+
+export const listPages = () => fetch("/api/pages").then((r) => r.json() as Promise<PageMeta[]>);
+export const getPage = (id: string) => fetch(`/api/pages/${id}`).then((r) => r.json() as Promise<PageDetail>);
+export const createPage = (
+  p: { title?: string; parent_id?: string | null; kind?: PageKind; icon?: string | null; client_id?: string | null },
+) => post("/api/pages", p).then((r) => r.json() as Promise<{ id: string }>);
+export const updatePage = (
+  id: string,
+  patch: {
+    title?: string;
+    icon?: string | null;
+    story?: string;
+    status?: string;
+    client_id?: string | null;
+    content?: Block[];
+  },
+) => post(`/api/pages/${id}`, patch).then(jsonOrThrow);
+export const deletePage = (id: string) => post(`/api/pages/${id}/delete`, {});
+export const movePage = (id: string, to: { parent_id?: string | null; before_id?: string; after_id?: string }) =>
+  post(`/api/pages/${id}/move`, to).then(jsonOrThrow);
+export const attachUdbToPage = (dbId: string, pageId: string | null) => post(`/api/udb/${dbId}`, { page_id: pageId });

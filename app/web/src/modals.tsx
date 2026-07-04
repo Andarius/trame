@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { type BoardData, getSettings, saveSettings, type Status } from "./api";
-import { STATUS, StatusDot } from "./ui";
+import { Select, STATUS, StatusDot } from "./ui";
 
 function Modal(
   { width = 560, onClose, onSubmit, children }: {
@@ -105,20 +105,31 @@ export function NewSessionModal(
         onChange={(e) => setTitle(e.target.value)}
       />
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="flex items-center gap-1.5 rounded-md border border-chipline px-2 py-1">
+        <span className="flex items-center gap-1.5 rounded-md border border-chipline py-1 pl-2 pr-1">
           <StatusDot status={status} size={7} />
-          <select className="bg-transparent text-[11.5px] text-ink-soft outline-none" value={status} onChange={(e) => setStatus(e.target.value as Status)}>
-            {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k} className="bg-panel">{v.label}</option>)}
-          </select>
+          <Select
+            value={status}
+            className="bg-transparent px-1 text-[11.5px] text-ink-soft outline-none"
+            options={Object.entries(STATUS).map(([k, v]) => ({ value: k, label: v.label }))}
+            onChange={(v) => setStatus(v as Status)}
+          />
         </span>
-        <select className={pill} value={client} onChange={(e) => setClient(e.target.value)}>
-          {board.clients.map((c) => <option key={c.id} value={c.name} className="bg-panel">{c.name}</option>)}
-        </select>
-        <select className={pill} value={objective} onChange={(e) => setObjective(e.target.value)}>
-          <option value="" className="bg-panel">◎ no objective</option>
-          {board.objectives.map((o) => <option key={o.id} value={o.title} className="bg-panel">◎ {o.title}</option>)}
-          <option value="__new__" className="bg-panel">＋ new objective…</option>
-        </select>
+        <Select
+          value={client}
+          className={pill}
+          options={board.clients.map((c) => ({ value: c.name, label: c.name }))}
+          onChange={setClient}
+        />
+        <Select
+          value={objective}
+          className={pill}
+          options={[
+            { value: "", label: "◎ no project" },
+            ...board.objectives.map((o) => ({ value: o.title, label: `◎ ${o.title}` })),
+            { value: "__new__", label: "＋ new project…" },
+          ]}
+          onChange={setObjective}
+        />
         <input
           className={`${pill} w-36`}
           placeholder="⎇ branch"
@@ -129,7 +140,7 @@ export function NewSessionModal(
       {objective === "__new__" && (
         <input
           className={`${pill} w-full`}
-          placeholder="new objective title (created on save)"
+          placeholder="new project title (created on save)"
           value={newObjective}
           onChange={(e) => setNewObjective(e.target.value)}
         />
@@ -261,6 +272,33 @@ export function SettingsModal(
   );
 }
 
+export function NewUdbModal(
+  { onClose, onCreate }: { onClose: () => void; onCreate: (name: string) => void },
+) {
+  const [name, setName] = useState("");
+  const submit = () => name.trim() && onCreate(name.trim());
+  return (
+    <Modal width={440} onClose={onClose} onSubmit={submit}>
+      <div className={label}>NEW DATABASE</div>
+      <input
+        autoFocus
+        className={`${input} text-base font-semibold`}
+        placeholder="e.g. Benchmarks, Metrics log…"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && submit()}
+      />
+      <Footer
+        hint="columns are added from the table's “+” header cell"
+        action="Create database"
+        onClose={onClose}
+        onSubmit={submit}
+        disabled={!name.trim()}
+      />
+    </Modal>
+  );
+}
+
 export function NewObjectiveModal(
   { board, onClose, onCreate }: {
     board: BoardData;
@@ -279,7 +317,7 @@ export function NewObjectiveModal(
 
   return (
     <Modal width={720} onClose={onClose} onSubmit={submit}>
-      <div className={label}>NEW OBJECTIVE</div>
+      <div className={label}>NEW PROJECT</div>
       <input
         autoFocus
         className={`${input} text-xl font-semibold`}
@@ -287,10 +325,13 @@ export function NewObjectiveModal(
         value={title}
         onChange={(e) => setTitle(e.target.value)}
       />
-      <div>
-        <select className={pill} value={client} onChange={(e) => setClient(e.target.value)}>
-          {board.clients.map((c) => <option key={c.id} value={c.name} className="bg-panel">{c.name}</option>)}
-        </select>
+      <div className="w-56">
+        <Select
+          value={client}
+          className={pill}
+          options={board.clients.map((c) => ({ value: c.name, label: c.name }))}
+          onChange={setClient}
+        />
       </div>
       <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-[#101219] p-3">
         <textarea
@@ -304,8 +345,8 @@ export function NewObjectiveModal(
         </span>
       </div>
       <Footer
-        hint="objectives are also created automatically by /project:track"
-        action="Create objective"
+        hint="projects are also created automatically by /project:track"
+        action="Create project"
         onClose={onClose}
         onSubmit={submit}
         disabled={!title.trim()}
