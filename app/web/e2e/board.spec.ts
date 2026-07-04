@@ -29,8 +29,7 @@ test("drawer opens on card click and moves the session", async ({ page }) => {
   // status pill auto-commits
   await page.getByRole("button", { name: "Paused" }).click();
   await page.keyboard.press("Escape");
-  // card refetches into the Paused column — count badge next to the header
-  const paused = page.locator("div", { hasText: /^Paused/ }).first();
+  // card refetches into the Paused column
   await expect(page.getByText("e2e — first session")).toBeVisible();
 });
 

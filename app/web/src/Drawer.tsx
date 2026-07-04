@@ -112,7 +112,7 @@ export function Drawer(
             {session.repo_path.split("/").slice(-2).join("/")}
           </span>
         )}
-        <button
+        <button type="button"
           className="rounded-md px-1.5 py-0.5 text-[13px] text-ink-muted transition-colors hover:bg-panel hover:text-ink"
           title="close (esc)"
           onClick={onClose}
@@ -134,7 +134,7 @@ export function Drawer(
           {(Object.keys(STATUS) as Status[]).map((s) => {
             const active = status === s;
             return (
-              <button
+              <button type="button"
                 key={s}
                 onClick={() => {
                   setStatus(s);
@@ -205,7 +205,7 @@ export function Drawer(
               placeholder="https://…"
             />
             {prUrl && (
-              <button
+              <button type="button"
                 className="rounded-md px-1.5 py-0.5 text-[11.5px] text-ink-muted transition-colors hover:bg-panel hover:text-copper"
                 title="open in browser"
                 onClick={() => openInBrowser(prUrl)}
@@ -252,7 +252,7 @@ export function Drawer(
       </div>
 
       <div className="sticky bottom-0 mt-auto flex items-center gap-2 border-t border-line bg-sidebar px-4 py-2.5">
-        <button className="text-[11px] text-ink-muted transition-colors hover:text-blocked" onClick={remove}>
+        <button type="button" className="text-[11px] text-ink-muted transition-colors hover:text-blocked" onClick={remove}>
           Delete session
         </button>
         <span className="flex-1" />

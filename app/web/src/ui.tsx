@@ -146,7 +146,7 @@ type ConfirmReq = { message: string; action: string; resolve: (ok: boolean) => v
 let confirmHost: ((req: ConfirmReq) => void) | null = null;
 
 export function appConfirm(message: string, action = "Delete"): Promise<boolean> {
-  if (!confirmHost) return Promise.resolve(window.confirm(message)); // host not mounted — fall back
+  if (!confirmHost) return Promise.resolve(globalThis.confirm(message)); // host not mounted — fall back
   return new Promise((resolve) => confirmHost!({ message, action, resolve }));
 }
 
@@ -182,10 +182,10 @@ export function ConfirmHost() {
       >
         <p className="m-0 whitespace-pre-line text-[13px] leading-relaxed text-ink">{req.message}</p>
         <div className="flex items-center justify-end gap-2">
-          <button className="rounded-md px-2.5 py-1.5 text-xs text-ink-muted hover:text-ink-soft" onClick={() => done(false)}>
+          <button type="button" className="rounded-md px-2.5 py-1.5 text-xs text-ink-muted hover:text-ink-soft" onClick={() => done(false)}>
             Cancel
           </button>
-          <button
+          <button type="button"
             className="rounded-md bg-blocked px-3 py-1.5 text-[12.5px] font-medium text-[#1a0d0e] hover:brightness-110"
             onClick={() => done(true)}
           >
@@ -237,9 +237,9 @@ export function DateInput(
       {open && (
         <Popover onClose={() => setOpen(false)} className="w-[228px] p-2">
           <div className="mb-1 flex items-center">
-            <button className="rounded px-1.5 text-[12px] text-ink-muted hover:bg-panel hover:text-ink" onClick={() => move(-1)}>‹</button>
+            <button type="button" className="rounded px-1.5 text-[12px] text-ink-muted hover:bg-panel hover:text-ink" onClick={() => move(-1)}>‹</button>
             <span className="flex-1 text-center text-[11.5px] font-medium text-ink">{MONTHS[view.m]} {view.y}</span>
-            <button className="rounded px-1.5 text-[12px] text-ink-muted hover:bg-panel hover:text-ink" onClick={() => move(1)}>›</button>
+            <button type="button" className="rounded px-1.5 text-[12px] text-ink-muted hover:bg-panel hover:text-ink" onClick={() => move(1)}>›</button>
           </div>
           <div className="grid grid-cols-7 gap-0.5 text-center">
             {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => (
@@ -250,7 +250,7 @@ export function DateInput(
               const day = iso(view.y, view.m, i + 1);
               const selected = day === value;
               return (
-                <button
+                <button type="button"
                   key={day}
                   className={`rounded py-0.5 text-[10.5px] tabular-nums transition-colors ${
                     selected
@@ -271,7 +271,7 @@ export function DateInput(
           </div>
           <div className="mt-1 flex items-center border-t border-line pt-1.5">
             {value && (
-              <button
+              <button type="button"
                 className="text-[10.5px] text-ink-muted hover:text-blocked"
                 onClick={() => {
                   onChange("");
@@ -282,7 +282,7 @@ export function DateInput(
               </button>
             )}
             <span className="flex-1" />
-            <button
+            <button type="button"
               className="text-[10.5px] text-ink-muted hover:text-ink-soft"
               onClick={() => {
                 onChange(todayIso);

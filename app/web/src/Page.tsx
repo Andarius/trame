@@ -137,7 +137,7 @@ function BlockEditor(
             {menuIdx === i && items.length > 0 && (
               <Popover onClose={() => setMenuIdx(null)} className="!top-8 w-[240px]">
                 {items.map((s) => (
-                  <button
+                  <button type="button"
                     key={s.key}
                     className="flex w-full items-baseline gap-2 rounded-md px-2 py-1.5 text-left hover:bg-panel"
                     onClick={() => pick(i, s.key)}
@@ -228,7 +228,7 @@ export function Page(
       <div className="mx-auto flex max-w-[820px] flex-col gap-4 px-8 py-7">
         <div className="flex items-center gap-2">
           <div className="relative">
-            <button
+            <button type="button"
               className="rounded-md p-1 text-[22px] leading-none transition-colors hover:bg-panel"
               title="page icon"
               onClick={() => setIconOpen(true)}
@@ -299,7 +299,7 @@ export function Page(
 
         <div className="flex flex-col gap-0.5">
             {page.children.map((c) => (
-              <button
+              <button type="button"
                 key={c.id}
                 className="flex items-center gap-2 rounded-md px-1.5 py-1 text-left text-[13px] text-ink-soft hover:bg-panel"
                 onClick={() => onOpenPage(c.id)}
@@ -308,7 +308,7 @@ export function Page(
                 <span className={c.title ? "" : "text-ink-muted/60 italic"}>{c.title || "Untitled"}</span>
               </button>
             ))}
-            <button
+            <button type="button"
               className="flex items-center gap-2 rounded-md px-1.5 py-1 text-left text-[12px] text-ink-muted/70 hover:text-ink-soft"
               onClick={newSubpage}
             >

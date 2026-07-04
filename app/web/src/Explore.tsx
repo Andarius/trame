@@ -194,7 +194,7 @@ export function Explore(
             placeholder="Search reports & files…  (↑↓ to browse)"
             className="min-w-0 flex-1 rounded-md border border-chipline bg-transparent px-2.5 py-1.5 text-xs text-ink outline-none placeholder:text-ink-muted/50 focus:border-copper/60"
           />
-          <button
+          <button type="button"
             onClick={toggleFilter}
             disabled={refreshing}
             title={htmlFilter === "smart"
@@ -208,7 +208,7 @@ export function Explore(
           >
             {htmlFilter}
           </button>
-          <button
+          <button type="button"
             onClick={() => load(true)}
             disabled={refreshing}
             title="Rescan folders"
@@ -222,7 +222,7 @@ export function Explore(
           const client = board.clients.find((c) => c.id === r.client_id);
           const active = selKey === `db:${r.id}`;
           return (
-            <button
+            <button type="button"
               key={r.id}
               data-key={`db:${r.id}`}
               onClick={() => selectDb(r)}
@@ -249,7 +249,7 @@ export function Explore(
               <span className="min-w-0 flex-1 truncate text-[10px] text-ink-muted/60" title={dir}>
                 {dir.replace(HOME_RE, "~/")}
               </span>
-              <button
+              <button type="button"
                 onClick={() => toggleStar(dir)}
                 title={isStarred ? "unstar" : "star — pin this folder on top"}
                 className={`text-[11px] leading-none ${
@@ -258,7 +258,7 @@ export function Explore(
               >
                 ★
               </button>
-              <button
+              <button type="button"
                 onClick={() => ignoreFolder(dir)}
                 title="ignore this folder"
                 className="text-[11px] leading-none text-ink-muted/40 opacity-0 hover:text-blocked group-hover:opacity-100"
@@ -269,7 +269,7 @@ export function Explore(
             {hits.map((f) => {
               const active = selKey === `file:${f.path}`;
               return (
-                <button
+                <button type="button"
                   key={f.path}
                   data-key={`file:${f.path}`}
                   onClick={() => selectFile(f)}
@@ -294,7 +294,7 @@ export function Explore(
         {files.length === 0 && (
           <p className="px-2 py-2 text-[11px] leading-relaxed text-ink-muted/80">
             No indexed files —{" "}
-            <button className="text-ink-soft underline underline-offset-2 hover:text-copper" onClick={onOpenSettings}>
+            <button type="button" className="text-ink-soft underline underline-offset-2 hover:text-copper" onClick={onOpenSettings}>
               configure folders
             </button>{" "}
             to search HTML reports on disk.
@@ -320,7 +320,7 @@ export function Explore(
                 {selected.date && <span className="text-[11px] text-ink-muted">{timeAgo(selected.date)}</span>}
                 <span className="flex-1" />
                 {selected.kind === "file" && (
-                  <button
+                  <button type="button"
                     className="text-[11.5px] text-ink-muted hover:text-blocked"
                     title="delete file (Suppr) — system trash when available"
                     onClick={deleteCurrent}
@@ -328,7 +328,7 @@ export function Explore(
                     🗑 Delete
                   </button>
                 )}
-                <button className="text-[11.5px] text-ink-muted hover:text-ink-soft" onClick={openExternal}>
+                <button type="button" className="text-[11.5px] text-ink-muted hover:text-ink-soft" onClick={openExternal}>
                   ↗ Open in browser
                 </button>
               </div>
