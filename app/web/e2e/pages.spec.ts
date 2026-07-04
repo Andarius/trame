@@ -3,6 +3,19 @@ import { expect, test } from "@playwright/test";
 // Serialized flow: project page → blocks → sub-page → session link → delete subtree.
 test.describe.configure({ mode: "serial" });
 
+// serial + retries re-run the WHOLE chain on the same backend — wipe our fixtures
+// first so a retry starts from scratch instead of stacking duplicates
+test.beforeAll(async ({ request }) => {
+  const pages = await (await request.get("/api/pages")).json() as { id: string; title: string }[];
+  for (const p of pages.filter((x) => ["Pages Project", "Nested notes"].includes(x.title))) {
+    await request.post(`/api/pages/${p.id}/delete`, { data: {} });
+  }
+  const board = await (await request.get("/api/board")).json() as { sessions: { id: string; title: string }[] };
+  for (const s of board.sessions.filter((x) => x.title === "pages e2e session")) {
+    await request.post(`/api/sessions/${s.id}/delete`, { data: {} });
+  }
+});
+
 test("project page shows story, blocks and sessions", async ({ page, request }) => {
   await request.post("/api/objectives", {
     data: { title: "Pages Project", story: "the pages e2e story", client: "E2E Client" },
