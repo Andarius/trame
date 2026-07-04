@@ -1,5 +1,5 @@
-# Runs on the mini (linux-mini). Postgres = the sync hub / source of truth.
-# Deployed to ~/Apps/tracker on the mini by mini/deploy.sh; also runs locally (just db).
+# Runs on the hub machine. Postgres = the sync hub / source of truth.
+# Deployed to ~/Apps/tracker on the hub machine by hub/deploy.sh; also runs locally (just db).
 services:
   tracker-db:
     image: postgres:18   # >=18: uuidv7() used by the udb_* tables; matches PGlite 0.5.x (PG 18)
@@ -10,12 +10,12 @@ services:
       POSTGRES_USER: tracker
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     ports:
-      # TRACKER_BIND: the mini's LAN IP (set in .env by deploy.sh). Never 0.0.0.0.
+      # TRACKER_BIND: the hub's LAN IP (set in .env by deploy.sh). Never 0.0.0.0.
       - "${TRACKER_BIND:-127.0.0.1}:5433:5432"
     volumes:
       - tracker-db-data:/var/lib/postgresql/data
       # Schema is applied once on first boot of an empty data dir.
-      # TRACKER_SCHEMA: deploy.sh sets ./schema.sql (flat dir on the mini); default = repo layout.
+      # TRACKER_SCHEMA: deploy.sh sets ./schema.sql (flat dir on the hub); default = repo layout.
       - ${TRACKER_SCHEMA:-../db/schema.sql}:/docker-entrypoint-initdb.d/10-schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U tracker -d tracker"]

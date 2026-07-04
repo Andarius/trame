@@ -11,8 +11,8 @@ export const NODE_ID = Deno.env.get("TRACKER_NODE_ID") ?? Deno.hostname();
 // `just dev`/`just serve` both run from app/, so cwd = app/.
 export const APP_ROOT = Deno.env.get("TRACKER_APP_ROOT") ?? Deno.cwd();
 
-// Postgres on the mini, reachable over Tailscale, e.g.
-//   postgres://tracker:PASS@linux-mini:5433/tracker
+// Postgres on the hub, reachable over the LAN (or Tailscale), e.g.
+//   postgres://tracker:PASS@hub:5433/tracker
 export const REMOTE_PG = Deno.env.get("TRACKER_REMOTE_PG") ?? "";
 
 export const DATA_DIR = Deno.env.get("TRACKER_DATA_DIR") ?? `${dataHome}/session-tracker/pglite`;

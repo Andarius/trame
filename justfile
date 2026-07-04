@@ -10,25 +10,25 @@ default:
 # Bring up the hub + build the frontend (then `just dev`)
 up: db web-build
 
-# Postgres hub (mini/docker-compose.yml) — runs on the mini; local for testing
+# Postgres hub (hub/docker-compose.yml) — local for testing
 [group('infra')]
 db:
-    docker compose -f mini/docker-compose.yml up -d
+    docker compose -f hub/docker-compose.yml up -d
 
-# Deploy the Postgres hub to the mini (~/Apps/tracker) and start it
+# Deploy the Postgres hub over ssh (~/Apps/tracker) and start it — host via TRACKER_HUB_HOST in .env
 [group('infra')]
-db-deploy host='linux-mini':
-    mini/deploy.sh {{ host }}
+db-deploy host=env_var_or_default('TRACKER_HUB_HOST', 'hub'):
+    hub/deploy.sh {{ host }}
 
 # Stop the Postgres hub
 [group('infra')]
 db-down:
-    docker compose -f mini/docker-compose.yml down
+    docker compose -f hub/docker-compose.yml down
 
 # Tail the Postgres hub logs
 [group('infra')]
 db-logs:
-    docker compose -f mini/docker-compose.yml logs -f
+    docker compose -f hub/docker-compose.yml logs -f
 
 # psql into the hub (uses TRACKER_REMOTE_PG)
 [group('infra')]
@@ -71,7 +71,7 @@ hack:
     (cd app/web && npm run dev) &
     wait
 
-# Run one sync pass (local PGlite <-> mini Postgres)
+# Run one sync pass (local PGlite <-> hub Postgres)
 [group('dev')]
 sync:
     cd app && deno task sync

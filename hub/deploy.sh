@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# DESCRIPTION: Deploy the Postgres sync hub to the mini (~/Apps/tracker).
+# DESCRIPTION: Deploy the Postgres sync hub to a home server (~/Apps/tracker).
 #   Copies docker-compose.yml + db/schema.sql, creates .env (password + LAN bind)
 #   on first run, then `docker compose up -d` and waits for the healthcheck.
 #   Idempotent: re-running redeploys the files and restarts the stack; the
 #   existing .env and data volume are kept. Schema only auto-applies on an
 #   empty data volume (postgres initdb behavior).
-# USAGE: mini/deploy.sh [ssh-host]   (default: linux-mini)
+# USAGE: hub/deploy.sh [ssh-host]   (default: $TRACKER_HUB_HOST or 'hub')
 # EXAMPLES:
 #   just db-deploy
-#   mini/deploy.sh linux-mini
+#   hub/deploy.sh my-server
 set -euo pipefail
 
-HOST="${1:-linux-mini}"
+HOST="${1:-${TRACKER_HUB_HOST:-hub}}"
 DIR="Apps/tracker"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
