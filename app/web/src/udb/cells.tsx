@@ -143,7 +143,7 @@ export function IconPicker(
   });
 
   const tabBtn = (t: typeof tab, label: string) => (
-    <button
+    <button type="button"
       className={`border-b-2 px-0.5 pb-1 text-[11.5px] transition-colors ${
         tab === t ? "border-ink font-medium text-ink" : "border-transparent text-ink-muted hover:text-ink-soft"
       }`}
@@ -162,7 +162,7 @@ export function IconPicker(
           {tabBtn("upload", "Upload")}
           <span className="flex-1" />
           {current && (
-            <button className="pb-1 text-[11.5px] text-ink-muted hover:text-blocked" onClick={() => pick(null)}>
+            <button type="button" className="pb-1 text-[11.5px] text-ink-muted hover:text-blocked" onClick={() => pick(null)}>
               Remove
             </button>
           )}
@@ -172,7 +172,7 @@ export function IconPicker(
           <>
             <div className="grid grid-cols-8 gap-0.5">
               {QUICK_ICONS.map((g) => (
-                <button key={g} className="rounded p-1 text-[14px] leading-none hover:bg-panel" onClick={() => pick(g)}>
+                <button type="button" key={g} className="rounded p-1 text-[14px] leading-none hover:bg-panel" onClick={() => pick(g)}>
                   {g}
                 </button>
               ))}
@@ -196,7 +196,7 @@ export function IconPicker(
             : (
               <div className="grid max-h-44 grid-cols-7 gap-1 overflow-y-auto">
                 {used.map((icon) => (
-                  <button
+                  <button type="button"
                     key={icon}
                     className="flex items-center justify-center rounded p-1 hover:bg-panel"
                     onClick={() => pick(icon)}
@@ -220,7 +220,7 @@ export function IconPicker(
                 if (f) pick(await fileToIcon(f));
               }}
             />
-            <button
+            <button type="button"
               className="flex w-full items-center justify-center gap-2 rounded-lg border border-chipline bg-panel px-3 py-2.5 text-xs text-ink-soft transition-colors hover:border-copper/50"
               onClick={upload}
             >
@@ -256,7 +256,7 @@ function NumberCell({ value, cfg, commit }: { value: unknown; cfg: PropConfig; c
   useEffect(() => setV(shown), [shown]);
   if (!editing) {
     return (
-      <button
+      <button type="button"
         className={`${cellInput} text-right tabular-nums`}
         onClick={() => setEditing(true)}
       >
@@ -284,7 +284,7 @@ function NumberCell({ value, cfg, commit }: { value: unknown; cfg: PropConfig; c
 function CheckboxCell({ value, commit }: { value: unknown; commit: (v: unknown) => void }) {
   const on = value === true;
   return (
-    <button
+    <button type="button"
       className={`mx-1.5 my-1 flex h-4 w-4 items-center justify-center rounded border text-[10px] transition-colors ${
         on ? "border-copper bg-copper text-copper-ink" : "border-chipline text-transparent hover:border-copper/50"
       }`}
@@ -333,7 +333,7 @@ function UrlCell({ value, commit }: { value: string; commit: (v: unknown) => voi
         onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
       />
       {value && (
-        <button
+        <button type="button"
           className="px-1 text-[11px] text-ink-muted opacity-0 transition-opacity hover:text-copper group-hover:opacity-100"
           title="open in browser"
           onClick={() => openInBrowser(value)}
@@ -385,7 +385,7 @@ function SelectCell(
   const shown = options.filter((o) => o.name.toLowerCase().includes(filter.toLowerCase()));
   return (
     <div className="relative">
-      <button
+      <button type="button"
         className="flex min-h-[26px] w-full flex-wrap items-center gap-1 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-panel/70"
         onClick={() => setOpen(true)}
       >
@@ -406,7 +406,7 @@ function SelectCell(
           />
           <div className="flex max-h-52 flex-col overflow-y-auto">
             {shown.map((o) => (
-              <button
+              <button type="button"
                 key={o.id}
                 className="flex items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-panel"
                 onClick={() => toggle(o.id)}
@@ -417,7 +417,7 @@ function SelectCell(
               </button>
             ))}
             {filter.trim() && !options.some((o) => o.name.toLowerCase() === filter.trim().toLowerCase()) && (
-              <button className="rounded-md px-2 py-1 text-left text-xs text-ink-muted hover:bg-panel" onClick={createOption}>
+              <button type="button" className="rounded-md px-2 py-1 text-left text-xs text-ink-muted hover:bg-panel" onClick={createOption}>
                 ＋ create “{filter.trim()}”
               </button>
             )}
@@ -451,7 +451,7 @@ function RelationCell(
   };
   return (
     <div className="relative">
-      <button
+      <button type="button"
         className="flex min-h-[26px] w-full flex-wrap items-center gap-1 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-panel/70"
         onClick={() => setOpen(true)}
       >
@@ -475,7 +475,7 @@ function RelationCell(
           />
           <div className="flex max-h-52 flex-col overflow-y-auto">
             {candidates.map((c) => (
-              <button
+              <button type="button"
                 key={c.id}
                 className="flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-ink-soft hover:bg-panel"
                 onClick={() => toggle(c.id)}

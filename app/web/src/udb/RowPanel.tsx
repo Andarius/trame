@@ -48,7 +48,7 @@ export function RowPanel(
       <div className="flex items-center gap-2 px-4 pb-1 pt-3.5">
         <span className={sectionLbl}>{db.name.toUpperCase()}</span>
         <span className="flex-1" />
-        <button
+        <button type="button"
           className="rounded-md px-1.5 py-0.5 text-[13px] text-ink-muted transition-colors hover:bg-panel hover:text-ink"
           title="close (esc)"
           onClick={onClose}
@@ -60,7 +60,7 @@ export function RowPanel(
       <div className="flex flex-col gap-3 px-4 pb-4">
         <div className="flex items-start gap-1.5">
           <div className="relative">
-            <button
+            <button type="button"
               className="mt-0.5 rounded p-1 text-[15px] leading-none transition-colors hover:bg-panel"
               title="row icon"
               onClick={() => setIconOpen(true)}
@@ -105,7 +105,7 @@ export function RowPanel(
       </div>
 
       <div className="sticky bottom-0 mt-auto flex items-center gap-2 border-t border-line bg-sidebar px-4 py-2.5">
-        <button className="text-[11px] text-ink-muted transition-colors hover:text-blocked" onClick={remove}>
+        <button type="button" className="text-[11px] text-ink-muted transition-colors hover:text-blocked" onClick={remove}>
           Delete row
         </button>
         <span className="flex-1" />

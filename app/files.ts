@@ -51,6 +51,7 @@ export async function saveExploreSettings(
 //  - bare name ("externals", "htmlcov")     → that directory anywhere (same as **/name)
 //  - path prefix ("~/Projects/x/devops")    → that subtree
 //  - glob ("**/htmlcov", "~/P/**/coverage", "**/*.min.html") → matched on full paths
+// deno-lint-ignore no-import-prefix -- single std helper, not worth an import-map entry
 import { globToRegExp } from "jsr:@std/path@^1/glob-to-regexp";
 
 const GLOB_CHARS = /[*?[\]{}]/;

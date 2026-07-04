@@ -3,6 +3,7 @@
 // moves the old dir aside as a .bak, re-creates the dir with the new engine + schema,
 // and restores the rows. Safe to re-run: exits early if the dir is already PG 18.
 // USAGE: deno task migrate:pg18   (from app/, with the Trame app CLOSED)
+// deno-lint-ignore no-import-prefix -- the OLD engine, pinned: the only build able to read a PG16 dir
 import { PGlite as PGliteOld } from "npm:@electric-sql/pglite@0.2.17";
 import { PGlite } from "@electric-sql/pglite";
 import { APP_ROOT, DATA_DIR, PORT_FILE } from "./config.ts";

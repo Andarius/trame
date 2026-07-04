@@ -30,6 +30,7 @@ export const TYPE_GLYPH: Record<string, string> = Object.fromEntries(
   [...TYPES.map((t) => [t.key, t.glyph]), ["title", "Aa"]],
 );
 
+const FORMULA_PLACEHOLDER = "impact * confidence * ease\nround(x, 1), nullif(y, 0), case when … end";
 const lbl = "text-[10px] font-medium tracking-[0.6px] text-ink-muted/75";
 const field =
   "w-full rounded-md border border-chipline bg-transparent px-2 py-1.5 text-xs text-ink outline-none focus:border-copper/60";
@@ -127,7 +128,7 @@ export function PropertyEditor(
             <span className={lbl}>OPTIONS</span>
             {options.map((o, i) => (
               <div key={o.id} className="flex items-center gap-1.5">
-                <button
+                <button type="button"
                   className="h-3.5 w-3.5 shrink-0 rounded-full border border-black/30"
                   style={{ background: o.color }}
                   title="cycle color"
@@ -141,7 +142,7 @@ export function PropertyEditor(
                   value={o.name}
                   onChange={(e) => patchOption(i, { name: e.target.value })}
                 />
-                <button
+                <button type="button"
                   className="px-0.5 text-ink-muted hover:text-blocked"
                   onClick={() => set({ options: options.filter((_, j) => j !== i) })}
                 >
@@ -149,7 +150,7 @@ export function PropertyEditor(
                 </button>
               </div>
             ))}
-            <button
+            <button type="button"
               className="w-fit rounded px-1 py-0.5 text-[11px] text-ink-muted hover:text-ink-soft"
               onClick={() =>
                 set({
@@ -216,7 +217,7 @@ export function PropertyEditor(
             <span className={lbl}>SQL EXPRESSION</span>
             <textarea
               className={`${field} min-h-[64px] resize-y font-mono text-[11px]`}
-              placeholder={'impact * confidence * ease\nround(x, 1), nullif(y, 0), case when … end'}
+              placeholder={FORMULA_PLACEHOLDER}
               value={config.expr ?? ""}
               onChange={(e) => set({ expr: e.target.value })}
             />
@@ -278,13 +279,13 @@ export function PropertyEditor(
 
         <div className="flex items-center gap-2 border-t border-line pt-2">
           {prop && prop.type !== "title" && (
-            <button className="text-[11px] text-ink-muted hover:text-blocked" onClick={remove}>Delete</button>
+            <button type="button" className="text-[11px] text-ink-muted hover:text-blocked" onClick={remove}>Delete</button>
           )}
           <span className="flex-1" />
-          <button className="rounded-md px-2 py-1 text-xs text-ink-muted hover:text-ink-soft" onClick={onClose}>
+          <button type="button" className="rounded-md px-2 py-1 text-xs text-ink-muted hover:text-ink-soft" onClick={onClose}>
             Cancel
           </button>
-          <button
+          <button type="button"
             className="rounded-md bg-copper px-2.5 py-1 text-xs font-medium text-copper-ink hover:brightness-110"
             onClick={save}
           >

@@ -76,20 +76,20 @@ function PageNode(
         }`}
         style={{ paddingLeft: 8 + depth * 14 }}
       >
-        <button
+        <button type="button"
           className={`w-[14px] shrink-0 text-[9px] ${hasKids ? "text-ink-muted/70 hover:text-ink" : "text-transparent"}`}
           onClick={() => hasKids && onToggle(p.id)}
           tabIndex={hasKids ? 0 : -1}
         >
           {open ? "▾" : "▸"}
         </button>
-        <button className="flex min-w-0 flex-1 items-center gap-1.5" onClick={() => onOpenPage(p.id)}>
+        <button type="button" className="flex min-w-0 flex-1 items-center gap-1.5" onClick={() => onOpenPage(p.id)}>
           <span className={`text-[12px] ${active ? "text-copper" : ""}`}>
             <EntityIcon icon={p.icon} fallback={pageGlyph(p.kind)} />
           </span>
           <span className={`truncate ${p.title ? "" : "italic text-ink-muted/60"}`}>{p.title || "Untitled"}</span>
         </button>
-        <button
+        <button type="button"
           className="hidden shrink-0 rounded px-1 text-[12px] text-ink-muted hover:text-ink group-hover:block"
           title="new sub-page"
           onClick={() => onNewChild(p.id)}
@@ -100,7 +100,7 @@ function PageNode(
       {open && dbs.map((d) => {
         const dbActive = d.id === currentDb;
         return (
-          <button
+          <button type="button"
             key={d.id}
             onClick={() => onOpenDb(d.id)}
             className={`flex items-center gap-1.5 rounded-md py-[5px] pr-2 text-left text-[13px] ${
@@ -206,7 +206,7 @@ function Sidebar(
       {NAV.map((item) => {
         const active = item.key === activeKey;
         return (
-          <button
+          <button type="button"
             key={item.key}
             onClick={() => onNav(item.view)}
             className={`flex items-center gap-2.5 rounded-md px-2 py-[7px] text-left text-[13.5px] ${
@@ -237,13 +237,13 @@ function Sidebar(
           onNewChild={(id) => onNewPage(id)}
         />
       ))}
-      <button
+      <button type="button"
         className="flex items-center gap-2.5 rounded-md px-2 py-[6px] text-left text-[12.5px] text-ink-muted/70 hover:text-ink-soft"
         onClick={onNewProject}
       >
         <span className="text-[12px]">◎</span> New project
       </button>
-      <button
+      <button type="button"
         className="flex items-center gap-2.5 rounded-md px-2 py-[6px] text-left text-[12.5px] text-ink-muted/70 hover:text-ink-soft"
         onClick={() => onNewPage(null)}
       >
@@ -257,7 +257,7 @@ function Sidebar(
       {looseDbs.map((d) => {
         const active = view === "database" && d.id === dbId;
         return (
-          <button
+          <button type="button"
             key={d.id}
             onClick={() => onOpenDb(d.id)}
             className={`flex items-center gap-2.5 rounded-md px-2 py-[7px] text-left text-[13.5px] ${
@@ -272,7 +272,7 @@ function Sidebar(
           </button>
         );
       })}
-      <button
+      <button type="button"
         className="flex items-center gap-2.5 rounded-md px-2 py-[6px] text-left text-[12.5px] text-ink-muted/70 hover:text-ink-soft"
         onClick={onNewDb}
       >
@@ -291,7 +291,7 @@ function Sidebar(
               : `Local only · ${status.nodeId}`
             : "…"}
         </span>
-        <button className="text-[13px] text-ink-muted hover:text-ink-soft" title="Settings" onClick={onSettings}>
+        <button type="button" className="text-[13px] text-ink-muted hover:text-ink-soft" title="Settings" onClick={onSettings}>
           ⚙
         </button>
       </div>
@@ -400,7 +400,7 @@ export function App() {
               <div className="flex min-w-0 items-center gap-1 text-[13px] text-ink-muted">
                 {crumbs.map((c) => (
                   <span key={c.id} className="flex items-center gap-1">
-                    <button className="max-w-[160px] truncate hover:text-ink-soft" onClick={() => openPage(c.id)}>
+                    <button type="button" className="max-w-[160px] truncate hover:text-ink-soft" onClick={() => openPage(c.id)}>
                       {c.title || "Untitled"}
                     </button>
                     <span className="text-ink-muted/50">/</span>
@@ -413,7 +413,7 @@ export function App() {
             ? (
               <div className="flex items-center gap-1">
                 <div className="relative">
-                  <button
+                  <button type="button"
                     className="rounded-md p-1 text-[15px] leading-none transition-colors hover:bg-panel"
                     title="database icon"
                     onClick={() => setDbIconOpen(true)}
@@ -444,7 +444,7 @@ export function App() {
           {isSessions && (
             <div className="flex rounded-[7px] bg-panel p-[3px]">
               {(["board", "list"] as const).map((v) => (
-                <button
+                <button type="button"
                   key={v}
                   onClick={() => setView(v)}
                   className={`rounded-[5px] px-2.5 py-[3px] text-xs capitalize ${
@@ -457,7 +457,7 @@ export function App() {
             </div>
           )}
           {view === "board" && (
-            <button
+            <button type="button"
               onClick={() => setGroup(group === "none" ? "objective" : "none")}
               className="flex items-center gap-1 rounded-md border border-line px-2 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
             >
@@ -465,14 +465,14 @@ export function App() {
             </button>
           )}
           <div className="flex-1" />
-          <button
+          <button type="button"
             onClick={() => syncNow().then(refresh)}
             className="rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
           >
             Sync now
           </button>
           {view === "page" && currentPage && (
-            <button
+            <button type="button"
               onClick={() =>
                 confirmDeletePage(currentPage).then((ok) => {
                   if (ok) {
@@ -487,7 +487,7 @@ export function App() {
             </button>
           )}
           {view === "database" && currentDb && (
-            <button
+            <button type="button"
               onClick={async () => {
                 if (await appConfirm(`Delete database "${currentDb.name}" and all its rows?`)) {
                   deleteUdb(currentDb.id).then(() => {
@@ -504,7 +504,7 @@ export function App() {
           )}
           {view === "database"
             ? (
-              <button
+              <button type="button"
                 onClick={() => dbId && createUdbRow(dbId).then(() => setUdbEpoch((e) => e + 1))}
                 className="flex items-center gap-1.5 rounded-md bg-copper px-3 py-1.5 text-[12.5px] font-medium text-copper-ink hover:brightness-110"
               >
@@ -512,7 +512,7 @@ export function App() {
               </button>
             )
             : isSessions && (
-              <button
+              <button type="button"
                 onClick={() => setModal("session")}
                 className="flex items-center gap-1.5 rounded-md bg-copper px-3 py-1.5 text-[12.5px] font-medium text-copper-ink hover:brightness-110"
               >

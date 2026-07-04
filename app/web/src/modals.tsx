@@ -34,6 +34,7 @@ function Modal(
 const label = "text-[10px] font-medium tracking-[0.8px] text-ink-muted/80";
 const input =
   "w-full bg-transparent outline-none placeholder:text-ink-muted/50 border-none p-0 text-ink";
+const STORY_PLACEHOLDER = "The story — why this matters.\n\nDone when:\n·  …\n·  …";
 const pill =
   "appearance-none rounded-md border border-chipline bg-transparent px-2 py-1 text-[11.5px] text-ink-soft outline-none";
 
@@ -51,10 +52,10 @@ function Footer(
       <div className="h-px bg-line" />
       <div className="flex items-center gap-2">
         <span className="flex-1 text-[10.5px] text-ink-muted/85">{hint}</span>
-        <button className="rounded-md px-2.5 py-1.5 text-xs text-ink-muted hover:text-ink-soft" onClick={onClose}>
+        <button type="button" className="rounded-md px-2.5 py-1.5 text-xs text-ink-muted hover:text-ink-soft" onClick={onClose}>
           Cancel
         </button>
-        <button
+        <button type="button"
           className="flex items-center gap-1.5 rounded-md bg-copper px-3 py-1.5 text-[12.5px] font-medium text-copper-ink disabled:opacity-40"
           onClick={onSubmit}
           disabled={disabled}
@@ -184,7 +185,7 @@ function PathList(
             placeholder={placeholder}
             onChange={(e) => onChange(items.map((x, j) => j === i ? e.target.value : x))}
           />
-          <button
+          <button type="button"
             className="px-1 text-ink-muted hover:text-blocked"
             title="remove"
             onClick={() => onChange(items.filter((_, j) => j !== i))}
@@ -193,7 +194,7 @@ function PathList(
           </button>
         </div>
       ))}
-      <button
+      <button type="button"
         className="w-fit rounded-md px-1 py-0.5 text-[11.5px] text-ink-muted hover:text-ink-soft"
         onClick={() => onChange([...items, ""])}
       >
@@ -336,7 +337,7 @@ export function NewObjectiveModal(
       <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-[#101219] p-3">
         <textarea
           className={`${input} min-h-[190px] resize-none text-[13px] leading-relaxed`}
-          placeholder={"The story — why this matters.\n\nDone when:\n·  …\n·  …"}
+          placeholder={STORY_PLACEHOLDER}
           value={story}
           onChange={(e) => setStory(e.target.value)}
         />

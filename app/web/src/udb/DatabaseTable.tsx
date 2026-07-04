@@ -78,7 +78,7 @@ export function DatabaseView({ dbId, epoch, udbs }: { dbId: string; epoch: numbe
           <div className="grid border-b border-line" style={{ gridTemplateColumns: grid }}>
             {props.map((p) => (
               <div key={p.id} className="relative border-r border-line-soft last:border-r-0">
-                <button
+                <button type="button"
                   className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-[11px] font-medium text-ink-muted transition-colors hover:bg-panel/60 hover:text-ink-soft"
                   onClick={() => setEditor({ prop: p })}
                   title={p.type}
@@ -104,7 +104,7 @@ export function DatabaseView({ dbId, epoch, udbs }: { dbId: string; epoch: numbe
               </div>
             ))}
             <div className="relative">
-              <button
+              <button type="button"
                 className="w-full px-2 py-1.5 text-left text-[13px] text-ink-muted/60 transition-colors hover:bg-panel/60 hover:text-ink-soft"
                 title="add column"
                 onClick={() => setEditor({ prop: null })}
@@ -133,7 +133,7 @@ export function DatabaseView({ dbId, epoch, udbs }: { dbId: string; epoch: numbe
               {props.map((p, i) => (
                 <div key={p.id} className="relative flex min-w-0 items-center border-r border-line-soft/60 py-0.5 last:border-r-0">
                   {i === 0 && (
-                    <button
+                    <button type="button"
                       className={`ml-1 shrink-0 rounded p-0.5 text-[13px] leading-none transition-opacity hover:bg-panel ${
                         r.icon ? "" : "opacity-0 group-hover:opacity-50"
                       }`}
@@ -154,7 +154,7 @@ export function DatabaseView({ dbId, epoch, udbs }: { dbId: string; epoch: numbe
                     <Cell prop={p} row={r} onPatch={patch(r.id)} onSaved={reload} onPropChanged={reload} />
                   </div>
                   {i === 0 && (
-                    <button
+                    <button type="button"
                       className="mr-1 rounded border border-chipline/60 bg-panel px-1 py-0.5 text-[9px] text-ink-muted opacity-0 transition-opacity hover:text-ink group-hover:opacity-100"
                       title="open row"
                       onClick={() => setOpenRow(r.id)}
@@ -168,7 +168,7 @@ export function DatabaseView({ dbId, epoch, udbs }: { dbId: string; epoch: numbe
             </div>
           ))}
           {/* footer */}
-          <button
+          <button type="button"
             className="w-full px-2 py-1.5 text-left text-xs text-ink-muted/70 transition-colors hover:bg-panel/40 hover:text-ink-soft"
             onClick={addRow}
           >
