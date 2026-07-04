@@ -3,7 +3,8 @@
   "specifiers": {
     "jsr:@std/internal@^1.0.14": "1.0.14",
     "jsr:@std/path@1": "1.1.6",
-    "npm:@electric-sql/pglite@0.2": "0.2.17",
+    "npm:@electric-sql/pglite@0.2.17": "0.2.17",
+    "npm:@electric-sql/pglite@0.5.3": "0.5.3",
     "npm:@modelcontextprotocol/sdk@^1.12.0": "1.29.0_zod@3.25.76",
     "npm:postgres@^3.4.0": "3.4.9",
     "npm:zod@^3.24.0": "3.25.76"
@@ -22,6 +23,9 @@
   "npm": {
     "@electric-sql/pglite@0.2.17": {
       "integrity": "sha512-qEpKRT2oUaWDH6tjRxLHjdzMqRUGYDnGZlKrnL4dJ77JVMcP2Hpo3NYnOSPKdZdeec57B6QPprCUFg0picx5Pw=="
+    },
+    "@electric-sql/pglite@0.5.3": {
+      "integrity": "sha512-iTTYbA5Uesrl+N7zss0J5LopT7KE4j9aymYo+EZZh+rZbARQCUQOs+n2pay64JRUpc3fCkpfrniTNJnvYzOE+g=="
     },
     "@hono/node-server@1.19.14_hono@4.12.27": {
       "integrity": "sha512-GwtvgtXxnWsucXvbQXkRgqksiH2Qed37H9xHZocE5sA3N8O8O8/8FA3uclQXxXVzc9XBZuEOMK7+r02FmSpHtw==",
@@ -544,7 +548,7 @@
   },
   "workspace": {
     "dependencies": [
-      "npm:@electric-sql/pglite@0.2",
+      "npm:@electric-sql/pglite@0.5.3",
       "npm:postgres@^3.4.0"
     ]
   }
