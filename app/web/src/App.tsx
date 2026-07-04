@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  applyUpdate,
   type AppStatus,
   type BoardData,
   createPage,
@@ -8,13 +9,16 @@ import {
   deleteUdb,
   getBoard,
   getStatus,
+  getUpdate,
   listPages,
+  openInBrowser,
   listUdbs,
   type PageMeta,
   setStatus as apiSetStatus,
   type Status,
   syncNow,
   type UdbMeta,
+  type UpdateInfo,
   updateUdb,
 } from "./api";
 import { Board } from "./Board";
@@ -137,7 +141,7 @@ function PageNode(
 }
 
 function Sidebar(
-  { view, onNav, status, onSettings, pages, pageId, onOpenPage, onNewPage, onNewProject, udbs, dbId, onOpenDb, onNewDb }: {
+  { view, onNav, status, onSettings, pages, pageId, onOpenPage, onNewPage, onNewProject, udbs, dbId, onOpenDb, onNewDb, update, updateState, onUpdate }: {
     view: View;
     onNav: (v: View) => void;
     status: AppStatus | null;
@@ -151,6 +155,9 @@ function Sidebar(
     dbId: string | null;
     onOpenDb: (id: string) => void;
     onNewDb: () => void;
+    update: UpdateInfo | null;
+    updateState: "idle" | "busy" | "done";
+    onUpdate: () => void;
   },
 ) {
   const activeKey = view === "board" || view === "list" ? "sessions" : view;
@@ -291,6 +298,21 @@ function Sidebar(
               : `Local only · ${status.nodeId}`
             : "…"}
         </span>
+        {update?.available && (
+          <button
+            type="button"
+            className="rounded bg-copper/15 px-1.5 py-0.5 text-[10.5px] font-medium text-copper hover:bg-copper/25 disabled:opacity-60"
+            title={updateState === "done"
+              ? "updated — restart Trame to finish"
+              : update.canSelfUpdate
+              ? `update to v${update.latest} in place`
+              : `v${update.latest} available — open the release page`}
+            disabled={updateState === "busy"}
+            onClick={onUpdate}
+          >
+            {updateState === "done" ? "↻ restart" : updateState === "busy" ? "…" : `↑ v${update.latest}`}
+          </button>
+        )}
         <button type="button" className="text-[13px] text-ink-muted hover:text-ink-soft" title="Settings" onClick={onSettings}>
           ⚙
         </button>
@@ -318,6 +340,8 @@ export function App() {
   const [pageId, setPageId] = useState<string | null>(params.get("page"));
   const [udbEpoch, setUdbEpoch] = useState(0); // bump to refetch the open database view
   const [dbIconOpen, setDbIconOpen] = useState(false);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [updateState, setUpdateState] = useState<"idle" | "busy" | "done">("idle");
 
   const refresh = () => {
     getBoard().then(setBoard).catch(() => {});
@@ -328,8 +352,20 @@ export function App() {
   useEffect(() => {
     refresh();
     const t = setInterval(refresh, 5000);
+    getUpdate().then(setUpdate).catch(() => {});
     return () => clearInterval(t);
   }, []);
+
+  const onUpdate = () => {
+    if (!update) return;
+    if (!update.canSelfUpdate) {
+      openInBrowser(update.releaseUrl);
+      return;
+    }
+    if (updateState !== "idle") return;
+    setUpdateState("busy");
+    applyUpdate().then((r) => setUpdateState(r.ok ? "done" : "idle")).catch(() => setUpdateState("idle"));
+  };
 
   const onMove = (id: string, s: Status) => {
     setBoard((b) => b ? { ...b, sessions: b.sessions.map((x) => x.id === id ? { ...x, status: s } : x) } : b);
@@ -392,6 +428,9 @@ export function App() {
         dbId={dbId}
         onOpenDb={openDb}
         onNewDb={newDb}
+        update={update}
+        updateState={updateState}
+        onUpdate={onUpdate}
       />
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center gap-3 border-b border-line px-6 py-3">

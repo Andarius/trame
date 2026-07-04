@@ -23,6 +23,7 @@ export type AppStatus = {
   lastSync: { at: string; pulled: number; pushed: number } | null;
   dataDir?: string;
   desktop?: boolean;
+  version?: string;
 };
 
 export type ReportMeta = {
@@ -187,6 +188,17 @@ export const deleteUdbRow = (id: string) => post(`/api/udb/rows/${id}/delete`, {
 export const setUdbLink = (propId: string, fromRow: string, toRow: string, remove = false) =>
   post("/api/udb/links", { prop_id: propId, from_row: fromRow, to_row: toRow, remove });
 export const listUdbIcons = () => fetch("/api/udb/icons").then((r) => r.json() as Promise<string[]>);
+
+export type UpdateInfo = {
+  current: string;
+  latest: string | null;
+  available: boolean;
+  releaseUrl: string;
+  canSelfUpdate: boolean;
+};
+export const getUpdate = () => fetch("/api/update").then((r) => r.json() as Promise<UpdateInfo>);
+export const applyUpdate = () =>
+  post("/api/update", {}).then((r) => r.json() as Promise<{ ok: boolean; error?: string }>);
 
 // pages — the nestable tree; kind='project' pages are the former objectives
 
