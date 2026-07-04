@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useState } from "react";
-import { type BoardData, getSettings, saveSettings, type Status } from "./api";
+import { type BoardData, getSettings, patchSettings, type Status } from "./api";
 import { Select, STATUS, StatusDot } from "./ui";
 
 function Modal(
@@ -210,6 +210,7 @@ export function SettingsModal(
   const [paths, setPaths] = useState<string[]>([]);
   const [ignore, setIgnore] = useState<string[]>([]);
   const [source, setSource] = useState<"settings" | "env">("settings");
+  const [autoUpdate, setAutoUpdate] = useState(true);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -217,15 +218,17 @@ export function SettingsModal(
       setPaths(s.paths.length ? s.paths : [""]);
       setIgnore(s.ignore ?? []);
       setSource(s.source);
+      setAutoUpdate(s.autoUpdate !== false);
       setLoaded(true);
     }).catch(() => setLoaded(true));
   }, []);
 
   const submit = () =>
-    saveSettings(
-      paths.map((p) => p.trim()).filter(Boolean),
-      ignore.map((p) => p.trim()).filter(Boolean),
-    ).then(() => {
+    patchSettings({
+      reportPaths: paths.map((p) => p.trim()).filter(Boolean),
+      ignorePaths: ignore.map((p) => p.trim()).filter(Boolean),
+      autoUpdate,
+    }).then(() => {
       onSaved();
       onClose();
     });
@@ -262,6 +265,21 @@ export function SettingsModal(
           addLabel="＋ Add ignore"
         />
       )}
+      <div className="pt-1 text-[12.5px] font-semibold">Updates</div>
+      <button
+        type="button"
+        className="flex w-fit items-center gap-2 text-xs text-ink-soft"
+        onClick={() => setAutoUpdate((v) => !v)}
+      >
+        <span
+          className={`flex h-4 w-4 items-center justify-center rounded border text-[10px] transition-colors ${
+            autoUpdate ? "border-copper bg-copper text-copper-ink" : "border-chipline text-transparent"
+          }`}
+        >
+          ✓
+        </span>
+        Auto-update in the background (AppImage — applies silently, runs on next launch)
+      </button>
       <Footer
         hint="stored per-machine in settings.json (not synced)"
         action="Save settings"
