@@ -1,4 +1,4 @@
--- Shared schema. Runs on BOTH the mini's Postgres and each laptop's local PGlite,
+-- Shared schema. Runs on BOTH the hub's Postgres and each laptop's local PGlite,
 -- so the SQL is identical everywhere (that's the whole point of PGlite over SQLite).
 -- Requires Postgres 18+ (uuidv7() on the udb_* tables) = PGlite 0.5.x and the
 -- postgres:18 hub image. Older tables keep gen_random_uuid() (v4) — changing a
@@ -163,7 +163,7 @@ insert into pages (id, kind, title, story, client_id, status, origin, updated_at
 update sessions set page_id = objective_id where page_id is null and objective_id is not null;
 update reports  set page_id = objective_id where page_id is null and objective_id is not null;
 
--- Local-only sync bookkeeping (harmless if it also exists on the mini).
+-- Local-only sync bookkeeping (harmless if it also exists on the hub).
 create table if not exists sync_state (
   id             int primary key default 1,
   last_pulled_at timestamptz not null default 'epoch',

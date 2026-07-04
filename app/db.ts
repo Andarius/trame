@@ -1,5 +1,5 @@
 // Local database = PGlite (embedded Postgres, persisted to DATA_DIR).
-// Same SQL as the mini's Postgres — no dialect translation.
+// Same SQL as the hub's Postgres — no dialect translation.
 import { PGlite } from "@electric-sql/pglite";
 import { APP_ROOT, DATA_DIR, NODE_ID, OUTBOX } from "./config.ts";
 

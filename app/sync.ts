@@ -1,4 +1,4 @@
-// Custom last-write-wins sync between local PGlite and the mini's Postgres.
+// Custom last-write-wins sync between local PGlite and the hub's Postgres.
 // Single user => LWW by `updated_at` is trivially correct. `origin` marks who wrote
 // a row so PUSH only sends genuine local changes (not rows we just pulled).
 //

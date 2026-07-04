@@ -4,47 +4,47 @@ A **local-first** Claude Code session tracker. Each session ladders up to an **O
 the board is **columns (status) × swimlanes (objective)** — the view no off-the-shelf tool gave us.
 
 Stack: **Deno-desktop** app → **local PGlite** (embedded Postgres, offline read+write) →
-custom **push/pull LWW sync** → **Postgres on the mini** (hub). No PowerSync, no Electric.
-Everything is Postgres, so the SQL is identical on the laptop and the mini.
+custom **push/pull LWW sync** → **Postgres on a home server** (the hub). No PowerSync, no Electric.
+Everything is Postgres, so the SQL is identical on the laptop and the hub.
 
 ```
  laptop A (Deno app)                          laptop B (Deno app)
    ├─ local PGlite  ◀── read/write offline ──▶  local PGlite
    └─ sync.ts  ─┐                            ┌─ sync.ts
                push/pull (LWW by updated_at) │
-                └────────▶  Postgres @ mini  ◀┘   (source of truth, Docker, home LAN)
- /project:track ─▶ mini Postgres if online, else local outbox.jsonl (app drains on launch)
+                └────────▶  Postgres @ hub  ◀┘   (source of truth, Docker, home LAN)
+ /project:track ─▶ hub Postgres if online, else local outbox.jsonl (app drains on launch)
 ```
 
 ## Requirements
 - **Deno 2.9+** on each laptop (for `deno desktop`). Not installed here yet: `curl -fsSL https://deno.land/install.sh | sh`.
-- **Docker** on the mini (already present).
-- Laptops reach the mini's Postgres over the **home LAN** (the mini has no Tailscale;
+- **Docker** on the hub machine.
+- Laptops reach the hub's Postgres over the **home LAN** (no Tailscale required;
   the hub binds to its LAN IP — install Tailscale there if you want sync away from home).
 - Node/npm is pulled in only to build the Vite frontend (via `deno task web:build`).
 
 ## Layout
 ```
-db/schema.sql              shared schema (mini Postgres AND local PGlite)
-mini/docker-compose.yml    Postgres hub on the mini
-mini/deploy.sh             deploy the hub to the mini (~/Apps/tracker) — `just db-deploy`
+db/schema.sql              shared schema (hub Postgres AND local PGlite)
+hub/docker-compose.yml     Postgres hub
+hub/deploy.sh              deploy the hub over ssh (~/Apps/tracker) — `just db-deploy`
 app/                       Deno-desktop app
   main.ts                  window + in-process HTTP (serves UI + /api), startup sync loop
   db.ts                    local PGlite + queries + outbox drain
-  sync.ts                  custom LWW push/pull to the mini
+  sync.ts                  custom LWW push/pull to the hub
   config.ts                env config (NODE_ID, REMOTE_PG, data dir…)
   web/                     React swimlane board (Vite)
-track/track.ts             the /project:track writer (mini PG or outbox)
+track/track.ts             the /project:track writer (hub PG or outbox)
 commands/project/track.md  rewired slash command (copy to ~/.claude/… when live)
 ```
 
 ## Setup
 
-### 1. Mini (the hub)
+### 1. The hub
 ```bash
 just db-deploy       # ssh: copies compose+schema to ~/Apps/tracker, creates .env, starts it
 ```
-First run generates the password and binds to the mini's LAN IP (never 0.0.0.0); the
+First run generates the password and binds to the hub's LAN IP (never 0.0.0.0); the
 script prints the `TRACKER_REMOTE_PG` URL to use on laptops. Idempotent — rerun to redeploy.
 
 ### 2. Each laptop — env (add to your shell profile, or the project `.env` for `just`)
@@ -76,7 +76,7 @@ instead of Anytype. (Leave the Anytype command in place until you're happy with 
 ## How sync works
 - Every row has `updated_at` (LWW clock), `origin` (which node wrote it), `deleted` (soft delete).
 - **Pull**: remote rows with `updated_at >` last-pull → upsert locally *if newer*.
-- **Push**: local rows where `origin = this node` and `updated_at >` last-push → upsert to the mini *if newer*.
+- **Push**: local rows where `origin = this node` and `updated_at >` last-push → upsert to the hub *if newer*.
 - Single user ⇒ conflicts are near-impossible and last-write-wins is correct.
 
 ## v0 caveats (deliberately a scaffold)
@@ -106,6 +106,6 @@ Assets (`web/dist`, `db/schema.sql`) are **embedded into the binary** via raw im
 disk layout. Local builds: `just bundle` (AppImage), `deno task bundle:mac` (on a Mac).
 
 ## Next steps
-1. `deno task dev` once the mini is up; seed a client + objective; fire `/project:track`.
+1. `deno task dev` once the hub is up; seed a client + objective; fire `/project:track`.
 2. Add `@dnd-kit` drag; add an Objective drawer (story + its sessions).
 3. Package a distributable (`deno desktop` build) once the flow feels right.
