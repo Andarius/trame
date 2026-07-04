@@ -21,7 +21,7 @@ jobs:
       tag: ${{ steps.tag.outputs.value }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -76,7 +76,8 @@ jobs:
             target: linux-x64
             tasks: "bundle bundle:deb"
             assets: "dist/linux/Trame.AppImage dist/linux/trame.deb"
-          - runner: macos-latest
+          # pinned: macos-latest flips to macOS 26 from 2026-06 — repin deliberately
+          - runner: macos-15
             target: macos-arm64
             tasks: "bundle:mac"
             assets: "dist/macos/Trame.dmg"
@@ -88,7 +89,7 @@ jobs:
       RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ needs.prepare.outputs.tag }}
 
@@ -129,7 +130,7 @@ jobs:
       RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ needs.prepare.outputs.tag }}
 
