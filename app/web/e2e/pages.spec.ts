@@ -41,8 +41,8 @@ test("session linked to the project shows up with progress", async ({ page, requ
   });
   await page.goto("/");
   await page.getByRole("button", { name: /Pages Project/ }).first().click();
-  await expect(page.getByText("pages e2e session")).toBeVisible();
-  await expect(page.getByText("0 / 1 done")).toBeVisible();
+  await expect(page.getByText("pages e2e session").first()).toBeVisible();
+  await expect(page.getByText("0 / 1 done").first()).toBeVisible();
 });
 
 test("deleting the project removes the subtree from the sidebar", async ({ page }) => {
