@@ -10,7 +10,7 @@ import {
   type SessionEvent,
   type Status,
 } from "./api";
-import { STATUS, StatusDot, timeAgo } from "./ui";
+import { appConfirm, Select, STATUS, StatusDot, timeAgo } from "./ui";
 
 const sectionLbl = "text-[10px] font-medium tracking-[0.8px] text-ink-muted/70";
 const rowLbl = "shrink-0 pt-[5px] text-[11px] text-ink-muted";
@@ -87,8 +87,10 @@ export function Drawer(
     });
   };
 
-  const remove = () => {
-    if (confirm(`Delete session "${session.title}"?`)) deleteSession(session.id).then(onClose).then(onSaved);
+  const remove = async () => {
+    if (await appConfirm(`Delete session "${session.title}"?`)) {
+      deleteSession(session.id).then(onClose).then(onSaved);
+    }
   };
 
   useEffect(() => {
@@ -157,38 +159,32 @@ export function Drawer(
 
       <div className="flex flex-col gap-1 border-t border-line-soft px-4 py-3.5">
         <Row label="Client">
-          <div className="relative">
-            <select
-              className={`${rowVal} appearance-none pr-6 ${client ? "" : "text-ink-muted/70"}`}
-              value={client}
-              onChange={(e) => {
-                setClient(e.target.value);
-                commit({ client: e.target.value || undefined });
-              }}
-            >
-              <option value="" className="bg-panel">none</option>
-              {board.clients.map((c) => <option key={c.id} value={c.name} className="bg-panel">{c.name}</option>)}
-            </select>
-            <span className="pointer-events-none absolute right-2 top-[7px] text-[8px] text-ink-muted/60">▾</span>
-          </div>
+          <Select
+            value={client}
+            className={rowVal}
+            options={[
+              { value: "", label: "none" },
+              ...board.clients.map((c) => ({ value: c.name, label: c.name })),
+            ]}
+            onChange={(v) => {
+              setClient(v);
+              commit({ client: v || undefined });
+            }}
+          />
         </Row>
-        <Row label="Objective">
-          <div className="relative">
-            <select
-              className={`${rowVal} appearance-none pr-6 ${objective ? "" : "text-ink-muted/70"}`}
-              value={objective}
-              onChange={(e) => {
-                setObjective(e.target.value);
-                commit({ objective: e.target.value || undefined });
-              }}
-            >
-              <option value="" className="bg-panel">none</option>
-              {board.objectives.map((o) => (
-                <option key={o.id} value={o.title} className="bg-panel">◎ {o.title}</option>
-              ))}
-            </select>
-            <span className="pointer-events-none absolute right-2 top-[7px] text-[8px] text-ink-muted/60">▾</span>
-          </div>
+        <Row label="Project">
+          <Select
+            value={objective}
+            className={rowVal}
+            options={[
+              { value: "", label: "none" },
+              ...board.objectives.map((o) => ({ value: o.title, label: `◎ ${o.title}` })),
+            ]}
+            onChange={(v) => {
+              setObjective(v);
+              commit({ objective: v || undefined });
+            }}
+          />
         </Row>
         <Row label="Branch">
           <input

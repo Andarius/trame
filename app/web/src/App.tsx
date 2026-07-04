@@ -1,21 +1,33 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   type AppStatus,
   type BoardData,
+  createPage,
+  createUdb,
+  createUdbRow,
+  deleteUdb,
   getBoard,
   getStatus,
+  listPages,
+  listUdbs,
+  type PageMeta,
   setStatus as apiSetStatus,
   type Status,
   syncNow,
+  type UdbMeta,
+  updateUdb,
 } from "./api";
 import { Board } from "./Board";
 import { Drawer } from "./Drawer";
 import { Explore } from "./Explore";
 import { List } from "./List";
-import { NewObjectiveModal, NewSessionModal, SettingsModal } from "./modals";
-import { Objectives } from "./Objectives";
+import { NewObjectiveModal, NewSessionModal, NewUdbModal, SettingsModal } from "./modals";
+import { confirmDeletePage, Page } from "./Page";
+import { appConfirm, ConfirmHost, EntityIcon } from "./ui";
+import { IconPicker } from "./udb/cells";
+import { DatabaseView } from "./udb/DatabaseTable";
 
-type View = "board" | "list" | "objectives" | "explore";
+type View = "board" | "list" | "explore" | "database" | "page";
 
 const post = (path: string, body: unknown) =>
   fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -29,24 +41,161 @@ function LogoMark() {
   );
 }
 
-const NAV: { key: "sessions" | "objectives" | "explore"; glyph: string; label: string; view: View }[] = [
+const NAV: { key: "sessions" | "explore"; glyph: string; label: string; view: View }[] = [
   { key: "sessions", glyph: "▦", label: "Sessions", view: "board" },
-  { key: "objectives", glyph: "◎", label: "Objectives", view: "objectives" },
   { key: "explore", glyph: "✦", label: "Explore", view: "explore" },
 ];
 
+const pageGlyph = (kind: string) => (kind === "project" ? "◎" : "▫");
+
+function PageNode(
+  { p, depth, childrenOf, dbsOf, expanded, onToggle, current, currentDb, onOpenPage, onOpenDb, onNewChild }: {
+    p: PageMeta;
+    depth: number;
+    childrenOf: Map<string | null, PageMeta[]>;
+    dbsOf: Map<string, UdbMeta[]>;
+    expanded: Set<string>;
+    onToggle: (id: string) => void;
+    current: string | null;
+    currentDb: string | null;
+    onOpenPage: (id: string) => void;
+    onOpenDb: (id: string) => void;
+    onNewChild: (parentId: string) => void;
+  },
+) {
+  const kids = childrenOf.get(p.id) ?? [];
+  const dbs = dbsOf.get(p.id) ?? [];
+  const hasKids = kids.length + dbs.length > 0;
+  const open = expanded.has(p.id);
+  const active = p.id === current;
+  return (
+    <>
+      <div
+        className={`group flex items-center gap-1 rounded-md py-[5px] pr-1 text-left text-[13px] ${
+          active ? "bg-[#1a1d26] font-medium text-ink" : "text-ink-muted hover:text-ink-soft"
+        }`}
+        style={{ paddingLeft: 8 + depth * 14 }}
+      >
+        <button
+          className={`w-[14px] shrink-0 text-[9px] ${hasKids ? "text-ink-muted/70 hover:text-ink" : "text-transparent"}`}
+          onClick={() => hasKids && onToggle(p.id)}
+          tabIndex={hasKids ? 0 : -1}
+        >
+          {open ? "▾" : "▸"}
+        </button>
+        <button className="flex min-w-0 flex-1 items-center gap-1.5" onClick={() => onOpenPage(p.id)}>
+          <span className={`text-[12px] ${active ? "text-copper" : ""}`}>
+            <EntityIcon icon={p.icon} fallback={pageGlyph(p.kind)} />
+          </span>
+          <span className={`truncate ${p.title ? "" : "italic text-ink-muted/60"}`}>{p.title || "Untitled"}</span>
+        </button>
+        <button
+          className="hidden shrink-0 rounded px-1 text-[12px] text-ink-muted hover:text-ink group-hover:block"
+          title="new sub-page"
+          onClick={() => onNewChild(p.id)}
+        >
+          ＋
+        </button>
+      </div>
+      {open && dbs.map((d) => {
+        const dbActive = d.id === currentDb;
+        return (
+          <button
+            key={d.id}
+            onClick={() => onOpenDb(d.id)}
+            className={`flex items-center gap-1.5 rounded-md py-[5px] pr-2 text-left text-[13px] ${
+              dbActive ? "bg-[#1a1d26] font-medium text-ink" : "text-ink-muted hover:text-ink-soft"
+            }`}
+            style={{ paddingLeft: 8 + (depth + 1) * 14 + 14 }}
+          >
+            <span className={`text-[12px] ${dbActive ? "text-copper" : ""}`}>
+              <EntityIcon icon={d.icon} fallback="⌗" />
+            </span>
+            <span className="flex-1 truncate">{d.name}</span>
+            <span className="text-[10.5px] text-ink-muted/60">{d.row_count || ""}</span>
+          </button>
+        );
+      })}
+      {open && kids.map((k) => (
+        <PageNode
+          key={k.id}
+          p={k}
+          depth={depth + 1}
+          childrenOf={childrenOf}
+          dbsOf={dbsOf}
+          expanded={expanded}
+          onToggle={onToggle}
+          current={current}
+          currentDb={currentDb}
+          onOpenPage={onOpenPage}
+          onOpenDb={onOpenDb}
+          onNewChild={onNewChild}
+        />
+      ))}
+    </>
+  );
+}
+
 function Sidebar(
-  { view, onNav, status, onSettings }: {
+  { view, onNav, status, onSettings, pages, pageId, onOpenPage, onNewPage, onNewProject, udbs, dbId, onOpenDb, onNewDb }: {
     view: View;
     onNav: (v: View) => void;
     status: AppStatus | null;
     onSettings: () => void;
+    pages: PageMeta[];
+    pageId: string | null;
+    onOpenPage: (id: string) => void;
+    onNewPage: (parentId: string | null) => void;
+    onNewProject: () => void;
+    udbs: UdbMeta[];
+    dbId: string | null;
+    onOpenDb: (id: string) => void;
+    onNewDb: () => void;
   },
 ) {
   const activeKey = view === "board" || view === "list" ? "sessions" : view;
   const synced = status?.remote && status.lastSync;
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const byId = useMemo(() => new Map(pages.map((p) => [p.id, p])), [pages]);
+  const childrenOf = useMemo(() => {
+    const m = new Map<string | null, PageMeta[]>();
+    for (const p of pages) {
+      // orphan-tolerant: a child whose parent hasn't synced yet shows at the root
+      const key = p.parent_id && byId.has(p.parent_id) ? p.parent_id : null;
+      m.set(key, [...(m.get(key) ?? []), p]);
+    }
+    return m;
+  }, [pages, byId]);
+  const dbsOf = useMemo(() => {
+    const m = new Map<string, UdbMeta[]>();
+    for (const d of udbs) {
+      if (d.page_id && byId.has(d.page_id)) m.set(d.page_id, [...(m.get(d.page_id) ?? []), d]);
+    }
+    return m;
+  }, [udbs, byId]);
+  const looseDbs = udbs.filter((d) => !d.page_id || !byId.has(d.page_id));
+
+  // opening a deep page (deep link, subpage nav) expands its ancestors
+  useEffect(() => {
+    if (!pageId) return;
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      for (let p = byId.get(pageId); p?.parent_id; p = byId.get(p.parent_id)) next.add(p.parent_id);
+      return next;
+    });
+  }, [pageId, byId]);
+
+  const onToggle = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
   return (
-    <aside className="flex w-[240px] shrink-0 flex-col gap-1 border-r border-line bg-sidebar px-3 pb-3 pt-4">
+    <aside className="flex w-[240px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-line bg-sidebar px-3 pb-3 pt-4">
       <div className="mb-3 flex items-center gap-2.5 px-2">
         <LogoMark />
         <span className="text-[15px] font-semibold">Trame</span>
@@ -69,6 +218,66 @@ function Sidebar(
           </button>
         );
       })}
+      <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+        PAGES
+      </div>
+      {(childrenOf.get(null) ?? []).map((p) => (
+        <PageNode
+          key={p.id}
+          p={p}
+          depth={0}
+          childrenOf={childrenOf}
+          dbsOf={dbsOf}
+          expanded={expanded}
+          onToggle={onToggle}
+          current={view === "page" ? pageId : null}
+          currentDb={view === "database" ? dbId : null}
+          onOpenPage={onOpenPage}
+          onOpenDb={onOpenDb}
+          onNewChild={(id) => onNewPage(id)}
+        />
+      ))}
+      <button
+        className="flex items-center gap-2.5 rounded-md px-2 py-[6px] text-left text-[12.5px] text-ink-muted/70 hover:text-ink-soft"
+        onClick={onNewProject}
+      >
+        <span className="text-[12px]">◎</span> New project
+      </button>
+      <button
+        className="flex items-center gap-2.5 rounded-md px-2 py-[6px] text-left text-[12.5px] text-ink-muted/70 hover:text-ink-soft"
+        onClick={() => onNewPage(null)}
+      >
+        <span className="text-[12px]">＋</span> New page
+      </button>
+      {looseDbs.length > 0 && (
+        <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+          DATABASES
+        </div>
+      )}
+      {looseDbs.map((d) => {
+        const active = view === "database" && d.id === dbId;
+        return (
+          <button
+            key={d.id}
+            onClick={() => onOpenDb(d.id)}
+            className={`flex items-center gap-2.5 rounded-md px-2 py-[7px] text-left text-[13.5px] ${
+              active ? "bg-[#1a1d26] font-medium text-ink" : "text-ink-muted hover:text-ink-soft"
+            }`}
+          >
+            <span className={`text-[13px] ${active ? "text-copper" : ""}`}>
+              <EntityIcon icon={d.icon} fallback="⌗" />
+            </span>
+            <span className="flex-1 truncate">{d.name}</span>
+            <span className="text-[10.5px] text-ink-muted/60">{d.row_count || ""}</span>
+          </button>
+        );
+      })}
+      <button
+        className="flex items-center gap-2.5 rounded-md px-2 py-[6px] text-left text-[12.5px] text-ink-muted/70 hover:text-ink-soft"
+        onClick={onNewDb}
+      >
+        <span className="text-[12px]">⌗</span> New database
+      </button>
       <div className="flex-1" />
       <div className="flex items-center gap-2 px-2 py-2 text-[11.5px] text-ink-muted">
         <span
@@ -98,15 +307,23 @@ export function App() {
   const [group, setGroup] = useState<"none" | "objective">(
     params.get("group") === "objective" ? "objective" : "none",
   );
-  const [modal, setModal] = useState<"session" | "objective" | "settings" | null>(
-    (params.get("new") as "session" | "objective" | "settings" | null) ?? null,
+  const [modal, setModal] = useState<"session" | "objective" | "settings" | "udb" | null>(
+    (params.get("new") as "session" | "objective" | "settings" | "udb" | null) ?? null,
   );
   const [openId, setOpenId] = useState<string | null>(params.get("session"));
   const [exploreEpoch, setExploreEpoch] = useState(0); // bump to rescan files after settings change
+  const [udbs, setUdbs] = useState<UdbMeta[]>([]);
+  const [pages, setPages] = useState<PageMeta[]>([]);
+  const [dbId, setDbId] = useState<string | null>(params.get("db"));
+  const [pageId, setPageId] = useState<string | null>(params.get("page"));
+  const [udbEpoch, setUdbEpoch] = useState(0); // bump to refetch the open database view
+  const [dbIconOpen, setDbIconOpen] = useState(false);
 
   const refresh = () => {
     getBoard().then(setBoard).catch(() => {});
     getStatus().then(setStatus).catch(() => {});
+    listUdbs().then((d) => Array.isArray(d) && setUdbs(d)).catch(() => {});
+    listPages().then((d) => Array.isArray(d) && setPages(d)).catch(() => {});
   };
   useEffect(() => {
     refresh();
@@ -123,21 +340,107 @@ export function App() {
       setModal(null);
       refresh();
     });
-  const createObjective = (o: Record<string, unknown>) =>
-    post("/api/objectives", o).then(() => {
+  const createProject = (o: Record<string, unknown>) =>
+    post("/api/objectives", o).then((r) => r.json()).then(({ id }) => {
       setModal(null);
       refresh();
+      if (id) openPage(id);
     });
 
+  const openDb = (id: string) => {
+    setDbId(id);
+    setView("database");
+  };
+  const openPage = (id: string) => {
+    setPageId(id);
+    setView("page");
+  };
+  const newPage = (parentId: string | null) =>
+    createPage({ parent_id: parentId }).then((r) => {
+      refresh();
+      openPage(r.id);
+    });
+  const newDb = () => setModal("udb");
+  const currentDb = view === "database" ? udbs.find((d) => d.id === dbId) ?? null : null;
+  const currentPage = view === "page" ? pages.find((p) => p.id === pageId) ?? null : null;
+
+  // breadcrumb: ancestors of the open page (nearest last)
+  const crumbs = useMemo(() => {
+    if (!currentPage) return [];
+    const byId = new Map(pages.map((p) => [p.id, p]));
+    const out: PageMeta[] = [];
+    for (let p = byId.get(currentPage.parent_id ?? ""); p; p = byId.get(p.parent_id ?? "")) out.unshift(p);
+    return out;
+  }, [currentPage, pages]);
+
   const isSessions = view === "board" || view === "list";
-  const title = isSessions ? "Sessions" : view === "objectives" ? "Objectives" : "Explore";
+  const title = isSessions ? "Sessions" : view === "database" ? currentDb?.name ?? "Database" : "Explore";
 
   return (
     <div className="flex h-full">
-      <Sidebar view={view} onNav={setView} status={status} onSettings={() => setModal("settings")} />
+      <Sidebar
+        view={view}
+        onNav={setView}
+        status={status}
+        onSettings={() => setModal("settings")}
+        pages={pages}
+        pageId={pageId}
+        onOpenPage={openPage}
+        onNewPage={newPage}
+        onNewProject={() => setModal("objective")}
+        udbs={udbs}
+        dbId={dbId}
+        onOpenDb={openDb}
+        onNewDb={newDb}
+      />
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center gap-3 border-b border-line px-6 py-3">
-          <h1 className="text-[15px] font-semibold">{title}</h1>
+          {view === "page" && currentPage
+            ? (
+              <div className="flex min-w-0 items-center gap-1 text-[13px] text-ink-muted">
+                {crumbs.map((c) => (
+                  <span key={c.id} className="flex items-center gap-1">
+                    <button className="max-w-[160px] truncate hover:text-ink-soft" onClick={() => openPage(c.id)}>
+                      {c.title || "Untitled"}
+                    </button>
+                    <span className="text-ink-muted/50">/</span>
+                  </span>
+                ))}
+                <span className="truncate font-medium text-ink">{currentPage.title || "Untitled"}</span>
+              </div>
+            )
+            : view === "database" && currentDb
+            ? (
+              <div className="flex items-center gap-1">
+                <div className="relative">
+                  <button
+                    className="rounded-md p-1 text-[15px] leading-none transition-colors hover:bg-panel"
+                    title="database icon"
+                    onClick={() => setDbIconOpen(true)}
+                  >
+                    <EntityIcon icon={currentDb.icon} fallback="⌗" className={currentDb.icon ? "" : "text-ink-muted"} />
+                  </button>
+                  {dbIconOpen && (
+                    <IconPicker
+                      current={currentDb.icon}
+                      onPick={(icon) => updateUdb(currentDb.id, { icon }).then(refresh)}
+                      onClose={() => setDbIconOpen(false)}
+                    />
+                  )}
+                </div>
+                <input
+                  key={currentDb.id}
+                  className="rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[15px] font-semibold text-ink outline-none transition-colors hover:bg-panel/60 focus:border-chipline focus:bg-panel"
+                  defaultValue={currentDb.name}
+                  onBlur={(e) => {
+                    const v = e.target.value.trim();
+                    if (v && v !== currentDb.name) updateUdb(currentDb.id, { name: v }).then(refresh);
+                  }}
+                  onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                />
+              </div>
+            )
+            : <h1 className="text-[15px] font-semibold">{title}</h1>}
           {isSessions && (
             <div className="flex rounded-[7px] bg-panel p-[3px]">
               {(["board", "list"] as const).map((v) => (
@@ -158,7 +461,7 @@ export function App() {
               onClick={() => setGroup(group === "none" ? "objective" : "none")}
               className="flex items-center gap-1 rounded-md border border-line px-2 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
             >
-              Group · {group === "none" ? "None" : "Objective"} <span className="text-[8px]">▾</span>
+              Group · {group === "none" ? "None" : "Project"} <span className="text-[8px]">▾</span>
             </button>
           )}
           <div className="flex-1" />
@@ -168,14 +471,54 @@ export function App() {
           >
             Sync now
           </button>
-          {view !== "explore" && (
+          {view === "page" && currentPage && (
             <button
-              onClick={() => setModal(isSessions ? "session" : "objective")}
-              className="flex items-center gap-1.5 rounded-md bg-copper px-3 py-1.5 text-[12.5px] font-medium text-copper-ink hover:brightness-110"
+              onClick={() =>
+                confirmDeletePage(currentPage).then((ok) => {
+                  if (ok) {
+                    setView("board");
+                    setPageId(null);
+                    refresh();
+                  }
+                })}
+              className="rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-blocked"
             >
-              <span>+</span> {isSessions ? "New session" : "New objective"}
+              Delete
             </button>
           )}
+          {view === "database" && currentDb && (
+            <button
+              onClick={async () => {
+                if (await appConfirm(`Delete database "${currentDb.name}" and all its rows?`)) {
+                  deleteUdb(currentDb.id).then(() => {
+                    setView("board");
+                    setDbId(null);
+                    refresh();
+                  });
+                }
+              }}
+              className="rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-blocked"
+            >
+              Delete
+            </button>
+          )}
+          {view === "database"
+            ? (
+              <button
+                onClick={() => dbId && createUdbRow(dbId).then(() => setUdbEpoch((e) => e + 1))}
+                className="flex items-center gap-1.5 rounded-md bg-copper px-3 py-1.5 text-[12.5px] font-medium text-copper-ink hover:brightness-110"
+              >
+                <span>+</span> New row
+              </button>
+            )
+            : isSessions && (
+              <button
+                onClick={() => setModal("session")}
+                className="flex items-center gap-1.5 rounded-md bg-copper px-3 py-1.5 text-[12.5px] font-medium text-copper-ink hover:brightness-110"
+              >
+                <span>+</span> New session
+              </button>
+            )}
         </header>
         {!board
           ? <p className="p-6 text-ink-muted">Loading…</p>
@@ -183,8 +526,24 @@ export function App() {
           ? <Board board={board} group={group} onMove={onMove} onOpen={setOpenId} />
           : view === "list"
           ? <List board={board} onOpen={setOpenId} />
-          : view === "objectives"
-          ? <Objectives board={board} onOpen={setOpenId} onSaved={refresh} />
+          : view === "page"
+          ? (pageId
+            ? (
+              <Page
+                key={pageId}
+                pageId={pageId}
+                board={board}
+                udbs={udbs}
+                onOpenPage={openPage}
+                onOpenSession={setOpenId}
+                onChanged={refresh}
+              />
+            )
+            : <p className="p-6 text-ink-muted">No page selected.</p>)
+          : view === "database"
+          ? (dbId
+            ? <DatabaseView key={dbId} dbId={dbId} epoch={udbEpoch} udbs={udbs} />
+            : <p className="p-6 text-ink-muted">No database selected.</p>)
           : <Explore key={exploreEpoch} board={board} onOpenSettings={() => setModal("settings")} />}
       </main>
       {openId && board && (() => {
@@ -205,11 +564,23 @@ export function App() {
         <NewSessionModal board={board} onClose={() => setModal(null)} onCreate={createSession} />
       )}
       {modal === "objective" && board && (
-        <NewObjectiveModal board={board} onClose={() => setModal(null)} onCreate={createObjective} />
+        <NewObjectiveModal board={board} onClose={() => setModal(null)} onCreate={createProject} />
+      )}
+      {modal === "udb" && (
+        <NewUdbModal
+          onClose={() => setModal(null)}
+          onCreate={(name) =>
+            createUdb(name).then((r) => {
+              setModal(null);
+              refresh();
+              openDb(r.id);
+            })}
+        />
       )}
       {modal === "settings" && (
         <SettingsModal onClose={() => setModal(null)} onSaved={() => setExploreEpoch((e) => e + 1)} />
       )}
+      <ConfirmHost />
     </div>
   );
 }

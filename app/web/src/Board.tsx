@@ -136,7 +136,7 @@ export function Board(
       })),
       {
         key: "none",
-        title: "— No objective",
+        title: "— No project",
         sessions: board.sessions.filter((s) => !s.objective_id),
       },
     ];

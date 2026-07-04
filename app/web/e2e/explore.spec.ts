@@ -16,7 +16,8 @@ test("published report renders in the viewer", async ({ page, request }) => {
     },
   });
   await page.goto("/?view=explore");
-  await expect(page.getByText("e2e report")).toBeVisible();
+  // the title appears in both the list and the viewer header — assert the list entry
+  await expect(page.getByRole("button", { name: /e2e report/ })).toBeVisible();
   // rendered inside the sandboxed iframe
   await expect(page.frameLocator("iframe").getByText("hello from e2e")).toBeVisible();
 });

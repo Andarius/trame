@@ -12,7 +12,7 @@ import {
   patchSettings,
   type ReportMeta,
 } from "./api";
-import { ClientChip, timeAgo } from "./ui";
+import { appConfirm, ClientChip, timeAgo } from "./ui";
 
 type Selected = {
   kind: "db" | "file";
@@ -64,10 +64,10 @@ export function Explore(
     setStarred(next);
     patchSettings({ starredPaths: next });
   };
-  const ignoreFolder = (dir: string) => {
+  const ignoreFolder = async (dir: string) => {
     // warn only on first use — afterwards ⊘ applies immediately (undo lives in ⚙ Settings)
     if (!localStorage.getItem("trame:ignore-warned")) {
-      if (!confirm(`Ignore ${dir}?\n\nIgnored folders can be restored in ⚙ Settings.\n(This warning is only shown once.)`)) {
+      if (!(await appConfirm(`Ignore ${dir}?\n\nIgnored folders can be restored in ⚙ Settings.\n(This warning is only shown once.)`, "Ignore"))) {
         return;
       }
       localStorage.setItem("trame:ignore-warned", "1");
@@ -162,9 +162,9 @@ export function Explore(
   };
 
   // delete the selected FILE (button or Suppr key) — trash when available, neighbor selected after
-  const deleteCurrent = () => {
+  const deleteCurrent = async () => {
     if (!selected || selected.kind !== "file" || !selected.path) return;
-    if (!confirm(`Delete ${selected.title}?\n(moved to the system trash when available)`)) return;
+    if (!(await appConfirm(`Delete ${selected.title}?\n(moved to the system trash when available)`))) return;
     const list = flatRef.current;
     const idx = list.findIndex((f) => f.key === selKeyRef.current);
     const neighbor = list[idx + 1] ?? list[idx - 1] ?? null;
