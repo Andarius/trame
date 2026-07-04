@@ -21,7 +21,7 @@ test("project page shows story, blocks and sessions", async ({ page, request }) 
     data: { title: "Pages Project", story: "the pages e2e story", client: "E2E Client" },
   });
   await page.goto("/");
-  await page.getByRole("button", { name: /Pages Project/ }).first().click();
+  await page.locator("aside").getByRole("button", { name: /Pages Project/ }).first().click();
   await expect(page.getByPlaceholder(/add the story/)).toHaveValue("the pages e2e story");
   await expect(page.getByText("no sessions yet")).toBeVisible();
 
@@ -30,13 +30,13 @@ test("project page shows story, blocks and sessions", async ({ page, request }) 
   await editor.fill("first block of the page body");
   await page.waitForTimeout(1200); // > the 800ms autosave debounce
   await page.reload();
-  await page.getByRole("button", { name: /Pages Project/ }).first().click();
+  await page.locator("aside").getByRole("button", { name: /Pages Project/ }).first().click();
   await expect(page.getByPlaceholder(/type \/ for blocks/)).toHaveValue("first block of the page body");
 });
 
 test("sub-page nests under the project", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: /Pages Project/ }).first().click();
+  await page.locator("aside").getByRole("button", { name: /Pages Project/ }).first().click();
   await page.getByRole("button", { name: /New sub-page/ }).click();
   // wait for the NEW page's view: the parent's title input has the same placeholder,
   // so filling before the view swaps would rename the parent instead (real race)
@@ -53,14 +53,14 @@ test("session linked to the project shows up with progress", async ({ page, requ
     data: { title: "pages e2e session", objective: "Pages Project", no_event: true },
   });
   await page.goto("/");
-  await page.getByRole("button", { name: /Pages Project/ }).first().click();
+  await page.locator("aside").getByRole("button", { name: /Pages Project/ }).first().click();
   await expect(page.getByText("pages e2e session").first()).toBeVisible();
   await expect(page.getByText("0 / 1 done").first()).toBeVisible();
 });
 
 test("deleting the project removes the subtree from the sidebar", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: /Pages Project/ }).first().click();
+  await page.locator("aside").getByRole("button", { name: /Pages Project/ }).first().click();
   await page.getByRole("button", { name: "Delete", exact: true }).first().click();
   await page.getByRole("button", { name: "Delete", exact: true }).last().click(); // confirm dialog
   // scope to the sidebar: the board card's project chip also matches /Pages Project/,
