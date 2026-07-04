@@ -15,6 +15,11 @@ up: db web-build
 db:
     docker compose -f mini/docker-compose.yml up -d
 
+# Deploy the Postgres hub to the mini (~/Apps/tracker) and start it
+[group('infra')]
+db-deploy host='linux-mini':
+    mini/deploy.sh {{ host }}
+
 # Stop the Postgres hub
 [group('infra')]
 db-down:
