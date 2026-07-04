@@ -12,20 +12,22 @@ Everything is Postgres, so the SQL is identical on the laptop and the mini.
    ├─ local PGlite  ◀── read/write offline ──▶  local PGlite
    └─ sync.ts  ─┐                            ┌─ sync.ts
                push/pull (LWW by updated_at) │
-                └────────▶  Postgres @ mini  ◀┘   (source of truth, Docker + Tailscale)
+                └────────▶  Postgres @ mini  ◀┘   (source of truth, Docker, home LAN)
  /project:track ─▶ mini Postgres if online, else local outbox.jsonl (app drains on launch)
 ```
 
 ## Requirements
 - **Deno 2.9+** on each laptop (for `deno desktop`). Not installed here yet: `curl -fsSL https://deno.land/install.sh | sh`.
 - **Docker** on the mini (already present).
-- **Tailscale** so laptops reach the mini's Postgres.
+- Laptops reach the mini's Postgres over the **home LAN** (the mini has no Tailscale;
+  the hub binds to its LAN IP — install Tailscale there if you want sync away from home).
 - Node/npm is pulled in only to build the Vite frontend (via `deno task web:build`).
 
 ## Layout
 ```
 db/schema.sql              shared schema (mini Postgres AND local PGlite)
 mini/docker-compose.yml    Postgres hub on the mini
+mini/deploy.sh             deploy the hub to the mini (~/Apps/tracker) — `just db-deploy`
 app/                       Deno-desktop app
   main.ts                  window + in-process HTTP (serves UI + /api), startup sync loop
   db.ts                    local PGlite + queries + outbox drain
@@ -40,16 +42,15 @@ commands/project/track.md  rewired slash command (copy to ~/.claude/… when liv
 
 ### 1. Mini (the hub)
 ```bash
-cd mini
-echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)" > .env   # keep this secret
-docker compose up -d          # schema auto-applies on first boot
+just db-deploy       # ssh: copies compose+schema to ~/Apps/tracker, creates .env, starts it
 ```
-Bind the port to your Tailscale IP or a Traefik TCP route — do **not** expose to 0.0.0.0.
+First run generates the password and binds to the mini's LAN IP (never 0.0.0.0); the
+script prints the `TRACKER_REMOTE_PG` URL to use on laptops. Idempotent — rerun to redeploy.
 
 ### 2. Each laptop — env (add to your shell profile, or the project `.env` for `just`)
 ```bash
 export TRACKER_NODE_ID="mbp-14"                                   # unique per machine
-export TRACKER_REMOTE_PG="postgres://tracker:PASSWORD@linux-mini:5433/tracker"
+export TRACKER_REMOTE_PG="postgres://tracker:PASSWORD@192.168.1.152:5433/tracker"  # printed by db-deploy
 # folders scanned (depth 4) for *.html exploration reports, shown+searchable in Explore
 export TRACKER_REPORT_PATHS="$HOME/Projects:$HOME/LLMS"
 ```
