@@ -29,6 +29,7 @@ import {
   upsertSession,
 } from "./db.ts";
 import { syncOnce } from "./sync.ts";
+import { applyUpdate, checkUpdate, VERSION } from "./update.ts";
 import { attachUdbToPage, createPage, deletePage, getPage, listPages, movePage, updatePage } from "./pages.ts";
 import {
   createProperty,
@@ -158,7 +159,15 @@ async function handler(req: Request): Promise<Response> {
 
   if (pathname === "/api/board") return json(await getBoard());
   if (pathname === "/api/status") {
-    return json({ nodeId: NODE_ID, remote: Boolean(REMOTE_PG), lastSync, dataDir: DATA_DIR, desktop: DESKTOP });
+    return json({ nodeId: NODE_ID, remote: Boolean(REMOTE_PG), lastSync, dataDir: DATA_DIR, desktop: DESKTOP, version: VERSION });
+  }
+  if (pathname === "/api/update" && req.method === "POST") return json(await applyUpdate());
+  if (pathname === "/api/update") {
+    // opt-out for sandboxes/CI: no surprise calls to api.github.com
+    if (Deno.env.get("TRACKER_UPDATE_CHECK") === "0") {
+      return json({ current: VERSION, latest: null, available: false, releaseUrl: "", canSelfUpdate: false });
+    }
+    return json(await checkUpdate(url.searchParams.has("force")));
   }
   if (pathname === "/api/sync" && req.method === "POST") return json(await runSync());
   if (pathname === "/api/sessions" && req.method === "POST") {

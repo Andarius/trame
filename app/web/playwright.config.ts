@@ -29,6 +29,7 @@ export default defineConfig({
       TRACKER_SETTINGS_FILE: `${E2E_DIR}/settings.json`,
       TRACKER_OUTBOX: `${E2E_DIR}/outbox.jsonl`,
       TRACKER_NODE_ID: "e2e",
+      TRACKER_UPDATE_CHECK: "0",
     },
   },
 });
