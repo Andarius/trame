@@ -24,6 +24,15 @@ async function openPg(): Promise<PGlite> {
 export function db(): Promise<PGlite> {
   if (!_pg) {
     _pg = (async () => {
+      // PGlite data dirs are not portable across major PG versions (0.5.x = PG 18).
+      // Check BEFORE any open/recovery so an old dir is never opened in place or
+      // mistaken for a half-initialized one and wiped.
+      const pgVersion = await Deno.readTextFile(`${DATA_DIR}/PG_VERSION`).then((s) => s.trim()).catch(() => null);
+      if (pgVersion && pgVersion !== "18") {
+        throw new Error(
+          `data dir ${DATA_DIR} is Postgres ${pgVersion} format — run \`deno task migrate:pg18\` (from app/) first`,
+        );
+      }
       // PGlite's mkdir isn't recursive — ensure the parent exists first.
       await Deno.mkdir(DATA_DIR.replace(/\/[^/]+\/?$/, ""), { recursive: true }).catch(() => {});
       try {
@@ -48,7 +57,8 @@ export function db(): Promise<PGlite> {
 export async function getBoard() {
   const pg = await db();
   const clients = (await pg.query(`select * from clients where not deleted order by name`)).rows;
-  const objectives = (await pg.query(`select * from objectives where not deleted order by title`)).rows;
+  // "objectives" are project pages since the pages merge — same shape, same ids
+  const objectives = (await pg.query(`select * from pages where kind='project' and not deleted order by title`)).rows;
   const sessions = (await pg.query(`select * from sessions where not deleted order by last_touched desc`)).rows;
   return { clients, objectives, sessions };
 }
@@ -73,12 +83,13 @@ export async function resolveClient(name: string, color?: string): Promise<strin
 
 export async function resolveObjective(title: string, clientId: string | null): Promise<string> {
   const pg = await db();
-  const hit = (await pg.query(`select id from objectives where title=$1 and not deleted limit 1`, [title])).rows[0] as
-    | { id: string }
-    | undefined;
+  const hit = (await pg.query(
+    `select id from pages where kind='project' and title=$1 and not deleted limit 1`,
+    [title],
+  )).rows[0] as { id: string } | undefined;
   if (hit) return hit.id;
   const row = (await pg.query(
-    `insert into objectives (title, client_id, origin) values ($1,$2,$3) returning id`,
+    `insert into pages (kind, title, client_id, origin) values ('project',$1,$2,$3) returning id`,
     [title, clientId, NODE_ID],
   )).rows[0] as { id: string };
   return row.id;
@@ -88,7 +99,7 @@ export async function createObjective(o: { title: string; story?: string; client
   const pg = await db();
   const clientId = o.client ? await resolveClient(o.client) : null;
   const row = (await pg.query(
-    `insert into objectives (title, story, client_id, origin) values ($1,$2,$3,$4) returning id`,
+    `insert into pages (kind, title, story, client_id, origin) values ('project',$1,$2,$3,$4) returning id`,
     [o.title, o.story ?? "", clientId, NODE_ID],
   )).rows[0] as { id: string };
   return row.id;
@@ -98,9 +109,14 @@ export async function upsertSession(s: Record<string, unknown>): Promise<string>
   const pg = await db();
   // Accept human names (from the CLI/MCP) and resolve them to ids.
   if (typeof s.client === "string" && !s.client_id) s.client_id = await resolveClient(s.client);
+  if (typeof s.page === "string" && !s.page_id) s.page_id = await resolveObjective(s.page, (s.client_id as string) ?? null);
   if (typeof s.objective === "string" && !s.objective_id) {
     s.objective_id = await resolveObjective(s.objective, (s.client_id as string) ?? null);
   }
+  // objective_id ↔ page_id are the same id since the pages merge; keep both filled
+  // until the frontend is fully off objective_id.
+  s.page_id ??= s.objective_id;
+  s.objective_id ??= s.page_id;
   // Upsert by (repo_path, branch) among open sessions when no id is given.
   if (!s.id && s.repo_path) {
     const hit = (await pg.query(
@@ -113,12 +129,12 @@ export async function upsertSession(s: Record<string, unknown>): Promise<string>
   const id = (s.id as string) ?? crypto.randomUUID();
   await pg.query(
     `insert into sessions
-       (id,title,status,client_id,objective_id,repo_path,branch,next_step,pr_url,summary,last_touched,origin,updated_at)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),$11,now())
+       (id,title,status,client_id,objective_id,page_id,repo_path,branch,next_step,pr_url,summary,last_touched,origin,updated_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now(),$12,now())
      on conflict (id) do update set
-       title=$2,status=$3,client_id=$4,objective_id=$5,repo_path=$6,branch=$7,
-       next_step=$8,pr_url=$9,summary=$10,last_touched=now(),origin=$11,updated_at=now()`,
-    [id, s.title, s.status ?? "active", s.client_id ?? null, s.objective_id ?? null,
+       title=$2,status=$3,client_id=$4,objective_id=$5,page_id=$6,repo_path=$7,branch=$8,
+       next_step=$9,pr_url=$10,summary=$11,last_touched=now(),origin=$12,updated_at=now()`,
+    [id, s.title, s.status ?? "active", s.client_id ?? null, s.objective_id ?? null, s.page_id ?? null,
       s.repo_path ?? null, s.branch ?? null, s.next_step ?? null, s.pr_url ?? null, s.summary ?? "", NODE_ID],
   );
   return id;
@@ -154,7 +170,7 @@ export async function addEvent(sessionId: string, summary: string, kind = "log")
 export async function updateObjective(o: { id: string; title?: string; story?: string; status?: string }): Promise<void> {
   const pg = await db();
   await pg.query(
-    `update objectives set
+    `update pages set
        title = coalesce($2, title),
        story = coalesce($3, story),
        status = coalesce($4, status),
@@ -181,7 +197,7 @@ export async function createReport(r: { title: string; html: string; client?: st
   const clientId = r.client ? await resolveClient(r.client) : null;
   const objectiveId = r.objective ? await resolveObjective(r.objective, clientId) : null;
   const row = (await pg.query(
-    `insert into reports (title, html, client_id, objective_id, origin) values ($1,$2,$3,$4,$5) returning id`,
+    `insert into reports (title, html, client_id, objective_id, page_id, origin) values ($1,$2,$3,$4,$4,$5) returning id`,
     [r.title, r.html, clientId, objectiveId, NODE_ID],
   )).rows[0] as { id: string };
   return row.id;

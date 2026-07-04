@@ -1,6 +1,7 @@
 {
   "name": "trame",
   "version": "0.1.0",
+  "exports": "./main.ts",
   "unstable": ["raw-imports"],
   "desktop": {
     "app": {
@@ -21,11 +22,12 @@
     "bundle:mac": "TRACKER_DESKTOP=1 deno desktop -A --output ../dist/macos/Trame.dmg main.ts",
     "serve": "deno run -A main.ts",
     "sync": "deno run -A sync.ts once",
+    "migrate:pg18": "deno run -A migrate-pg18.ts",
     "web:dev": "cd web && npm install && npm run dev",
     "web:build": "cd web && npm install && npm run build && cd .. && deno run -A ../scripts/gen-embed.ts"
   },
   "imports": {
-    "@electric-sql/pglite": "npm:@electric-sql/pglite@^0.2",
+    "@electric-sql/pglite": "npm:@electric-sql/pglite@0.5.3",
     "postgres": "npm:postgres@^3.4"
   },
   "compilerOptions": {
