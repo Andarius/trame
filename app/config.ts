@@ -15,6 +15,9 @@ export const APP_ROOT = Deno.env.get("TRACKER_APP_ROOT") ?? Deno.cwd();
 //   postgres://tracker:PASS@hub:5433/tracker
 export const REMOTE_PG = Deno.env.get("TRACKER_REMOTE_PG") ?? "";
 
+// Client TLS material for the hub (ca.crt, client.crt, client.key) — fetched by `just db-cert`.
+export const TLS_DIR = Deno.env.get("TRACKER_TLS_DIR") ?? `${dataHome}/session-tracker/certs`;
+
 export const DATA_DIR = Deno.env.get("TRACKER_DATA_DIR") ?? `${dataHome}/session-tracker/pglite`;
 export const OUTBOX = Deno.env.get("TRACKER_OUTBOX") ?? `${dataHome}/session-tracker/outbox.jsonl`;
 // Written by the app on startup so the CLI/MCP can find the (possibly random) port.
@@ -26,6 +29,8 @@ export const WINDOW_FILE = `${dataHome}/session-tracker/window.json`;
 export const SETTINGS_FILE = Deno.env.get("TRACKER_SETTINGS_FILE") ??
   `${dataHome}/session-tracker/settings.json`;
 export const HOME_DIR = home;
+// Claude Code transcript store (one dir per project cwd), overridable for test fixtures.
+export const CLAUDE_DIR = Deno.env.get("TRACKER_CLAUDE_DIR") ?? `${home}/.claude/projects`;
 // Colon-separated directories scanned for *.html exploration reports (Explore view).
 export const REPORT_PATHS = (Deno.env.get("TRACKER_REPORT_PATHS") ?? "")
   .split(":")

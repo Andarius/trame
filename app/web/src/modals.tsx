@@ -1,6 +1,19 @@
 import { type ReactNode, useEffect, useState } from "react";
-import { applyUpdate, type BoardData, getSettings, getUpdate, openInBrowser, patchSettings, type Status, type UpdateInfo } from "./api";
-import { Select, STATUS, StatusDot } from "./ui";
+import {
+  applyUpdate,
+  type BoardData,
+  type ClaudeImportItem,
+  type ClaudeScan,
+  getSettings,
+  getUpdate,
+  openInBrowser,
+  patchSettings,
+  runClaudeImport,
+  scanClaudeImport,
+  type Status,
+  type UpdateInfo,
+} from "./api";
+import { Select, STATUS, StatusDot, timeAgo } from "./ui";
 
 function Modal(
   { width = 560, onClose, onSubmit, children }: {
@@ -421,6 +434,185 @@ export function NewObjectiveModal(
         onClose={onClose}
         onSubmit={submit}
         disabled={!title.trim()}
+      />
+    </Modal>
+  );
+}
+
+const AUTO_PROJECT = "__auto__";
+
+function Check({ on, onClick, disabled }: { on: boolean; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      className="flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] transition-colors disabled:opacity-30"
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <span
+        className={`flex h-full w-full items-center justify-center rounded ${
+          on ? "border-copper bg-copper text-copper-ink" : "border border-chipline text-transparent"
+        }`}
+      >
+        ✓
+      </span>
+    </button>
+  );
+}
+
+export function ImportClaudeModal(
+  { board, onClose, onDone }: { board: BoardData; onClose: () => void; onDone: (imported: number) => void },
+) {
+  const [days, setDays] = useState(7);
+  const [scan, setScan] = useState<ClaudeScan | null>(null);
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  // per-repo overrides; unset = suggestion
+  const [clients, setClients] = useState<Record<string, string>>({});
+  const [projects, setProjects] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setScan(null);
+    scanClaudeImport(days).then((s) => {
+      if (!alive) return;
+      setScan(s);
+      setChecked(new Set(s.groups.flatMap((g) => g.sessions.filter((x) => !x.alreadyImported).map((x) => x.claudeId))));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [days]);
+
+  const toggle = (id: string) =>
+    setChecked((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  const submit = async () => {
+    if (!scan || !checked.size || busy) return;
+    setBusy(true);
+    const items: ClaudeImportItem[] = scan.groups.flatMap((g) => {
+      const project = projects[g.repoPath] ?? AUTO_PROJECT;
+      return g.sessions.filter((s) => checked.has(s.claudeId)).map((s) => ({
+        claudeId: s.claudeId,
+        title: s.title,
+        repoPath: s.repoPath,
+        branch: s.branch,
+        client: clients[g.repoPath] ?? g.suggestedClient,
+        project: project === AUTO_PROJECT ? g.repoName : project || null,
+        status: s.suggestedStatus,
+        lastActive: s.lastActive,
+      }));
+    });
+    try {
+      const res = await runClaudeImport(items);
+      onDone(res.imported);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const imported = scan?.groups.flatMap((g) => g.sessions).filter((s) => s.alreadyImported).length ?? 0;
+
+  return (
+    <Modal width={720} onClose={onClose} onSubmit={submit}>
+      <div className={label}>IMPORT FROM CLAUDE CODE</div>
+      <div className="flex items-center gap-1.5">
+        {[7, 14, 30].map((d) => (
+          <button
+            key={d}
+            type="button"
+            className={`rounded-md border px-2 py-1 text-[11.5px] ${
+              days === d ? "border-copper text-copper" : "border-chipline text-ink-muted hover:text-ink-soft"
+            }`}
+            onClick={() => setDays(d)}
+          >
+            {d}d
+          </button>
+        ))}
+        <span className="ml-auto text-[11px] text-ink-muted">
+          {scan ? `${scan.total} found${imported ? ` · ${imported} already imported` : ""}` : "scanning…"}
+        </span>
+      </div>
+      <div className="flex min-h-[120px] flex-col gap-3 overflow-y-auto">
+        {scan && !scan.groups.length && (
+          <div className="py-8 text-center text-[12.5px] text-ink-muted">
+            No Claude Code sessions in the last {days} days.
+          </div>
+        )}
+        {scan?.groups.map((g) => {
+          const importable = g.sessions.filter((s) => !s.alreadyImported);
+          const allOn = importable.length > 0 && importable.every((s) => checked.has(s.claudeId));
+          return (
+            <div key={g.repoPath} className="flex flex-col gap-1 rounded-lg border border-line bg-[#101219] p-2.5">
+              <div className="flex items-center gap-2">
+                <Check
+                  on={allOn}
+                  disabled={!importable.length}
+                  onClick={() =>
+                    setChecked((prev) => {
+                      const next = new Set(prev);
+                      for (const s of importable) allOn ? next.delete(s.claudeId) : next.add(s.claudeId);
+                      return next;
+                    })}
+                />
+                <span className="text-[12.5px] font-semibold text-ink">{g.repoName}</span>
+                <span className="min-w-0 flex-1 truncate text-[10.5px] text-ink-muted/70">{g.repoPath}</span>
+                <Select
+                  value={clients[g.repoPath] ?? g.suggestedClient}
+                  className={pill}
+                  options={[...new Set([g.suggestedClient, ...board.clients.map((c) => c.name)])]
+                    .map((c) => ({ value: c, label: c }))}
+                  onChange={(v) => setClients((prev) => ({ ...prev, [g.repoPath]: v }))}
+                />
+                <Select
+                  value={projects[g.repoPath] ?? AUTO_PROJECT}
+                  className={pill}
+                  options={[
+                    { value: AUTO_PROJECT, label: `◎ ${g.repoName} (create)` },
+                    ...board.objectives.map((o) => ({ value: o.title, label: `◎ ${o.title}` })),
+                    { value: "", label: "no project" },
+                  ]}
+                  onChange={(v) => setProjects((prev) => ({ ...prev, [g.repoPath]: v }))}
+                />
+              </div>
+              {g.sessions.map((s) => (
+                <div
+                  key={s.claudeId}
+                  className={`flex items-center gap-2 pl-6 text-[12px] ${
+                    s.alreadyImported ? "opacity-40" : ""
+                  }`}
+                >
+                  <Check
+                    on={checked.has(s.claudeId)}
+                    disabled={s.alreadyImported}
+                    onClick={() => toggle(s.claudeId)}
+                  />
+                  <span className="min-w-0 flex-1 truncate text-ink-soft" title={s.title}>{s.title}</span>
+                  {s.alreadyImported && (
+                    <span className="rounded border border-chipline px-1.5 py-px text-[9.5px] text-ink-muted">
+                      imported
+                    </span>
+                  )}
+                  {s.branch && <span className="shrink-0 text-[10.5px] text-ink-muted">⎇ {s.branch}</span>}
+                  <span className="w-14 shrink-0 text-right text-[10.5px] text-ink-muted/80">
+                    {timeAgo(s.lastActive)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+      <Footer
+        hint="from ~/.claude/projects — existing cards are never overwritten"
+        action={busy ? "Importing…" : `Import ${checked.size} session${checked.size === 1 ? "" : "s"}`}
+        onClose={onClose}
+        onSubmit={submit}
+        disabled={busy || !checked.size}
       />
     </Modal>
   );
