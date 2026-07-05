@@ -9,14 +9,30 @@ services:
       POSTGRES_DB: tracker
       POSTGRES_USER: tracker
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    # mTLS: gen-certs.sh must have populated ./certs before first start (deploy.sh / `just db` do).
+    command:
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/etc/tracker-tls/server.crt
+      - -c
+      - ssl_key_file=/etc/tracker-tls/server.key
+      - -c
+      - ssl_ca_file=/etc/tracker-tls/ca.crt
+      - -c
+      - hba_file=/etc/tracker-tls/pg_hba.conf
     ports:
       # TRACKER_BIND: the hub's LAN IP (set in .env by deploy.sh). Never 0.0.0.0.
       - "${TRACKER_BIND:-127.0.0.1}:5433:5432"
     volumes:
-      - tracker-db-data:/var/lib/postgresql/data
+      # postgres:18 moved PGDATA to a version subdir — mount the parent, not .../data
+      - tracker-db-data:/var/lib/postgresql
       # Schema is applied once on first boot of an empty data dir.
       # TRACKER_SCHEMA: deploy.sh sets ./schema.sql (flat dir on the hub); default = repo layout.
       - ${TRACKER_SCHEMA:-../db/schema.sql}:/docker-entrypoint-initdb.d/10-schema.sql:ro
+      # TLS material (gen-certs.sh) + hba. Relative to this file's dir: works in-repo and deployed.
+      - ./certs:/etc/tracker-tls:ro
+      - ./pg_hba.conf:/etc/tracker-tls/pg_hba.conf:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U tracker -d tracker"]
       interval: 10s
