@@ -440,6 +440,7 @@ export function NewObjectiveModal(
 }
 
 const AUTO_PROJECT = "__auto__";
+const NEW_PROJECT = "__new__";
 
 function Check({ on, onClick, disabled }: { on: boolean; onClick: () => void; disabled?: boolean }) {
   return (
@@ -469,6 +470,7 @@ export function ImportClaudeModal(
   // per-repo overrides; unset = suggestion
   const [clients, setClients] = useState<Record<string, string>>({});
   const [projects, setProjects] = useState<Record<string, string>>({});
+  const [newProjects, setNewProjects] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -495,14 +497,19 @@ export function ImportClaudeModal(
     if (!scan || !checked.size || busy) return;
     setBusy(true);
     const items: ClaudeImportItem[] = scan.groups.flatMap((g) => {
-      const project = projects[g.repoPath] ?? AUTO_PROJECT;
+      const picked = projects[g.repoPath] ?? AUTO_PROJECT;
+      const project = picked === AUTO_PROJECT
+        ? g.repoName
+        : picked === NEW_PROJECT
+        ? newProjects[g.repoPath]?.trim() || g.repoName
+        : picked || null;
       return g.sessions.filter((s) => checked.has(s.claudeId)).map((s) => ({
         claudeId: s.claudeId,
         title: s.title,
         repoPath: s.repoPath,
         branch: s.branch,
         client: clients[g.repoPath] ?? g.suggestedClient,
-        project: project === AUTO_PROJECT ? g.repoName : project || null,
+        project,
         status: s.suggestedStatus,
         lastActive: s.lastActive,
       }));
@@ -574,11 +581,21 @@ export function ImportClaudeModal(
                   options={[
                     { value: AUTO_PROJECT, label: `◎ ${g.repoName} (create)` },
                     ...board.objectives.map((o) => ({ value: o.title, label: `◎ ${o.title}` })),
+                    { value: NEW_PROJECT, label: "＋ new project…" },
                     { value: "", label: "no project" },
                   ]}
                   onChange={(v) => setProjects((prev) => ({ ...prev, [g.repoPath]: v }))}
                 />
               </div>
+              {(projects[g.repoPath] ?? AUTO_PROJECT) === NEW_PROJECT && (
+                <input
+                  autoFocus
+                  className={`${pill} ml-6 w-auto`}
+                  placeholder="new project title (created on import)"
+                  value={newProjects[g.repoPath] ?? ""}
+                  onChange={(e) => setNewProjects((prev) => ({ ...prev, [g.repoPath]: e.target.value }))}
+                />
+              )}
               {g.sessions.map((s) => (
                 <div
                   key={s.claudeId}

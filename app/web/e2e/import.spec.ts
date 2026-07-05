@@ -29,6 +29,10 @@ test("scan previews sessions, filters by window, hides subagents and tmp dirs", 
   await page.getByRole("button", { name: "30d", exact: true }).click();
   await expect(page.getByText(/2 found/)).toBeVisible();
   await expect(page.getByText("alpha — untitled session")).toBeVisible();
+  // the project picker offers a free-text "new project" choice
+  await page.getByRole("button", { name: /alpha \(create\)/ }).click();
+  await page.getByRole("button", { name: /new project…/ }).click();
+  await expect(page.getByPlaceholder("new project title (created on import)")).toBeVisible();
   await page.keyboard.press("Escape");
 });
 
