@@ -29,7 +29,7 @@ import {
   upsertSession,
 } from "./db.ts";
 import { syncOnce } from "./sync.ts";
-import { applyUpdate, autoUpdateTick, checkUpdate, VERSION } from "./update.ts";
+import { applyUpdate, checkUpdate, VERSION } from "./update.ts";
 import { attachUdbToPage, createPage, deletePage, getPage, listPages, movePage, updatePage } from "./pages.ts";
 import {
   createProperty,
@@ -209,7 +209,6 @@ async function handler(req: Request): Promise<Response> {
       ignorePaths: Array.isArray(body.ignorePaths) ? body.ignorePaths : undefined,
       starredPaths: Array.isArray(body.starredPaths) ? body.starredPaths : undefined,
       htmlFilter: body.htmlFilter === "smart" || body.htmlFilter === "all" ? body.htmlFilter : undefined,
-      autoUpdate: typeof body.autoUpdate === "boolean" ? body.autoUpdate : undefined,
     });
     return json(await getReportPaths());
   }
@@ -339,14 +338,6 @@ try {
 await drainOutbox();
 runSync().catch(console.error);
 setInterval(() => runSync().catch(console.error), SYNC_INTERVAL_MS);
-
-// auto-update (AppImage): check shortly after launch, then every 6h; the toggle
-// lives in the device-local settings. Sandboxes opt out via TRACKER_UPDATE_CHECK=0.
-if (Deno.env.get("TRACKER_UPDATE_CHECK") !== "0") {
-  const enabled = () => getReportPaths().then((c) => c.autoUpdate);
-  setTimeout(() => autoUpdateTick(enabled), 30_000);
-  setInterval(() => autoUpdateTick(enabled), 6 * 60 * 60 * 1000);
-}
 
 // Under `deno desktop` (TRACKER_DESKTOP=1) don't pin a port — the framework binds the
 // address the webview navigates to. Headless `serve` uses a fixed port so the browser

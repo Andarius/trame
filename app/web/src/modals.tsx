@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useState } from "react";
-import { type BoardData, getSettings, patchSettings, type Status } from "./api";
+import { applyUpdate, type BoardData, getSettings, getUpdate, openInBrowser, patchSettings, type Status, type UpdateInfo } from "./api";
 import { Select, STATUS, StatusDot } from "./ui";
 
 function Modal(
@@ -210,24 +210,39 @@ export function SettingsModal(
   const [paths, setPaths] = useState<string[]>([]);
   const [ignore, setIgnore] = useState<string[]>([]);
   const [source, setSource] = useState<"settings" | "env">("settings");
-  const [autoUpdate, setAutoUpdate] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [exploreOpen, setExploreOpen] = useState(false);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [updState, setUpdState] = useState<"idle" | "busy" | "done">("idle");
 
   useEffect(() => {
     getSettings().then((s) => {
       setPaths(s.paths.length ? s.paths : [""]);
       setIgnore(s.ignore ?? []);
       setSource(s.source);
-      setAutoUpdate(s.autoUpdate === true);
       setLoaded(true);
     }).catch(() => setLoaded(true));
+    getUpdate().then((u) => {
+      setUpdate(u);
+      if (u.applied) setUpdState("done");
+    }).catch(() => {});
   }, []);
+
+  const runUpdate = () => {
+    if (!update) return;
+    if (!update.canSelfUpdate) {
+      openInBrowser(update.releaseUrl);
+      return;
+    }
+    if (updState !== "idle") return;
+    setUpdState("busy");
+    applyUpdate().then((r) => setUpdState(r.ok ? "done" : "idle")).catch(() => setUpdState("idle"));
+  };
 
   const submit = () =>
     patchSettings({
       reportPaths: paths.map((p) => p.trim()).filter(Boolean),
       ignorePaths: ignore.map((p) => p.trim()).filter(Boolean),
-      autoUpdate,
     }).then(() => {
       onSaved();
       onClose();
@@ -236,50 +251,87 @@ export function SettingsModal(
   return (
     <Modal width={620} onClose={onClose} onSubmit={submit}>
       <div className={label}>SETTINGS</div>
-      <div className="text-base font-semibold">Explore — report folders</div>
-      <p className="m-0 text-[11.5px] leading-relaxed text-ink-muted">
-        Folders scanned (4 levels deep) for <code>.html</code> exploration reports. Searchable in
-        the Explore view alongside published reports.
-        {source === "env" && " Currently coming from TRACKER_REPORT_PATHS — saving here takes over."}
-      </p>
-      {loaded && (
-        <PathList
-          items={paths}
-          onChange={setPaths}
-          placeholder="~/Projects or /absolute/path"
-          addLabel="＋ Add folder"
-        />
-      )}
-      <div className="pt-1 text-[12.5px] font-semibold">Ignore</div>
-      <p className="m-0 text-[11.5px] leading-relaxed text-ink-muted">
-        A folder <em>name</em> (<code>htmlcov</code> ≡ <code>**/htmlcov</code>) ignores it anywhere;
-        a <em>path</em> (<code>~/Projects/x/devops</code>) ignores that subtree; <em>globs</em> work
-        too (<code>~/Projects/**/coverage</code>, <code>**/*.min.html</code>).{" "}
-        <code>node_modules</code>, <code>.git</code>, <code>dist</code>… are always ignored.
-      </p>
-      {loaded && (
-        <PathList
-          items={ignore}
-          onChange={setIgnore}
-          placeholder="externals — or ~/path/to/skip"
-          addLabel="＋ Add ignore"
-        />
-      )}
-      <div className="pt-1 text-[12.5px] font-semibold">Updates</div>
+
+      <div className="text-[12.5px] font-semibold">Updates</div>
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-ink-soft">Trame v{update?.current ?? "…"}</span>
+        {update?.available
+          ? (
+            <>
+              <span className="rounded bg-copper/15 px-1.5 py-0.5 text-[10.5px] font-medium text-copper">
+                v{update.latest} available
+              </span>
+              <button
+                type="button"
+                className="text-[10.5px] text-ink-muted underline decoration-chipline underline-offset-2 hover:text-ink-soft"
+                onClick={() => update && openInBrowser(update.releaseUrl)}
+              >
+                release notes
+              </button>
+              <span className="flex-1" />
+              {updState === "done"
+                ? <span className="text-[11px]" style={{ color: "var(--color-active)" }}>✓ updated — restart Trame</span>
+                : (
+                  <button
+                    type="button"
+                    className="rounded-md bg-copper px-2.5 py-1 text-[11.5px] font-medium text-copper-ink hover:brightness-110 disabled:opacity-60"
+                    disabled={updState === "busy"}
+                    onClick={runUpdate}
+                  >
+                    {updState === "busy" ? "Updating…" : update.canSelfUpdate ? "Update now" : "Open release"}
+                  </button>
+                )}
+            </>
+          )
+          : update?.applied
+          ? <span className="text-[11px]" style={{ color: "var(--color-active)" }}>✓ updated — restart Trame</span>
+          : update && <span className="text-[11px] text-ink-muted/70">· up to date</span>}
+      </div>
+
+      <div className="h-px bg-line" />
       <button
         type="button"
-        className="flex w-fit items-center gap-2 text-xs text-ink-soft"
-        onClick={() => setAutoUpdate((v) => !v)}
+        className="flex items-center gap-2 text-left text-[12.5px] font-semibold text-ink hover:text-copper"
+        onClick={() => setExploreOpen((v) => !v)}
       >
-        <span
-          className={`flex h-4 w-4 items-center justify-center rounded border text-[10px] transition-colors ${
-            autoUpdate ? "border-copper bg-copper text-copper-ink" : "border-chipline text-transparent"
-          }`}
-        >
-          ✓
+        <span className="text-[9px] text-ink-muted">{exploreOpen ? "▾" : "▸"}</span>
+        Explore — report folders
+        <span className="text-[10.5px] font-normal text-ink-muted/70">
+          {paths.filter(Boolean).length} folder{paths.filter(Boolean).length === 1 ? "" : "s"} · {ignore.filter(Boolean).length} ignored
         </span>
-        Update silently in the background (AppImage) — otherwise Trame notifies and proposes the update
       </button>
+      {exploreOpen && (
+        <>
+          <p className="m-0 text-[11.5px] leading-relaxed text-ink-muted">
+            Folders scanned (4 levels deep) for <code>.html</code> exploration reports. Searchable in
+            the Explore view alongside published reports.
+            {source === "env" && " Currently coming from TRACKER_REPORT_PATHS — saving here takes over."}
+          </p>
+          {loaded && (
+            <PathList
+              items={paths}
+              onChange={setPaths}
+              placeholder="~/Projects or /absolute/path"
+              addLabel="＋ Add folder"
+            />
+          )}
+          <div className="pt-1 text-[12.5px] font-semibold">Ignore</div>
+          <p className="m-0 text-[11.5px] leading-relaxed text-ink-muted">
+            A folder <em>name</em> (<code>htmlcov</code> ≡ <code>**/htmlcov</code>) ignores it anywhere;
+            a <em>path</em> (<code>~/Projects/x/devops</code>) ignores that subtree; <em>globs</em> work
+            too (<code>~/Projects/**/coverage</code>, <code>**/*.min.html</code>).{" "}
+            <code>node_modules</code>, <code>.git</code>, <code>dist</code>… are always ignored.
+          </p>
+          {loaded && (
+            <PathList
+              items={ignore}
+              onChange={setIgnore}
+              placeholder="externals — or ~/path/to/skip"
+              addLabel="＋ Add ignore"
+            />
+          )}
+        </>
+      )}
       <Footer
         hint="stored per-machine in settings.json (not synced)"
         action="Save settings"

@@ -85,16 +85,3 @@ export async function applyUpdate(): Promise<{ ok: boolean; error?: string }> {
     return { ok: false, error: (e as Error).message };
   }
 }
-
-// Background auto-update: silently swap the AppImage when a newer release exists;
-// the pill flips to "restart" and the next launch runs the new version.
-export async function autoUpdateTick(enabled: () => Promise<boolean>): Promise<void> {
-  try {
-    if (applied || !(await enabled())) return;
-    const info = await checkUpdate();
-    if (info.available && info.canSelfUpdate) {
-      const r = await applyUpdate();
-      if (r.ok) console.log(`auto-updated to v${info.latest} — restart to run it`);
-    }
-  } catch { /* next tick retries */ }
-}
