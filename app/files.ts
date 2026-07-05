@@ -12,7 +12,6 @@ export type ExploreConfig = {
   ignore: string[];
   starred: string[];
   htmlFilter: "smart" | "all";
-  autoUpdate: boolean;
   source: "settings" | "env";
 };
 
@@ -26,11 +25,10 @@ export async function getReportPaths(): Promise<ExploreConfig> {
   const ignore = list("ignorePaths");
   const starred = list("starredPaths");
   const htmlFilter = settings.htmlFilter === "all" ? "all" as const : "smart" as const;
-  const autoUpdate = settings.autoUpdate === true; // default off — notify & propose instead
   if (Array.isArray(settings.reportPaths)) {
-    return { paths: list("reportPaths").map(expand), ignore, starred, htmlFilter, autoUpdate, source: "settings" };
+    return { paths: list("reportPaths").map(expand), ignore, starred, htmlFilter, source: "settings" };
   }
-  return { paths: REPORT_PATHS, ignore, starred, htmlFilter, autoUpdate, source: "env" };
+  return { paths: REPORT_PATHS, ignore, starred, htmlFilter, source: "env" };
 }
 
 export async function saveExploreSettings(
@@ -39,7 +37,6 @@ export async function saveExploreSettings(
     ignorePaths?: string[];
     starredPaths?: string[];
     htmlFilter?: "smart" | "all";
-    autoUpdate?: boolean;
   },
 ): Promise<void> {
   await Deno.mkdir(SETTINGS_FILE.replace(/\/[^/]+$/, ""), { recursive: true }).catch(() => {});
@@ -51,7 +48,6 @@ export async function saveExploreSettings(
   if (patch.ignorePaths) settings.ignorePaths = patch.ignorePaths.map((p) => p.trim()).filter(Boolean);
   if (patch.starredPaths) settings.starredPaths = patch.starredPaths.map((p) => p.trim()).filter(Boolean);
   if (patch.htmlFilter) settings.htmlFilter = patch.htmlFilter;
-  if (patch.autoUpdate !== undefined) settings.autoUpdate = patch.autoUpdate;
   await Deno.writeTextFile(SETTINGS_FILE, JSON.stringify(settings, null, 2));
   cache = null; // rescan with the new config
 }

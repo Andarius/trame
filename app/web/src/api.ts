@@ -50,7 +50,6 @@ export type Settings = {
   ignore: string[];
   starred: string[];
   htmlFilter: "smart" | "all";
-  autoUpdate: boolean;
   source: "settings" | "env";
 };
 export const getSettings = () => fetch("/api/settings").then((r) => r.json() as Promise<Settings>);
@@ -60,7 +59,6 @@ export const patchSettings = (
     ignorePaths?: string[];
     starredPaths?: string[];
     htmlFilter?: "smart" | "all";
-    autoUpdate?: boolean;
   },
 ) =>
   fetch("/api/settings", {
