@@ -30,6 +30,7 @@ export default defineConfig({
       TRACKER_OUTBOX: `${E2E_DIR}/outbox.jsonl`,
       TRACKER_NODE_ID: "e2e",
       TRACKER_UPDATE_CHECK: "0",
+      TRACKER_CLAUDE_DIR: `${E2E_DIR}/claude-projects`,
     },
   },
 });

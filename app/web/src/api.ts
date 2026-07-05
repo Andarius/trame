@@ -246,3 +246,32 @@ export const deletePage = (id: string) => post(`/api/pages/${id}/delete`, {});
 export const movePage = (id: string, to: { parent_id?: string | null; before_id?: string; after_id?: string }) =>
   post(`/api/pages/${id}/move`, to).then(jsonOrThrow);
 export const attachUdbToPage = (dbId: string, pageId: string | null) => post(`/api/udb/${dbId}`, { page_id: pageId });
+
+// Claude Code import
+export type ClaudeSession = {
+  claudeId: string;
+  title: string;
+  repoPath: string | null;
+  branch: string | null;
+  lastActive: string;
+  suggestedStatus: "active" | "paused";
+  suggestedClient: string;
+  suggestedProject: string;
+  alreadyImported: boolean;
+};
+export type ClaudeGroup = { repoPath: string; repoName: string; suggestedClient: string; sessions: ClaudeSession[] };
+export type ClaudeScan = { groups: ClaudeGroup[]; total: number; dir: string };
+export type ClaudeImportItem = {
+  claudeId: string;
+  title: string;
+  repoPath: string | null;
+  branch: string | null;
+  client: string;
+  project: string | null;
+  status: "active" | "paused";
+  lastActive: string;
+};
+export const scanClaudeImport = (days: number) =>
+  fetch(`/api/import/claude?days=${days}`).then((r) => r.json() as Promise<ClaudeScan>);
+export const runClaudeImport = (items: ClaudeImportItem[]) =>
+  post("/api/import/claude", { items }).then((r) => r.json() as Promise<{ imported: number; skipped: number }>);

@@ -25,7 +25,7 @@ import { Board } from "./Board";
 import { Drawer } from "./Drawer";
 import { Explore } from "./Explore";
 import { List } from "./List";
-import { NewObjectiveModal, NewSessionModal, NewUdbModal, SettingsModal } from "./modals";
+import { ImportClaudeModal, NewObjectiveModal, NewSessionModal, NewUdbModal, SettingsModal } from "./modals";
 import { confirmDeletePage, Page } from "./Page";
 import { appConfirm, ConfirmHost, EntityIcon } from "./ui";
 import { IconPicker } from "./udb/cells";
@@ -329,8 +329,8 @@ export function App() {
   const [group, setGroup] = useState<"none" | "objective">(
     params.get("group") === "objective" ? "objective" : "none",
   );
-  const [modal, setModal] = useState<"session" | "objective" | "settings" | "udb" | null>(
-    (params.get("new") as "session" | "objective" | "settings" | "udb" | null) ?? null,
+  const [modal, setModal] = useState<"session" | "objective" | "settings" | "udb" | "import" | null>(
+    (params.get("new") as "session" | "objective" | "settings" | "udb" | "import" | null) ?? null,
   );
   const [openId, setOpenId] = useState<string | null>(params.get("session"));
   const [exploreEpoch, setExploreEpoch] = useState(0); // bump to rescan files after settings change
@@ -514,6 +514,14 @@ export function App() {
             </button>
           )}
           <div className="flex-1" />
+          {isSessions && (
+            <button type="button"
+              onClick={() => setModal("import")}
+              className="rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
+            >
+              ⇣ Import from Claude Code
+            </button>
+          )}
           <button type="button"
             onClick={() => syncNow().then(refresh)}
             className="rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
@@ -609,6 +617,16 @@ export function App() {
           )
           : null;
       })()}
+      {modal === "import" && board && (
+        <ImportClaudeModal
+          board={board}
+          onClose={() => setModal(null)}
+          onDone={() => {
+            setModal(null);
+            refresh();
+          }}
+        />
+      )}
       {modal === "session" && board && (
         <NewSessionModal board={board} onClose={() => setModal(null)} onCreate={createSession} />
       )}
