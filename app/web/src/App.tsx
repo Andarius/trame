@@ -342,6 +342,7 @@ export function App() {
   const [dbIconOpen, setDbIconOpen] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [updateState, setUpdateState] = useState<"idle" | "busy" | "done">("idle");
+  const [updateDismissed, setUpdateDismissed] = useState(false);
 
   const refresh = () => {
     getBoard().then(setBoard).catch(() => {});
@@ -352,11 +353,17 @@ export function App() {
   useEffect(() => {
     refresh();
     const t = setInterval(refresh, 5000);
-    getUpdate().then((u) => {
-      setUpdate(u);
-      if (u.applied) setUpdateState("done");
-    }).catch(() => {});
-    return () => clearInterval(t);
+    const checkUpd = () =>
+      getUpdate().then((u) => {
+        setUpdate(u);
+        if (u.applied) setUpdateState("done");
+      }).catch(() => {});
+    checkUpd();
+    const u = setInterval(checkUpd, 30 * 60 * 1000);
+    return () => {
+      clearInterval(t);
+      clearInterval(u);
+    };
   }, []);
 
   const onUpdate = () => {
@@ -621,6 +628,64 @@ export function App() {
       )}
       {modal === "settings" && (
         <SettingsModal onClose={() => setModal(null)} onSaved={() => setExploreEpoch((e) => e + 1)} />
+      )}
+      {update && (update.available || update.applied) && !updateDismissed && (
+        <div className="fixed bottom-4 right-4 z-[60] flex w-[320px] flex-col gap-2.5 rounded-xl border border-[#323649] bg-[#171923] p-3.5 shadow-2xl shadow-black/50">
+          {updateState === "done"
+            ? (
+              <>
+                <p className="m-0 text-[12.5px] font-medium text-ink">
+                  ✓ Updated to v{update.latest}
+                </p>
+                <p className="m-0 text-[11.5px] leading-relaxed text-ink-muted">
+                  Restart Trame to run the new version.
+                </p>
+                <div className="flex items-center justify-end">
+                  <button
+                    type="button"
+                    className="rounded-md px-2 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
+                    onClick={() => setUpdateDismissed(true)}
+                  >
+                    Close
+                  </button>
+                </div>
+              </>
+            )
+            : (
+              <>
+                <p className="m-0 text-[12.5px] font-medium text-ink">
+                  <span className="text-copper">↑</span> Trame v{update.latest} is available
+                </p>
+                <p className="m-0 text-[11.5px] text-ink-muted">
+                  You're on v{update.current}.{" "}
+                  <button
+                    type="button"
+                    className="text-ink-muted underline decoration-chipline underline-offset-2 hover:text-ink-soft"
+                    onClick={() => openInBrowser(update.releaseUrl)}
+                  >
+                    Release notes
+                  </button>
+                </p>
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    className="rounded-md px-2 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
+                    onClick={() => setUpdateDismissed(true)}
+                  >
+                    Later
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-md bg-copper px-2.5 py-1 text-[11.5px] font-medium text-copper-ink hover:brightness-110 disabled:opacity-60"
+                    disabled={updateState === "busy"}
+                    onClick={onUpdate}
+                  >
+                    {updateState === "busy" ? "Updating…" : update.canSelfUpdate ? "Update now" : "Open release"}
+                  </button>
+                </div>
+              </>
+            )}
+        </div>
       )}
       <ConfirmHost />
     </div>

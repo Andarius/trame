@@ -210,7 +210,7 @@ export function SettingsModal(
   const [paths, setPaths] = useState<string[]>([]);
   const [ignore, setIgnore] = useState<string[]>([]);
   const [source, setSource] = useState<"settings" | "env">("settings");
-  const [autoUpdate, setAutoUpdate] = useState(true);
+  const [autoUpdate, setAutoUpdate] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -218,7 +218,7 @@ export function SettingsModal(
       setPaths(s.paths.length ? s.paths : [""]);
       setIgnore(s.ignore ?? []);
       setSource(s.source);
-      setAutoUpdate(s.autoUpdate !== false);
+      setAutoUpdate(s.autoUpdate === true);
       setLoaded(true);
     }).catch(() => setLoaded(true));
   }, []);
@@ -278,7 +278,7 @@ export function SettingsModal(
         >
           ✓
         </span>
-        Auto-update in the background (AppImage — applies silently, runs on next launch)
+        Update silently in the background (AppImage) — otherwise Trame notifies and proposes the update
       </button>
       <Footer
         hint="stored per-machine in settings.json (not synced)"

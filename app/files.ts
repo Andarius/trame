@@ -26,7 +26,7 @@ export async function getReportPaths(): Promise<ExploreConfig> {
   const ignore = list("ignorePaths");
   const starred = list("starredPaths");
   const htmlFilter = settings.htmlFilter === "all" ? "all" as const : "smart" as const;
-  const autoUpdate = settings.autoUpdate !== false; // default on
+  const autoUpdate = settings.autoUpdate === true; // default off — notify & propose instead
   if (Array.isArray(settings.reportPaths)) {
     return { paths: list("reportPaths").map(expand), ignore, starred, htmlFilter, autoUpdate, source: "settings" };
   }
