@@ -26,12 +26,14 @@ export function db(): Promise<PGlite> {
     _pg = (async () => {
       // PGlite data dirs are not portable across major PG versions (0.5.x = PG 18).
       // Check BEFORE any open/recovery so an old dir is never opened in place or
-      // mistaken for a half-initialized one and wiped.
+      // mistaken for a half-initialized one and wiped. PG 16 dirs (pre-0.2.0 builds)
+      // are migrated automatically — packaged apps can't run the repo task.
       const pgVersion = await Deno.readTextFile(`${DATA_DIR}/PG_VERSION`).then((s) => s.trim()).catch(() => null);
-      if (pgVersion && pgVersion !== "18") {
-        throw new Error(
-          `data dir ${DATA_DIR} is Postgres ${pgVersion} format — run \`deno task migrate:pg18\` (from app/) first`,
-        );
+      if (pgVersion === "16") {
+        const { migrateDataDir } = await import("./migrate.ts");
+        await migrateDataDir();
+      } else if (pgVersion && pgVersion !== "18") {
+        throw new Error(`data dir ${DATA_DIR} is Postgres ${pgVersion} format — cannot open or migrate it`);
       }
       // PGlite's mkdir isn't recursive — ensure the parent exists first.
       await Deno.mkdir(DATA_DIR.replace(/\/[^/]+\/?$/, ""), { recursive: true }).catch(() => {});
