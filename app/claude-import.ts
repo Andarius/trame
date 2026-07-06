@@ -76,25 +76,41 @@ const parseLines = (chunk: string): any[] =>
     }
   });
 
+// deno-lint-ignore no-explicit-any
+function userText(e: any): string | null {
+  if (e.type !== "user") return null;
+  const c = e.message?.content;
+  const txt = typeof c === "string"
+    ? c
+    : Array.isArray(c)
+    // deno-lint-ignore no-explicit-any
+    ? c.filter((x: any) => x?.type === "text").map((x: any) => x.text).join(" ")
+    : "";
+  const line = txt.trim().split("\n")[0].trim();
+  // skip harness noise: slash-command/system tags, hook caveats, compaction preambles
+  if (!line || line.startsWith("<") || line.startsWith("Caveat:") || line.startsWith("This session is being continued")) return null;
+  return line;
+}
+
 function extractMeta(head: string, tail: string) {
-  let cwd: string | null = null;
+  let cwd: string | null = null, firstPrompt: string | null = null;
   for (const e of parseLines(head)) {
-    if (typeof e.cwd === "string" && e.cwd) {
-      cwd = e.cwd;
-      break;
-    }
+    if (!cwd && typeof e.cwd === "string" && e.cwd) cwd = e.cwd;
+    if (!firstPrompt) firstPrompt = userText(e);
+    if (cwd && firstPrompt) break;
   }
   let aiTitle: string | null = null, lastPrompt: string | null = null, branch: string | null = null;
-  let lastTs: string | null = null;
+  let lastTs: string | null = null, hasActivity = firstPrompt !== null;
   for (const e of parseLines(tail)) {
     if (e.type === "ai-title" && typeof e.aiTitle === "string") aiTitle = e.aiTitle; // last wins
     if (e.type === "last-prompt" && typeof e.lastPrompt === "string") lastPrompt = e.lastPrompt;
+    if (e.type === "user" || e.type === "assistant") hasActivity = true;
     if (typeof e.gitBranch === "string") branch = e.gitBranch;
     if (typeof e.timestamp === "string") lastTs = e.timestamp;
     if (!cwd && typeof e.cwd === "string" && e.cwd) cwd = e.cwd;
   }
   if (branch === "HEAD" || branch === "") branch = null;
-  return { cwd, aiTitle, lastPrompt, branch, lastTs };
+  return { cwd, aiTitle, lastPrompt, firstPrompt, branch, lastTs, hasActivity };
 }
 
 // mirrors commands/project/track.md's working-dir → client mapping
@@ -137,16 +153,19 @@ export async function scanClaudeSessions(
         // cheap pre-filter: mtime is always >= the last message (files only get appended to)
         if (mtime < cutoff) continue;
         const { head, tail } = await readChunks(path);
-        const { cwd, aiTitle, lastPrompt, branch, lastTs } = extractMeta(head, tail);
+        const { cwd, aiTitle, lastPrompt, firstPrompt, branch, lastTs, hasActivity } = extractMeta(head, tail);
+        if (!hasActivity) continue; // aborted launch — nothing was ever said
         // real last activity = last message timestamp; mtime lags it (ai-title lines
         // and re-indexing touch the file days later) and is only the fallback
         const lastActive = lastTs && !Number.isNaN(Date.parse(lastTs)) ? Date.parse(lastTs) : mtime;
         if (lastActive < cutoff) continue;
         const repoPath = cwd ?? decodeDirName(proj.name);
         const repoName = repoPath.split("/").filter(Boolean).pop() ?? "unknown";
+        // first prompt states the task; the last one is usually a follow-up ("ok push")
+        const topic = aiTitle ?? firstPrompt ?? lastPrompt;
         found.push({
           claudeId,
-          title: `${repoName} — ${aiTitle ?? (lastPrompt ? truncate(lastPrompt, 80) : "untitled session")}`,
+          title: `${repoName} — ${topic ? truncate(topic, 80) : "untitled session"}`,
           repoPath,
           branch,
           lastActive: new Date(lastActive).toISOString(),

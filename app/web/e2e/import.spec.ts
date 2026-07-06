@@ -25,10 +25,11 @@ test("scan previews sessions, filters by window, hides subagents and tmp dirs", 
   await expect(page.getByText("⎇ feat/import")).toBeVisible();
   // subagent and -tmp- fixtures never appear
   await expect(page.getByText(/tmp.scratch/)).not.toBeVisible();
-  // 30-day window pulls in the backdated uuid2
+  // 30-day window pulls in the backdated uuid2, titled from its first user prompt;
+  // the empty aborted-launch fixture must never be listed
   await page.getByRole("button", { name: "30d", exact: true }).click();
   await expect(page.getByText(/2 found/)).toBeVisible();
-  await expect(page.getByText("alpha — untitled session")).toBeVisible();
+  await expect(page.getByText("alpha — fix the flaky retry test")).toBeVisible();
   // the project picker offers a free-text "new project" choice
   await page.getByRole("button", { name: /alpha \(create\)/ }).click();
   await page.getByRole("button", { name: /new project…/ }).click();

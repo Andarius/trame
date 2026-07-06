@@ -1,8 +1,9 @@
 import { mkdir, rm, utimes, writeFile } from "node:fs/promises";
 
 // Claude Code transcript fixtures for import.spec.ts (TRACKER_CLAUDE_DIR points here).
-// alpha/uuid1: full metadata, TWO ai-title lines to prove last-wins; alpha/uuid2: bare +
-// backdated 20 days for the window filter; subagents/ and -tmp-* must never be scanned.
+// alpha/uuid1: full metadata, TWO ai-title lines to prove last-wins; alpha/uuid2: no
+// ai-title (titled from the first user prompt) + backdated 20 days for the window
+// filter; uuid5 is an empty aborted launch; subagents/ and -tmp-* must never be scanned.
 async function writeClaudeFixtures(root: string) {
   const line = (o: Record<string, unknown>) => `${JSON.stringify(o)}\n`;
   const alpha = `${root}/-repo-alpha`;
@@ -11,14 +12,21 @@ async function writeClaudeFixtures(root: string) {
   await writeFile(
     `${alpha}/11111111-1111-4111-8111-111111111111.jsonl`,
     line({ cwd: "/repo/alpha", gitBranch: "feat/import", timestamp: new Date(Date.now() - 3_600_000).toISOString() }) +
+      line({ type: "user", message: { role: "user", content: "build the import" } }) +
       line({ type: "ai-title", aiTitle: "First title" }) +
       line({ type: "last-prompt", lastPrompt: "do the thing" }) +
       line({ type: "ai-title", aiTitle: "Ship the import feature" }),
   );
   const old = `${alpha}/22222222-2222-4222-8222-222222222222.jsonl`;
-  await writeFile(old, line({ cwd: "/repo/alpha" }));
+  await writeFile(
+    old,
+    line({ cwd: "/repo/alpha" }) +
+      line({ type: "user", message: { role: "user", content: "fix the flaky retry test" } }),
+  );
   const backdated = new Date(Date.now() - 20 * 86_400_000);
   await utimes(old, backdated, backdated);
+  // aborted launch: no user/assistant line at all — must never be listed
+  await writeFile(`${alpha}/55555555-5555-4555-8555-555555555555.jsonl`, line({ cwd: "/repo/alpha" }));
   await writeFile(`${alpha}/subagents/33333333-3333-4333-8333-333333333333.jsonl`, line({ cwd: "/repo/alpha" }));
   await writeFile(`${root}/-tmp-scratch/44444444-4444-4444-8444-444444444444.jsonl`, line({ cwd: "/tmp/scratch" }));
 }
