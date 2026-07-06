@@ -50,7 +50,22 @@ const NAV: { key: "sessions" | "explore"; glyph: string; label: string; view: Vi
   { key: "explore", glyph: "✦", label: "Explore", view: "explore" },
 ];
 
-const pageGlyph = (kind: string) => (kind === "project" ? "◎" : "▫");
+const pageGlyph = (kind: string) => (kind === "project" ? "◎" : "□");
+
+// "New …" affordance under a sidebar section — a subtle dashed chip. `indent` is
+// the x of the section's icon column (tree rows: 26 = 8px pad + 14px chevron + 4px
+// gap; flat rows: 8); the chip shifts by its own padding+border so the ＋ lines up.
+function NewChip({ label, indent, onClick }: { label: string; indent: number; onClick: () => void }) {
+  return (
+    <button type="button"
+      className="mt-0.5 flex w-fit items-center gap-1.5 rounded-md border border-dashed border-chipline px-2 py-1 text-[12px] text-ink-muted/70 hover:border-copper/60 hover:text-copper"
+      style={{ marginLeft: indent - 9 }}
+      onClick={onClick}
+    >
+      <span className="text-[11px]">＋</span> {label}
+    </button>
+  );
+}
 
 function PageNode(
   { p, depth, childrenOf, dbsOf, expanded, onToggle, current, currentDb, onOpenPage, onOpenDb, onNewChild }: {
@@ -245,12 +260,7 @@ function Sidebar(
           onNewChild={(id) => onNewPage(id)}
         />
       ))}
-      <button type="button"
-        className="flex items-center gap-2.5 rounded-md px-2 py-[6px] text-left text-[12.5px] text-ink-muted/70 hover:text-ink-soft"
-        onClick={onNewProject}
-      >
-        <span className="text-[12px]">◎</span> New project
-      </button>
+      <NewChip label="New project" indent={26} onClick={onNewProject} />
       <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
         PAGES
       </div>
@@ -270,12 +280,7 @@ function Sidebar(
           onNewChild={(id) => onNewPage(id)}
         />
       ))}
-      <button type="button"
-        className="flex items-center gap-2.5 rounded-md px-2 py-[6px] text-left text-[12.5px] text-ink-muted/70 hover:text-ink-soft"
-        onClick={() => onNewPage(null)}
-      >
-        <span className="text-[12px]">＋</span> New page
-      </button>
+      <NewChip label="New page" indent={26} onClick={() => onNewPage(null)} />
       {looseDbs.length > 0 && (
         <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
           DATABASES
@@ -299,12 +304,7 @@ function Sidebar(
           </button>
         );
       })}
-      <button type="button"
-        className="flex items-center gap-2.5 rounded-md px-2 py-[6px] text-left text-[12.5px] text-ink-muted/70 hover:text-ink-soft"
-        onClick={onNewDb}
-      >
-        <span className="text-[12px]">⌗</span> New database
-      </button>
+      <NewChip label="New database" indent={8} onClick={onNewDb} />
       <div className="flex-1" />
       <div className="flex items-center gap-2 px-2 py-2 text-[11.5px] text-ink-muted">
         <span
@@ -334,7 +334,7 @@ function Sidebar(
           </button>
         )}
         <button type="button" className="text-[13px] text-ink-muted hover:text-ink-soft" title="Settings" onClick={onSettings}>
-          ⚙
+          ⚙︎
         </button>
       </div>
     </aside>
@@ -585,7 +585,7 @@ export function App() {
                 onClick={() => dbId && createUdbRow(dbId).then(() => setUdbEpoch((e) => e + 1))}
                 className="flex items-center gap-1.5 rounded-md bg-copper px-3 py-1.5 text-[12.5px] font-medium text-copper-ink hover:brightness-110"
               >
-                <span>+</span> New row
+                <span>＋</span> New row
               </button>
             )
             : isSessions && (
@@ -593,7 +593,7 @@ export function App() {
                 onClick={() => setModal("session")}
                 className="flex items-center gap-1.5 rounded-md bg-copper px-3 py-1.5 text-[12.5px] font-medium text-copper-ink hover:brightness-110"
               >
-                <span>+</span> New session
+                <span>＋</span> New session
               </button>
             )}
         </header>

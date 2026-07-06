@@ -233,7 +233,7 @@ export function Page(
               title="page icon"
               onClick={() => setIconOpen(true)}
             >
-              <EntityIcon icon={page.icon} fallback={isProject ? "◎" : "▫"} className={page.icon ? "" : "text-ink-muted"} />
+              <EntityIcon icon={page.icon} fallback={isProject ? "◎" : "□"} className={page.icon ? "" : "text-ink-muted"} />
             </button>
             {iconOpen && (
               <IconPicker current={page.icon} onPick={(icon) => patch({ icon })} onClose={() => setIconOpen(false)} />
@@ -304,7 +304,7 @@ export function Page(
                 className="flex items-center gap-2 rounded-md px-1.5 py-1 text-left text-[13px] text-ink-soft hover:bg-panel"
                 onClick={() => onOpenPage(c.id)}
               >
-                <EntityIcon icon={c.icon} fallback={c.kind === "project" ? "◎" : "▫"} className="text-ink-muted" />
+                <EntityIcon icon={c.icon} fallback={c.kind === "project" ? "◎" : "□"} className="text-ink-muted" />
                 <span className={c.title ? "" : "text-ink-muted/60 italic"}>{c.title || "Untitled"}</span>
               </button>
             ))}

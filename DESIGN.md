@@ -42,9 +42,21 @@ Section labels: 10–10.5px Medium, tracking 0.8px, `ink-muted/80`, UPPERCASE.
 
 ## Glyph language
 
-Unicode glyphs instead of an icon font: `▦` sessions, `✦` explore, `◎` project,
-`▫` page, `⌗` database, `⎇` branch, `＋` new, `⇣` import, `✕` ignore/remove,
-`↩` restore, `⌄`/`▾` select caret, `→` next step.
+Unicode glyphs instead of an icon font — they inherit text color/size and mix inline
+with text (`⎇ master`, `→ next step`), which an SVG icon set can't do cleanly.
+
+| | | | |
+|---|---|---|---|
+| `▦` sessions | `✦` explore | `◎` project | `□` page |
+| `⌗` database | `▸▾` tree / caret | `＋` new | `✕` delete/ignore |
+| `↩` restore | `⇣` import | `↻` refresh | `⚙︎` settings |
+| `↗` open external | `⤢` expand | `≡` drag | `⊘` exclude |
+| `✓` check | `⇄` two-way relation | `⎇` branch | `↑↓` sort |
+| `→` next step | `◌` no-icon placeholder | `•` bullet | `—` `…` `·` punctuation |
+
+Rules: always `＋` (fullwidth), never ASCII `+`. Always `⚙︎` (U+2699 U+FE0E) — the bare
+gear renders as colored emoji on some webviews. Page glyph is `□` (U+25A1); `▫` is too
+faint at 12px.
 
 ## Components (code ↔ Figma)
 
