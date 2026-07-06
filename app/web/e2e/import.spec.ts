@@ -21,14 +21,14 @@ test("scan previews sessions, filters by window, hides subagents and tmp dirs", 
   await expect(page.getByText("IMPORT FROM CLAUDE CODE", { exact: true })).toBeVisible();
   // 7-day window: only uuid1 (last ai-title wins in the composed title)
   await expect(page.getByText("alpha — Ship the import feature")).toBeVisible();
-  await expect(page.getByPlaceholder("filter 1 sessions…")).toBeVisible();
+  await expect(page.getByText("1 found", { exact: true })).toBeVisible();
   await expect(page.getByText("⎇ feat/import")).toBeVisible();
   // subagent and -tmp- fixtures never appear
   await expect(page.getByText(/tmp.scratch/)).not.toBeVisible();
   // 30-day window pulls in the backdated uuid2, titled from its first user prompt;
   // the empty aborted-launch fixture must never be listed
   await page.getByRole("button", { name: "30d", exact: true }).click();
-  await expect(page.getByPlaceholder("filter 2 sessions…")).toBeVisible();
+  await expect(page.getByText("2 found", { exact: true })).toBeVisible();
   await expect(page.getByText("alpha — fix the flaky retry test")).toBeVisible();
   // the project picker offers a free-text "new project" choice
   await page.getByRole("button", { name: /alpha \(create\)/ }).click();
@@ -43,7 +43,8 @@ test("scan previews sessions, filters by window, hides subagents and tmp dirs", 
   await expect(page.getByRole("button", { name: /Import 0 sessions/ })).toBeDisabled();
   await page.getByRole("button", { name: "Select all" }).click();
   await expect(page.getByRole("button", { name: /Import 2 sessions/ })).toBeEnabled();
-  // text filter narrows to matching titles
+  // text filter narrows to matching titles (search lives in the ▽ popover)
+  await page.getByTitle("Filter").click();
   await page.getByPlaceholder(/filter .* sessions/).fill("flaky");
   await expect(page.getByTitle("alpha — fix the flaky retry test")).toBeVisible();
   await expect(page.getByTitle("alpha — Ship the import feature")).not.toBeVisible();
@@ -73,6 +74,7 @@ test("re-scan hides the imported session behind the state filter", async ({ page
   await expect(page.getByText(/switch the state filter/)).toBeVisible();
   await expect(page.getByRole("button", { name: /Import 0 sessions/ })).toBeDisabled();
   // switching to "imported" reveals it, greyed (getByTitle: the same text is on the board behind)
+  await page.getByTitle("Filter").click();
   await page.getByRole("button", { name: "new 0" }).click();
   await page.getByRole("button", { name: "imported 1" }).click();
   await expect(page.getByTitle("alpha — Ship the import feature")).toBeVisible();
@@ -94,12 +96,16 @@ test("a session can be ignored, revealed via the filter, and restored", async ({
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: /Import from Claude Code/ }).click();
   await page.getByRole("button", { name: "30d", exact: true }).click();
+  await page.getByTitle("Filter").click();
   await page.getByRole("button", { name: "new 0" }).click();
   await page.getByRole("button", { name: "ignored 1" }).click();
+  await page.keyboard.press("Escape"); // close the popover — it overlaps the row's ↩
   await expect(page.getByTitle("alpha — fix the flaky retry test")).toBeVisible();
   await page.getByTitle("Stop ignoring").click();
+  await page.getByTitle("Filter").click();
   await page.getByRole("button", { name: "ignored 0" }).click();
   await page.getByRole("button", { name: "new 1" }).click();
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Select all" }).click();
   await expect(page.getByRole("button", { name: /Import 1 session\b/ })).toBeEnabled();
   await page.keyboard.press("Escape");
