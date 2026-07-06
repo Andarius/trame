@@ -16,7 +16,7 @@ import {
   type Status,
   type UpdateInfo,
 } from "./api";
-import { Select, STATUS, StatusDot, timeAgo } from "./ui";
+import { Popover, Select, STATUS, StatusDot, timeAgo } from "./ui";
 
 function Modal(
   { width = 560, onClose, onSubmit, children }: {
@@ -478,6 +478,7 @@ export function ImportClaudeModal(
   const [newClients, setNewClients] = useState<Record<string, string>>({});
   const [stateFilter, setStateFilter] = useState<"new" | "imported" | "ignored" | "all">("new");
   const [query, setQuery] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -584,23 +585,50 @@ export function ImportClaudeModal(
             {d}d
           </button>
         ))}
-        <input
-          className={`${pill} min-w-0 flex-1`}
-          placeholder={scan ? `filter ${scan.total} sessions…` : "scanning…"}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <Select
-          value={stateFilter}
-          className={pill}
-          options={[
-            { value: "new", label: `new ${newCount}` },
-            { value: "imported", label: `imported ${imported}` },
-            { value: "ignored", label: `ignored ${ignoredCount}` },
-            { value: "all", label: `all ${flat.length}` },
-          ]}
-          onChange={(v) => setStateFilter(v as typeof stateFilter)}
-        />
+        <span className="min-w-0 flex-1 truncate text-right text-[11px] text-ink-muted">
+          {scan ? `${scan.total} found` : "scanning…"}
+          {q ? ` · “${query.trim()}”` : ""}
+          {stateFilter !== "new" ? ` · ${stateFilter}` : ""}
+        </span>
+        <div className="relative">
+          <button
+            type="button"
+            title="Filter"
+            className={`rounded-md border px-2 py-1 text-[11.5px] ${
+              filterOpen || q || stateFilter !== "new"
+                ? "border-copper text-copper"
+                : "border-chipline text-ink-muted hover:text-ink-soft"
+            }`}
+            onClick={() => setFilterOpen((o) => !o)}
+          >
+            ▽
+          </button>
+          {filterOpen && (
+            <Popover
+              onClose={() => setFilterOpen(false)}
+              className="absolute right-0 top-8 z-10 flex w-64 flex-col gap-2 rounded-lg border border-line bg-[#171923] p-3 shadow-xl shadow-black/40"
+            >
+              <input
+                autoFocus
+                className={`${pill} w-full`}
+                placeholder={scan ? `filter ${scan.total} sessions…` : "scanning…"}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              <Select
+                value={stateFilter}
+                className={`${pill} w-full text-left`}
+                options={[
+                  { value: "new", label: `new ${newCount}` },
+                  { value: "imported", label: `imported ${imported}` },
+                  { value: "ignored", label: `ignored ${ignoredCount}` },
+                  { value: "all", label: `all ${flat.length}` },
+                ]}
+                onChange={(v) => setStateFilter(v as typeof stateFilter)}
+              />
+            </Popover>
+          )}
+        </div>
         {scan && newCount > 0 && (
           <button
             type="button"

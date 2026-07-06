@@ -47,8 +47,9 @@ test("add number and select columns", async ({ page }) => {
 test("create a row and edit cells in the grid", async ({ page }) => {
   await page.goto("/?view=database");
   await page.getByRole("button", { name: "Bench" }).click();
-  // both the header and the grid footer offer "＋ New row" — use the grid one (in main)
-  await page.locator("main").getByRole("button", { name: /＋ New row/ }).click();
+  // both the header and the grid footer offer "＋ New row"; nth(1) waits for the
+  // grid footer to render (clicking the header would add a row without the panel)
+  await page.getByRole("button", { name: "＋ New row" }).nth(1).click();
   // creating a row opens the row panel — set the title there, then close
   const title = page.locator("textarea");
   await title.fill("row-1");
