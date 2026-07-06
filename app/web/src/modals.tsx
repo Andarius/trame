@@ -444,6 +444,7 @@ export function NewObjectiveModal(
 
 const AUTO_PROJECT = "__auto__";
 const NEW_PROJECT = "__new__";
+const NEW_CLIENT = "__new_client__";
 
 function Check({ on, onClick, disabled }: { on: boolean; onClick: () => void; disabled?: boolean }) {
   return (
@@ -474,6 +475,7 @@ export function ImportClaudeModal(
   const [clients, setClients] = useState<Record<string, string>>({});
   const [projects, setProjects] = useState<Record<string, string>>({});
   const [newProjects, setNewProjects] = useState<Record<string, string>>({});
+  const [newClients, setNewClients] = useState<Record<string, string>>({});
   const [stateFilter, setStateFilter] = useState<"new" | "imported" | "ignored" | "all">("new");
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
@@ -522,6 +524,8 @@ export function ImportClaudeModal(
     if (!scan || !checked.size || busy) return;
     setBusy(true);
     const items: ClaudeImportItem[] = scan.groups.flatMap((g) => {
+      const clientPick = clients[g.repoPath] ?? g.suggestedClient;
+      const client = clientPick === NEW_CLIENT ? newClients[g.repoPath]?.trim() || g.suggestedClient : clientPick;
       const picked = projects[g.repoPath] ?? AUTO_PROJECT;
       const project = picked === AUTO_PROJECT
         ? g.repoName
@@ -533,7 +537,7 @@ export function ImportClaudeModal(
         title: s.title,
         repoPath: s.repoPath,
         branch: s.branch,
-        client: clients[g.repoPath] ?? g.suggestedClient,
+        client,
         project,
         status: s.suggestedStatus,
         lastActive: s.lastActive,
@@ -654,8 +658,11 @@ export function ImportClaudeModal(
                 <Select
                   value={clients[g.repoPath] ?? g.suggestedClient}
                   className={pill}
-                  options={[...new Set([g.suggestedClient, ...board.clients.map((c) => c.name)])]
-                    .map((c) => ({ value: c, label: c }))}
+                  options={[
+                    ...[...new Set([g.suggestedClient, ...board.clients.map((c) => c.name)])]
+                      .map((c) => ({ value: c, label: c })),
+                    { value: NEW_CLIENT, label: "＋ new client…" },
+                  ]}
                   onChange={(v) => {
                     setClients((prev) => ({ ...prev, [g.repoPath]: v }));
                     // the picked project may not belong to the new client — back to auto
@@ -674,6 +681,15 @@ export function ImportClaudeModal(
                   onChange={(v) => setProjects((prev) => ({ ...prev, [g.repoPath]: v }))}
                 />
               </div>
+              {(clients[g.repoPath] ?? g.suggestedClient) === NEW_CLIENT && (
+                <input
+                  autoFocus
+                  className={`${pill} ml-6 w-auto`}
+                  placeholder="new client name (created on import)"
+                  value={newClients[g.repoPath] ?? ""}
+                  onChange={(e) => setNewClients((prev) => ({ ...prev, [g.repoPath]: e.target.value }))}
+                />
+              )}
               {(projects[g.repoPath] ?? AUTO_PROJECT) === NEW_PROJECT && (
                 <input
                   autoFocus

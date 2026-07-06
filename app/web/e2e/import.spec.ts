@@ -34,6 +34,10 @@ test("scan previews sessions, filters by window, hides subagents and tmp dirs", 
   await page.getByRole("button", { name: /alpha \(create\)/ }).click();
   await page.getByRole("button", { name: /new project…/ }).click();
   await expect(page.getByPlaceholder("new project title (created on import)")).toBeVisible();
+  // and the client picker a "new client" one
+  await page.getByRole("button", { name: "Side-projects" }).click();
+  await page.getByRole("button", { name: /new client…/ }).click();
+  await expect(page.getByPlaceholder("new client name (created on import)")).toBeVisible();
   // global select/deselect all
   await page.getByRole("button", { name: "Deselect all" }).click();
   await expect(page.getByRole("button", { name: /Import 0 sessions/ })).toBeDisabled();
