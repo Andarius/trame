@@ -13,6 +13,7 @@ import {
   type ReportMeta,
 } from "./api";
 import { appConfirm, ClientChip, timeAgo } from "./ui";
+import { excalidrawToHtml } from "./excalidraw";
 
 type Selected = {
   kind: "db" | "file";
@@ -36,6 +37,7 @@ export function Explore(
   const [refreshing, setRefreshing] = useState(false);
   const [starred, setStarred] = useState<string[]>([]);
   const [htmlFilter, setHtmlFilter] = useState<"smart" | "all">("smart");
+  const [kindFilter, setKindFilter] = useState<"both" | "html" | "excalidraw">("both");
 
   const load = (force = false, selectFirst = false) => {
     setRefreshing(true);
@@ -59,15 +61,18 @@ export function Explore(
     setHtmlFilter(next);
     patchSettings({ htmlFilter: next }).then(() => load(true));
   };
+  const cycleKind = () => {
+    setKindFilter((k) => (k === "both" ? "html" : k === "html" ? "excalidraw" : "both"));
+  };
   const toggleStar = (dir: string) => {
     const next = starred.includes(dir) ? starred.filter((d) => d !== dir) : [...starred, dir];
     setStarred(next);
     patchSettings({ starredPaths: next });
   };
   const ignoreFolder = async (dir: string) => {
-    // warn only on first use — afterwards ⊘ applies immediately (undo lives in ⚙ Settings)
+    // warn only on first use — afterwards ⊘ applies immediately (undo lives in ⚙︎ Settings)
     if (!localStorage.getItem("trame:ignore-warned")) {
-      if (!(await appConfirm(`Ignore ${dir}?\n\nIgnored folders can be restored in ⚙ Settings.\n(This warning is only shown once.)`, "Ignore"))) {
+      if (!(await appConfirm(`Ignore ${dir}?\n\nIgnored folders can be restored in ⚙︎ Settings.\n(This warning is only shown once.)`, "Ignore"))) {
         return;
       }
       localStorage.setItem("trame:ignore-warned", "1");
@@ -85,18 +90,26 @@ export function Explore(
   };
   const selectFile = (f: FileHit) => {
     setSelKey(`file:${f.path}`);
-    getReportFileContent(f.path).then((c) =>
-      setSelected({ kind: "file", title: f.name, date: f.mtime, html: c.html, path: f.path })
-    ).catch(() => {});
+    getReportFileContent(f.path).then(async (c) => {
+      // .excalidraw is JSON — pre-render to static SVG (the iframe sandbox blocks scripts)
+      const html = f.name.endsWith(".excalidraw")
+        ? await excalidrawToHtml(c.html, f.name).catch((e) =>
+          `<pre style="padding:16px;color:#b91c1c">could not render ${f.name}: ${e}</pre>`)
+        : c.html;
+      setSelected({ kind: "file", title: f.name, date: f.mtime, html, path: f.path });
+    }).catch(() => {});
   };
 
   const needle = q.trim().toLowerCase();
   const shownReports = needle
     ? reports.filter((r) => r.title.toLowerCase().includes(needle))
     : reports;
-  const shownFiles = needle
-    ? files.filter((f) => f.path.toLowerCase().includes(needle))
-    : files;
+  const shownFiles = files.filter((f) => {
+    if (needle && !f.path.toLowerCase().includes(needle)) return false;
+    if (kindFilter === "both") return true;
+    const isExcalidraw = f.name.endsWith(".excalidraw");
+    return kindFilter === "excalidraw" ? isExcalidraw : !isExcalidraw;
+  });
 
   // group file hits by containing folder — starred groups pinned first,
   // then ordered by each group's freshest file (files arrive mtime-desc)
@@ -209,6 +222,17 @@ export function Explore(
             {htmlFilter}
           </button>
           <button type="button"
+            onClick={cycleKind}
+            title={`showing ${kindFilter === "both" ? "html & excalidraw" : kindFilter} files — click to cycle`}
+            className={`rounded-md border px-2 text-[10.5px] ${
+              kindFilter === "both"
+                ? "border-chipline text-ink-muted hover:text-ink-soft"
+                : "border-copper/50 text-copper"
+            }`}
+          >
+            {kindFilter === "both" ? "◧◨" : kindFilter === "html" ? "html" : "excal"}
+          </button>
+          <button type="button"
             onClick={() => load(true)}
             disabled={refreshing}
             title="Rescan folders"
@@ -297,7 +321,7 @@ export function Explore(
             <button type="button" className="text-ink-soft underline underline-offset-2 hover:text-copper" onClick={onOpenSettings}>
               configure folders
             </button>{" "}
-            to search HTML reports on disk.
+            to search HTML reports and .excalidraw drawings on disk.
           </p>
         )}
         {reports.length === 0 && (
