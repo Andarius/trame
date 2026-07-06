@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
 import type { Status } from "./api";
 
 export const STATUS: Record<Status, { label: string; color: string }> = {
@@ -53,7 +53,12 @@ export function timeAgo(iso: string): string {
 const popoverStack: symbol[] = [];
 
 export function Popover(
-  { onClose, children, className }: { onClose: () => void; children: ReactNode; className?: string },
+  { onClose, children, className, style }: {
+    onClose: () => void;
+    children: ReactNode;
+    className?: string;
+    style?: CSSProperties;
+  },
 ) {
   const ref = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
@@ -83,6 +88,7 @@ export function Popover(
     <div
       ref={ref}
       className={`absolute left-0 top-full z-40 mt-1 min-w-[210px] rounded-lg border border-chipline bg-[#171923] p-1.5 shadow-2xl shadow-black/60 ${className ?? ""}`}
+      style={style}
     >
       {children}
     </div>

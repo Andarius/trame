@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   applyUpdate,
   type BoardData,
@@ -479,6 +479,7 @@ export function ImportClaudeModal(
   const [stateFilter, setStateFilter] = useState<"new" | "imported" | "ignored" | "all">("new");
   const [query, setQuery] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
+  const filterBtn = useRef<HTMLButtonElement>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -592,6 +593,7 @@ export function ImportClaudeModal(
         </span>
         <div className="relative">
           <button
+            ref={filterBtn}
             type="button"
             title="Filter"
             className={`rounded-md border px-2 py-1 text-[11.5px] ${
@@ -606,7 +608,17 @@ export function ImportClaudeModal(
           {filterOpen && (
             <Popover
               onClose={() => setFilterOpen(false)}
-              className="absolute right-0 top-8 z-10 flex w-64 flex-col gap-2 rounded-lg border border-line bg-[#171923] p-3 shadow-xl shadow-black/40"
+              className="flex w-64 flex-col gap-2 p-3"
+              // fixed: the modal panel is a scroll container and clips absolute children
+              style={filterBtn.current
+                ? {
+                  position: "fixed",
+                  top: filterBtn.current.getBoundingClientRect().bottom + 6,
+                  right: innerWidth - filterBtn.current.getBoundingClientRect().right,
+                  left: "auto",
+                  marginTop: 0,
+                }
+                : undefined}
             >
               <input
                 autoFocus
