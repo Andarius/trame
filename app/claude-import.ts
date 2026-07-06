@@ -85,14 +85,16 @@ function extractMeta(head: string, tail: string) {
     }
   }
   let aiTitle: string | null = null, lastPrompt: string | null = null, branch: string | null = null;
+  let lastTs: string | null = null;
   for (const e of parseLines(tail)) {
     if (e.type === "ai-title" && typeof e.aiTitle === "string") aiTitle = e.aiTitle; // last wins
     if (e.type === "last-prompt" && typeof e.lastPrompt === "string") lastPrompt = e.lastPrompt;
     if (typeof e.gitBranch === "string") branch = e.gitBranch;
+    if (typeof e.timestamp === "string") lastTs = e.timestamp;
     if (!cwd && typeof e.cwd === "string" && e.cwd) cwd = e.cwd;
   }
   if (branch === "HEAD" || branch === "") branch = null;
-  return { cwd, aiTitle, lastPrompt, branch };
+  return { cwd, aiTitle, lastPrompt, branch, lastTs };
 }
 
 // mirrors commands/project/track.md's working-dir → client mapping
@@ -132,9 +134,14 @@ export async function scanClaudeSessions(
       try {
         const stat = await Deno.stat(path);
         const mtime = stat.mtime?.getTime() ?? 0;
+        // cheap pre-filter: mtime is always >= the last message (files only get appended to)
         if (mtime < cutoff) continue;
         const { head, tail } = await readChunks(path);
-        const { cwd, aiTitle, lastPrompt, branch } = extractMeta(head, tail);
+        const { cwd, aiTitle, lastPrompt, branch, lastTs } = extractMeta(head, tail);
+        // real last activity = last message timestamp; mtime lags it (ai-title lines
+        // and re-indexing touch the file days later) and is only the fallback
+        const lastActive = lastTs && !Number.isNaN(Date.parse(lastTs)) ? Date.parse(lastTs) : mtime;
+        if (lastActive < cutoff) continue;
         const repoPath = cwd ?? decodeDirName(proj.name);
         const repoName = repoPath.split("/").filter(Boolean).pop() ?? "unknown";
         found.push({
@@ -142,8 +149,8 @@ export async function scanClaudeSessions(
           title: `${repoName} — ${aiTitle ?? (lastPrompt ? truncate(lastPrompt, 80) : "untitled session")}`,
           repoPath,
           branch,
-          lastActive: new Date(mtime).toISOString(),
-          suggestedStatus: mtime > Date.now() - 48 * 3_600_000 ? "active" : "paused",
+          lastActive: new Date(lastActive).toISOString(),
+          suggestedStatus: lastActive > Date.now() - 48 * 3_600_000 ? "active" : "paused",
           suggestedClient: clientFor(repoPath),
           suggestedProject: repoName,
           alreadyImported: false,

@@ -10,7 +10,7 @@ async function writeClaudeFixtures(root: string) {
   await mkdir(`${root}/-tmp-scratch`, { recursive: true });
   await writeFile(
     `${alpha}/11111111-1111-4111-8111-111111111111.jsonl`,
-    line({ cwd: "/repo/alpha", gitBranch: "feat/import", timestamp: "2026-01-01T00:00:00Z" }) +
+    line({ cwd: "/repo/alpha", gitBranch: "feat/import", timestamp: new Date(Date.now() - 3_600_000).toISOString() }) +
       line({ type: "ai-title", aiTitle: "First title" }) +
       line({ type: "last-prompt", lastPrompt: "do the thing" }) +
       line({ type: "ai-title", aiTitle: "Ship the import feature" }),
