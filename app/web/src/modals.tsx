@@ -543,6 +543,22 @@ export function ImportClaudeModal(
         <span className="ml-auto text-[11px] text-ink-muted">
           {scan ? `${scan.total} found${imported ? ` · ${imported} already imported` : ""}` : "scanning…"}
         </span>
+        {scan && scan.total > imported && (
+          <button
+            type="button"
+            className="rounded-md border border-chipline px-2 py-1 text-[11px] text-ink-muted hover:text-ink-soft"
+            onClick={() =>
+              setChecked(
+                checked.size
+                  ? new Set()
+                  : new Set(
+                    scan.groups.flatMap((g) => g.sessions.filter((s) => !s.alreadyImported).map((s) => s.claudeId)),
+                  ),
+              )}
+          >
+            {checked.size ? "Deselect all" : "Select all"}
+          </button>
+        )}
       </div>
       <div className="flex min-h-[120px] flex-col gap-3 overflow-y-auto">
         {scan && !scan.groups.length && (
@@ -553,6 +569,10 @@ export function ImportClaudeModal(
         {scan?.groups.map((g) => {
           const importable = g.sessions.filter((s) => !s.alreadyImported);
           const allOn = importable.length > 0 && importable.every((s) => checked.has(s.claudeId));
+          // only offer projects of the group's client (plus unassigned ones)
+          const clientName = clients[g.repoPath] ?? g.suggestedClient;
+          const clientId = board.clients.find((c) => c.name === clientName)?.id;
+          const clientProjects = board.objectives.filter((o) => !o.client_id || o.client_id === clientId);
           return (
             <div key={g.repoPath} className="flex flex-col gap-1 rounded-lg border border-line bg-[#101219] p-2.5">
               <div className="flex items-center gap-2">
@@ -573,14 +593,18 @@ export function ImportClaudeModal(
                   className={pill}
                   options={[...new Set([g.suggestedClient, ...board.clients.map((c) => c.name)])]
                     .map((c) => ({ value: c, label: c }))}
-                  onChange={(v) => setClients((prev) => ({ ...prev, [g.repoPath]: v }))}
+                  onChange={(v) => {
+                    setClients((prev) => ({ ...prev, [g.repoPath]: v }));
+                    // the picked project may not belong to the new client — back to auto
+                    setProjects(({ [g.repoPath]: _, ...rest }) => rest);
+                  }}
                 />
                 <Select
                   value={projects[g.repoPath] ?? AUTO_PROJECT}
                   className={pill}
                   options={[
                     { value: AUTO_PROJECT, label: `◎ ${g.repoName} (create)` },
-                    ...board.objectives.map((o) => ({ value: o.title, label: `◎ ${o.title}` })),
+                    ...clientProjects.map((o) => ({ value: o.title, label: `◎ ${o.title}` })),
                     { value: NEW_PROJECT, label: "＋ new project…" },
                     { value: "", label: "no project" },
                   ]}
