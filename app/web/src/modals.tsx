@@ -2,8 +2,10 @@ import { type ReactNode, useEffect, useState } from "react";
 import {
   applyUpdate,
   type BoardData,
+  type ClaudeGroup,
   type ClaudeImportItem,
   type ClaudeScan,
+  type ClaudeSession,
   getSettings,
   getUpdate,
   openInBrowser,
@@ -472,8 +474,8 @@ export function ImportClaudeModal(
   const [clients, setClients] = useState<Record<string, string>>({});
   const [projects, setProjects] = useState<Record<string, string>>({});
   const [newProjects, setNewProjects] = useState<Record<string, string>>({});
-  const [showImported, setShowImported] = useState(false);
-  const [showIgnored, setShowIgnored] = useState(false);
+  const [stateFilter, setStateFilter] = useState<"new" | "imported" | "ignored" | "all">("new");
+  const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -548,7 +550,19 @@ export function ImportClaudeModal(
   const flat = scan?.groups.flatMap((g) => g.sessions) ?? [];
   const imported = flat.filter((s) => s.alreadyImported).length;
   const ignoredCount = flat.filter((s) => s.ignored && !s.alreadyImported).length;
-  const isVisible = (s: ClaudeSession) => (showImported || !s.alreadyImported) && (showIgnored || !s.ignored);
+  const newCount = flat.length - imported - ignoredCount;
+  const matchesState = (s: ClaudeSession) =>
+    stateFilter === "all"
+      ? true
+      : stateFilter === "imported"
+      ? s.alreadyImported
+      : stateFilter === "ignored"
+      ? s.ignored && !s.alreadyImported
+      : !s.alreadyImported && !s.ignored;
+  const q = query.trim().toLowerCase();
+  // a query matching the repo keeps the whole group; otherwise it narrows to matching titles
+  const isVisible = (s: ClaudeSession, g: ClaudeGroup) =>
+    matchesState(s) && (!q || g.repoName.toLowerCase().includes(q) || s.title.toLowerCase().includes(q));
 
   return (
     <Modal width={720} onClose={onClose} onSubmit={submit}>
@@ -566,24 +580,24 @@ export function ImportClaudeModal(
             {d}d
           </button>
         ))}
-        <span className="ml-auto text-[11px] text-ink-muted">{scan ? `${scan.total} found` : "scanning…"}</span>
-        {[
-          { label: "imported", count: imported, on: showImported, set: setShowImported },
-          { label: "ignored", count: ignoredCount, on: showIgnored, set: setShowIgnored },
-        ].filter((f) => f.count > 0).map((f) => (
-          <button
-            key={f.label}
-            type="button"
-            className={`rounded-md border px-2 py-1 text-[11px] ${
-              f.on ? "border-copper text-copper" : "border-chipline text-ink-muted hover:text-ink-soft"
-            }`}
-            title={`${f.on ? "Hide" : "Show"} ${f.label} sessions`}
-            onClick={() => f.set(!f.on)}
-          >
-            {f.label} {f.count}
-          </button>
-        ))}
-        {scan && scan.total > imported && (
+        <input
+          className={`${pill} min-w-0 flex-1`}
+          placeholder={scan ? `filter ${scan.total} sessions…` : "scanning…"}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <Select
+          value={stateFilter}
+          className={pill}
+          options={[
+            { value: "new", label: `new ${newCount}` },
+            { value: "imported", label: `imported ${imported}` },
+            { value: "ignored", label: `ignored ${ignoredCount}` },
+            { value: "all", label: `all ${flat.length}` },
+          ]}
+          onChange={(v) => setStateFilter(v as typeof stateFilter)}
+        />
+        {scan && newCount > 0 && (
           <button
             type="button"
             className="rounded-md border border-chipline px-2 py-1 text-[11px] text-ink-muted hover:text-ink-soft"
@@ -591,7 +605,9 @@ export function ImportClaudeModal(
               setChecked(
                 checked.size ? new Set() : new Set(
                   scan.groups.flatMap((g) =>
-                    g.sessions.filter((s) => !s.alreadyImported && !s.ignored).map((s) => s.claudeId)
+                    g.sessions.filter((s) => isVisible(s, g) && !s.alreadyImported && !s.ignored).map((s) =>
+                      s.claudeId
+                    )
                   ),
                 ),
               )}
@@ -606,13 +622,13 @@ export function ImportClaudeModal(
             No Claude Code sessions in the last {days} days.
           </div>
         )}
-        {scan && scan.groups.length > 0 && !scan.groups.some((g) => g.sessions.some(isVisible)) && (
+        {scan && scan.groups.length > 0 && !scan.groups.some((g) => g.sessions.some((s) => isVisible(s, g))) && (
           <div className="py-8 text-center text-[12.5px] text-ink-muted">
-            Everything here is already imported or ignored — use the filters above to show them.
+            {q ? `Nothing matches “${query.trim()}”.` : "Nothing here — switch the state filter to see imported or ignored sessions."}
           </div>
         )}
         {scan?.groups.map((g) => {
-          const visible = g.sessions.filter(isVisible);
+          const visible = g.sessions.filter((s) => isVisible(s, g));
           if (!visible.length) return null;
           const importable = g.sessions.filter((s) => !s.alreadyImported && !s.ignored);
           const allOn = importable.length > 0 && importable.every((s) => checked.has(s.claudeId));
