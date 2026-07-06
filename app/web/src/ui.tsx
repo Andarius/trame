@@ -319,3 +319,23 @@ export function ObjectiveChip({ title }: { title: string }) {
     </span>
   );
 }
+
+// Options for project/page pickers: projects (◎) first, then plain pages (□) which get
+// promoted to projects when a session attaches. Duplicate titles are disambiguated with
+// the parent page's title. Values are page ids.
+export function pageOptions(
+  objectives: { id: string; title: string }[],
+  pages: { id: string; parent_id: string | null; kind: string; title: string }[],
+): { value: string; label: string }[] {
+  const titleCount = new Map<string, number>();
+  for (const p of pages) titleCount.set(p.title, (titleCount.get(p.title) ?? 0) + 1);
+  const byId = new Map(pages.map((p) => [p.id, p]));
+  const disambig = (p: { parent_id: string | null; title: string }) => {
+    const parent = p.parent_id ? byId.get(p.parent_id) : undefined;
+    return (titleCount.get(p.title) ?? 0) > 1 && parent ? `${p.title} · ${parent.title}` : p.title;
+  };
+  return [
+    ...objectives.map((o) => ({ value: o.id, label: `◎ ${o.title}` })),
+    ...pages.filter((p) => p.kind !== "project").map((p) => ({ value: p.id, label: `□ ${disambig(p)}` })),
+  ];
+}

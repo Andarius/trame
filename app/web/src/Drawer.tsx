@@ -10,7 +10,7 @@ import {
   type SessionEvent,
   type Status,
 } from "./api";
-import { appConfirm, Select, STATUS, StatusDot, timeAgo } from "./ui";
+import { appConfirm, pageOptions, Select, STATUS, StatusDot, timeAgo } from "./ui";
 
 const sectionLbl = "text-[10px] font-medium tracking-[0.8px] text-ink-muted/70";
 const rowLbl = "shrink-0 pt-[5px] text-[11px] text-ink-muted";
@@ -37,9 +37,7 @@ export function Drawer(
   const [title, setTitle] = useState(session.title);
   const [status, setStatus] = useState<Status>(session.status);
   const [client, setClient] = useState(board.clients.find((c) => c.id === session.client_id)?.name ?? "");
-  const [objective, setObjective] = useState(
-    board.objectives.find((o) => o.id === session.objective_id)?.title ?? "",
-  );
+  const [pageId, setPageId] = useState(session.page_id ?? session.objective_id ?? "");
   const [branch, setBranch] = useState(session.branch ?? "");
   const [nextStep, setNextStep] = useState(session.next_step ?? "");
   const [prUrl, setPrUrl] = useState(session.pr_url ?? "");
@@ -60,7 +58,7 @@ export function Drawer(
       title,
       status,
       client: client || undefined,
-      objective: objective || undefined,
+      page_id: pageId || null,
       repo_path: session.repo_path,
       branch: branch || undefined,
       next_step: nextStep || undefined,
@@ -174,15 +172,15 @@ export function Drawer(
         </Row>
         <Row label="Project">
           <Select
-            value={objective}
+            value={pageId}
             className={rowVal}
             options={[
               { value: "", label: "none" },
-              ...board.objectives.map((o) => ({ value: o.title, label: `◎ ${o.title}` })),
+              ...pageOptions(board.objectives, board.pages ?? []),
             ]}
             onChange={(v) => {
-              setObjective(v);
-              commit({ objective: v || undefined });
+              setPageId(v);
+              commit({ page_id: v || null });
             }}
           />
         </Row>

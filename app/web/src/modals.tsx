@@ -16,7 +16,7 @@ import {
   type Status,
   type UpdateInfo,
 } from "./api";
-import { Popover, Select, STATUS, StatusDot, timeAgo } from "./ui";
+import { pageOptions, Popover, Select, STATUS, StatusDot, timeAgo } from "./ui";
 
 function Modal(
   { width = 560, onClose, onSubmit, children }: {
@@ -98,14 +98,14 @@ export function NewSessionModal(
   const [branch, setBranch] = useState("");
   const [nextStep, setNextStep] = useState("");
 
-  const obj = objective === "__new__" ? newObjective : objective;
   const submit = () => {
     if (!title.trim()) return;
     onCreate({
       title: title.trim(),
       status,
       client: client || undefined,
-      objective: obj || undefined,
+      // an existing pick is a page id (plain pages get promoted); __new__ is a title
+      ...(objective === "__new__" ? { objective: newObjective || undefined } : { page_id: objective || undefined }),
       branch: branch || undefined,
       next_step: nextStep || undefined,
     });
@@ -142,7 +142,7 @@ export function NewSessionModal(
           className={pill}
           options={[
             { value: "", label: "◎ no project" },
-            ...board.objectives.map((o) => ({ value: o.title, label: `◎ ${o.title}` })),
+            ...pageOptions(board.objectives, board.pages ?? []),
             { value: "__new__", label: "＋ new project…" },
           ]}
           onChange={setObjective}
@@ -668,6 +668,9 @@ export function ImportClaudeModal(
           const clientName = clients[g.repoPath] ?? g.suggestedClient;
           const clientId = board.clients.find((c) => c.name === clientName)?.id;
           const clientProjects = board.objectives.filter((o) => !o.client_id || o.client_id === clientId);
+          // plain pages are offered too — the import promotes them on attach
+          const clientPages = (board.pages ?? [])
+            .filter((p) => p.kind !== "project" && (!p.client_id || p.client_id === clientId));
           return (
             <div key={g.repoPath} className="flex flex-col gap-1 rounded-lg border border-line bg-[#101219] p-2.5">
               <div className="flex items-center gap-2">
@@ -703,6 +706,7 @@ export function ImportClaudeModal(
                   options={[
                     { value: AUTO_PROJECT, label: `◎ ${g.repoName} (create)` },
                     ...clientProjects.map((o) => ({ value: o.title, label: `◎ ${o.title}` })),
+                    ...clientPages.map((p) => ({ value: p.title, label: `□ ${p.title}` })),
                     { value: NEW_PROJECT, label: "＋ new project…" },
                     { value: "", label: "no project" },
                   ]}

@@ -137,7 +137,10 @@ export function Board(
       {
         key: "none",
         title: "— No project",
-        sessions: board.sessions.filter((s) => !s.objective_id),
+        // also catches sessions whose page hasn't been promoted yet (sync window)
+        sessions: board.sessions.filter((s) =>
+          !s.objective_id || !board.objectives.some((o) => o.id === s.objective_id)
+        ),
       },
     ];
 
