@@ -68,3 +68,40 @@ test("deleting the project removes the subtree from the sidebar", async ({ page 
   await expect(page.locator("aside").getByRole("button", { name: /Pages Project/ })).not.toBeVisible();
   await expect(page.locator("aside").getByRole("button", { name: /Nested notes/ })).not.toBeVisible();
 });
+
+test("attaching a session to a plain page promotes it to a project", async ({ page, request }) => {
+  // plain page, no session yet → sits under PAGES
+  await request.post("/api/pages", { data: { title: "Scratch notes", kind: "page" } });
+  // attach by title (the CLI path) — must reuse the page, not mint a duplicate project
+  await request.post("/api/sessions", {
+    data: { title: "promo e2e session", objective: "Scratch notes", no_event: true },
+  });
+  const pages = await (await request.get("/api/pages")).json();
+  const hits = pages.filter((p: { title: string }) => p.title === "Scratch notes");
+  expect(hits).toHaveLength(1); // title-collision regression
+  expect(hits[0].kind).toBe("project");
+  await page.goto("/");
+  // promoted page renders under PROJECTS (◎ glyph) and lists its session
+  const nav = page.locator("aside").getByRole("button", { name: /Scratch notes/ }).first();
+  await expect(nav).toBeVisible();
+  await expect(nav).toContainText("◎");
+  await nav.click();
+  await expect(page.getByText("promo e2e session").first()).toBeVisible();
+  // grouped board gains a lane for it
+  await page.goto("/?view=board&group=objective");
+  await expect(page.getByRole("main").getByText("Scratch notes", { exact: true })).toBeVisible();
+});
+
+test("drawer picker offers plain pages and promotes on pick", async ({ page, request }) => {
+  await request.post("/api/pages", { data: { title: "Loose notes", kind: "page" } });
+  await request.post("/api/sessions", { data: { title: "drawer promo session", no_event: true } });
+  await page.goto("/");
+  await page.getByText("drawer promo session").click();
+  // the project row Select lists the plain page with the □ glyph
+  await page.getByRole("button", { name: /^none/ }).last().click(); // Project trigger (Client is the first "none ▾")
+  await page.getByRole("button", { name: "□ Loose notes" }).last().click(); // sidebar shows the page too
+  await page.keyboard.press("Escape");
+  // picking promoted it: sidebar shows it as a project (◎)
+  const nav = page.locator("aside").getByRole("button", { name: /Loose notes/ }).first();
+  await expect(nav).toContainText("◎");
+});

@@ -316,7 +316,8 @@ export function Page(
             </button>
           </div>
 
-        {isProject && (
+        {/* also shown when a just-promoted page (stale kind) already has sessions */}
+        {(isProject || sessions.length > 0) && (
           <div className="flex flex-col gap-1 border-t border-line-soft pt-3">
             <span className="text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">SESSIONS</span>
             {sessions.map((s) => (

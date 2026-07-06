@@ -182,7 +182,7 @@ comment on table objectives is 'LEGACY — superseded by pages (kind=''project''
 
 comment on table pages is 'Notion-style page tree: one nestable hierarchy for everything. kind=''project'' pages are the former objectives (migrated with identical ids).';
 comment on column pages.parent_id is 'Parent page; null = top level. Deliberately NO FK: LWW pull is updated_at-ordered so a child can arrive before its parent — readers tolerate orphans.';
-comment on column pages.kind      is 'page | project. Projects carry story/status and are what sessions ladder up to.';
+comment on column pages.kind      is 'page | project. Behavioral: a page becomes a project (one-way) when a session attaches. Projects carry story/status and are what sessions ladder up to.';
 comment on column pages.icon      is 'Emoji glyph, or an image URL / data URI.';
 comment on column pages.story     is 'Project blurb, shown as the page description.';
 comment on column pages.status    is 'open | done | archived (meaningful for kind=''project'').';
@@ -192,7 +192,7 @@ comment on column pages.sort_key  is 'Fractional order key among siblings (base-
 comment on table sessions is 'Claude Code work sessions — the kanban cards. Upserted by /project:track via repo_path+branch among open sessions.';
 comment on column sessions.status       is 'active | paused | blocked | done — the board columns.';
 comment on column sessions.objective_id is 'LEGACY twin of page_id (no FK since the pages migration). Dual-written until the frontend is fully off it.';
-comment on column sessions.page_id      is 'The project page this session ladders up to (pages.kind=''project'').';
+comment on column sessions.page_id      is 'The page this session ladders up to. Attaching promotes a plain page to kind=''project''.';
 comment on column sessions.next_step    is 'One imperative line — what to do next.';
 comment on column sessions.summary      is 'Last "what happened" blurb; also written to session_events as the worklog.';
 comment on column sessions.last_touched is 'Activity clock for board ordering (distinct from updated_at, the LWW clock).';

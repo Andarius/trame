@@ -15,7 +15,9 @@ test.beforeAll(async ({ request }) => {
   }
 });
 
-test("scan previews sessions, filters by window, hides subagents and tmp dirs", async ({ page }) => {
+test("scan previews sessions, filters by window, hides subagents and tmp dirs", async ({ page, request }) => {
+  // a plain page must show up in the project picker as a promotable □ option
+  await request.post("/api/pages", { data: { title: "Import notes", kind: "page" } });
   await page.goto("/");
   await page.getByRole("button", { name: /Import from Claude Code/ }).click();
   await expect(page.getByText("IMPORT FROM CLAUDE CODE", { exact: true })).toBeVisible();
@@ -34,6 +36,12 @@ test("scan previews sessions, filters by window, hides subagents and tmp dirs", 
   await page.getByRole("button", { name: /alpha \(create\)/ }).click();
   await page.getByRole("button", { name: /new project…/ }).click();
   await expect(page.getByPlaceholder("new project title (created on import)")).toBeVisible();
+  // plain pages appear as promotable □ options
+  await page.getByRole("button", { name: /new project…/ }).click(); // reopen the select
+  // .last(): the sidebar tree also shows "□ Import notes" — the modal renders after it
+  await page.getByRole("button", { name: "□ Import notes" }).last().click();
+  await page.getByRole("button", { name: "□ Import notes" }).last().click(); // reopen, restore default
+  await page.getByRole("button", { name: /alpha \(create\)/ }).click();
   // and the client picker a "new client" one
   await page.getByRole("button", { name: "Side-projects" }).click();
   await page.getByRole("button", { name: /new client…/ }).click();

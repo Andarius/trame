@@ -16,7 +16,15 @@ export type Session = {
 };
 export type Objective = { id: string; title: string; story: string; client_id: string | null; status: string };
 export type Client = { id: string; name: string; color: string | null };
-export type BoardData = { clients: Client[]; objectives: Objective[]; sessions: Session[] };
+export type BoardPage = {
+  id: string;
+  parent_id: string | null;
+  kind: string;
+  title: string;
+  icon: string | null;
+  client_id: string | null;
+};
+export type BoardData = { clients: Client[]; objectives: Objective[]; sessions: Session[]; pages: BoardPage[] };
 export type AppStatus = {
   nodeId: string;
   remote: boolean;

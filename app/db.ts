@@ -62,7 +62,11 @@ export async function getBoard() {
   // "objectives" are project pages since the pages merge — same shape, same ids
   const objectives = (await pg.query(`select * from pages where kind='project' and not deleted order by title`)).rows;
   const sessions = (await pg.query(`select * from sessions where not deleted order by last_touched desc`)).rows;
-  return { clients, objectives, sessions };
+  // full tree for pickers — sessions may attach to any page (it gets promoted)
+  const pages = (await pg.query(
+    `select id, parent_id, kind, title, icon, client_id from pages where not deleted order by title`,
+  )).rows;
+  return { clients, objectives, sessions, pages };
 }
 
 const PALETTE = ["#7a9ee7", "#b590e7", "#c98a63", "#7bd88f", "#e3c567"];
@@ -85,8 +89,10 @@ export async function resolveClient(name: string, color?: string): Promise<strin
 
 export async function resolveObjective(title: string, clientId: string | null): Promise<string> {
   const pg = await db();
+  // any kind: a same-titled plain page is reused (and promoted on session attach)
+  // instead of minting a duplicate project; an existing project wins the tie
   const hit = (await pg.query(
-    `select id from pages where kind='project' and title=$1 and not deleted limit 1`,
+    `select id from pages where title=$1 and not deleted order by (kind='project') desc, updated_at desc limit 1`,
     [title],
   )).rows[0] as { id: string } | undefined;
   if (hit) return hit.id;
@@ -107,6 +113,15 @@ export async function createObjective(o: { title: string; story?: string; client
   return row.id;
 }
 
+async function promoteToProject(pageId: string, clientId: string | null): Promise<void> {
+  const pg = await db();
+  await pg.query(
+    `update pages set kind='project', client_id=coalesce(client_id,$2), origin=$3, updated_at=now()
+      where id=$1 and kind<>'project' and not deleted`,
+    [pageId, clientId, NODE_ID],
+  );
+}
+
 export async function upsertSession(s: Record<string, unknown>): Promise<string> {
   const pg = await db();
   // Accept human names (from the CLI/MCP) and resolve them to ids.
@@ -119,6 +134,8 @@ export async function upsertSession(s: Record<string, unknown>): Promise<string>
   // until the frontend is fully off objective_id.
   s.page_id ??= s.objective_id;
   s.objective_id ??= s.page_id;
+  // project = a page that has sessions: attaching promotes a plain page (one-way)
+  if (s.page_id) await promoteToProject(s.page_id as string, (s.client_id as string) ?? null);
   // Upsert by (repo_path, branch) among open sessions when no id is given.
   if (!s.id && s.repo_path) {
     const hit = (await pg.query(
