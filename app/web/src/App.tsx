@@ -225,10 +225,11 @@ function Sidebar(
           </button>
         );
       })}
+      {/* one tree, two root sections: projects (what sessions ladder up to) vs plain pages */}
       <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
-        PAGES
+        PROJECTS
       </div>
-      {(childrenOf.get(null) ?? []).map((p) => (
+      {(childrenOf.get(null) ?? []).filter((p) => p.kind === "project").map((p) => (
         <PageNode
           key={p.id}
           p={p}
@@ -250,6 +251,25 @@ function Sidebar(
       >
         <span className="text-[12px]">◎</span> New project
       </button>
+      <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+        PAGES
+      </div>
+      {(childrenOf.get(null) ?? []).filter((p) => p.kind !== "project").map((p) => (
+        <PageNode
+          key={p.id}
+          p={p}
+          depth={0}
+          childrenOf={childrenOf}
+          dbsOf={dbsOf}
+          expanded={expanded}
+          onToggle={onToggle}
+          current={view === "page" ? pageId : null}
+          currentDb={view === "database" ? dbId : null}
+          onOpenPage={onOpenPage}
+          onOpenDb={onOpenDb}
+          onNewChild={(id) => onNewPage(id)}
+        />
+      ))}
       <button type="button"
         className="flex items-center gap-2.5 rounded-md px-2 py-[6px] text-left text-[12.5px] text-ink-muted/70 hover:text-ink-soft"
         onClick={() => onNewPage(null)}
