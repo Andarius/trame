@@ -4,7 +4,7 @@
 // Transcripts can be tens of MB: only a head chunk (first cwd) and a tail chunk
 // (LAST ai-title / last-prompt / gitBranch) are read.
 import { addEvent, db, upsertSession } from "./db.ts";
-import { CLAUDE_DIR } from "./config.ts";
+import { CLAUDE_DIR, SETTINGS_FILE } from "./config.ts";
 
 export type ClaudeSession = {
   claudeId: string;
@@ -16,6 +16,7 @@ export type ClaudeSession = {
   suggestedClient: string;
   suggestedProject: string;
   alreadyImported: boolean;
+  ignored: boolean;
 };
 export type ClaudeGroup = {
   repoPath: string;
@@ -33,6 +34,29 @@ export type ClaudeImportItem = {
   status: "active" | "paused";
   lastActive: string;
 };
+
+// Ignored ids live in the settings file: a per-machine concern, like the transcripts.
+async function loadIgnored(): Promise<Set<string>> {
+  try {
+    const s = JSON.parse(await Deno.readTextFile(SETTINGS_FILE));
+    return new Set(Array.isArray(s.claudeIgnored) ? s.claudeIgnored : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export async function setClaudeIgnored(claudeId: string, ignored: boolean): Promise<{ ignored: boolean }> {
+  await Deno.mkdir(SETTINGS_FILE.replace(/\/[^/]+$/, ""), { recursive: true }).catch(() => {});
+  let settings: Record<string, unknown> = {};
+  try {
+    settings = JSON.parse(await Deno.readTextFile(SETTINGS_FILE));
+  } catch { /* fresh file */ }
+  const set = new Set(Array.isArray(settings.claudeIgnored) ? settings.claudeIgnored as string[] : []);
+  ignored ? set.add(claudeId) : set.delete(claudeId);
+  settings.claudeIgnored = [...set];
+  await Deno.writeTextFile(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+  return { ignored };
+}
 
 const HEAD_BYTES = 65_536;
 const TAIL_BYTES = 262_144;
@@ -126,6 +150,7 @@ export async function scanClaudeSessions(
   days: number,
 ): Promise<{ groups: ClaudeGroup[]; total: number; dir: string }> {
   const cutoff = Date.now() - days * 86_400_000;
+  const ignoredIds = await loadIgnored();
   const found: ClaudeSession[] = [];
   let dirs: Deno.DirEntry[] = [];
   try {
@@ -173,6 +198,7 @@ export async function scanClaudeSessions(
           suggestedClient: clientFor(repoPath),
           suggestedProject: repoName,
           alreadyImported: false,
+          ignored: ignoredIds.has(claudeId),
         });
       } catch {
         // raced deletion / unreadable file — skip

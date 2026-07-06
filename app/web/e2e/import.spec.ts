@@ -56,11 +56,40 @@ test("import creates the card, the auto project, and the worklog event", async (
   await page.keyboard.press("Escape");
 });
 
-test("re-scan greys the imported session and disables the footer", async ({ page }) => {
+test("re-scan hides the imported session behind the filter chip", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /Import from Claude Code/ }).click();
-  await expect(page.getByText("imported", { exact: true })).toBeVisible();
+  // imported sessions are hidden by default (7d window has only the imported uuid1)
+  await expect(page.getByText(/Everything here is already imported or ignored/)).toBeVisible();
   await expect(page.getByRole("button", { name: /Import 0 sessions/ })).toBeDisabled();
+  // the chip reveals it, greyed (getByTitle: the same text is on the board card behind the modal)
+  await page.getByRole("button", { name: "imported 1" }).click();
+  await expect(page.getByTitle("alpha — Ship the import feature")).toBeVisible();
+  await expect(page.getByText("imported", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+});
+
+test("a session can be ignored, revealed via the filter, and restored", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /Import from Claude Code/ }).click();
+  await page.getByRole("button", { name: "30d", exact: true }).click();
+  const row = page.locator("div", { hasText: "alpha — fix the flaky retry test" }).last();
+  await row.hover();
+  await row.getByTitle("Ignore this session").click();
+  // row disappears, counts and footer update
+  await expect(page.getByText("alpha — fix the flaky retry test")).not.toBeVisible();
+  await expect(page.getByRole("button", { name: /Import 0 sessions/ })).toBeDisabled();
+  // survives a reopen (persisted in the settings file)
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: /Import from Claude Code/ }).click();
+  await page.getByRole("button", { name: "30d", exact: true }).click();
+  await expect(page.getByRole("button", { name: "ignored 1" })).toBeVisible();
+  // reveal and restore
+  await page.getByRole("button", { name: "ignored 1" }).click();
+  await expect(page.getByText("alpha — fix the flaky retry test")).toBeVisible();
+  await page.getByTitle("Stop ignoring").click();
+  await page.getByRole("button", { name: "Select all" }).click();
+  await expect(page.getByRole("button", { name: /Import 1 session\b/ })).toBeEnabled();
   await page.keyboard.press("Escape");
 });
 

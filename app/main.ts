@@ -29,7 +29,7 @@ import {
   upsertSession,
 } from "./db.ts";
 import { syncOnce } from "./sync.ts";
-import { importClaudeSessions, scanClaudeSessions } from "./claude-import.ts";
+import { importClaudeSessions, scanClaudeSessions, setClaudeIgnored } from "./claude-import.ts";
 import { applyUpdate, checkUpdate, VERSION } from "./update.ts";
 import { attachUdbToPage, createPage, deletePage, getPage, listPages, movePage, updatePage } from "./pages.ts";
 import {
@@ -171,6 +171,10 @@ async function handler(req: Request): Promise<Response> {
     return json(await checkUpdate(url.searchParams.has("force")));
   }
   if (pathname === "/api/sync" && req.method === "POST") return json(await runSync());
+  if (pathname === "/api/import/claude/ignore" && req.method === "POST") {
+    const { claudeId, ignored } = await req.json();
+    return json(await setClaudeIgnored(String(claudeId), Boolean(ignored)));
+  }
   if (pathname === "/api/import/claude" && req.method === "POST") {
     const body = await req.json();
     return json(await importClaudeSessions(Array.isArray(body.items) ? body.items : []));

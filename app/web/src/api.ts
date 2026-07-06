@@ -258,6 +258,7 @@ export type ClaudeSession = {
   suggestedClient: string;
   suggestedProject: string;
   alreadyImported: boolean;
+  ignored: boolean;
 };
 export type ClaudeGroup = { repoPath: string; repoName: string; suggestedClient: string; sessions: ClaudeSession[] };
 export type ClaudeScan = { groups: ClaudeGroup[]; total: number; dir: string };
@@ -275,3 +276,5 @@ export const scanClaudeImport = (days: number) =>
   fetch(`/api/import/claude?days=${days}`).then((r) => r.json() as Promise<ClaudeScan>);
 export const runClaudeImport = (items: ClaudeImportItem[]) =>
   post("/api/import/claude", { items }).then((r) => r.json() as Promise<{ imported: number; skipped: number }>);
+export const setClaudeIgnored = (claudeId: string, ignored: boolean) =>
+  post("/api/import/claude/ignore", { claudeId, ignored });

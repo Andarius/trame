@@ -10,6 +10,7 @@ import {
   patchSettings,
   runClaudeImport,
   scanClaudeImport,
+  setClaudeIgnored,
   type Status,
   type UpdateInfo,
 } from "./api";
@@ -471,6 +472,8 @@ export function ImportClaudeModal(
   const [clients, setClients] = useState<Record<string, string>>({});
   const [projects, setProjects] = useState<Record<string, string>>({});
   const [newProjects, setNewProjects] = useState<Record<string, string>>({});
+  const [showImported, setShowImported] = useState(false);
+  const [showIgnored, setShowIgnored] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -479,12 +482,32 @@ export function ImportClaudeModal(
     scanClaudeImport(days).then((s) => {
       if (!alive) return;
       setScan(s);
-      setChecked(new Set(s.groups.flatMap((g) => g.sessions.filter((x) => !x.alreadyImported).map((x) => x.claudeId))));
+      setChecked(
+        new Set(
+          s.groups.flatMap((g) => g.sessions.filter((x) => !x.alreadyImported && !x.ignored).map((x) => x.claudeId)),
+        ),
+      );
     });
     return () => {
       alive = false;
     };
   }, [days]);
+
+  const ignore = (id: string, ignored: boolean) => {
+    setClaudeIgnored(id, ignored);
+    setScan((prev) =>
+      prev
+        ? {
+          ...prev,
+          groups: prev.groups.map((g) => ({
+            ...g,
+            sessions: g.sessions.map((s) => (s.claudeId === id ? { ...s, ignored } : s)),
+          })),
+        }
+        : prev
+    );
+    if (ignored) setChecked((prev) => new Set([...prev].filter((x) => x !== id)));
+  };
 
   const toggle = (id: string) =>
     setChecked((prev) => {
@@ -522,7 +545,10 @@ export function ImportClaudeModal(
     }
   };
 
-  const imported = scan?.groups.flatMap((g) => g.sessions).filter((s) => s.alreadyImported).length ?? 0;
+  const flat = scan?.groups.flatMap((g) => g.sessions) ?? [];
+  const imported = flat.filter((s) => s.alreadyImported).length;
+  const ignoredCount = flat.filter((s) => s.ignored && !s.alreadyImported).length;
+  const isVisible = (s: ClaudeSession) => (showImported || !s.alreadyImported) && (showIgnored || !s.ignored);
 
   return (
     <Modal width={720} onClose={onClose} onSubmit={submit}>
@@ -540,20 +566,34 @@ export function ImportClaudeModal(
             {d}d
           </button>
         ))}
-        <span className="ml-auto text-[11px] text-ink-muted">
-          {scan ? `${scan.total} found${imported ? ` · ${imported} already imported` : ""}` : "scanning…"}
-        </span>
+        <span className="ml-auto text-[11px] text-ink-muted">{scan ? `${scan.total} found` : "scanning…"}</span>
+        {[
+          { label: "imported", count: imported, on: showImported, set: setShowImported },
+          { label: "ignored", count: ignoredCount, on: showIgnored, set: setShowIgnored },
+        ].filter((f) => f.count > 0).map((f) => (
+          <button
+            key={f.label}
+            type="button"
+            className={`rounded-md border px-2 py-1 text-[11px] ${
+              f.on ? "border-copper text-copper" : "border-chipline text-ink-muted hover:text-ink-soft"
+            }`}
+            title={`${f.on ? "Hide" : "Show"} ${f.label} sessions`}
+            onClick={() => f.set(!f.on)}
+          >
+            {f.label} {f.count}
+          </button>
+        ))}
         {scan && scan.total > imported && (
           <button
             type="button"
             className="rounded-md border border-chipline px-2 py-1 text-[11px] text-ink-muted hover:text-ink-soft"
             onClick={() =>
               setChecked(
-                checked.size
-                  ? new Set()
-                  : new Set(
-                    scan.groups.flatMap((g) => g.sessions.filter((s) => !s.alreadyImported).map((s) => s.claudeId)),
+                checked.size ? new Set() : new Set(
+                  scan.groups.flatMap((g) =>
+                    g.sessions.filter((s) => !s.alreadyImported && !s.ignored).map((s) => s.claudeId)
                   ),
+                ),
               )}
           >
             {checked.size ? "Deselect all" : "Select all"}
@@ -566,8 +606,15 @@ export function ImportClaudeModal(
             No Claude Code sessions in the last {days} days.
           </div>
         )}
+        {scan && scan.groups.length > 0 && !scan.groups.some((g) => g.sessions.some(isVisible)) && (
+          <div className="py-8 text-center text-[12.5px] text-ink-muted">
+            Everything here is already imported or ignored — use the filters above to show them.
+          </div>
+        )}
         {scan?.groups.map((g) => {
-          const importable = g.sessions.filter((s) => !s.alreadyImported);
+          const visible = g.sessions.filter(isVisible);
+          if (!visible.length) return null;
+          const importable = g.sessions.filter((s) => !s.alreadyImported && !s.ignored);
           const allOn = importable.length > 0 && importable.every((s) => checked.has(s.claudeId));
           // only offer projects of the group's client (plus unassigned ones)
           const clientName = clients[g.repoPath] ?? g.suggestedClient;
@@ -620,16 +667,16 @@ export function ImportClaudeModal(
                   onChange={(e) => setNewProjects((prev) => ({ ...prev, [g.repoPath]: e.target.value }))}
                 />
               )}
-              {g.sessions.map((s) => (
+              {visible.map((s) => (
                 <div
                   key={s.claudeId}
-                  className={`flex items-center gap-2 pl-6 text-[12px] ${
-                    s.alreadyImported ? "opacity-40" : ""
+                  className={`group flex items-center gap-2 pl-6 text-[12px] ${
+                    s.alreadyImported || s.ignored ? "opacity-40" : ""
                   }`}
                 >
                   <Check
                     on={checked.has(s.claudeId)}
-                    disabled={s.alreadyImported}
+                    disabled={s.alreadyImported || s.ignored}
                     onClick={() => toggle(s.claudeId)}
                   />
                   <span className="min-w-0 flex-1 truncate text-ink-soft" title={s.title}>{s.title}</span>
@@ -638,10 +685,27 @@ export function ImportClaudeModal(
                       imported
                     </span>
                   )}
+                  {s.ignored && !s.alreadyImported && (
+                    <span className="rounded border border-chipline px-1.5 py-px text-[9.5px] text-ink-muted">
+                      ignored
+                    </span>
+                  )}
                   {s.branch && <span className="shrink-0 text-[10.5px] text-ink-muted">⎇ {s.branch}</span>}
                   <span className="w-14 shrink-0 text-right text-[10.5px] text-ink-muted/80">
                     {timeAgo(s.lastActive)}
                   </span>
+                  {!s.alreadyImported && (
+                    <button
+                      type="button"
+                      className={`shrink-0 px-0.5 text-[11px] text-ink-muted hover:text-ink-soft ${
+                        s.ignored ? "" : "opacity-0 group-hover:opacity-100"
+                      }`}
+                      title={s.ignored ? "Stop ignoring" : "Ignore this session"}
+                      onClick={() => ignore(s.claudeId, !s.ignored)}
+                    >
+                      {s.ignored ? "↩" : "✕"}
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
