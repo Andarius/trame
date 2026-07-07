@@ -26,6 +26,15 @@ type Selected = {
 
 const HOME_RE = /^\/home\/[^/]+\/|^\/Users\/[^/]+\//;
 
+type FolderNode = {
+  name: string;
+  full: string;
+  folders: FolderNode[];
+  files: FileHit[];
+  newest: string;
+  count: number;
+};
+
 export function Explore(
   { board, onOpenSettings }: { board: BoardData; onOpenSettings?: () => void },
 ) {
@@ -36,6 +45,22 @@ export function Explore(
   const [selKey, setSelKey] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [starred, setStarred] = useState<string[]>([]);
+  const [roots, setRoots] = useState<string[]>([]);
+  // folder tree: collapsed dirs persist like a file explorer
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem("trame:explore-collapsed") ?? "[]"));
+    } catch {
+      return new Set();
+    }
+  });
+  const toggleFolder = (full: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      next.has(full) ? next.delete(full) : next.add(full);
+      localStorage.setItem("trame:explore-collapsed", JSON.stringify([...next]));
+      return next;
+    });
   const [htmlFilter, setHtmlFilter] = useState<"smart" | "all">("smart");
   const [kindFilter, setKindFilter] = useState<"both" | "html" | "excalidraw">("both");
 
@@ -51,6 +76,7 @@ export function Explore(
       getSettings().then((s) => {
         setStarred(s.starred ?? []);
         setHtmlFilter(s.htmlFilter ?? "smart");
+        setRoots(s.paths ?? []);
       }),
     ]).finally(() => setRefreshing(false));
   };
@@ -111,25 +137,73 @@ export function Explore(
     return kindFilter === "excalidraw" ? isExcalidraw : !isExcalidraw;
   });
 
-  // group file hits by containing folder — starred groups pinned first,
-  // then ordered by each group's freshest file (files arrive mtime-desc)
-  const folders = useMemo(() => {
-    const m = new Map<string, FileHit[]>();
+  // folder tree under the configured roots — single-child chains are merged
+  // ("reports/2026"), starred folders pinned first, then freshest-first
+  const tree = useMemo(() => {
+    const nodes = new Map<string, FolderNode>();
+    const ensure = (full: string, name: string): FolderNode => {
+      let n = nodes.get(full);
+      if (!n) {
+        n = { name, full, folders: [], files: [], newest: "", count: 0 };
+        nodes.set(full, n);
+      }
+      return n;
+    };
+    const tops: FolderNode[] = [];
     for (const f of shownFiles) {
       const dir = f.path.slice(0, f.path.lastIndexOf("/"));
-      const arr = m.get(dir);
-      if (arr) arr.push(f);
-      else m.set(dir, [f]);
+      const root = roots.find((r) => dir === r || dir.startsWith(r + "/")) ?? dir;
+      let cur = ensure(root, root.replace(HOME_RE, "~/"));
+      if (!tops.includes(cur)) tops.push(cur);
+      if (dir !== root) {
+        let acc = root;
+        for (const seg of dir.slice(root.length + 1).split("/")) {
+          acc += "/" + seg;
+          const child = ensure(acc, seg);
+          if (!cur.folders.includes(child)) cur.folders.push(child);
+          cur = child;
+        }
+      }
+      cur.files.push(f);
     }
-    const entries = [...m.entries()];
-    entries.sort((a, b) => Number(starred.includes(b[0])) - Number(starred.includes(a[0])));
-    return entries;
-  }, [shownFiles, starred]);
+    const finish = (n: FolderNode): FolderNode => {
+      // merge empty single-child folders into their parent's label
+      while (n.files.length === 0 && n.folders.length === 1) {
+        const only = n.folders[0];
+        n = { ...only, name: `${n.name}/${only.name}` };
+      }
+      n.folders = n.folders.map(finish);
+      n.count = n.files.length + n.folders.reduce((sum, c) => sum + c.count, 0);
+      n.newest = [n.files[0]?.mtime ?? "", ...n.folders.map((c) => c.newest)]
+        .reduce((a, b) => (b > a ? b : a), "");
+      n.folders.sort((a, b) =>
+        Number(starred.includes(b.full)) - Number(starred.includes(a.full)) ||
+        b.newest.localeCompare(a.newest)
+      );
+      return n;
+    };
+    return tops.map(finish).sort((a, b) =>
+      Number(starred.includes(b.full)) - Number(starred.includes(a.full)) ||
+      b.newest.localeCompare(a.newest)
+    );
+  }, [shownFiles, starred, roots]);
+
+  // visible files in display order (search forces every folder open)
+  const visibleFiles = useMemo(() => {
+    const out: FileHit[] = [];
+    const walk = (n: FolderNode) => {
+      if (!needle && collapsed.has(n.full)) return;
+      for (const c of n.folders) walk(c);
+      out.push(...n.files);
+    };
+    for (const n of tree) walk(n);
+    return out;
+  }, [tree, collapsed, needle]);
 
   // ↑/↓ moves the selection through the visible list (reports then files, display order)
   const flat = [
     ...shownReports.map((r) => ({ key: `db:${r.id}`, sel: () => selectDb(r) })),
-    ...folders.flatMap(([, hits]) => hits.map((f) => ({ key: `file:${f.path}`, sel: () => selectFile(f) }))),
+    ...visibleFiles.map((f) => ({ key: `file:${f.path}`, sel: () => selectFile(f) })),
   ];
   const flatRef = useRef(flat);
   flatRef.current = flat;
@@ -264,57 +338,22 @@ export function Explore(
             </button>
           );
         })}
-        {folders.length > 0 && <div className={sectionLbl}>FILES</div>}
-        {folders.map(([dir, hits]) => {
-          const isStarred = starred.includes(dir);
-          return (
-          <div key={dir} className="flex flex-col">
-            <div className="group flex items-center gap-1.5 px-2 pb-0.5 pt-2">
-              <span className="min-w-0 flex-1 truncate text-[10px] text-ink-muted/60" title={dir}>
-                {dir.replace(HOME_RE, "~/")}
-              </span>
-              <button type="button"
-                onClick={() => toggleStar(dir)}
-                title={isStarred ? "unstar" : "star — pin this folder on top"}
-                className={`text-[11px] leading-none ${
-                  isStarred ? "text-copper" : "text-ink-muted/40 opacity-0 group-hover:opacity-100"
-                } hover:text-copper`}
-              >
-                ★
-              </button>
-              <button type="button"
-                onClick={() => ignoreFolder(dir)}
-                title="ignore this folder"
-                className="text-[11px] leading-none text-ink-muted/40 opacity-0 hover:text-blocked group-hover:opacity-100"
-              >
-                ⊘
-              </button>
-            </div>
-            {hits.map((f) => {
-              const active = selKey === `file:${f.path}`;
-              return (
-                <button type="button"
-                  key={f.path}
-                  data-key={`file:${f.path}`}
-                  onClick={() => selectFile(f)}
-                  className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left ${
-                    active ? "bg-[#1a1d26]" : "hover:bg-[#14161c]"
-                  }`}
-                >
-                  <span
-                    className={`min-w-0 flex-1 truncate text-[12.5px] font-medium leading-snug ${
-                      active ? "" : "text-[#c7cbd4]"
-                    }`}
-                  >
-                    {f.name}
-                  </span>
-                  {f.mtime && <span className="shrink-0 text-[10px] text-ink-muted">{timeAgo(f.mtime)}</span>}
-                </button>
-              );
-            })}
-          </div>
-          );
-        })}
+        {tree.length > 0 && <div className={sectionLbl}>FILES</div>}
+        {tree.map((n) => (
+          <FolderRow
+            key={n.full}
+            node={n}
+            depth={0}
+            collapsed={collapsed}
+            forceOpen={!!needle}
+            starred={starred}
+            selKey={selKey}
+            onToggle={toggleFolder}
+            onStar={toggleStar}
+            onIgnore={ignoreFolder}
+            onSelect={selectFile}
+          />
+        ))}
         {files.length === 0 && (
           <p className="px-2 py-2 text-[11px] leading-relaxed text-ink-muted/80">
             No indexed files —{" "}
@@ -368,6 +407,96 @@ export function Explore(
           )
           : <p className="p-6 text-ink-muted">Select a report</p>}
       </div>
+    </div>
+  );
+}
+
+function FolderRow(
+  { node, depth, collapsed, forceOpen, starred, selKey, onToggle, onStar, onIgnore, onSelect }: {
+    node: FolderNode;
+    depth: number;
+    collapsed: Set<string>;
+    forceOpen: boolean;
+    starred: string[];
+    selKey: string;
+    onToggle: (full: string) => void;
+    onStar: (full: string) => void;
+    onIgnore: (full: string) => void;
+    onSelect: (f: FileHit) => void;
+  },
+) {
+  const open = forceOpen || !collapsed.has(node.full);
+  const isStarred = starred.includes(node.full);
+  return (
+    <div className="flex flex-col">
+      <div
+        className="group flex items-center gap-1 rounded px-1 pb-0.5 pt-1.5"
+        style={{ paddingLeft: 4 + depth * 12 }}
+      >
+        <button type="button"
+          onClick={() => onToggle(node.full)}
+          className="flex min-w-0 flex-1 items-center gap-1 text-left"
+          title={node.full}
+        >
+          <span className="w-[11px] shrink-0 text-[9px] text-ink-muted/70">{open ? "▾" : "▸"}</span>
+          <span className="min-w-0 truncate text-[10.5px] text-ink-muted/80">{node.name}</span>
+          {!open && <span className="shrink-0 text-[9.5px] text-ink-muted/50">{node.count}</span>}
+        </button>
+        <button type="button"
+          onClick={() => onStar(node.full)}
+          title={isStarred ? "unstar" : "star — pin this folder on top"}
+          className={`text-[11px] leading-none ${
+            isStarred ? "text-copper" : "text-ink-muted/40 opacity-0 group-hover:opacity-100"
+          } hover:text-copper`}
+        >
+          ★
+        </button>
+        <button type="button"
+          onClick={() => onIgnore(node.full)}
+          title="ignore this folder"
+          className="text-[11px] leading-none text-ink-muted/40 opacity-0 hover:text-blocked group-hover:opacity-100"
+        >
+          ⊘
+        </button>
+      </div>
+      {open && node.folders.map((c) => (
+        <FolderRow
+          key={c.full}
+          node={c}
+          depth={depth + 1}
+          collapsed={collapsed}
+          forceOpen={forceOpen}
+          starred={starred}
+          selKey={selKey}
+          onToggle={onToggle}
+          onStar={onStar}
+          onIgnore={onIgnore}
+          onSelect={onSelect}
+        />
+      ))}
+      {open && node.files.map((f) => {
+        const active = selKey === `file:${f.path}`;
+        return (
+          <button type="button"
+            key={f.path}
+            data-key={`file:${f.path}`}
+            onClick={() => onSelect(f)}
+            className={`flex items-center gap-2 rounded-lg py-1.5 pr-2.5 text-left ${
+              active ? "bg-[#1a1d26]" : "hover:bg-[#14161c]"
+            }`}
+            style={{ paddingLeft: 16 + depth * 12 }}
+          >
+            <span
+              className={`min-w-0 flex-1 truncate text-[12.5px] font-medium leading-snug ${
+                active ? "" : "text-[#c7cbd4]"
+              }`}
+            >
+              {f.name}
+            </span>
+            {f.mtime && <span className="shrink-0 text-[10px] text-ink-muted">{timeAgo(f.mtime)}</span>}
+          </button>
+        );
+      })}
     </div>
   );
 }
