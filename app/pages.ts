@@ -6,7 +6,7 @@ import { db } from "./db.ts";
 import { NODE_ID } from "./config.ts";
 import { midKey } from "./udb.ts";
 
-const LIST_COLS = "id, parent_id, kind, title, icon, status, client_id, sort_key";
+const LIST_COLS = "id, parent_id, kind, title, icon, status, client_id, color, sort_key";
 
 export async function listPages() {
   const pg = await db();
