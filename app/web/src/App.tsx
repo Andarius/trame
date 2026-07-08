@@ -120,7 +120,10 @@ function PageNode(
           {open ? "▾" : "▸"}
         </button>
         <button type="button" className="flex min-w-0 flex-1 items-center gap-1.5" onClick={() => onOpenPage(p.id)}>
-          <span className={`text-[12px] ${active ? "text-copper" : ""}`}>
+          <span
+            className={`text-[12px] ${active && !(p.kind === "project" && p.color) ? "text-copper" : ""}`}
+            style={p.kind === "project" && p.color ? { color: p.color } : undefined}
+          >
             <EntityIcon icon={p.icon} fallback={pageGlyph(p.kind)} />
           </span>
           <span className={`truncate ${p.title ? "" : "italic text-ink-muted/60"}`}>{p.title || "Untitled"}</span>
