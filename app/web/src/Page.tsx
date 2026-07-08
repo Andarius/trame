@@ -15,6 +15,9 @@ import { appConfirm, ClientChip, EntityIcon, Popover, Select, STATUS, StatusDot 
 import { IconPicker } from "./udb/cells";
 import { DatabaseView } from "./udb/DatabaseTable";
 
+// project chip palette (matches the client palette + a few extras)
+const PROJECT_COLORS = ["#7a9ee7", "#b590e7", "#c98a63", "#7bd88f", "#e3c567", "#e06c75", "#56b6c2", "#8b93a3"];
+
 const PAGE_STATUS = [
   { value: "open", label: "Open" },
   { value: "done", label: "Done" },
@@ -169,6 +172,7 @@ export function Page(
   const [page, setPage] = useState<PageDetail | null>(null);
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [iconOpen, setIconOpen] = useState(false);
+  const [colorOpen, setColorOpen] = useState(false);
   const saveTimer = useRef<number | undefined>(undefined);
   const blocksRef = useRef<Block[]>([]);
 
@@ -254,6 +258,31 @@ export function Page(
             }}
             onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
           />
+          {isProject && (
+            <div className="relative shrink-0">
+              <button type="button"
+                title="project color"
+                className="h-5 w-5 rounded-md border border-chipline"
+                style={{ background: page.color ?? "#2f3542" }}
+                onClick={() => setColorOpen((o) => !o)}
+              />
+              {colorOpen && (
+                <Popover onClose={() => setColorOpen(false)} className="right-0 left-auto flex w-auto gap-1.5 p-2">
+                  {PROJECT_COLORS.map((c) => (
+                    <button type="button"
+                      key={c}
+                      className={`h-5 w-5 rounded-md ${page.color === c ? "ring-2 ring-ink ring-offset-1 ring-offset-[#171923]" : ""}`}
+                      style={{ background: c }}
+                      onClick={() => {
+                        patch({ color: c });
+                        setColorOpen(false);
+                      }}
+                    />
+                  ))}
+                </Popover>
+              )}
+            </div>
+          )}
         </div>
 
         {isStory && (

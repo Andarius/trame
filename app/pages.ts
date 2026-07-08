@@ -67,6 +67,7 @@ export async function updatePage(
     status?: string;
     client_id?: string | null;
     content?: unknown[];
+    color?: string | null;
   },
 ): Promise<void> {
   const pg = await db();
@@ -78,12 +79,14 @@ export async function updatePage(
        content   = coalesce($5, content),
        icon      = case when $6 then $7 else icon end,
        client_id = case when $8 then $9 else client_id end,
+       color     = case when $11 then $12 else color end,
        origin=$10, updated_at=now()
      where id=$1`,
     [id, patch.title ?? null, patch.story ?? null, patch.status ?? null,
       patch.content ? JSON.stringify(patch.content) : null,
       "icon" in patch, patch.icon ?? null,
-      "client_id" in patch, patch.client_id ?? null, NODE_ID],
+      "client_id" in patch, patch.client_id ?? null, NODE_ID,
+      "color" in patch, patch.color ?? null],
   );
 }
 
