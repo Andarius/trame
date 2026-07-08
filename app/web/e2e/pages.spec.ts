@@ -16,9 +16,9 @@ test.beforeAll(async ({ request }) => {
   }
 });
 
-test("project page shows story, blocks and sessions", async ({ page, request }) => {
+test("a story page shows its brief, blocks and sessions", async ({ page, request }) => {
   await request.post("/api/objectives", {
-    data: { title: "Pages Project", story: "the pages e2e story", client: "E2E Client" },
+    data: { title: "Pages Project", story: "the pages e2e story" },
   });
   await page.goto("/");
   await page.locator("aside").getByRole("button", { name: /Pages Project/ }).first().click();
@@ -79,12 +79,12 @@ test("attaching a session to a plain page promotes it to a project", async ({ pa
   const pages = await (await request.get("/api/pages")).json();
   const hits = pages.filter((p: { title: string }) => p.title === "Scratch notes");
   expect(hits).toHaveLength(1); // title-collision regression
-  expect(hits[0].kind).toBe("project");
+  expect(hits[0].kind).toBe("story");
   await page.goto("/");
-  // promoted page renders under PROJECTS (◎ glyph) and lists its session
+  // promoted page renders as a Story (◇ glyph) and lists its session
   const nav = page.locator("aside").getByRole("button", { name: /Scratch notes/ }).first();
   await expect(nav).toBeVisible();
-  await expect(nav).toContainText("◎");
+  await expect(nav).toContainText("◇");
   await nav.click();
   await expect(page.getByText("promo e2e session").first()).toBeVisible();
   // grouped board gains a lane for it
@@ -101,7 +101,7 @@ test("drawer picker offers plain pages and promotes on pick", async ({ page, req
   await page.getByRole("button", { name: /^none/ }).last().click(); // Project trigger (Client is the first "none ▾")
   await page.getByRole("button", { name: "□ Loose notes" }).last().click(); // sidebar shows the page too
   await page.keyboard.press("Escape");
-  // picking promoted it: sidebar shows it as a project (◎)
+  // picking promoted it: sidebar shows it as a Story (◇)
   const nav = page.locator("aside").getByRole("button", { name: /Loose notes/ }).first();
-  await expect(nav).toContainText("◎");
+  await expect(nav).toContainText("◇");
 });

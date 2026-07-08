@@ -97,8 +97,8 @@ export async function syncOnce(): Promise<{ pulled: number; pushed: number } | n
     // another node still carrying kind='page' wins the whole row) — re-promote any
     // page that has sessions; writes only on violation, then pushes back out below
     await pg.query(
-      `update pages set kind='project', origin=$1, updated_at=now()
-        where kind<>'project' and not deleted
+      `update pages set kind='story', origin=$1, updated_at=now()
+        where kind='page' and not deleted
           and id in (select page_id from sessions where not deleted and page_id is not null)`,
       [NODE_ID],
     );

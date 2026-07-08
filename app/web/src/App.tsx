@@ -3,6 +3,7 @@ import {
   applyUpdate,
   type AppStatus,
   type BoardData,
+  type Client,
   createPage,
   createUdb,
   createUdbRow,
@@ -25,13 +26,14 @@ import { Board } from "./Board";
 import { Drawer } from "./Drawer";
 import { Explore } from "./Explore";
 import { List } from "./List";
-import { ImportClaudeModal, NewObjectiveModal, NewSessionModal, NewUdbModal, SettingsModal } from "./modals";
+import { ImportClaudeModal, NewSessionModal, NewUdbModal, SettingsModal } from "./modals";
 import { confirmDeletePage, Page } from "./Page";
-import { appConfirm, ConfirmHost, EntityIcon } from "./ui";
+import { ClientView } from "./ClientView";
+import { appConfirm, clientColor, ConfirmHost, EntityIcon } from "./ui";
 import { IconPicker } from "./udb/cells";
 import { DatabaseView } from "./udb/DatabaseTable";
 
-type View = "board" | "list" | "explore" | "database" | "page";
+type View = "board" | "list" | "explore" | "database" | "page" | "client";
 
 const post = (path: string, body: unknown) =>
   fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -65,7 +67,7 @@ const NAV: { key: "sessions" | "explore"; glyph: string; label: string; view: Vi
   { key: "explore", glyph: "✦", label: "Explore", view: "explore" },
 ];
 
-const pageGlyph = (kind: string) => (kind === "project" ? "◎" : "□");
+const pageGlyph = (kind: string) => (kind === "project" ? "◎" : kind === "story" ? "◇" : "□");
 
 // "New …" affordance under a sidebar section — a subtle dashed chip. `indent` is
 // the x of the section's icon column (tree rows: 26 = 8px pad + 14px chevron + 4px
@@ -171,11 +173,14 @@ function PageNode(
 }
 
 function Sidebar(
-  { view, onNav, status, onSettings, pages, pageId, onOpenPage, onNewPage, onNewProject, udbs, dbId, onOpenDb, onNewDb, update, updateState, onUpdate }: {
+  { view, onNav, status, onSettings, clients, clientId, onOpenClient, pages, pageId, onOpenPage, onNewPage, onNewProject, udbs, dbId, onOpenDb, onNewDb, update, updateState, onUpdate }: {
     view: View;
     onNav: (v: View) => void;
     status: AppStatus | null;
     onSettings: () => void;
+    clients: Client[];
+    clientId: string | null;
+    onOpenClient: (id: string) => void;
     pages: PageMeta[];
     pageId: string | null;
     onOpenPage: (id: string) => void;
@@ -259,7 +264,7 @@ function Sidebar(
       <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
         PROJECTS
       </div>
-      {(childrenOf.get(null) ?? []).filter((p) => p.kind === "project").map((p) => (
+      {(childrenOf.get(null) ?? []).filter((p) => p.kind === "project" || p.kind === "story").map((p) => (
         <PageNode
           key={p.id}
           p={p}
@@ -279,7 +284,7 @@ function Sidebar(
       <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
         PAGES
       </div>
-      {(childrenOf.get(null) ?? []).filter((p) => p.kind !== "project").map((p) => (
+      {(childrenOf.get(null) ?? []).filter((p) => p.kind === "page").map((p) => (
         <PageNode
           key={p.id}
           p={p}
@@ -365,8 +370,8 @@ export function App() {
   const [group, setGroup] = useState<"none" | "objective">(
     params.get("group") === "objective" ? "objective" : "none",
   );
-  const [modal, setModal] = useState<"session" | "objective" | "settings" | "udb" | "import" | null>(
-    (params.get("new") as "session" | "objective" | "settings" | "udb" | "import" | null) ?? null,
+  const [modal, setModal] = useState<"session" | "settings" | "udb" | "import" | null>(
+    (params.get("new") as "session" | "settings" | "udb" | "import" | null) ?? null,
   );
   const [openId, setOpenId] = useState<string | null>(params.get("session"));
   const [exploreEpoch, setExploreEpoch] = useState(0); // bump to rescan files after settings change
@@ -374,6 +379,7 @@ export function App() {
   const [pages, setPages] = useState<PageMeta[]>([]);
   const [dbId, setDbId] = useState<string | null>(params.get("db"));
   const [pageId, setPageId] = useState<string | null>(params.get("page"));
+  const [clientId, setClientId] = useState<string | null>(params.get("client"));
   const [udbEpoch, setUdbEpoch] = useState(0); // bump to refetch the open database view
   const [dbIconOpen, setDbIconOpen] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
@@ -422,12 +428,6 @@ export function App() {
       setModal(null);
       refresh();
     });
-  const createProject = (o: Record<string, unknown>) =>
-    post("/api/objectives", o).then((r) => r.json()).then(({ id }) => {
-      setModal(null);
-      refresh();
-      if (id) openPage(id);
-    });
 
   const openDb = (id: string) => {
     setDbId(id);
@@ -437,6 +437,15 @@ export function App() {
     setPageId(id);
     setView("page");
   };
+  const openClient = (id: string) => {
+    setClientId(id);
+    setView("client");
+  };
+  const newProject = () =>
+    createPage({ kind: "project" }).then((r) => {
+      refresh();
+      openPage(r.id);
+    });
   const newPage = (parentId: string | null) =>
     createPage({ parent_id: parentId }).then((r) => {
       refresh();
@@ -456,7 +465,8 @@ export function App() {
   }, [currentPage, pages]);
 
   const isSessions = view === "board" || view === "list";
-  const title = isSessions ? "Sessions" : view === "database" ? currentDb?.name ?? "Database" : "Explore";
+  const currentClient = view === "client" ? board?.clients.find((c) => c.id === clientId) ?? null : null;
+  const title = isSessions ? "Sessions" : view === "database" ? currentDb?.name ?? "Database" : view === "client" ? currentClient?.name ?? "Client" : "Explore";
 
   return (
     <div className="flex h-full">
@@ -465,11 +475,14 @@ export function App() {
         onNav={setView}
         status={status}
         onSettings={() => setModal("settings")}
+        clients={board?.clients ?? []}
+        clientId={view === "client" ? clientId : null}
+        onOpenClient={openClient}
         pages={pages}
         pageId={pageId}
         onOpenPage={openPage}
         onNewPage={newPage}
-        onNewProject={() => setModal("objective")}
+        onNewProject={newProject}
         udbs={udbs}
         dbId={dbId}
         onOpenDb={openDb}
@@ -546,7 +559,7 @@ export function App() {
               onClick={() => setGroup(group === "none" ? "objective" : "none")}
               className="flex items-center gap-1 rounded-md border border-line px-2 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
             >
-              Group · {group === "none" ? "None" : "Project"} <span className="text-[8px]">▾</span>
+              Group · {group === "none" ? "None" : "Story"} <span className="text-[8px]">▾</span>
             </button>
           )}
           <div className="flex-1" />
@@ -629,6 +642,7 @@ export function App() {
                 udbs={udbs}
                 onOpenPage={openPage}
                 onOpenSession={setOpenId}
+                onOpenClient={openClient}
                 onChanged={refresh}
               />
             )
@@ -637,6 +651,10 @@ export function App() {
           ? (dbId
             ? <DatabaseView key={dbId} dbId={dbId} epoch={udbEpoch} udbs={udbs} />
             : <p className="p-6 text-ink-muted">No database selected.</p>)
+          : view === "client"
+          ? (clientId
+            ? <ClientView board={board} clientId={clientId} onOpenPage={openPage} onOpenSession={setOpenId} />
+            : <p className="p-6 text-ink-muted">No client selected.</p>)
           : <Explore key={exploreEpoch} board={board} onOpenSettings={() => setModal("settings")} />}
       </main>
       {openId && board && (() => {
@@ -665,9 +683,6 @@ export function App() {
       )}
       {modal === "session" && board && (
         <NewSessionModal board={board} onClose={() => setModal(null)} onCreate={createSession} />
-      )}
-      {modal === "objective" && board && (
-        <NewObjectiveModal board={board} onClose={() => setModal(null)} onCreate={createProject} />
       )}
       {modal === "udb" && (
         <NewUdbModal

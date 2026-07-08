@@ -163,6 +163,23 @@ insert into pages (id, kind, title, story, client_id, status, origin, updated_at
 update sessions set page_id = objective_id where page_id is null and objective_id is not null;
 update reports  set page_id = objective_id where page_id is null and objective_id is not null;
 
+-- Project → Story fold: clients become top-level kind='project' pages (Project),
+-- former project pages become kind='story' nested under them. Reusing the client id
+-- as the Project page id means every existing client_id reference (sessions, stories)
+-- already points at the right Project — no re-pointing needed. Idempotent: the insert
+-- is conflict-do-nothing, and the update no-ops once old projects are already stories
+-- (a real client id can never match the `id not in (select id from clients)` guard).
+alter table pages add column if not exists color text;
+-- client_id now holds a Project *page* id, not a clients-table id — the old FKs must go
+alter table pages    drop constraint if exists pages_client_id_fkey;
+alter table sessions drop constraint if exists sessions_client_id_fkey;
+alter table reports  drop constraint if exists reports_client_id_fkey;
+insert into pages (id, kind, title, color, origin, updated_at, deleted)
+  select id, 'project', name, color, origin, updated_at, deleted from clients
+  on conflict (id) do nothing;
+update pages set kind = 'story', parent_id = coalesce(parent_id, client_id)
+  where kind = 'project' and client_id is not null and id not in (select id from clients);
+
 -- Local-only sync bookkeeping (harmless if it also exists on the hub).
 create table if not exists sync_state (
   id             int primary key default 1,

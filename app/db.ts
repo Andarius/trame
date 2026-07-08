@@ -58,46 +58,51 @@ export function db(): Promise<PGlite> {
 
 export async function getBoard() {
   const pg = await db();
-  const clients = (await pg.query(`select * from clients where not deleted order by name`)).rows;
-  // "objectives" are project pages since the pages merge — same shape, same ids
-  const objectives = (await pg.query(`select * from pages where kind='project' and not deleted order by title`)).rows;
+  // Project > Story > Session. "clients" = top-level Project pages (shape {id,name,color}
+  // for the chip/sidebar); "objectives" = Story pages (what sessions ladder to).
+  const clients = (await pg.query(
+    `select id, title as name, color from pages where kind='project' and not deleted order by title`,
+  )).rows;
+  const objectives = (await pg.query(`select * from pages where kind='story' and not deleted order by title`)).rows;
   const sessions = (await pg.query(`select * from sessions where not deleted order by last_touched desc`)).rows;
-  // full tree for pickers — sessions may attach to any page (it gets promoted)
   const pages = (await pg.query(
-    `select id, parent_id, kind, title, icon, client_id from pages where not deleted order by title`,
+    `select id, parent_id, kind, title, icon, client_id, color from pages where not deleted order by title`,
   )).rows;
   return { clients, objectives, sessions, pages };
 }
 
 const PALETTE = ["#7a9ee7", "#b590e7", "#c98a63", "#7bd88f", "#e3c567"];
 
+// "client" is now the top-level Project page — find-or-create by title.
 export async function resolveClient(name: string, color?: string): Promise<string> {
   const pg = await db();
-  const hit = (await pg.query(`select id from clients where name=$1 and not deleted limit 1`, [name])).rows[0] as
-    | { id: string }
-    | undefined;
+  const hit = (await pg.query(
+    `select id from pages where kind='project' and title=$1 and not deleted limit 1`,
+    [name],
+  )).rows[0] as { id: string } | undefined;
   if (hit) return hit.id;
   let h = 0;
   for (const c of name) h = (h * 31 + c.charCodeAt(0)) | 0;
   const col = color ?? PALETTE[Math.abs(h) % PALETTE.length];
   const row = (await pg.query(
-    `insert into clients (name, color, origin) values ($1,$2,$3) returning id`,
+    `insert into pages (kind, title, color, origin) values ('project',$1,$2,$3) returning id`,
     [name, col, NODE_ID],
   )).rows[0] as { id: string };
   return row.id;
 }
 
+// A Story is a kind='story' page nested under its Project (clientId). Find-or-create by
+// title; a same-titled plain page is reused (and promoted on attach) rather than duped.
 export async function resolveObjective(title: string, clientId: string | null): Promise<string> {
   const pg = await db();
-  // any kind: a same-titled plain page is reused (and promoted on session attach)
-  // instead of minting a duplicate project; an existing project wins the tie
   const hit = (await pg.query(
-    `select id from pages where title=$1 and not deleted order by (kind='project') desc, updated_at desc limit 1`,
+    `select id from pages where kind in ('story','page') and title=$1 and not deleted
+      order by (kind='story') desc, updated_at desc limit 1`,
     [title],
   )).rows[0] as { id: string } | undefined;
   if (hit) return hit.id;
   const row = (await pg.query(
-    `insert into pages (kind, title, client_id, origin) values ('project',$1,$2,$3) returning id`,
+    `insert into pages (kind, title, client_id, parent_id, origin) values ('story',$1,$2,$2,$3) returning id`,
     [title, clientId, NODE_ID],
   )).rows[0] as { id: string };
   return row.id;
@@ -107,17 +112,20 @@ export async function createObjective(o: { title: string; story?: string; client
   const pg = await db();
   const clientId = o.client ? await resolveClient(o.client) : null;
   const row = (await pg.query(
-    `insert into pages (kind, title, story, client_id, origin) values ('project',$1,$2,$3,$4) returning id`,
+    `insert into pages (kind, title, story, client_id, parent_id, origin) values ('story',$1,$2,$3,$3,$4) returning id`,
     [o.title, o.story ?? "", clientId, NODE_ID],
   )).rows[0] as { id: string };
   return row.id;
 }
 
+// Attaching a session promotes a plain page to a Story (one-way), nesting it under its
+// Project if one was given. Projects themselves are never demoted to stories.
 async function promoteToProject(pageId: string, clientId: string | null): Promise<void> {
   const pg = await db();
   await pg.query(
-    `update pages set kind='project', client_id=coalesce(client_id,$2), origin=$3, updated_at=now()
-      where id=$1 and kind<>'project' and not deleted`,
+    `update pages set kind='story', client_id=coalesce(client_id,$2), parent_id=coalesce(parent_id,$2),
+       origin=$3, updated_at=now()
+      where id=$1 and kind='page' and not deleted`,
     [pageId, clientId, NODE_ID],
   );
 }

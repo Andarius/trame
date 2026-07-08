@@ -32,12 +32,12 @@ test("scan previews sessions, filters by window, hides subagents and tmp dirs", 
   await page.getByRole("button", { name: "30d", exact: true }).click();
   await expect(page.getByText("2 found", { exact: true })).toBeVisible();
   await expect(page.getByText("alpha — fix the flaky retry test")).toBeVisible();
-  // the project picker offers a free-text "new project" choice
+  // the story picker offers a free-text "new story" choice
   await page.getByRole("button", { name: /alpha \(create\)/ }).click();
-  await page.getByRole("button", { name: /new project…/ }).click();
-  await expect(page.getByPlaceholder("new project title (created on import)")).toBeVisible();
+  await page.getByRole("button", { name: /new story…/ }).click();
+  await expect(page.getByPlaceholder("new story title (created on import)")).toBeVisible();
   // plain pages appear as promotable □ options
-  await page.getByRole("button", { name: /new project…/ }).click(); // reopen the select
+  await page.getByRole("button", { name: /new story…/ }).click(); // reopen the select
   // .last(): the sidebar tree also shows "□ Import notes" — the modal renders after it
   await page.getByRole("button", { name: "□ Import notes" }).last().click();
   await page.getByRole("button", { name: "□ Import notes" }).last().click(); // reopen, restore default
@@ -66,9 +66,9 @@ test("import creates the card, the auto project, and the worklog event", async (
   await page.getByRole("button", { name: /Import from Claude Code/ }).click();
   await expect(page.getByText("alpha — Ship the import feature")).toBeVisible();
   await page.getByRole("button", { name: /Import 1 session\b/ }).click();
-  // card lands on the board, project "alpha" was find-or-created in the sidebar
+  // card lands on the board; the auto-created "alpha" story nests under its "Side-projects" project
   await expect(page.getByText("alpha — Ship the import feature")).toBeVisible();
-  await expect(page.locator("aside").getByRole("button", { name: /alpha/ })).toBeVisible();
+  await expect(page.locator("aside").getByRole("button", { name: /Side-projects/ })).toBeVisible();
   // drawer carries the import event
   await page.getByText("alpha — Ship the import feature").click();
   await expect(page.getByText("Imported from Claude Code · e2e")).toBeVisible(); // stamps the node

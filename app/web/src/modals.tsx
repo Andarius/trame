@@ -141,9 +141,9 @@ export function NewSessionModal(
           value={objective}
           className={pill}
           options={[
-            { value: "", label: "◎ no project" },
+            { value: "", label: "◇ no story" },
             ...pageOptions(board.objectives, board.pages ?? []),
-            { value: "__new__", label: "＋ new project…" },
+            { value: "__new__", label: "＋ new story…" },
           ]}
           onChange={setObjective}
         />
@@ -157,7 +157,7 @@ export function NewSessionModal(
       {objective === "__new__" && (
         <input
           className={`${pill} w-full`}
-          placeholder="new project title (created on save)"
+          placeholder="new story title (created on save)"
           value={newObjective}
           onChange={(e) => setNewObjective(e.target.value)}
         />
@@ -716,11 +716,11 @@ export function ImportClaudeModal(
                   value={projects[g.repoPath] ?? AUTO_PROJECT}
                   className={pill}
                   options={[
-                    { value: AUTO_PROJECT, label: `◎ ${g.repoName} (create)` },
+                    { value: AUTO_PROJECT, label: `◇ ${g.repoName} (create)` },
                     ...clientProjects.map((o) => ({ value: o.title, label: `◎ ${o.title}` })),
                     ...clientPages.map((p) => ({ value: p.title, label: `□ ${p.title}` })),
-                    { value: NEW_PROJECT, label: "＋ new project…" },
-                    { value: "", label: "no project" },
+                    { value: NEW_PROJECT, label: "＋ new story…" },
+                    { value: "", label: "no story" },
                   ]}
                   onChange={(v) => setProjects((prev) => ({ ...prev, [g.repoPath]: v }))}
                 />
@@ -738,7 +738,7 @@ export function ImportClaudeModal(
                 <input
                   autoFocus
                   className={`${pill} ml-6 w-auto`}
-                  placeholder="new project title (created on import)"
+                  placeholder="new story title (created on import)"
                   value={newProjects[g.repoPath] ?? ""}
                   onChange={(e) => setNewProjects((prev) => ({ ...prev, [g.repoPath]: e.target.value }))}
                 />

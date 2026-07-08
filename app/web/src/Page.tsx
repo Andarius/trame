@@ -156,12 +156,13 @@ function BlockEditor(
 }
 
 export function Page(
-  { pageId, board, udbs, onOpenPage, onOpenSession, onChanged }: {
+  { pageId, board, udbs, onOpenPage, onOpenSession, onOpenClient, onChanged }: {
     pageId: string;
     board: BoardData;
     udbs: UdbMeta[];
     onOpenPage: (id: string) => void;
     onOpenSession: (id: string) => void;
+    onOpenClient: (id: string) => void;
     onChanged: () => void; // sidebar tree cares about title/icon/structure changes
   },
 ) {
@@ -217,6 +218,7 @@ export function Page(
   if (!page) return <p className="p-6 text-ink-muted">Loading…</p>;
   const client = board.clients.find((c) => c.id === page.client_id);
   const isProject = page.kind === "project";
+  const isStory = page.kind === "story";
   // sessions come from the polled board (not the fetch-once getPage) so they stay live
   const sessions = board.sessions
     .filter((s) => s.page_id === pageId || s.objective_id === pageId)
@@ -233,7 +235,7 @@ export function Page(
               title="page icon"
               onClick={() => setIconOpen(true)}
             >
-              <EntityIcon icon={page.icon} fallback={isProject ? "◎" : "□"} className={page.icon ? "" : "text-ink-muted"} />
+              <EntityIcon icon={page.icon} fallback={isProject ? "◎" : isStory ? "◇" : "□"} className={page.icon ? "" : "text-ink-muted"} />
             </button>
             {iconOpen && (
               <IconPicker current={page.icon} onPick={(icon) => patch({ icon })} onClose={() => setIconOpen(false)} />
@@ -252,12 +254,12 @@ export function Page(
           />
         </div>
 
-        {isProject && (
+        {isStory && (
           <div className="flex items-center gap-3">
             <div className="w-[120px]">
               <Select value={page.status} options={PAGE_STATUS} onChange={(status) => patch({ status })} />
             </div>
-            {client && <ClientChip name={client.name} color={client.color} />}
+            {client && <ClientChip name={client.name} color={client.color} onClick={() => onOpenClient(client.id)} />}
             {sessions.length > 0 && (
               <>
                 <div className="h-[5px] w-[140px] overflow-hidden rounded-full bg-line">
@@ -272,13 +274,13 @@ export function Page(
           </div>
         )}
 
-        {isProject && (
+        {isStory && (
           <textarea
             key={page.id + page.story}
             rows={2}
-            className="resize-none border-none bg-transparent text-xs leading-relaxed text-ink-soft outline-none placeholder:italic placeholder:text-ink-muted/50"
+            className="resize-none rounded-md border border-transparent bg-transparent px-2 py-1.5 text-xs leading-relaxed text-ink-soft outline-none transition-colors placeholder:italic placeholder:text-ink-muted/50 hover:bg-[#101219] focus:border-chipline focus:bg-[#101219]"
             defaultValue={page.story}
-            placeholder="add the story — what are we trying to achieve?"
+            placeholder="add the story — what are we trying to achieve? (click to edit)"
             onBlur={(e) => {
               if (e.target.value !== page.story) patch({ story: e.target.value });
             }}
@@ -304,7 +306,7 @@ export function Page(
                 className="flex items-center gap-2 rounded-md px-1.5 py-1 text-left text-[13px] text-ink-soft hover:bg-panel"
                 onClick={() => onOpenPage(c.id)}
               >
-                <EntityIcon icon={c.icon} fallback={c.kind === "project" ? "◎" : "□"} className="text-ink-muted" />
+                <EntityIcon icon={c.icon} fallback={c.kind === "project" ? "◎" : c.kind === "story" ? "◇" : "□"} className="text-ink-muted" />
                 <span className={c.title ? "" : "text-ink-muted/60 italic"}>{c.title || "Untitled"}</span>
               </button>
             ))}
@@ -317,7 +319,7 @@ export function Page(
           </div>
 
         {/* also shown when a just-promoted page (stale kind) already has sessions */}
-        {(isProject || sessions.length > 0) && (
+        {(isStory || sessions.length > 0) && (
           <div className="flex flex-col gap-1 border-t border-line-soft pt-3">
             <span className="text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">SESSIONS</span>
             {sessions.map((s) => (

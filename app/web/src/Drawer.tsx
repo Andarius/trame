@@ -170,7 +170,7 @@ export function Drawer(
             }}
           />
         </Row>
-        <Row label="Project">
+        <Row label="Story">
           <Select
             value={pageId}
             className={rowVal}

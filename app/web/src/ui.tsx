@@ -25,16 +25,29 @@ export function clientColor(name: string, color?: string | null): string {
   return FALLBACK[Math.abs(h) % FALLBACK.length];
 }
 
-export function ClientChip({ name, color }: { name: string; color?: string | null }) {
+export function ClientChip(
+  { name, color, onClick }: { name: string; color?: string | null; onClick?: () => void },
+) {
   const c = clientColor(name, color);
-  return (
-    <span
-      className="rounded px-1.5 py-0.5 text-[10px] font-medium leading-none"
-      style={{ color: c, background: c + "24" }}
-    >
-      {name}
-    </span>
-  );
+  const cls = "rounded px-1.5 py-0.5 text-[10px] font-medium leading-none";
+  const style = { color: c, background: c + "24" };
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        className={`${cls} hover:brightness-125`}
+        style={style}
+        title={`Open ${name}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick();
+        }}
+      >
+        {name}
+      </button>
+    );
+  }
+  return <span className={cls} style={style}>{name}</span>;
 }
 
 export function timeAgo(iso: string): string {

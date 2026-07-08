@@ -48,19 +48,18 @@ test("list view shows the session", async ({ page }) => {
   await expect(page.getByText("e2e — first session")).toBeVisible();
 });
 
-test("project page can be created from the sidebar", async ({ page }) => {
+test("a project can be created from the sidebar", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /New project/ }).click();
-  await page.getByPlaceholder("What are we trying to achieve?").fill("E2E Objective");
-  await page.getByRole("button", { name: /Create project/ }).click();
-  // creating a project opens its page
-  await expect(page.getByText("no sessions yet")).toBeVisible();
-  // and it appears in the sidebar tree
-  await expect(page.getByRole("button", { name: /E2E Objective/ })).toBeVisible();
+  // New project creates an empty top-level Project page and opens it — name it via the title field
+  await page.getByPlaceholder("Untitled").fill("E2E Project");
+  await page.getByPlaceholder("Untitled").blur();
+  // it appears in the sidebar PROJECTS tree
+  await expect(page.locator("aside").getByRole("button", { name: /E2E Project/ })).toBeVisible();
 });
 
 test("group-by-project swimlanes render", async ({ page }) => {
   await page.goto("/?view=board&group=objective");
-  await expect(page.getByRole("button", { name: /Group · Project/ })).toBeVisible();
-  await expect(page.getByText("— No project")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Group · Story/ })).toBeVisible();
+  await expect(page.getByText("— No story")).toBeVisible();
 });
