@@ -354,7 +354,7 @@ export function pageOptions(
     return (titleCount.get(p.title) ?? 0) > 1 && parent ? `${p.title} · ${parent.title}` : p.title;
   };
   return [
-    ...objectives.map((o) => ({ value: o.id, label: `◎ ${o.title}` })),
-    ...pages.filter((p) => p.kind !== "project").map((p) => ({ value: p.id, label: `□ ${disambig(p)}` })),
+    ...objectives.map((o) => ({ value: o.id, label: `◇ ${o.title}` })),
+    ...pages.filter((p) => p.kind === "page").map((p) => ({ value: p.id, label: `□ ${disambig(p)}` })),
   ];
 }
