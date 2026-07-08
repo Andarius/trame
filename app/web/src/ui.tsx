@@ -134,7 +134,7 @@ export function Select(
         <span className={`flex-1 truncate ${current ? "" : "text-ink-muted/60"}`}>
           {current?.label ?? placeholder ?? "—"}
         </span>
-        <span className="text-[8px] text-ink-muted/70">▾</span>
+        <span className="text-[10px] text-ink-muted/70">▾</span>
       </button>
       {open && (
         <Popover onClose={() => setOpen(false)} className="max-h-56 w-full overflow-y-auto">

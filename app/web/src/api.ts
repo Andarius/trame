@@ -211,7 +211,7 @@ export const applyUpdate = () =>
 
 // pages — the nestable tree; kind='project' pages are the former objectives
 
-export type PageKind = "page" | "project";
+export type PageKind = "page" | "story" | "project";
 export type Block =
   | { type: "text" | "heading" | "todo"; text: string; done?: boolean }
   | { type: "database"; db_id: string }

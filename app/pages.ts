@@ -52,7 +52,7 @@ export async function createPage(
   const row = (await pg.query(
     `insert into pages (kind, title, icon, client_id, parent_id, sort_key, origin)
      values ($1,$2,$3,$4,$5,$6,$7) returning id`,
-    [p.kind === "project" ? "project" : "page", p.title ?? "", p.icon ?? null, p.client_id ?? null,
+    [["project", "story"].includes(p.kind ?? "") ? p.kind : "page", p.title ?? "", p.icon ?? null, p.client_id ?? null,
       parentId, await endKey(pg, parentId), NODE_ID],
   )).rows[0] as { id: string };
   return row.id;
