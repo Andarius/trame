@@ -202,6 +202,8 @@ export function Page(
   const patch = (p: Parameters<typeof updatePage>[1]) => updatePage(pageId, p).then(reload).then(onChanged);
 
   const newSubpage = () => createPage({ parent_id: pageId }).then((r) => (onChanged(), onOpenPage(r.id)));
+  const newStory = () =>
+    createPage({ parent_id: pageId, kind: "story" }).then((r) => (onChanged(), onOpenPage(r.id)));
   const slashInsert = (kind: "subpage" | "database", replaceIdx: number) => {
     // drop the "/…" block the user was typing in, then create the target
     const next = blocks.filter((_, j) => j !== replaceIdx);
@@ -312,9 +314,9 @@ export function Page(
             ))}
             <button type="button"
               className="flex items-center gap-2 rounded-md px-1.5 py-1 text-left text-[12px] text-ink-muted/70 hover:text-ink-soft"
-              onClick={newSubpage}
+              onClick={isProject ? newStory : newSubpage}
             >
-              <span className="text-[11px]">＋</span> New sub-page
+              <span className="text-[11px]">＋</span> {isProject ? "New story" : "New sub-page"}
             </button>
           </div>
 

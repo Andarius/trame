@@ -559,7 +559,7 @@ export function App() {
               onClick={() => setGroup(group === "none" ? "objective" : "none")}
               className="flex items-center gap-1 rounded-md border border-line px-2 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
             >
-              Group · {group === "none" ? "None" : "Story"} <span className="text-[8px]">▾</span>
+              Group · {group === "none" ? "None" : "Story"} <span className="text-[10px]">▾</span>
             </button>
           )}
           <div className="flex-1" />
