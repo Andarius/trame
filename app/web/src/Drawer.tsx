@@ -156,7 +156,7 @@ export function Drawer(
       </div>
 
       <div className="flex flex-col gap-1 border-t border-line-soft px-4 py-3.5">
-        <Row label="Client">
+        <Row label="Project">
           <Select
             value={client}
             className={rowVal}

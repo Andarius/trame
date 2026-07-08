@@ -717,7 +717,7 @@ export function ImportClaudeModal(
                   className={pill}
                   options={[
                     { value: AUTO_PROJECT, label: `◇ ${g.repoName} (create)` },
-                    ...clientProjects.map((o) => ({ value: o.title, label: `◎ ${o.title}` })),
+                    ...clientProjects.map((o) => ({ value: o.title, label: `◇ ${o.title}` })),
                     ...clientPages.map((p) => ({ value: p.title, label: `□ ${p.title}` })),
                     { value: NEW_PROJECT, label: "＋ new story…" },
                     { value: "", label: "no story" },
