@@ -224,6 +224,7 @@ export type PageMeta = {
   icon: string | null;
   status: string;
   client_id: string | null;
+  color: string | null;
   sort_key: string;
 };
 export type PageDetail = PageMeta & {
@@ -248,6 +249,7 @@ export const updatePage = (
     status?: string;
     client_id?: string | null;
     content?: Block[];
+    color?: string | null;
   },
 ) => post(`/api/pages/${id}`, patch).then(jsonOrThrow);
 export const deletePage = (id: string) => post(`/api/pages/${id}/delete`, {});
