@@ -36,12 +36,16 @@ type View = "board" | "list" | "explore" | "database" | "page";
 const post = (path: string, body: unknown) =>
   fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
+// inline SVG with hardcoded colors — the span version relied on the --color-copper
+// var and color-mix opacity, one of which the Linux WebKitGTK webview drops (logo
+// rendered invisible). SVG with literal hex is bulletproof across both webviews.
 function LogoMark() {
   return (
-    <span className="relative inline-block h-[26px] w-[26px] shrink-0 rounded-[7px] bg-copper">
-      <span className="absolute left-[6px] top-[11px] h-[3.5px] w-[14px] rounded-sm bg-copper-ink/85" />
-      <span className="absolute left-[11.5px] top-[6px] h-[14px] w-[3.5px] rounded-sm bg-copper-ink/55" />
-    </span>
+    <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true" className="shrink-0">
+      <rect width="26" height="26" rx="7" fill="#c98a63" />
+      <rect x="6" y="11" width="14" height="3.5" rx="1.75" fill="#120e0b" fillOpacity="0.85" />
+      <rect x="11.5" y="6" width="3.5" height="14" rx="1.75" fill="#120e0b" fillOpacity="0.55" />
+    </svg>
   );
 }
 
@@ -303,7 +307,8 @@ function Sidebar(
           <button type="button"
             key={d.id}
             onClick={() => onOpenDb(d.id)}
-            className={`flex items-center gap-2.5 rounded-md px-2 py-[7px] text-left text-[13.5px] ${
+            // pl-[26px]: align the ⌗ with the ◎/□ glyph column of the tree sections above
+            className={`flex items-center gap-1.5 rounded-md py-[7px] pl-[26px] pr-2 text-left text-[13.5px] ${
               active ? "bg-[#1a1d26] font-medium text-ink" : "text-ink-muted hover:text-ink-soft"
             }`}
           >
@@ -315,7 +320,7 @@ function Sidebar(
           </button>
         );
       })}
-      <NewChip label="New database" indent={8} onClick={onNewDb} />
+      <NewChip label="New database" indent={26} onClick={onNewDb} />
       <div className="flex-1" />
       <div className="flex items-center gap-2 px-2 py-2 text-[11.5px] text-ink-muted">
         <span
