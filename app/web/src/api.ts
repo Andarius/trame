@@ -269,7 +269,7 @@ export type ClaudeSession = {
   ignored: boolean;
 };
 export type ClaudeGroup = { repoPath: string; repoName: string; suggestedClient: string; sessions: ClaudeSession[] };
-export type ClaudeScan = { groups: ClaudeGroup[]; total: number; dir: string };
+export type ClaudeScan = { groups: ClaudeGroup[]; total: number; dir: string; node: string };
 export type ClaudeImportItem = {
   claudeId: string;
   title: string;

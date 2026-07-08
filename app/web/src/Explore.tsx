@@ -96,9 +96,9 @@ export function Explore(
     patchSettings({ starredPaths: next });
   };
   const ignoreFolder = async (dir: string) => {
-    // warn only on first use — afterwards ⊘ applies immediately (undo lives in ⚙︎ Settings)
+    // warn only on first use — afterwards ⊘ applies immediately (undo lives in Settings)
     if (!localStorage.getItem("trame:ignore-warned")) {
-      if (!(await appConfirm(`Ignore ${dir}?\n\nIgnored folders can be restored in ⚙︎ Settings.\n(This warning is only shown once.)`, "Ignore"))) {
+      if (!(await appConfirm(`Ignore ${dir}?\n\nIgnored folders can be restored in Settings.\n(This warning is only shown once.)`, "Ignore"))) {
         return;
       }
       localStorage.setItem("trame:ignore-warned", "1");

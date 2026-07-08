@@ -4,7 +4,7 @@
 // Transcripts can be tens of MB: only a head chunk (first cwd) and a tail chunk
 // (LAST ai-title / last-prompt / gitBranch) are read.
 import { addEvent, db, upsertSession } from "./db.ts";
-import { CLAUDE_DIR, SETTINGS_FILE } from "./config.ts";
+import { CLAUDE_DIR, NODE_ID, SETTINGS_FILE } from "./config.ts";
 
 export type ClaudeSession = {
   claudeId: string;
@@ -148,7 +148,7 @@ const truncate = (s: string, n: number): string => (s.length > n ? `${s.slice(0,
 
 export async function scanClaudeSessions(
   days: number,
-): Promise<{ groups: ClaudeGroup[]; total: number; dir: string }> {
+): Promise<{ groups: ClaudeGroup[]; total: number; dir: string; node: string }> {
   const cutoff = Date.now() - days * 86_400_000;
   const ignoredIds = await loadIgnored();
   const found: ClaudeSession[] = [];
@@ -156,7 +156,7 @@ export async function scanClaudeSessions(
   try {
     dirs = await Array.fromAsync(Deno.readDir(CLAUDE_DIR));
   } catch {
-    return { groups: [], total: 0, dir: CLAUDE_DIR }; // no Claude Code installation
+    return { groups: [], total: 0, dir: CLAUDE_DIR, node: NODE_ID }; // no Claude Code installation
   }
   for (const proj of dirs) {
     if (!proj.isDirectory || proj.name.startsWith("-tmp-")) continue;
@@ -223,7 +223,7 @@ export async function scanClaudeSessions(
     sessions: sessions.sort((a, b) => b.lastActive.localeCompare(a.lastActive)),
   }));
   groups.sort((a, b) => b.sessions[0].lastActive.localeCompare(a.sessions[0].lastActive));
-  return { groups, total: found.length, dir: CLAUDE_DIR };
+  return { groups, total: found.length, dir: CLAUDE_DIR, node: NODE_ID };
 }
 
 export async function importClaudeSessions(
@@ -251,7 +251,7 @@ export async function importClaudeSessions(
       repo_path: item.repoPath ?? undefined,
       branch: item.branch ?? undefined,
     });
-    await addEvent(item.claudeId, "Imported from Claude Code", "import");
+    await addEvent(item.claudeId, `Imported from Claude Code · ${NODE_ID}`, "import");
     // backdate recency to the transcript's last activity so the board keeps real order
     // (updated_at/origin stay fresh — the LWW sync still propagates the row)
     await pg.query(`update sessions set last_touched=$2 where id=$1`, [item.claudeId, item.lastActive]);
