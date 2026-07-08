@@ -136,7 +136,7 @@ export function Board(
       })),
       {
         key: "none",
-        title: "— No project",
+        title: "— No story",
         // also catches sessions whose page hasn't been promoted yet (sync window)
         sessions: board.sessions.filter((s) =>
           !s.objective_id || !board.objectives.some((o) => o.id === s.objective_id)
