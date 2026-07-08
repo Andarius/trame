@@ -71,7 +71,7 @@ test("import creates the card, the auto project, and the worklog event", async (
   await expect(page.locator("aside").getByRole("button", { name: /alpha/ })).toBeVisible();
   // drawer carries the import event
   await page.getByText("alpha — Ship the import feature").click();
-  await expect(page.getByText("Imported from Claude Code")).toBeVisible();
+  await expect(page.getByText("Imported from Claude Code · e2e")).toBeVisible(); // stamps the node
   await page.keyboard.press("Escape");
 });
 

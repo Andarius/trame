@@ -789,7 +789,7 @@ export function ImportClaudeModal(
         })}
       </div>
       <Footer
-        hint="from ~/.claude/projects — existing cards are never overwritten"
+        hint={`from ~/.claude/projects on ${scan?.node ?? "this machine"} — existing cards are never overwritten`}
         action={busy ? "Importing…" : `Import ${checked.size} session${checked.size === 1 ? "" : "s"}`}
         onClose={onClose}
         onSubmit={submit}
