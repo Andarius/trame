@@ -333,7 +333,7 @@ export function EntityIcon(
 export function ObjectiveChip({ title }: { title: string }) {
   return (
     <span className="inline-flex w-fit items-center gap-1 rounded-md border border-chipline/60 px-1.5 py-0.5 text-[10.5px] leading-none text-ink-soft">
-      <span className="text-[9px] text-ink-muted">◎</span>
+      <span className="text-[9px] text-ink-muted">◇</span>
       {title}
     </span>
   );
