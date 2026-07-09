@@ -28,7 +28,7 @@ import { List } from "./List";
 import { ImportClaudeModal, NewSessionModal, NewUdbModal, SettingsModal } from "./modals";
 import { confirmDeletePage, Page } from "./Page";
 import { ClientView } from "./ClientView";
-import { appConfirm, ConfirmHost, EntityIcon } from "./ui";
+import { appConfirm, ConfirmHost, EntityIcon, Popover } from "./ui";
 import { IconPicker } from "./udb/cells";
 import { DatabaseView } from "./udb/DatabaseTable";
 
@@ -46,6 +46,15 @@ function LogoMark() {
       <rect width="26" height="26" rx="7" fill="#c98a63" />
       <rect x="6" y="11" width="14" height="3.5" rx="1.75" fill="#120e0b" fillOpacity="0.85" />
       <rect x="11.5" y="6" width="3.5" height="14" rx="1.75" fill="#120e0b" fillOpacity="0.55" />
+    </svg>
+  );
+}
+
+function GroupIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
+      <rect x="2" y="2.5" width="12" height="4" rx="1" />
+      <rect x="2" y="9.5" width="12" height="4" rx="1" />
     </svg>
   );
 }
@@ -364,9 +373,11 @@ export function App() {
   const [board, setBoard] = useState<BoardData | null>(null);
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [view, setView] = useState<View>((params.get("view") as View) ?? "board");
-  const [group, setGroup] = useState<"none" | "objective">(
-    params.get("group") === "objective" ? "objective" : "none",
-  );
+  const [group, setGroup] = useState<"none" | "story" | "project">(() => {
+    const g = params.get("group");
+    return g === "story" || g === "objective" ? "story" : g === "project" ? "project" : "none";
+  });
+  const [groupMenu, setGroupMenu] = useState(false);
   const [modal, setModal] = useState<"session" | "settings" | "udb" | "import" | null>(
     (params.get("new") as "session" | "settings" | "udb" | "import" | null) ?? null,
   );
@@ -549,12 +560,44 @@ export function App() {
             </div>
           )}
           {view === "board" && (
-            <button type="button"
-              onClick={() => setGroup(group === "none" ? "objective" : "none")}
-              className="flex items-center gap-1 rounded-md border border-line px-2 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
-            >
-              Group · {group === "none" ? "None" : "Story"} <span className="text-[10px]">▾</span>
-            </button>
+            <div className="relative">
+              <button type="button"
+                onClick={() => setGroupMenu((o) => !o)}
+                title="Group the board"
+                className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] ${
+                  group !== "none"
+                    ? "border-copper/50 text-copper"
+                    : "border-line text-ink-muted hover:text-ink-soft"
+                }`}
+              >
+                <GroupIcon />
+                {group === "none" ? "Group" : group === "story" ? "Story" : "Project"}
+                <span className="text-[8px]">▾</span>
+              </button>
+              {groupMenu && (
+                <Popover onClose={() => setGroupMenu(false)} className="w-40">
+                  <div className="px-2 pb-1 pt-1 text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+                    GROUP BY
+                  </div>
+                  {([["none", "None"], ["story", "◇ Story"], ["project", "◎ Project"]] as const).map(([v, label]) => (
+                    <button
+                      type="button"
+                      key={v}
+                      onClick={() => {
+                        setGroup(v);
+                        setGroupMenu(false);
+                      }}
+                      className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-panel ${
+                        group === v ? "text-ink" : "text-ink-soft"
+                      }`}
+                    >
+                      <span className="flex-1">{label}</span>
+                      {group === v && <span className="text-[11px] text-copper">✓</span>}
+                    </button>
+                  ))}
+                </Popover>
+              )}
+            </div>
           )}
           <div className="flex-1" />
           {isSessions && (

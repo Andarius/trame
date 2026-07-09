@@ -101,7 +101,7 @@ function Column(
 export function Board(
   { board, group, onMove, onOpen }: {
     board: BoardData;
-    group: "none" | "objective";
+    group: "none" | "story" | "project";
     onMove: (id: string, status: Status) => void;
     onOpen: (id: string) => void;
   },
@@ -126,17 +126,43 @@ export function Board(
     if (current && current.status !== status) onMove(id, status);
   };
 
-  const lanes: { key: string; title: string | null; sessions: Session[] }[] = group === "none"
+  // a session's project = the parent of its story (or the page itself if it's a project)
+  const pageById = new Map(board.pages.map((p) => [p.id, p]));
+  const projectOf = (s: Session): string | null => {
+    const pg = s.page_id ? pageById.get(s.page_id) : undefined;
+    if (!pg) return null;
+    return pg.kind === "project" ? pg.id : pg.parent_id ?? null;
+  };
+  type Lane = { key: string; title: string | null; glyph?: string; color?: string | null; sessions: Session[] };
+  const lanes: Lane[] = group === "none"
     ? [{ key: "all", title: null, sessions: board.sessions }]
+    : group === "project"
+    ? [
+      ...board.clients.map((c) => ({
+        key: c.id,
+        title: c.name,
+        glyph: "◎",
+        color: c.color,
+        sessions: board.sessions.filter((s) => projectOf(s) === c.id),
+      })),
+      {
+        key: "none",
+        title: "— No project",
+        glyph: "◎",
+        sessions: board.sessions.filter((s) => !projectOf(s)),
+      },
+    ]
     : [
       ...board.objectives.map((o) => ({
         key: o.id,
         title: o.title,
+        glyph: "◇",
         sessions: board.sessions.filter((s) => s.objective_id === o.id),
       })),
       {
         key: "none",
         title: "— No story",
+        glyph: "◇",
         // also catches sessions whose page hasn't been promoted yet (sync window)
         sessions: board.sessions.filter((s) =>
           !s.objective_id || !board.objectives.some((o) => o.id === s.objective_id)
@@ -151,7 +177,9 @@ export function Board(
           <div key={lane.key} className={`flex flex-col gap-2 ${group === "none" ? "min-h-0 flex-1" : ""}`}>
             {lane.title && (
               <div className="flex items-center gap-2 px-0.5">
-                <span className="text-[9.5px] text-ink-muted">◎</span>
+                <span className="text-[9.5px] text-ink-muted" style={lane.color ? { color: lane.color } : undefined}>
+                  {lane.glyph ?? "◇"}
+                </span>
                 <span className="text-[12.5px] font-semibold">{lane.title}</span>
                 <span className="text-[11px] text-ink-muted">{lane.sessions.length}</span>
               </div>
@@ -166,7 +194,7 @@ export function Board(
                   board={board}
                   showObjective={group === "none"}
                   onOpen={openGuarded}
-                  compact={group === "objective"}
+                  compact={group !== "none"}
                 />
               ))}
             </div>
