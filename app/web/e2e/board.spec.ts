@@ -63,3 +63,35 @@ test("group-by-project swimlanes render", async ({ page }) => {
   await expect(page.getByRole("button", { name: /Group · Story/ })).toBeVisible();
   await expect(page.getByText("— No story")).toBeVisible();
 });
+
+test("a Project page creates a Story child via New story", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("aside").getByRole("button", { name: /E2E Project/ }).click();
+  await page.getByRole("button", { name: /New story/ }).click();
+  // wait for the NEW page's view before typing — the parent's title field shares the
+  // placeholder, so filling too early renames the parent instead (a real race)
+  await expect(page.getByPlaceholder("Untitled")).toHaveValue("");
+  await page.getByPlaceholder("Untitled").fill("E2E Story");
+  await page.keyboard.press("Enter");
+  // it nests under the project as a Story (◇), reachable in the sidebar tree
+  const node = page.locator("aside").getByRole("button", { name: /E2E Story/ }).first();
+  await expect(node).toBeVisible();
+  await expect(node).toContainText("◇");
+});
+
+test("a Project's color swatch tints its sidebar glyph", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("aside").getByRole("button", { name: /E2E Project/ }).first().click();
+  await page.getByTitle("project color").click();
+  // pick a specific palette color (red) and confirm it lands on the sidebar glyph
+  await page.locator('button[style*="rgb(224, 108, 117)"], button[style*="#e06c75"]').first().click();
+  const glyph = page.locator("aside").getByRole("button", { name: /E2E Project/ }).first().locator("span").first();
+  await expect(glyph).toHaveCSS("color", "rgb(224, 108, 117)");
+});
+
+test("the DATABASES section header is always visible", async ({ page }) => {
+  await page.goto("/");
+  // even with no databases, the header + New database chip live under their own section
+  await expect(page.locator("aside").getByText("DATABASES", { exact: true })).toBeVisible();
+  await expect(page.locator("aside").getByRole("button", { name: /New database/ })).toBeVisible();
+});

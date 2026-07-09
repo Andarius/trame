@@ -105,3 +105,16 @@ test("drawer picker offers plain pages and promotes on pick", async ({ page, req
   const nav = page.locator("aside").getByRole("button", { name: /Loose notes/ }).first();
   await expect(nav).toContainText("◇");
 });
+
+test("the Story picker lists each story once as ◇ (no ◎/□ duplicates)", async ({ page, request }) => {
+  // a story with a distinctive title, plus a session to drive the drawer
+  await request.post("/api/sessions", { data: { title: "picker probe session", objective: "Picker Story", no_event: true } });
+  await page.goto("/");
+  await page.getByText("picker probe session").click();
+  await page.getByRole("button", { name: /^◇ Picker Story|^none/ }).last().click(); // open the Story select
+  // stories are ◇ only — regression guard for the old bug where each showed twice (◎ and □)
+  await expect(page.getByRole("button", { name: "◇ Picker Story" }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "◎ Picker Story" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "□ Picker Story" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+});
