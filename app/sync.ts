@@ -51,7 +51,7 @@ export const TABLES = [
   { name: "clients", cols: ["id", "name", "color", "origin", "updated_at", "deleted"] },
   // pages replaced objectives (same ids); it must sync before every table that FKs it.
   // parent_id has no FK, so updated_at-ordered pulls within the table are safe.
-  { name: "pages", cols: ["id", "parent_id", "kind", "title", "icon", "story", "client_id", "status", "content", "sort_key", "origin", "updated_at", "deleted"] },
+  { name: "pages", cols: ["id", "parent_id", "kind", "title", "icon", "story", "client_id", "status", "content", "color", "sort_key", "origin", "updated_at", "deleted"] },
   { name: "sessions", cols: ["id", "title", "status", "client_id", "objective_id", "page_id", "repo_path", "branch", "next_step", "pr_url", "summary", "last_touched", "origin", "updated_at", "deleted"] },
   { name: "session_events", cols: ["id", "session_id", "at", "summary", "kind", "origin", "updated_at", "deleted"] },
   { name: "reports", cols: ["id", "title", "html", "client_id", "objective_id", "page_id", "created_at", "origin", "updated_at", "deleted"] },
