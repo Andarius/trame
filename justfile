@@ -124,12 +124,12 @@ ci: lint check
 track *args:
     deno run --allow-all track/track.ts "$@"
 
-# Install the /project:track slash command into ~/.claude
+# Install the /trame:track slash command into ~/.claude
 [group('setup')]
 install-cmd:
-    mkdir -p ~/.claude/commands/project
-    cp commands/project/track.md ~/.claude/commands/project/track.md
-    echo "installed → ~/.claude/commands/project/track.md"
+    mkdir -p ~/.claude/commands/trame
+    cp commands/trame/track.md ~/.claude/commands/trame/track.md
+    echo "installed → ~/.claude/commands/trame/track.md"
 
 # Wipe the local PGlite data + outbox (fresh local db)
 [group('setup')]

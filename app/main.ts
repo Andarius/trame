@@ -287,7 +287,7 @@ async function handler(req: Request): Promise<Response> {
       .rows[0] as { repo_path: string | null } | undefined;
     const repo = row?.repo_path;
     // home device = the node that imported it (its transcript lives there). Only set for
-    // Claude-imported sessions; /project:track sessions have no transcript to resume.
+    // Claude-imported sessions; /trame:track sessions have no transcript to resume.
     const ev = (await pg.query(
       `select summary from session_events where session_id=$1 and kind='import' and not deleted order by at limit 1`,
       [id],
