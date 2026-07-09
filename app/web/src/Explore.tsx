@@ -285,7 +285,7 @@ export function Explore(
             title={htmlFilter === "smart"
               ? "smart: only self-contained reports (app/build html hidden) — click to show all"
               : "all: every html file — click to filter to reports only"}
-            className={`rounded-md border px-2 text-[10.5px] disabled:opacity-40 ${
+            className={`flex h-[30px] items-center rounded-md border px-2 text-[10.5px] disabled:opacity-40 ${
               htmlFilter === "smart"
                 ? "border-copper/50 text-copper"
                 : "border-chipline text-ink-muted hover:text-ink-soft"
@@ -297,7 +297,7 @@ export function Explore(
             <button type="button"
               onClick={() => setKindMenu((o) => !o)}
               title="Filter by file type"
-              className={`flex items-center gap-1 rounded-md border px-2 py-1 text-[10.5px] ${
+              className={`flex h-[30px] items-center gap-1 rounded-md border px-2 text-[10.5px] ${
                 kindFilter === "both"
                   ? "border-chipline text-ink-muted hover:text-ink-soft"
                   : "border-copper/50 text-copper"
@@ -338,7 +338,7 @@ export function Explore(
             onClick={() => load(true)}
             disabled={refreshing}
             title="Rescan folders"
-            className="rounded-md border border-chipline px-2 text-[13px] text-ink-muted hover:text-ink-soft disabled:opacity-40"
+            className="flex h-[30px] items-center rounded-md border border-chipline px-2 text-[13px] text-ink-muted hover:text-ink-soft disabled:opacity-40"
           >
             <span className={refreshing ? "inline-block animate-spin" : ""}>↻</span>
           </button>
