@@ -9,13 +9,14 @@ description: Log or update the current Claude Code session in Trame (the local s
 - Git branch: !`git branch --show-current 2>/dev/null || echo ""`
 - Git remote: !`git remote get-url origin 2>/dev/null || echo ""`
 - Trame instance: !`cat ~/.local/share/session-tracker/port.json 2>/dev/null || echo "(app not running — writes will queue to the outbox)"`
+- Known clients: !`echo "${TRACKER_CLIENTS:-}"`
 - Argument: `$ARGUMENTS`
 
 ## What this does
 
-Records the current session as a card in **Trame** (`~/LLMS/projects/session-tracker`). The writer
-POSTs to the running app (upserts by repo+branch among open sessions, resolves client/objective by
-name, logs the summary as a worklog event); if the app is closed it queues to the offline outbox.
+Records the current session as a card in **Trame**. The writer POSTs to the running app (upserts by
+repo+branch among open sessions, resolves client/objective by name, logs the summary as a worklog
+event); if the app is closed it queues to the offline outbox.
 
 ## Argument grammar
 
@@ -26,9 +27,9 @@ name, logs the summary as a worklog event); if the app is closed it queues to th
 
 ## Client mapping (from working dir)
 
-- path contains `/Obitrain/` → **Obitrain**
-- path contains `/Polarsen/` → **Polarsen**
-- else → **Side-projects**
+If the working-dir path contains one of the **Known clients** listed above (as `/<Client>/`),
+use that name as the client; otherwise **Side-projects**. (Configure the list via the
+`TRACKER_CLIENTS` env var, e.g. `TRACKER_CLIENTS="Acme,Globex"`.)
 
 ## Steps for `list`
 
@@ -49,6 +50,6 @@ name, logs the summary as a worklog event); if the app is closed it queues to th
    `title, status, client, objective, repo_path (=working dir), branch, next_step, pr_url, summary`
 5. Pipe it to the writer:
    ```bash
-   echo '<json>' | deno run -A /home/julien/LLMS/projects/session-tracker/track/track.ts
+   echo '<json>' | deno run -A __TRAME_DIR__/track/track.ts
    ```
 6. Report one line from the writer output: tracked/queued, title, status, and the `next_step` you wrote.

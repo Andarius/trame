@@ -191,7 +191,7 @@ insert into sync_state (id) values (1) on conflict do nothing;
 -- Catalog documentation (COMMENT ON is idempotent — safe to re-run every startup).
 -- Shows up in \d+ / \dt+ so the schema is self-describing from psql on the hub too.
 
-comment on table clients is 'Who the work is for (Obitrain, Polarsen, …). Referenced by sessions, pages, reports.';
+comment on table clients is 'Who the work is for (one per client/company). Referenced by sessions, pages, reports.';
 comment on column clients.name  is 'Display name; find-or-create key used by the CLI/MCP (resolveClient).';
 comment on column clients.color is 'Chip color (hex); null = deterministic hash pick from the app palette.';
 
