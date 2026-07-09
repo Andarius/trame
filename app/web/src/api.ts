@@ -59,6 +59,9 @@ export type Settings = {
   starred: string[];
   htmlFilter: "smart" | "all";
   source: "settings" | "env";
+  remotePg: string; // password stripped server-side
+  remoteSource: "settings" | "env" | null;
+  remoteHasPassword: boolean;
 };
 export const getSettings = () => fetch("/api/settings").then((r) => r.json() as Promise<Settings>);
 export const patchSettings = (
@@ -67,6 +70,8 @@ export const patchSettings = (
     ignorePaths?: string[];
     starredPaths?: string[];
     htmlFilter?: "smart" | "all";
+    remotePg?: string;
+    remotePgPassword?: string;
   },
 ) =>
   fetch("/api/settings", {
@@ -107,6 +112,12 @@ export const setStatus = (id: string, status: Status) =>
   });
 
 export const syncNow = () => fetch("/api/sync", { method: "POST" });
+export const testHub = (remotePg: string, remotePgPassword: string) =>
+  fetch("/api/hub/test", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ remotePg, remotePgPassword }),
+  }).then((r) => r.json() as Promise<{ ok: boolean; tls?: boolean; error?: string }>);
 
 // user-defined databases
 

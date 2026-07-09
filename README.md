@@ -18,7 +18,7 @@ Everything is Postgres, so the SQL is identical on the laptop and the hub.
 
 ## Requirements
 - **Deno 2.9+** on each laptop (for `deno desktop`). Install: `curl -fsSL https://deno.land/install.sh | sh`.
-- **Docker** on the hub machine.
+- **Docker + openssl** on the hub machine (certs are generated there; the CA key never leaves it).
 - Laptops reach the hub's Postgres over the **home LAN** (no Tailscale required;
   the hub binds to its LAN IP — install Tailscale there if you want sync away from home).
 - Node/npm is pulled in only to build the Vite frontend (via `deno task web:build`).
@@ -26,8 +26,11 @@ Everything is Postgres, so the SQL is identical on the laptop and the hub.
 ## Layout
 ```
 db/schema.sql              shared schema (hub Postgres AND local PGlite)
-hub/docker-compose.yml     Postgres hub
+hub/docker-compose.yml     Postgres hub (TLS-only, mTLS + scram)
 hub/deploy.sh              deploy the hub over ssh (~/Apps/tracker) — `just db-deploy`
+hub/gen-certs.sh           CA + server/client certs, runs on the hub (called by deploy)
+hub/issue-cert.sh          fetch this laptop's client cert — `just db-cert`
+hub/pg_hba.conf            hub auth rules: TLS + client cert + password, or reject
 app/                       Deno-desktop app
   main.ts                  window + in-process HTTP (serves UI + /api), startup sync loop
   db.ts                    local PGlite + queries + outbox drain
@@ -42,18 +45,25 @@ commands/project/track.md  rewired slash command (copy to ~/.claude/… when liv
 
 ### 1. The hub
 ```bash
-just db-deploy       # ssh: copies compose+schema to ~/Apps/tracker, creates .env, starts it
+just db-deploy       # ssh: copies compose+schema+hba to ~/Apps/tracker, creates .env+certs, starts it
+just db-cert         # per laptop: issue + fetch this machine's client cert (mTLS)
 ```
-First run generates the password and binds to the hub's LAN IP (never 0.0.0.0); the
-script prints the `TRACKER_REMOTE_PG` URL to use on laptops. Idempotent — rerun to redeploy.
+First run generates the password, the CA/server certs, and binds to the hub's LAN IP
+(never 0.0.0.0); the script prints the `TRACKER_REMOTE_PG` URL to use on laptops.
+Idempotent — rerun to redeploy. `just db-cert` installs `ca.crt`/`client.crt`/`client.key`
+into `~/.local/share/session-tracker/certs/`, where sync and `just psql` pick them up.
 
 ### 2. Each laptop — env (add to your shell profile, or the project `.env` for `just`)
 ```bash
 export TRACKER_NODE_ID="mbp-14"                                   # unique per machine
 export TRACKER_REMOTE_PG="postgres://tracker:PASSWORD@192.168.1.152:5433/tracker"  # printed by db-deploy
-# folders scanned (depth 4) for *.html exploration reports, shown+searchable in Explore
+# folders scanned (depth 4) for *.html reports + *.excalidraw drawings, shown+searchable in Explore
 export TRACKER_REPORT_PATHS="$HOME/Projects:$HOME/LLMS"
 ```
+The hub URL can also be set **from the app**: ⚙ Settings → Sync hub — URL and password are
+separate fields (paste the full printed URL and the password auto-moves to the masked field).
+Stored per-machine in `settings.json` (chmod 600), overrides the env var, applies on the next
+sync pass — no restart. The password is never sent back to the UI.
 
 Window size/position is persisted automatically (`~/.local/share/session-tracker/window.json`).
 
@@ -74,6 +84,24 @@ Then `/project:track` (or `/project:track paused|blocked|done "note"`) from any 
 instead of Anytype. (Leave the Anytype command in place until you're happy with this.)
 
 ## How sync works
+- **Transport**: mutual TLS — the hub only accepts connections presenting a client cert
+  signed by its private CA (CN = laptop node-id) *and* the scram password; laptops verify
+  the hub's cert (`tracker-hub` SAN). Plaintext connections are rejected outright.
+
+```mermaid
+flowchart LR
+    subgraph laptop [Laptop — each machine]
+        app[Deno desktop app] --> pgl[(local PGlite<br/>offline read/write)]
+        pgl <--> sync[sync.ts<br/>LWW push/pull]
+        certs[certs dir — just db-cert<br/>client.crt CN=node-id<br/>client.key + ca.crt]
+    end
+    subgraph hub [Hub — home server, Docker]
+        hba[pg_hba: hostssl + scram<br/>+ clientcert=verify-ca<br/>anything else: reject] --> pg[(Postgres 18<br/>LAN IP only)]
+        ca[private CA<br/>key never leaves the hub]
+    end
+    sync <==>|TLS 1.3 — laptop checks the tracker-hub SAN,<br/>hub checks the CA-signed client cert,<br/>scram password inside the tunnel| pg
+    ca -. issues client certs<br/>ssh, once per laptop .-> certs
+```
 - Every row has `updated_at` (LWW clock), `origin` (which node wrote it), `deleted` (soft delete).
 - **Pull**: remote rows with `updated_at >` last-pull → upsert locally *if newer*.
 - **Push**: local rows where `origin = this node` and `updated_at >` last-push → upsert to the hub *if newer*.
@@ -87,7 +115,15 @@ instead of Anytype. (Leave the Anytype command in place until you're happy with 
 - **Sync is LWW, not CRDT.** Fine for one user; if you ever go multi-user, swap in `cr-sqlite`.
 - **Offline `/project:track`** queues only session fields to the outbox; client/objective-by-name
   resolution happens only on the online path (see `db.ts` note).
-- **Auth** = Tailscale + the Postgres password. No app-level users (single user).
+- **Drag isn't wired** — status changes via a per-card `<select>`. Add `@dnd-kit` for drag-between-columns.
+- **`.excalidraw` previews are static SVG** (rendered in-app with `exportToSvg` — the preview
+  iframe blocks scripts). Hand-drawn fonts are inlined from a CDN; offline, text falls back
+  to system fonts (shapes are unaffected). Editing means opening the file in Excalidraw itself.
+- **Auth** = mTLS (per-laptop client certs, hub-side CA) + scram password. No app-level users
+  (single user). Certs are long-lived (10y CA, 5y leafs); to add a laptop or reissue, run
+  `just db-cert` (delete `ca/clients/<node>.*` on the hub first to force reissue). If the hub's
+  LAN IP changes: fix `TRACKER_BIND` in the hub `.env`, delete `certs/server.*` there, rerun
+  `just db-deploy` — laptops keep working (they verify the `tracker-hub` DNS SAN, not the IP).
 
 ## Packaging & releases
 
