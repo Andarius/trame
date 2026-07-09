@@ -249,6 +249,30 @@ export function Drawer(
             </button>
           );
         })()}
+
+        {/* Next step — the imperative line for future-you, led at the top (design A: resume banner) */}
+        <div
+          className={`flex items-start gap-2.5 rounded-lg border px-3 py-2 transition-colors ${
+            nextStep ? "border-copper/30 bg-copper/[0.07]" : "border-dashed border-chipline/70"
+          }`}
+          style={nextStep ? { borderLeft: "3px solid var(--color-copper)" } : undefined}
+        >
+          <span
+            className={`shrink-0 pt-[3px] font-mono text-[10px] font-semibold uppercase tracking-[0.14em] ${
+              nextStep ? "text-copper" : "text-ink-muted"
+            }`}
+          >
+            ▶ Next
+          </span>
+          <textarea
+            className="field-sizing-content w-full resize-none bg-transparent font-mono text-[12.5px] leading-snug text-ink outline-none placeholder:font-sans placeholder:text-ink-muted/70"
+            rows={1}
+            value={nextStep}
+            onChange={(e) => setNextStep(e.target.value)}
+            onBlur={() => commitIf(nextStep !== (session.next_step ?? ""))}
+            placeholder="what's the next move on resume?"
+          />
+        </div>
       </div>
 
       <div className="flex flex-col gap-1 border-t border-line-soft px-4 py-3.5">
@@ -341,16 +365,6 @@ export function Drawer(
               }}
             />
           </div>
-        </Row>
-        <Row label="Next step">
-          <textarea
-            className="field-sizing-content w-full resize-none rounded-md border border-transparent bg-transparent px-2 py-1 text-xs leading-snug text-ink outline-none transition-colors hover:bg-panel focus:border-chipline focus:bg-panel"
-            rows={1}
-            value={nextStep}
-            onChange={(e) => setNextStep(e.target.value)}
-            onBlur={() => commitIf(nextStep !== (session.next_step ?? ""))}
-            placeholder="one imperative line"
-          />
         </Row>
       </div>
 
