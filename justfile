@@ -13,12 +13,18 @@ up: db web-build
 # Postgres hub (hub/docker-compose.yml) — local for testing
 [group('infra')]
 db:
+    cd hub && ./gen-certs.sh init 127.0.0.1 localhost
     docker compose -f hub/docker-compose.yml up -d
 
 # Deploy the Postgres hub over ssh (~/Apps/tracker) and start it — host via TRACKER_HUB_HOST in .env
 [group('infra')]
 db-deploy host=env_var_or_default('TRACKER_HUB_HOST', 'hub'):
     hub/deploy.sh {{ host }}
+
+# Issue + fetch this laptop's client cert from the hub (the CA key never leaves it)
+[group('infra')]
+db-cert node_id=env_var_or_default('TRACKER_NODE_ID', `hostname`) host=env_var_or_default('TRACKER_HUB_HOST', 'hub'):
+    hub/issue-cert.sh {{ node_id }} {{ host }}
 
 # Stop the Postgres hub
 [group('infra')]
@@ -30,10 +36,18 @@ db-down:
 db-logs:
     docker compose -f hub/docker-compose.yml logs -f
 
-# psql into the hub (uses TRACKER_REMOTE_PG)
+# psql into the hub (uses TRACKER_REMOTE_PG + the mTLS certs when present)
 [group('infra')]
 psql:
-    psql "${TRACKER_REMOTE_PG:?set TRACKER_REMOTE_PG in .env}"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    url="${TRACKER_REMOTE_PG:?set TRACKER_REMOTE_PG in .env}"
+    certs="${TRACKER_TLS_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/session-tracker/certs}"
+    if [ -f "$certs/client.key" ]; then
+        psql "$url?sslmode=verify-full&sslrootcert=$certs/ca.crt&sslcert=$certs/client.crt&sslkey=$certs/client.key"
+    else
+        psql "$url"
+    fi
 
 # Run the desktop app (Deno 2.9+)
 [group('dev')]
@@ -67,7 +81,7 @@ hack:
     #!/usr/bin/env bash
     set -euo pipefail
     trap 'kill 0' EXIT
-    (cd app && deno run --watch=.,../db -A main.ts) &
+    (cd app && deno run --watch=.,../db --watch-exclude=web/test-results,web/dist,web/node_modules -A main.ts) &
     (cd app/web && npm run dev) &
     wait
 
@@ -122,3 +136,9 @@ install-cmd:
 reset-local:
     rm -rf "${XDG_DATA_HOME:-$HOME/.local/share}/session-tracker"
     echo "local data cleared"
+
+# Enable the git pre-commit hook (lint + typecheck on staged code)
+[group('dev')]
+hooks:
+    git config core.hooksPath .githooks
+    @echo "pre-commit hook enabled (.githooks). Bypass a commit with --no-verify."

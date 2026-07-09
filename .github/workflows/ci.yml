@@ -21,6 +21,9 @@ jobs:
       - name: Typecheck
         run: cd app && deno check main.ts ../track/track.ts ../mcp/server.ts
 
+      - name: Typecheck frontend (TS 7)
+        run: cd app/web && npm run typecheck
+
       - name: Lint
         run: cd app && deno lint
 
