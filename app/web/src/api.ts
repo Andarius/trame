@@ -103,6 +103,23 @@ export const updateObjective = (id: string, patch: Record<string, unknown>) => p
 // Open in the system browser (the desktop webview has no window.open).
 // target: app-relative path ("/report/…") or an absolute http(s) URL.
 export const openInBrowser = (target: string) => post("/api/open", { target });
+export const completePath = (path: string) =>
+  fetch(`/api/fs/complete?path=${encodeURIComponent(path)}`)
+    .then((r) => r.json() as Promise<{ dirs: string[] }>)
+    .then((d) => d.dirs ?? [])
+    .catch(() => [] as string[]);
+export type ResumeInfo = {
+  ok: boolean;
+  launched: boolean;
+  local?: boolean;
+  homeNode?: string | null;
+  cmd: string;
+  repo?: string;
+};
+export const resumeSession = (id: string) =>
+  post("/api/resume", { id }).then((r) => r.json() as Promise<ResumeInfo>);
+export const probeResume = (id: string) =>
+  post("/api/resume", { id, probe: true }).then((r) => r.json() as Promise<ResumeInfo>);
 
 export const setStatus = (id: string, status: Status) =>
   fetch(`/api/sessions/${id}/status`, {
@@ -111,7 +128,8 @@ export const setStatus = (id: string, status: Status) =>
     body: JSON.stringify({ status }),
   });
 
-export const syncNow = () => fetch("/api/sync", { method: "POST" });
+export const syncNow = () =>
+  fetch("/api/sync", { method: "POST" }).then((r) => r.json() as Promise<{ pulled: number; pushed: number } | null>);
 export const testHub = (remotePg: string, remotePgPassword: string) =>
   fetch("/api/hub/test", {
     method: "POST",

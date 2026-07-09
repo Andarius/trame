@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   applyUpdate,
   type AppStatus,
@@ -378,6 +378,7 @@ export function App() {
     return g === "story" || g === "objective" ? "story" : g === "project" ? "project" : "none";
   });
   const [groupMenu, setGroupMenu] = useState(false);
+  const [storyFilter, setStoryFilter] = useState<string | null>(null); // narrow sessions to one story
   const [modal, setModal] = useState<"session" | "settings" | "udb" | "import" | null>(
     (params.get("new") as "session" | "settings" | "udb" | "import" | null) ?? null,
   );
@@ -400,6 +401,29 @@ export function App() {
     listUdbs().then((d) => Array.isArray(d) && setUdbs(d)).catch(() => {});
     listPages().then((d) => Array.isArray(d) && setPages(d)).catch(() => {});
   };
+
+  // "Sync now" is otherwise silent when nothing moves (0↓0↑) — flash the result so it reads as alive
+  const [syncing, setSyncing] = useState(false);
+  const [syncFlash, setSyncFlash] = useState<string | null>(null);
+  const syncFlashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const doSync = async () => {
+    if (syncing) return;
+    setSyncing(true);
+    let msg: string;
+    try {
+      const r = await syncNow();
+      refresh();
+      msg = r ? (r.pulled || r.pushed ? `${r.pulled}↓ ${r.pushed}↑` : "up to date") : "offline";
+    } catch {
+      msg = "failed";
+    } finally {
+      setSyncing(false);
+    }
+    setSyncFlash(msg);
+    clearTimeout(syncFlashTimer.current);
+    syncFlashTimer.current = setTimeout(() => setSyncFlash(null), 2500);
+  };
+  useEffect(() => () => clearTimeout(syncFlashTimer.current), []);
   useEffect(() => {
     refresh();
     const t = setInterval(refresh, 5000);
@@ -599,6 +623,17 @@ export function App() {
               )}
             </div>
           )}
+          {isSessions && storyFilter && (
+            <button type="button"
+              onClick={() => setStoryFilter(null)}
+              title="Clear story filter"
+              className="flex items-center gap-1.5 rounded-md border border-copper/50 px-2 py-1 text-[11.5px] text-copper hover:bg-copper/10"
+            >
+              <span className="text-[9px]">◇</span>
+              {board?.objectives.find((o) => o.id === storyFilter)?.title ?? "story"}
+              <span className="text-[11px]">✕</span>
+            </button>
+          )}
           <div className="flex-1" />
           {isSessions && (
             <button type="button"
@@ -609,10 +644,12 @@ export function App() {
             </button>
           )}
           <button type="button"
-            onClick={() => syncNow().then(refresh)}
-            className="rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
+            onClick={doSync}
+            disabled={syncing}
+            title="Pull teammates' changes and push yours to the hub"
+            className="rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft disabled:opacity-60"
           >
-            Sync now
+            {syncing ? "Syncing…" : syncFlash ? `Synced · ${syncFlash}` : "Sync now"}
           </button>
           {view === "page" && currentPage && (
             <button type="button"
@@ -666,9 +703,25 @@ export function App() {
         {!board
           ? <p className="p-6 text-ink-muted">Loading…</p>
           : view === "board"
-          ? <Board board={board} group={group} onMove={onMove} onOpen={setOpenId} />
+          ? (
+            <Board
+              board={board}
+              group={group}
+              onMove={onMove}
+              onOpen={setOpenId}
+              storyFilter={storyFilter}
+              onFilterStory={(id) => setStoryFilter((cur) => cur === id ? null : id)}
+            />
+          )
           : view === "list"
-          ? <List board={board} onOpen={setOpenId} />
+          ? (
+            <List
+              board={board}
+              onOpen={setOpenId}
+              storyFilter={storyFilter}
+              onFilterStory={(id) => setStoryFilter((cur) => cur === id ? null : id)}
+            />
+          )
           : view === "page"
           ? (pageId
             ? (

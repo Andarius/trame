@@ -3,6 +3,7 @@
 // browser) if you don't have the desktop subcommand yet.
 import {
   APP_ROOT,
+  CLAUDE_DIR,
   DATA_DIR,
   NODE_ID,
   PORT,
@@ -26,6 +27,7 @@ import {
   addEvent,
   createObjective,
   createReport,
+  db,
   deleteSession,
   drainOutbox,
   getBoard,
@@ -110,6 +112,58 @@ async function runSync() {
 }
 
 const WEB_DIST = `${APP_ROOT}/web/dist`;
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const shq = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`; // POSIX single-quote
+
+// Open a terminal at `cwd` running `command` (kept open afterwards). Best-effort:
+// returns false if no terminal could be launched, so the caller offers copy-to-clipboard.
+function spawnTerminal(cwd: string, command: string): boolean {
+  const inner = `cd ${shq(cwd)} && ${command}`;
+  try {
+    if (Deno.build.os === "darwin") {
+      const asStr = (s: string) => `"${s.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+      new Deno.Command("osascript", {
+        args: ["-e", `tell application "Terminal" to do script ${asStr(inner)}`,
+          "-e", `tell application "Terminal" to activate`],
+        stdout: "null", stderr: "null",
+      }).spawn();
+      return true;
+    }
+    // Linux: first terminal emulator that exists wins; keep the shell open after the command.
+    const keep = `${inner}; exec ${Deno.env.get("SHELL") ?? "bash"}`;
+    const terms: [string, string[]][] = [
+      ["gnome-terminal", ["--", "bash", "-lc", keep]],
+      ["konsole", ["-e", "bash", "-lc", keep]],
+      ["x-terminal-emulator", ["-e", "bash", "-lc", keep]],
+      ["xterm", ["-e", "bash", "-lc", keep]],
+    ];
+    for (const [bin, args] of terms) {
+      try {
+        new Deno.Command(bin, { args, stdout: "null", stderr: "null" }).spawn();
+        return true;
+      } catch { /* not installed — try the next */ }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+// Is this session's transcript on THIS machine? `claude --resume` only finds a session
+// whose ~/.claude/projects/<dir>/<id>.jsonl lives locally, so resume is device-bound.
+async function transcriptIsLocal(id: string): Promise<boolean> {
+  try {
+    for await (const proj of Deno.readDir(CLAUDE_DIR)) {
+      if (!proj.isDirectory) continue;
+      try {
+        await Deno.stat(`${CLAUDE_DIR}/${proj.name}/${id}.jsonl`);
+        return true;
+      } catch { /* not in this project dir — keep looking */ }
+    }
+  } catch { /* no ~/.claude/projects here */ }
+  return false;
+}
 
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
@@ -222,6 +276,57 @@ async function handler(req: Request): Promise<Response> {
     const cmd = Deno.build.os === "darwin" ? "open" : "xdg-open";
     new Deno.Command(cmd, { args: [full], stdout: "null", stderr: "null" }).spawn();
     return json({ ok: true });
+  }
+  // Resume a Claude Code session: open a terminal at its repo running `claude --resume <id>`.
+  // Only works on the machine holding the transcript (~/.claude/projects/.../<id>.jsonl).
+  if (pathname === "/api/resume" && req.method === "POST") {
+    const { id, probe } = await req.json();
+    if (typeof id !== "string" || !UUID_RE.test(id)) return json({ error: "invalid id" }, 400);
+    const pg = await db();
+    const row = (await pg.query(`select repo_path from sessions where id=$1 and not deleted`, [id]))
+      .rows[0] as { repo_path: string | null } | undefined;
+    const repo = row?.repo_path;
+    // home device = the node that imported it (its transcript lives there). Only set for
+    // Claude-imported sessions; /project:track sessions have no transcript to resume.
+    const ev = (await pg.query(
+      `select summary from session_events where session_id=$1 and kind='import' and not deleted order by at limit 1`,
+      [id],
+    )).rows[0] as { summary: string | null } | undefined;
+    // "Imported from Claude Code · <node>" — only trust a node after the separator
+    // (older imports had no "· <node>" suffix; splitting would echo the whole label)
+    const parts = ev?.summary?.split("·") ?? [];
+    const homeNode = parts.length > 1 ? parts[parts.length - 1].trim() || null : null;
+    const local = await transcriptIsLocal(id);
+    const full = repo ? `cd ${shq(repo)} && claude --resume ${id}` : `claude --resume ${id}`;
+    const base = { local, homeNode, cmd: full, repo };
+    // probe: report resumability for the button affordance, without opening a terminal
+    if (probe) return json({ ...base, ok: local && Boolean(repo), launched: false });
+    // resume only works where the transcript lives — don't open a terminal that just errors
+    if (!repo || !local) return json({ ...base, ok: false, launched: false });
+    const launched = spawnTerminal(repo, `claude --resume ${id}`);
+    return json({ ...base, ok: launched, launched, local: true });
+  }
+  // Directory autocomplete for the Explore "report folders" field. Lists sub-directories
+  // of the typed path's parent whose name prefix-matches; ~ is expanded and re-collapsed.
+  if (pathname === "/api/fs/complete") {
+    const home = Deno.env.get("HOME") ?? "";
+    const raw = url.searchParams.get("path") ?? "";
+    const abs = raw.startsWith("~") ? home + raw.slice(1) : raw;
+    const slash = abs.lastIndexOf("/");
+    const dir = slash < 0 ? "." : slash === 0 ? "/" : abs.slice(0, slash);
+    const prefix = abs.slice(slash + 1).toLowerCase();
+    const dirs: string[] = [];
+    try {
+      for await (const e of Deno.readDir(dir)) {
+        if (!e.isDirectory && !e.isSymlink) continue;
+        if (e.name.startsWith(".") && !prefix.startsWith(".")) continue; // hide dotdirs unless typed
+        if (!e.name.toLowerCase().startsWith(prefix)) continue;
+        const full = dir === "/" ? `/${e.name}` : `${dir}/${e.name}`;
+        dirs.push(home && full.startsWith(home) ? `~${full.slice(home.length)}` : full);
+      }
+    } catch { /* unreadable / missing dir → no suggestions */ }
+    dirs.sort();
+    return json({ dirs: dirs.slice(0, 24) });
   }
 
   if (pathname === "/api/board") return json(await getBoard());
