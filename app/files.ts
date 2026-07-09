@@ -1,7 +1,8 @@
-// Scans the configured report directories for *.html exploration reports so the
-// Explore view can search files on disk alongside published reports. Paths come from
-// the UI-editable settings file, falling back to the TRACKER_REPORT_PATHS env var.
-import { HOME_DIR, REPORT_PATHS, SETTINGS_FILE } from "./config.ts";
+// Scans the configured report directories for *.html exploration reports and
+// *.excalidraw drawings so the Explore view can search files on disk alongside
+// published reports. Paths come from the UI-editable settings file, falling back
+// to the TRACKER_REPORT_PATHS env var.
+import { HOME_DIR, REMOTE_PG, REPORT_PATHS, SETTINGS_FILE } from "./config.ts";
 
 export type FileHit = { path: string; name: string; mtime: string };
 
@@ -13,7 +14,67 @@ export type ExploreConfig = {
   starred: string[];
   htmlFilter: "smart" | "all";
   source: "settings" | "env";
+  remotePg: string; // password always stripped — never shipped to the UI
+  remoteSource: "settings" | "env" | null;
+  remoteHasPassword: boolean;
 };
+
+// The URL and password are stored as separate settings keys (the UI keeps them
+// in separate fields); they are only composed here, at connection time.
+function withPassword(url: string, password: string): string {
+  if (!password) return url;
+  try {
+    const u = new URL(url);
+    u.password = password;
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+function stripPassword(url: string): string {
+  try {
+    const u = new URL(url);
+    u.password = "";
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+function urlPassword(url: string): string {
+  try {
+    return decodeURIComponent(new URL(url).password);
+  } catch {
+    return "";
+  }
+}
+
+// What sync would use if these (possibly unsaved) UI fields were saved: blank
+// password falls back to the stored one, blank URL to the effective config.
+export async function resolveRemotePg(url: string, password: string): Promise<string | null> {
+  url = url.trim();
+  if (!url) return getRemotePg();
+  let pw = password.trim() || urlPassword(url);
+  if (!pw) {
+    try {
+      const s = JSON.parse(await Deno.readTextFile(SETTINGS_FILE));
+      if (typeof s.remotePgPassword === "string") pw = s.remotePgPassword;
+    } catch { /* none stored */ }
+  }
+  return withPassword(stripPassword(url), pw);
+}
+
+// The hub URL is UI-configurable (settings.json) with the env var as fallback,
+// re-read on every sync pass so a settings change applies without a restart.
+export async function getRemotePg(): Promise<string | null> {
+  try {
+    const settings = JSON.parse(await Deno.readTextFile(SETTINGS_FILE));
+    if (typeof settings.remotePg === "string" && settings.remotePg.trim()) {
+      const pw = typeof settings.remotePgPassword === "string" ? settings.remotePgPassword : "";
+      return withPassword(settings.remotePg.trim(), pw);
+    }
+  } catch { /* no settings file yet */ }
+  return REMOTE_PG || null;
+}
 
 export async function getReportPaths(): Promise<ExploreConfig> {
   let settings: Record<string, unknown> = {};
@@ -25,10 +86,16 @@ export async function getReportPaths(): Promise<ExploreConfig> {
   const ignore = list("ignorePaths");
   const starred = list("starredPaths");
   const htmlFilter = settings.htmlFilter === "all" ? "all" as const : "smart" as const;
+  const savedRemote = typeof settings.remotePg === "string" ? settings.remotePg.trim() : "";
+  const savedPw = typeof settings.remotePgPassword === "string" ? settings.remotePgPassword : "";
+  const effective = savedRemote || REMOTE_PG;
+  const remotePg = stripPassword(effective);
+  const remoteSource = savedRemote ? "settings" as const : REMOTE_PG ? "env" as const : null;
+  const remoteHasPassword = Boolean(savedRemote ? savedPw || urlPassword(savedRemote) : urlPassword(REMOTE_PG));
   if (Array.isArray(settings.reportPaths)) {
-    return { paths: list("reportPaths").map(expand), ignore, starred, htmlFilter, source: "settings" };
+    return { paths: list("reportPaths").map(expand), ignore, starred, htmlFilter, source: "settings", remotePg, remoteSource, remoteHasPassword };
   }
-  return { paths: REPORT_PATHS, ignore, starred, htmlFilter, source: "env" };
+  return { paths: REPORT_PATHS, ignore, starred, htmlFilter, source: "env", remotePg, remoteSource, remoteHasPassword };
 }
 
 export async function saveExploreSettings(
@@ -37,6 +104,8 @@ export async function saveExploreSettings(
     ignorePaths?: string[];
     starredPaths?: string[];
     htmlFilter?: "smart" | "all";
+    remotePg?: string;
+    remotePgPassword?: string;
   },
 ): Promise<void> {
   await Deno.mkdir(SETTINGS_FILE.replace(/\/[^/]+$/, ""), { recursive: true }).catch(() => {});
@@ -48,7 +117,25 @@ export async function saveExploreSettings(
   if (patch.ignorePaths) settings.ignorePaths = patch.ignorePaths.map((p) => p.trim()).filter(Boolean);
   if (patch.starredPaths) settings.starredPaths = patch.starredPaths.map((p) => p.trim()).filter(Boolean);
   if (patch.htmlFilter) settings.htmlFilter = patch.htmlFilter;
+  if (patch.remotePg !== undefined) {
+    let url = patch.remotePg.trim();
+    let pw = patch.remotePgPassword?.trim() ?? "";
+    // a full URL pasted with an embedded password gets split on save
+    if (!pw) pw = urlPassword(url);
+    url = stripPassword(url);
+    if (url) {
+      settings.remotePg = url;
+      if (pw) settings.remotePgPassword = pw;
+      // blank password = keep the stored one (the UI never gets it back)
+    } else {
+      // empty clears the override — env var (or offline) takes back over
+      delete settings.remotePg;
+      delete settings.remotePgPassword;
+    }
+  }
   await Deno.writeTextFile(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+  // the URL may carry the hub password — keep the file private
+  await Deno.chmod(SETTINGS_FILE, 0o600).catch(() => {});
   cache = null; // rescan with the new config
 }
 
@@ -103,7 +190,7 @@ async function walk(dir: string, depth: number, out: FileHit[], ig: IgnoreRules)
         if (SKIP.has(e.name) || (e.name.startsWith(".") && e.name !== ".scratch")) continue;
         if (ignoredDir(e.name, p, ig)) continue;
         await walk(p, depth - 1, out, ig);
-      } else if (e.isFile && e.name.endsWith(".html")) {
+      } else if (e.isFile && (e.name.endsWith(".html") || e.name.endsWith(".excalidraw"))) {
         // bare-name rules apply to files as well ("404.html" ignores it anywhere)
         if (ig.names.has(e.name)) continue;
         if (ig.prefixes.some((pre) => p.startsWith(pre + "/")) || ig.globs.some((g) => g.test(p))) continue;
@@ -126,6 +213,7 @@ const LOCAL_ASSET = /(?:src|href)\s*=\s*["'](?:\.\.?\/|\/(?!\/))[^"']*?\.(?:m?js
 const sniffCache = new Map<string, { mtime: string; report: boolean }>();
 
 async function isReport(hit: FileHit): Promise<boolean> {
+  if (!hit.name.endsWith(".html")) return true; // the sniff only makes sense for html
   if (hit.name.endsWith(".ai.html")) return true;
   const cached = sniffCache.get(hit.path);
   if (cached && cached.mtime === hit.mtime) return cached.report;
@@ -181,6 +269,14 @@ async function allowedPath(path: string): Promise<string | null> {
 export async function readReportFile(path: string): Promise<string | null> {
   const real = await allowedPath(path);
   return real === null ? null : await Deno.readTextFile(real);
+}
+
+// Save an edited scene back to disk (the standalone browser editor posts here).
+export async function writeReportFile(path: string, content: string): Promise<boolean> {
+  const real = await allowedPath(path);
+  if (real === null || !real.endsWith(".excalidraw")) return false;
+  await Deno.writeTextFile(real, content);
+  return true;
 }
 
 // Delete a report file — system trash when available (recoverable), unlink as fallback.
