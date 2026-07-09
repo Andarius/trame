@@ -12,7 +12,7 @@ import {
   patchSettings,
   type ReportMeta,
 } from "./api";
-import { appConfirm, ClientChip, timeAgo } from "./ui";
+import { appConfirm, ClientChip, Popover, timeAgo } from "./ui";
 import { excalidrawToHtml } from "./excalidraw";
 
 type Selected = {
@@ -63,6 +63,7 @@ export function Explore(
     });
   const [htmlFilter, setHtmlFilter] = useState<"smart" | "all">("smart");
   const [kindFilter, setKindFilter] = useState<"both" | "html" | "excalidraw">("both");
+  const [kindMenu, setKindMenu] = useState(false);
 
   const load = (force = false, selectFirst = false) => {
     setRefreshing(true);
@@ -86,9 +87,6 @@ export function Explore(
     const next = htmlFilter === "smart" ? "all" : "smart";
     setHtmlFilter(next);
     patchSettings({ htmlFilter: next }).then(() => load(true));
-  };
-  const cycleKind = () => {
-    setKindFilter((k) => (k === "both" ? "html" : k === "html" ? "excalidraw" : "both"));
   };
   const toggleStar = (dir: string) => {
     const next = starred.includes(dir) ? starred.filter((d) => d !== dir) : [...starred, dir];
@@ -295,17 +293,47 @@ export function Explore(
           >
             {htmlFilter}
           </button>
-          <button type="button"
-            onClick={cycleKind}
-            title={`showing ${kindFilter === "both" ? "html & excalidraw" : kindFilter} files — click to cycle`}
-            className={`rounded-md border px-2 text-[10.5px] ${
-              kindFilter === "both"
-                ? "border-chipline text-ink-muted hover:text-ink-soft"
-                : "border-copper/50 text-copper"
-            }`}
-          >
-            {kindFilter === "both" ? "◧◨" : kindFilter === "html" ? "html" : "excal"}
-          </button>
+          <div className="relative">
+            <button type="button"
+              onClick={() => setKindMenu((o) => !o)}
+              title="Filter by file type"
+              className={`flex items-center gap-1 rounded-md border px-2 py-1 text-[10.5px] ${
+                kindFilter === "both"
+                  ? "border-chipline text-ink-muted hover:text-ink-soft"
+                  : "border-copper/50 text-copper"
+              }`}
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
+                <path d="M8 2 14 5 8 8 2 5 8 2Z" />
+                <path d="M2 8 8 11 14 8" />
+              </svg>
+              {kindFilter === "both" ? "All" : kindFilter === "html" ? "HTML" : "Excal"}
+              <span className="text-[8px]">▾</span>
+            </button>
+            {kindMenu && (
+              <Popover onClose={() => setKindMenu(false)} className="w-36">
+                <div className="px-2 pb-1 pt-1 text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+                  FILE TYPE
+                </div>
+                {([["both", "All types"], ["html", "HTML"], ["excalidraw", "Excalidraw"]] as const).map(([v, label]) => (
+                  <button
+                    type="button"
+                    key={v}
+                    onClick={() => {
+                      setKindFilter(v);
+                      setKindMenu(false);
+                    }}
+                    className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-panel ${
+                      kindFilter === v ? "text-ink" : "text-ink-soft"
+                    }`}
+                  >
+                    <span className="flex-1">{label}</span>
+                    {kindFilter === v && <span className="text-[11px] text-copper">✓</span>}
+                  </button>
+                ))}
+              </Popover>
+            )}
+          </div>
           <button type="button"
             onClick={() => load(true)}
             disabled={refreshing}
