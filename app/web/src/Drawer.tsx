@@ -68,6 +68,7 @@ export function Drawer(
   // JS auto-grow: field-sizing:content isn't supported in the desktop WebKitGTK webview,
   // so long next-steps would clip. Size the textarea to its content by hand.
   const nsRef = useRef<HTMLTextAreaElement>(null);
+  const [nsEditing, setNsEditing] = useState(false);
   const growNs = () => {
     const el = nsRef.current;
     if (!el) return;
@@ -99,8 +100,10 @@ export function Drawer(
     }
   }, [prUrl]);
 
-  // size the next-step banner to its initial content on open
-  useEffect(growNs, []);
+  // size the next-step textarea to its content when it enters edit mode
+  useEffect(() => {
+    if (nsEditing) growNs();
+  }, [nsEditing]);
 
   const doResume = async () => {
     let msg: string;
@@ -369,18 +372,34 @@ export function Drawer(
           >
             ▶ Next
           </span>
-          <textarea
-            ref={nsRef}
-            className="w-full resize-none overflow-hidden bg-transparent font-mono text-[12.5px] leading-snug text-ink outline-none placeholder:font-sans placeholder:text-ink-muted/70"
-            rows={1}
-            value={nextStep}
-            onChange={(e) => {
-              setNextStep(e.target.value);
-              growNs();
-            }}
-            onBlur={() => commitIf(nextStep !== (session.next_step ?? ""))}
-            placeholder="what's the next move on resume?"
-          />
+          {nsEditing
+            ? (
+              <textarea
+                ref={nsRef}
+                autoFocus
+                className="w-full resize-none overflow-hidden bg-transparent font-mono text-[12.5px] leading-snug text-ink outline-none placeholder:font-sans placeholder:text-ink-muted/70"
+                rows={1}
+                value={nextStep}
+                onChange={(e) => {
+                  setNextStep(e.target.value);
+                  growNs();
+                }}
+                onBlur={() => {
+                  commitIf(nextStep !== (session.next_step ?? ""));
+                  setNsEditing(false);
+                }}
+                placeholder="what's the next move on resume?"
+              />
+            )
+            : (
+              <div
+                className="w-full cursor-text whitespace-pre-wrap font-mono text-[12.5px] leading-snug text-ink"
+                title="click to edit"
+                onClick={() => setNsEditing(true)}
+              >
+                {nextStep || <span className="font-sans text-ink-muted/70">what's the next move on resume?</span>}
+              </div>
+            )}
         </div>
       </div>
 
