@@ -16,11 +16,13 @@ import { ClientChip, ObjectiveChip, STATUS, StatusDot } from "./ui";
 const COLUMNS: Status[] = ["active", "paused", "blocked", "done"];
 
 function TicketBody(
-  { s, board, overlay = false, showObjective = true }: {
+  { s, board, overlay = false, showObjective = true, storyFilter, onFilterStory }: {
     s: Session;
     board: BoardData;
     overlay?: boolean;
     showObjective?: boolean;
+    storyFilter?: string | null;
+    onFilterStory?: (id: string) => void;
   },
 ) {
   const client = board.clients.find((c) => c.id === s.client_id);
@@ -33,7 +35,13 @@ function TicketBody(
       } ${done && !overlay ? "opacity-60" : ""}`}
     >
       <div className="text-[12.5px] font-medium leading-snug">{s.title}</div>
-      {showObjective && objective && <ObjectiveChip title={objective.title} />}
+      {showObjective && objective && (
+        <ObjectiveChip
+          title={objective.title}
+          active={objective.id === storyFilter}
+          onClick={onFilterStory ? () => onFilterStory(objective.id) : undefined}
+        />
+      )}
       <div className="flex items-center gap-1.5">
         {client && <ClientChip name={client.name} color={client.color} />}
         {s.branch && <span className="text-[10.5px] text-ink-muted">{s.branch}</span>}
@@ -46,11 +54,13 @@ function TicketBody(
 }
 
 function DraggableTicket(
-  { s, board, showObjective, onOpen }: {
+  { s, board, showObjective, onOpen, storyFilter, onFilterStory }: {
     s: Session;
     board: BoardData;
     showObjective: boolean;
     onOpen: (id: string) => void;
+    storyFilter?: string | null;
+    onFilterStory?: (id: string) => void;
   },
 ) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: s.id });
@@ -62,13 +72,19 @@ function DraggableTicket(
       onClick={() => onOpen(s.id)}
       className={`cursor-pointer touch-none active:cursor-grabbing ${isDragging ? "opacity-30" : ""}`}
     >
-      <TicketBody s={s} board={board} showObjective={showObjective} />
+      <TicketBody
+        s={s}
+        board={board}
+        showObjective={showObjective}
+        storyFilter={storyFilter}
+        onFilterStory={onFilterStory}
+      />
     </div>
   );
 }
 
 function Column(
-  { status, sessions, board, dropId, showObjective, onOpen, compact = false }: {
+  { status, sessions, board, dropId, showObjective, onOpen, compact = false, storyFilter, onFilterStory }: {
     status: Status;
     sessions: Session[];
     board: BoardData;
@@ -76,6 +92,8 @@ function Column(
     showObjective: boolean;
     onOpen: (id: string) => void;
     compact?: boolean;
+    storyFilter?: string | null;
+    onFilterStory?: (id: string) => void;
   },
 ) {
   const { setNodeRef, isOver } = useDroppable({ id: dropId });
@@ -92,18 +110,28 @@ function Column(
         <span className="text-[11.5px] font-medium text-ink-muted">{sessions.length}</span>
       </div>
       {sessions.map((s) => (
-        <DraggableTicket key={s.id} s={s} board={board} showObjective={showObjective} onOpen={onOpen} />
+        <DraggableTicket
+          key={s.id}
+          s={s}
+          board={board}
+          showObjective={showObjective}
+          onOpen={onOpen}
+          storyFilter={storyFilter}
+          onFilterStory={onFilterStory}
+        />
       ))}
     </div>
   );
 }
 
 export function Board(
-  { board, group, onMove, onOpen }: {
+  { board, group, onMove, onOpen, storyFilter, onFilterStory }: {
     board: BoardData;
     group: "none" | "story" | "project";
     onMove: (id: string, status: Status) => void;
     onOpen: (id: string) => void;
+    storyFilter?: string | null;
+    onFilterStory?: (id: string) => void;
   },
 ) {
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -133,9 +161,11 @@ export function Board(
     if (!pg) return null;
     return pg.kind === "project" ? pg.id : pg.parent_id ?? null;
   };
+  // clicking a card's story chip narrows the board to that story (drag still uses the full set)
+  const visible = storyFilter ? board.sessions.filter((s) => s.objective_id === storyFilter) : board.sessions;
   type Lane = { key: string; title: string | null; glyph?: string; color?: string | null; sessions: Session[] };
   const lanes: Lane[] = group === "none"
-    ? [{ key: "all", title: null, sessions: board.sessions }]
+    ? [{ key: "all", title: null, sessions: visible }]
     : group === "project"
     ? [
       ...board.clients.map((c) => ({
@@ -143,13 +173,13 @@ export function Board(
         title: c.name,
         glyph: "◎",
         color: c.color,
-        sessions: board.sessions.filter((s) => projectOf(s) === c.id),
+        sessions: visible.filter((s) => projectOf(s) === c.id),
       })),
       {
         key: "none",
         title: "— No project",
         glyph: "◎",
-        sessions: board.sessions.filter((s) => !projectOf(s)),
+        sessions: visible.filter((s) => !projectOf(s)),
       },
     ]
     : [
@@ -157,14 +187,14 @@ export function Board(
         key: o.id,
         title: o.title,
         glyph: "◇",
-        sessions: board.sessions.filter((s) => s.objective_id === o.id),
+        sessions: visible.filter((s) => s.objective_id === o.id),
       })),
       {
         key: "none",
         title: "— No story",
         glyph: "◇",
         // also catches sessions whose page hasn't been promoted yet (sync window)
-        sessions: board.sessions.filter((s) =>
+        sessions: visible.filter((s) =>
           !s.objective_id || !board.objectives.some((o) => o.id === s.objective_id)
         ),
       },
@@ -195,6 +225,8 @@ export function Board(
                   showObjective={group === "none"}
                   onOpen={openGuarded}
                   compact={group !== "none"}
+                  storyFilter={storyFilter}
+                  onFilterStory={onFilterStory}
                 />
               ))}
             </div>

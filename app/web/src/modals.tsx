@@ -6,6 +6,7 @@ import {
   type ClaudeImportItem,
   type ClaudeScan,
   type ClaudeSession,
+  completePath,
   getSettings,
   getUpdate,
   openInBrowser,
@@ -185,6 +186,111 @@ export function NewSessionModal(
   );
 }
 
+// One folder input with directory autocomplete: typing fetches sub-dir suggestions
+// (debounced), ↑/↓ to move, Enter/Tab to accept, Esc to dismiss, click to pick.
+function PathRow(
+  { value, placeholder, autoFocus, onChange, onRemove }: {
+    value: string;
+    placeholder: string;
+    autoFocus: boolean;
+    onChange: (v: string) => void;
+    onRemove: () => void;
+  },
+) {
+  const [sugg, setSugg] = useState<string[]>([]);
+  const [open, setOpen] = useState(false);
+  const [hi, setHi] = useState(0);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const blurTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => {
+    clearTimeout(timer.current);
+    clearTimeout(blurTimer.current);
+  }, []);
+
+  const fetchSugg = (v: string) => {
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      completePath(v).then((dirs) => {
+        const d = dirs.filter((x) => x !== v); // hide a lone suggestion equal to the input
+        setSugg(d);
+        setHi(0);
+        setOpen(d.length > 0);
+      });
+    }, 120);
+  };
+  const accept = (d: string) => {
+    onChange(d);
+    setOpen(false);
+    fetchSugg(`${d}/`); // offer the chosen folder's children next
+  };
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className="relative w-full">
+        <input
+          className={`${pill} w-full`}
+          value={value}
+          autoFocus={autoFocus}
+          placeholder={placeholder}
+          onChange={(e) => {
+            onChange(e.target.value);
+            fetchSugg(e.target.value);
+          }}
+          onFocus={() => value && fetchSugg(value)}
+          onBlur={() => {
+            blurTimer.current = setTimeout(() => setOpen(false), 120);
+          }}
+          onKeyDown={(e) => {
+            if (!open || sugg.length === 0) return;
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              setHi((h) => (h + 1) % sugg.length);
+            } else if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setHi((h) => (h - 1 + sugg.length) % sugg.length);
+            } else if (e.key === "Enter" || e.key === "Tab") {
+              if (sugg[hi]) {
+                e.preventDefault();
+                accept(sugg[hi]);
+              }
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              setOpen(false);
+            }
+          }}
+        />
+        {open && sugg.length > 0 && (
+          <div className="absolute left-0 top-full z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-md border border-chipline bg-panel shadow-lg">
+            {sugg.map((d, k) => (
+              <button type="button"
+                key={d}
+                className={`block w-full truncate px-2 py-1 text-left font-mono text-[11px] ${
+                  k === hi ? "bg-sidebar text-ink" : "text-ink-soft"
+                }`}
+                // mousedown (not click) fires before the input's blur closes the list
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  accept(d);
+                }}
+                onMouseEnter={() => setHi(k)}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <button type="button"
+        className="px-1 text-ink-muted hover:text-blocked"
+        title="remove"
+        onClick={onRemove}
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+
 function PathList(
   { items, onChange, placeholder, addLabel }: {
     items: string[];
@@ -196,22 +302,14 @@ function PathList(
   return (
     <div className="flex flex-col gap-1.5">
       {items.map((p, i) => (
-        <div key={i} className="flex items-center gap-1.5">
-          <input
-            className={`${pill} w-full`}
-            value={p}
-            autoFocus={i === items.length - 1 && p === ""}
-            placeholder={placeholder}
-            onChange={(e) => onChange(items.map((x, j) => j === i ? e.target.value : x))}
-          />
-          <button type="button"
-            className="px-1 text-ink-muted hover:text-blocked"
-            title="remove"
-            onClick={() => onChange(items.filter((_, j) => j !== i))}
-          >
-            ✕
-          </button>
-        </div>
+        <PathRow
+          key={i}
+          value={p}
+          placeholder={placeholder}
+          autoFocus={i === items.length - 1 && p === ""}
+          onChange={(v) => onChange(items.map((x, j) => j === i ? v : x))}
+          onRemove={() => onChange(items.filter((_, j) => j !== i))}
+        />
       ))}
       <button type="button"
         className="w-fit rounded-md px-1 py-0.5 text-[11.5px] text-ink-muted hover:text-ink-soft"

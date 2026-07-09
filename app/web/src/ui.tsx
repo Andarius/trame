@@ -330,13 +330,30 @@ export function EntityIcon(
   return <span className={className}>{icon}</span>;
 }
 
-export function ObjectiveChip({ title }: { title: string }) {
-  return (
-    <span className="inline-flex w-fit items-center gap-1 rounded-md border border-chipline/60 px-1.5 py-0.5 text-[10.5px] leading-none text-ink-soft">
-      <span className="text-[9px] text-ink-muted">◇</span>
+export function ObjectiveChip(
+  { title, onClick, active }: { title: string; onClick?: () => void; active?: boolean },
+) {
+  const cls = `inline-flex w-fit items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10.5px] leading-none ${
+    active ? "border-copper/60 text-copper" : "border-chipline/60 text-ink-soft"
+  } ${onClick ? "cursor-pointer hover:border-copper/50 hover:text-copper" : ""}`;
+  const inner = (
+    <>
+      <span className={`text-[9px] ${active ? "text-copper" : "text-ink-muted"}`}>◇</span>
       {title}
-    </span>
+    </>
   );
+  return onClick
+    ? (
+      <button type="button" className={cls} title={`Show only “${title}” sessions`}
+        onClick={(e) => {
+          e.stopPropagation(); // don't also open the card's drawer
+          onClick();
+        }}
+      >
+        {inner}
+      </button>
+    )
+    : <span className={cls}>{inner}</span>;
 }
 
 // Options for project/page pickers: projects (◎) first, then plain pages (□) which get
