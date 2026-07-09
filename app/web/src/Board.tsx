@@ -125,13 +125,15 @@ function Column(
 }
 
 export function Board(
-  { board, group, onMove, onOpen, storyFilter, onFilterStory }: {
+  { board, group, onMove, onOpen, storyFilter, onFilterStory, statusOrder, hideEmpty }: {
     board: BoardData;
     group: "none" | "story" | "project";
     onMove: (id: string, status: Status) => void;
     onOpen: (id: string) => void;
     storyFilter?: string | null;
     onFilterStory?: (id: string) => void;
+    statusOrder?: Status[];
+    hideEmpty?: boolean;
   },
 ) {
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -163,6 +165,10 @@ export function Board(
   };
   // clicking a card's story chip narrows the board to that story (drag still uses the full set)
   const visible = storyFilter ? board.sessions.filter((s) => s.objective_id === storyFilter) : board.sessions;
+  // status columns: user order (fall back to default), optionally hiding the empty ones
+  const ordered = statusOrder?.length ? statusOrder.filter((s) => COLUMNS.includes(s)) : COLUMNS;
+  const present = new Set(visible.map((s) => s.status));
+  const cols = hideEmpty ? ordered.filter((s) => present.has(s)) : ordered;
   type Lane = { key: string; title: string | null; glyph?: string; color?: string | null; sessions: Session[] };
   const lanes: Lane[] = group === "none"
     ? [{ key: "all", title: null, sessions: visible }]
@@ -215,7 +221,7 @@ export function Board(
               </div>
             )}
             <div className={`flex gap-3.5 ${group === "none" ? "min-h-0 flex-1" : ""}`}>
-              {COLUMNS.map((status) => (
+              {cols.map((status) => (
                 <Column
                   key={status}
                   status={status}

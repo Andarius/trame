@@ -28,7 +28,7 @@ import { List } from "./List";
 import { ImportClaudeModal, NewSessionModal, NewUdbModal, SettingsModal } from "./modals";
 import { confirmDeletePage, Page } from "./Page";
 import { ClientView } from "./ClientView";
-import { appConfirm, ConfirmHost, EntityIcon, Popover } from "./ui";
+import { appConfirm, ConfirmHost, EntityIcon, Popover, STATUS } from "./ui";
 import { IconPicker } from "./udb/cells";
 import { DatabaseView } from "./udb/DatabaseTable";
 
@@ -378,7 +378,28 @@ export function App() {
     return g === "story" || g === "objective" ? "story" : g === "project" ? "project" : "none";
   });
   const [groupMenu, setGroupMenu] = useState(false);
+  const [colMenu, setColMenu] = useState(false);
   const [storyFilter, setStoryFilter] = useState<string | null>(params.get("story")); // narrow sessions to one story
+  const DEFAULT_ORDER: Status[] = ["active", "paused", "blocked", "done"];
+  const [hideEmpty, setHideEmpty] = useState<boolean>(() => localStorage.getItem("trame:hideEmpty") === "1");
+  const [statusOrder, setStatusOrder] = useState<Status[]>(() => {
+    try {
+      const arr = JSON.parse(localStorage.getItem("trame:statusOrder") ?? "null");
+      return Array.isArray(arr) && arr.length === 4 ? arr as Status[] : DEFAULT_ORDER;
+    } catch {
+      return DEFAULT_ORDER;
+    }
+  });
+  useEffect(() => localStorage.setItem("trame:hideEmpty", hideEmpty ? "1" : "0"), [hideEmpty]);
+  useEffect(() => localStorage.setItem("trame:statusOrder", JSON.stringify(statusOrder)), [statusOrder]);
+  const moveStatus = (s: Status, dir: -1 | 1) =>
+    setStatusOrder((cur) => {
+      const i = cur.indexOf(s), j = i + dir;
+      if (i < 0 || j < 0 || j >= cur.length) return cur;
+      const next = [...cur];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
   const [modal, setModal] = useState<"session" | "settings" | "udb" | "import" | null>(
     (params.get("new") as "session" | "settings" | "udb" | "import" | null) ?? null,
   );
@@ -630,6 +651,62 @@ export function App() {
               )}
             </div>
           )}
+          {view === "board" && (
+            <div className="relative">
+              <button type="button"
+                onClick={() => setColMenu((o) => !o)}
+                title="Columns"
+                className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] ${
+                  hideEmpty ? "border-copper/50 text-copper" : "border-line text-ink-muted hover:text-ink-soft"
+                }`}
+              >
+                <span className="text-[11px]">▤</span>
+                Columns
+                <span className="text-[8px]">▾</span>
+              </button>
+              {colMenu && (
+                <Popover onClose={() => setColMenu(false)} className="w-52">
+                  <button type="button"
+                    onClick={() => setHideEmpty((v) => !v)}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-ink-soft hover:bg-panel"
+                  >
+                    <span className={`flex h-3.5 w-3.5 items-center justify-center rounded border text-[9px] ${
+                      hideEmpty ? "border-copper bg-copper text-copper-ink" : "border-chipline"
+                    }`}
+                    >
+                      {hideEmpty ? "✓" : ""}
+                    </span>
+                    <span className="flex-1">Hide empty statuses</span>
+                  </button>
+                  <div className="mt-1 border-t border-line-soft px-2 pb-1 pt-2 text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+                    ORDER
+                  </div>
+                  {statusOrder.map((s, i) => (
+                    <div key={s} className="flex items-center gap-2 px-2 py-1 text-xs">
+                      <span className="h-[7px] w-[7px] rounded-full" style={{ background: STATUS[s].color }} />
+                      <span className="flex-1 text-ink-soft">{STATUS[s].label}</span>
+                      <button type="button"
+                        disabled={i === 0}
+                        onClick={() => moveStatus(s, -1)}
+                        className="px-1 text-ink-muted hover:text-ink disabled:opacity-25"
+                        title="move left"
+                      >
+                        ◀
+                      </button>
+                      <button type="button"
+                        disabled={i === statusOrder.length - 1}
+                        onClick={() => moveStatus(s, 1)}
+                        className="px-1 text-ink-muted hover:text-ink disabled:opacity-25"
+                        title="move right"
+                      >
+                        ▶
+                      </button>
+                    </div>
+                  ))}
+                </Popover>
+              )}
+            </div>
+          )}
           {isSessions && storyFilter && (
             <button type="button"
               onClick={() => setStoryFilter(null)}
@@ -718,6 +795,8 @@ export function App() {
               onOpen={setOpenId}
               storyFilter={storyFilter}
               onFilterStory={(id) => setStoryFilter((cur) => cur === id ? null : id)}
+              statusOrder={statusOrder}
+              hideEmpty={hideEmpty}
             />
           )
           : view === "list"
