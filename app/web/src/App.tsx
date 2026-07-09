@@ -378,7 +378,7 @@ export function App() {
     return g === "story" || g === "objective" ? "story" : g === "project" ? "project" : "none";
   });
   const [groupMenu, setGroupMenu] = useState(false);
-  const [storyFilter, setStoryFilter] = useState<string | null>(null); // narrow sessions to one story
+  const [storyFilter, setStoryFilter] = useState<string | null>(params.get("story")); // narrow sessions to one story
   const [modal, setModal] = useState<"session" | "settings" | "udb" | "import" | null>(
     (params.get("new") as "session" | "settings" | "udb" | "import" | null) ?? null,
   );
@@ -424,6 +424,13 @@ export function App() {
     syncFlashTimer.current = setTimeout(() => setSyncFlash(null), 2500);
   };
   useEffect(() => () => clearTimeout(syncFlashTimer.current), []);
+  // keep the story filter in the URL so a refresh/reload restores it
+  useEffect(() => {
+    const u = new URL(location.href);
+    if (storyFilter) u.searchParams.set("story", storyFilter);
+    else u.searchParams.delete("story");
+    history.replaceState(null, "", u);
+  }, [storyFilter]);
   useEffect(() => {
     refresh();
     const t = setInterval(refresh, 5000);
