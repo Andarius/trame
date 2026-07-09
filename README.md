@@ -14,7 +14,7 @@ Everything is Postgres, so the SQL is identical on the laptop and the hub.
    └─ sync.ts  ─┐                            ┌─ sync.ts
                push/pull (LWW by updated_at) │
                 └────────▶  Postgres @ hub  ◀┘   (source of truth, Docker, home LAN)
- /project:track ─▶ hub Postgres if online, else local outbox.jsonl (app drains on launch)
+ /trame:track ─▶ hub Postgres if online, else local outbox.jsonl (app drains on launch)
 ```
 
 ## Demo
@@ -54,8 +54,8 @@ app/                       Deno-desktop app
   sync.ts                  custom LWW push/pull to the hub
   config.ts                env config (NODE_ID, REMOTE_PG, data dir…)
   web/                     React swimlane board (Vite)
-track/track.ts             the /project:track writer (hub PG or outbox)
-commands/project/track.md  the /project:track slash command (copy to ~/.claude/…)
+track/track.ts             the /trame:track writer (hub PG or outbox)
+commands/trame/track.md    the /trame:track slash command (copy to ~/.claude/…)
 ```
 
 ## Setup
@@ -91,16 +91,16 @@ deno task dev           # opens the desktop window (Deno 2.9+)
 # frontend dev with HMR:        deno task web:dev  (proxies /api to :8787)
 ```
 
-### 4. Wire `/project:track`
-`/project:track` is a Claude Code slash command that records the current session as a card on
+### 4. Wire `/trame:track`
+`/trame:track` is a Claude Code slash command that records the current session as a card on
 the board — it reads the repo, branch, and a one-line note from the conversation and writes
 straight to your local PGlite (syncing to the hub when online, else queued in the outbox).
 Install it into Claude Code:
 ```bash
-cp commands/project/track.md ~/.claude/commands/project/track.md
+cp commands/trame/track.md ~/.claude/commands/trame/track.md
 ```
-Then from any repo: `/project:track` to log the session, or
-`/project:track paused|blocked|done "note"` to set its status with a note.
+Then from any repo: `/trame:track` to log the session, or
+`/trame:track paused|blocked|done "note"` to set its status with a note.
 
 ## How sync works
 - **Transport**: mutual TLS — the hub only accepts connections presenting a client cert

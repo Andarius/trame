@@ -1,4 +1,4 @@
-// Writer invoked by the /project:track slash command.
+// Writer invoked by the /trame:track slash command.
 // App-first: POST to the running Trame instance (found via the port file) — the server
 // handles upsert-by-repo+branch, client/objective name resolution, and the worklog event.
 // Offline fallback: append to the outbox; the app drains it on next launch.
