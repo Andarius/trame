@@ -25,15 +25,20 @@ function colWidth(p: UdbProp): number {
   return DEFAULT_WIDTH[p.type] ?? 150;
 }
 
+const udbCache = new Map<string, Udb>(); // last fetch per db, so switching renders instantly
+
 export function DatabaseView({ dbId, epoch, udbs }: { dbId: string; epoch: number; udbs: UdbMeta[] }) {
-  const [data, setData] = useState<Udb | null>(null);
+  const [data, setData] = useState<Udb | null>(() => udbCache.get(dbId) ?? null);
   const [editor, setEditor] = useState<{ prop: UdbProp | null } | null>(null); // null prop = create
   const [openRow, setOpenRow] = useState<string | null>(null);
   const [iconFor, setIconFor] = useState<string | null>(null); // row id with the icon picker open
   const [widths, setWidths] = useState<Record<string, number>>({}); // live values while dragging
 
   const reload = useCallback(() => {
-    getUdb(dbId).then(setData).catch(() => {});
+    getUdb(dbId).then((d) => {
+      udbCache.set(dbId, d);
+      setData(d);
+    }).catch(() => {});
   }, [dbId]);
   useEffect(reload, [reload, epoch]);
   useEffect(() => {

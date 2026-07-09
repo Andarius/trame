@@ -22,3 +22,8 @@ app/web/playwright-report/
 # local runtime state / secrets
 .env
 .scratch/
+hub/certs/
+hub/ca/
+
+# playwright MCP page snapshots
+.playwright-mcp/
