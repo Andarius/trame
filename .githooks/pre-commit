@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Pre-commit: run the project-wide checks CI runs (deno lint, deno check, tsc),
+# but only BLOCK when an error touches a file you're committing — so an unrelated
+# work-in-progress file never blocks you. Bypass with `git commit --no-verify`.
+set -uo pipefail
+
+staged=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^app/.*\.(ts|tsx)$' || true)
+[ -z "$staged" ] && exit 0
+# match on basenames so it works whether the tool prints web/src/… (deno, absolute)
+# or src/… (tsc, relative to app/web)
+staged_re=$(echo "$staged" | sed 's|.*/||' | sed 's/\./\\./g' | paste -sd'|' -)
+
+fail=0
+gate() {                       # $1 label, $2 tool output
+  local label="$1" out="$2"
+  if echo "$out" | grep -iE "error|-->|warning" | grep -qE "$staged_re"; then
+    echo "✗ $label — issues in staged files:" >&2
+    echo "$out" | grep -iE "error TS|error\[|-->|$staged_re" | head -25 >&2
+    fail=1
+  fi
+}
+
+gate "deno lint"  "$( (cd app && deno lint) 2>&1 || true )"
+gate "deno check" "$( (cd app && deno check main.ts) 2>&1 || true )"
+if echo "$staged" | grep -q '^app/web/src/'; then
+  gate "tsc --noEmit" "$( (cd app/web && npx tsc --noEmit) 2>&1 || true )"
+fi
+
+if [ "$fail" -ne 0 ]; then
+  echo "✗ pre-commit failed. Fix the above, or 'git commit --no-verify' to skip." >&2
+  exit 1
+fi
+echo "✓ pre-commit passed"
