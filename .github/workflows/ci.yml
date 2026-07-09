@@ -15,6 +15,15 @@ jobs:
         with:
           deno-version: "2.9"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+
+      - name: Install frontend deps (pinned, from lockfile)
+        run: cd app/web && npm ci
+
       - name: Build frontend (generates embed.ts)
         run: cd app && deno task web:build
 
@@ -27,11 +36,11 @@ jobs:
       - name: Lint
         run: cd app && deno lint
 
-      - name: Install Playwright Chromium
-        run: cd app/web && npx playwright install --with-deps chromium
+      - name: Install Playwright Chromium (pinned to @playwright/test)
+        run: cd app/web && npm run e2e:install
 
       - name: Run E2E tests
-        run: cd app/web && npx playwright test
+        run: cd app/web && npm run test:e2e
 
       - name: Upload Playwright artifacts
         if: failure()
