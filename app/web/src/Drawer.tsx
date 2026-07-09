@@ -279,8 +279,9 @@ export function Drawer(
           </div>
         </Row>
         <Row label="Next step">
-          <input
-            className={rowVal}
+          <textarea
+            className="field-sizing-content w-full resize-none rounded-md border border-transparent bg-transparent px-2 py-1 text-xs leading-snug text-ink outline-none transition-colors hover:bg-panel focus:border-chipline focus:bg-panel"
+            rows={1}
             value={nextStep}
             onChange={(e) => setNextStep(e.target.value)}
             onBlur={() => commitIf(nextStep !== (session.next_step ?? ""))}
