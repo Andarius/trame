@@ -300,11 +300,9 @@ function Sidebar(
         />
       ))}
       <NewChip label="New page" indent={26} onClick={() => onNewPage(null)} />
-      {looseDbs.length > 0 && (
-        <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
-          DATABASES
-        </div>
-      )}
+      <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+        DATABASES
+      </div>
       {looseDbs.map((d) => {
         const active = view === "database" && d.id === dbId;
         return (
