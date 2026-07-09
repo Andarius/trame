@@ -165,6 +165,30 @@ async function transcriptIsLocal(id: string): Promise<boolean> {
   return false;
 }
 
+// Best-effort PR/MR state. GitHub via the authed `gh` CLI; other hosts → "unknown"
+// (GitLab would need a token). Cached 60s so opening a drawer doesn't hammer the API.
+const prStateCache = new Map<string, { state: string; at: number }>();
+async function prState(url: string): Promise<string> {
+  const hit = prStateCache.get(url);
+  if (hit && Date.now() - hit.at < 60_000) return hit.state;
+  let state = "unknown";
+  try {
+    if (/^https:\/\/github\.com\//.test(url)) {
+      const out = await new Deno.Command("gh", {
+        args: ["pr", "view", url, "--json", "state,isDraft"],
+        stdout: "piped",
+        stderr: "null",
+      }).output();
+      if (out.success) {
+        const j = JSON.parse(new TextDecoder().decode(out.stdout)) as { state: string; isDraft: boolean };
+        state = j.state === "MERGED" ? "merged" : j.state === "CLOSED" ? "closed" : j.isDraft ? "draft" : "open";
+      }
+    }
+  } catch { /* gh missing / offline → unknown */ }
+  prStateCache.set(url, { state, at: Date.now() });
+  return state;
+}
+
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
 
@@ -276,6 +300,12 @@ async function handler(req: Request): Promise<Response> {
     const cmd = Deno.build.os === "darwin" ? "open" : "xdg-open";
     new Deno.Command(cmd, { args: [full], stdout: "null", stderr: "null" }).spawn();
     return json({ ok: true });
+  }
+  // Best-effort PR/MR state for a link (open|draft|merged|closed|unknown).
+  if (pathname === "/api/pr-state" && req.method === "POST") {
+    const { url } = await req.json();
+    if (typeof url !== "string" || !/^https:\/\//.test(url)) return json({ error: "invalid url" }, 400);
+    return json({ url, state: await prState(url) });
   }
   // Resume a Claude Code session: open a terminal at its repo running `claude --resume <id>`.
   // Only works on the machine holding the transcript (~/.claude/projects/.../<id>.jsonl).

@@ -5,6 +5,7 @@ import {
   deleteSession,
   getEvents,
   openInBrowser,
+  prState,
   probeResume,
   type ResumeInfo,
   resumeSession,
@@ -17,6 +18,25 @@ import { appConfirm, pageOptions, Select, STATUS, StatusDot, timeAgo } from "./u
 
 const sectionLbl = "text-[10px] font-medium tracking-[0.8px] text-ink-muted/70";
 const rowLbl = "shrink-0 pt-[5px] text-[11px] text-ink-muted";
+
+// PR/MR link chips: state colors + a short label (repo#42 / proj!39) parsed from the URL
+const PR_STATE_COLOR: Record<string, string> = {
+  open: "#7bd88f",
+  draft: "#8b93a3",
+  merged: "#b590e7",
+  closed: "#e06c75",
+  unknown: "#5a6172",
+};
+function prLabel(url: string): string {
+  try {
+    const u = new URL(url);
+    const mr = u.pathname.includes("/merge_requests/");
+    const m = u.pathname.match(/\/([^/]+)\/(?:pull|-\/merge_requests)\/(\d+)/);
+    return m ? `${m[1]}${mr ? "!" : "#"}${m[2]}` : `${u.host}${u.pathname}`;
+  } catch {
+    return url;
+  }
+}
 const rowVal =
   "w-full truncate rounded-md border border-transparent bg-transparent px-2 py-1 text-xs text-ink outline-none transition-colors hover:bg-panel focus:border-chipline focus:bg-panel";
 
@@ -44,6 +64,9 @@ export function Drawer(
   const [branch, setBranch] = useState(session.branch ?? "");
   const [nextStep, setNextStep] = useState(session.next_step ?? "");
   const [prUrl, setPrUrl] = useState(session.pr_url ?? "");
+  const [prNew, setPrNew] = useState("");
+  const [prStates, setPrStates] = useState<Record<string, string>>({});
+  const prLinks = prUrl.split("\n").map((s) => s.trim()).filter(Boolean);
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const [log, setLog] = useState("");
   const [flash, setFlash] = useState(false);
@@ -58,6 +81,14 @@ export function Drawer(
     if (!session.repo_path) return;
     probeResume(session.id).then(setResumeInfo).catch(() => {});
   }, [session.id, session.repo_path]);
+
+  // resolve each PR/MR link's state (best-effort; server caches, GitHub via gh)
+  useEffect(() => {
+    for (const url of prLinks) {
+      if (prStates[url]) continue;
+      prState(url).then((state) => setPrStates((m) => ({ ...m, [url]: state })));
+    }
+  }, [prUrl]);
 
   const doResume = async () => {
     let msg: string;
@@ -259,23 +290,56 @@ export function Drawer(
           />
         </Row>
         <Row label="PR / MR">
-          <div className="flex items-center gap-1">
+          <div className="flex min-w-0 flex-col gap-1">
+            {prLinks.map((url) => {
+              const state = prStates[url] ?? "unknown";
+              return (
+                <div key={url} className="group flex items-center gap-1.5 rounded-md px-2 py-1 hover:bg-panel">
+                  <span
+                    className="h-[7px] w-[7px] shrink-0 rounded-full"
+                    style={{ background: PR_STATE_COLOR[state] ?? PR_STATE_COLOR.unknown }}
+                    title={state}
+                  />
+                  <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink" title={url}>
+                    {prLabel(url)}
+                  </span>
+                  {state !== "unknown" && <span className="shrink-0 text-[10px] text-ink-muted">{state}</span>}
+                  <button type="button"
+                    className="shrink-0 text-[11.5px] text-ink-muted transition-colors hover:text-copper"
+                    title="open in browser"
+                    onClick={() => openInBrowser(url)}
+                  >
+                    ↗
+                  </button>
+                  <button type="button"
+                    className="shrink-0 text-[11.5px] text-ink-muted opacity-0 transition-opacity hover:text-blocked group-hover:opacity-100"
+                    title="remove"
+                    onClick={() => {
+                      const next = prLinks.filter((u) => u !== url).join("\n");
+                      setPrUrl(next);
+                      commit({ pr_url: next || undefined });
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              );
+            })}
             <input
-              className={`${rowVal} flex-1`}
-              value={prUrl}
-              onChange={(e) => setPrUrl(e.target.value)}
-              onBlur={() => commitIf(prUrl !== (session.pr_url ?? ""))}
-              placeholder="https://…"
+              className={rowVal}
+              value={prNew}
+              onChange={(e) => setPrNew(e.target.value)}
+              placeholder={prLinks.length ? "add another PR / MR…" : "https://…"}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                const url = prNew.trim();
+                if (!/^https?:\/\//.test(url)) return;
+                const next = [...prLinks, url].join("\n");
+                setPrUrl(next);
+                setPrNew("");
+                commit({ pr_url: next });
+              }}
             />
-            {prUrl && (
-              <button type="button"
-                className="rounded-md px-1.5 py-0.5 text-[11.5px] text-ink-muted transition-colors hover:bg-panel hover:text-copper"
-                title="open in browser"
-                onClick={() => openInBrowser(prUrl)}
-              >
-                ↗
-              </button>
-            )}
           </div>
         </Row>
         <Row label="Next step">
