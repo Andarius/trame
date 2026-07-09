@@ -7,12 +7,20 @@ import {
   NODE_ID,
   PORT,
   PORT_FILE,
-  REMOTE_PG,
   REPORT_PATHS,
   SYNC_INTERVAL_MS,
   WINDOW_FILE,
 } from "./config.ts";
-import { deleteReportFile, getReportPaths, readReportFile, saveExploreSettings, scanReportFiles } from "./files.ts";
+import {
+  deleteReportFile,
+  getRemotePg,
+  getReportPaths,
+  readReportFile,
+  resolveRemotePg,
+  saveExploreSettings,
+  scanReportFiles,
+  writeReportFile,
+} from "./files.ts";
 import { ASSETS } from "./embed.ts";
 import {
   addEvent,
@@ -28,7 +36,7 @@ import {
   updateObjective,
   upsertSession,
 } from "./db.ts";
-import { syncOnce } from "./sync.ts";
+import { syncOnce, testRemote } from "./sync.ts";
 import { importClaudeSessions, scanClaudeSessions, setClaudeIgnored } from "./claude-import.ts";
 import { applyUpdate, checkUpdate, VERSION } from "./update.ts";
 import { attachUdbToPage, createPage, deletePage, getPage, listPages, movePage, updatePage } from "./pages.ts";
@@ -112,14 +120,21 @@ async function serveStatic(pathname: string): Promise<Response> {
     : p.endsWith(".css") ? "text/css"
     : p.endsWith(".html") ? "text/html"
     : "application/octet-stream";
+  const headers = {
+    "content-type": type,
+    // hashed assets are immutable; everything else must revalidate so a rebuild is picked up on reload
+    "cache-control": p.startsWith("assets/") ? "public, max-age=31536000, immutable" : "no-cache",
+  };
   try {
     // dev: read from disk so `just web-build` refreshes live
     const body = await Deno.readFile(`${WEB_DIST}/${p}`);
-    return new Response(body, { headers: { "content-type": type } });
+    return new Response(body, { headers });
   } catch {
     // bundled installs: assets embedded in the compile VFS
     const embedded = ASSETS[p];
-    if (embedded) return new Response(new Uint8Array(embedded), { headers: { "content-type": type } });
+    if (embedded) return new Response(new Uint8Array(embedded), { headers });
+    // a missing asset must 404 — an HTML body here makes dynamic import() fail with a MIME error
+    if (p.startsWith("assets/")) return new Response("not found", { status: 404 });
     return new Response(
       `<h1>🧵 Trame</h1><p>Frontend not built — run <code>just web-build</code>.</p>`,
       { headers: { "content-type": "text/html" } },
@@ -132,6 +147,44 @@ let boundPort = PORT; // set to the real port after serve (random in desktop mod
 const html = (body: string, status = 200) =>
   new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8" } });
 
+// Standalone editor for a .excalidraw scene — for "open in browser", where scripts
+// run (the in-app preview pre-renders static SVG instead; see web/src/excalidraw.ts).
+// Edits auto-save back to the file via POST /report-file.
+function excalidrawPage(json: string, path: string): string {
+  const name = path.slice(path.lastIndexOf("/") + 1).replace(/</g, "&lt;");
+  return `<!doctype html><meta charset="utf-8"><title>${name}</title>
+<link rel="stylesheet" href="https://esm.sh/@excalidraw/excalidraw@0.18.1/dist/prod/index.css">
+<body style="margin:0">
+<div id="root" style="position:fixed;inset:0"></div>
+<div id="status" style="position:fixed;right:14px;bottom:14px;z-index:10;font:12px system-ui;color:#555;background:#fffc;border-radius:6px;padding:2px 8px;pointer-events:none"></div>
+<script type="application/json" id="scene">${json.replaceAll("</", "<\\/")}</script>
+<script type="module">
+globalThis.EXCALIDRAW_ASSET_PATH ??= "https://unpkg.com/@excalidraw/excalidraw@0.18.1/dist/prod/";
+import React from "https://esm.sh/react@18.3.1";
+import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
+const { Excalidraw, serializeAsJSON } = await import("https://esm.sh/@excalidraw/excalidraw@0.18.1?deps=react@18.3.1,react-dom@18.3.1");
+const scene = JSON.parse(document.getElementById("scene").textContent);
+delete scene.appState?.collaborators; // serialized maps break restore
+const status = document.getElementById("status");
+let api, timer, lastSaved = null;
+async function save() {
+  if (!api) return;
+  const body = serializeAsJSON(api.getSceneElements(), api.getAppState(), api.getFiles(), "local");
+  if (body === lastSaved) return;
+  status.textContent = "saving…";
+  const r = await fetch(location.href, { method: "POST", body }).catch(() => null);
+  status.textContent = r && r.ok ? "saved" : "⚠ save failed";
+  if (r && r.ok) lastSaved = body;
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") save(); });
+createRoot(document.getElementById("root")).render(React.createElement(Excalidraw, {
+  initialData: scene,
+  excalidrawAPI: (a) => { api = a; },
+  onChange: () => { clearTimeout(timer); timer = setTimeout(save, 800); },
+}));
+</script></body>`;
+}
+
 async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const { pathname } = url;
@@ -142,9 +195,22 @@ async function handler(req: Request): Promise<Response> {
     const r = await getReport(rawDb[1]) as { html: string } | null;
     return r ? html(r.html) : html("report not found", 404);
   }
+  if (pathname === "/report-file" && req.method === "POST") {
+    const p = url.searchParams.get("path") ?? "";
+    const body = await req.text();
+    try {
+      if (JSON.parse(body)?.type !== "excalidraw") return json({ error: "not an excalidraw scene" }, 400);
+    } catch {
+      return json({ error: "invalid json" }, 400);
+    }
+    const ok = await writeReportFile(p, body);
+    return ok ? json({ ok: true }) : json({ error: "not allowed or not found" }, 404);
+  }
   if (pathname === "/report-file") {
-    const content = await readReportFile(url.searchParams.get("path") ?? "");
-    return content === null ? html("not allowed or not found", 404) : html(content);
+    const p = url.searchParams.get("path") ?? "";
+    const content = await readReportFile(p);
+    if (content === null) return html("not allowed or not found", 404);
+    return html(p.endsWith(".excalidraw") ? excalidrawPage(content, p) : content);
   }
   // Open a target in the system browser (webview has no window.open).
   if (pathname === "/api/open" && req.method === "POST") {
@@ -160,7 +226,7 @@ async function handler(req: Request): Promise<Response> {
 
   if (pathname === "/api/board") return json(await getBoard());
   if (pathname === "/api/status") {
-    return json({ nodeId: NODE_ID, remote: Boolean(REMOTE_PG), lastSync, dataDir: DATA_DIR, desktop: DESKTOP, version: VERSION });
+    return json({ nodeId: NODE_ID, remote: Boolean(await getRemotePg()), lastSync, dataDir: DATA_DIR, desktop: DESKTOP, version: VERSION });
   }
   if (pathname === "/api/update" && req.method === "POST") return json(await applyUpdate());
   if (pathname === "/api/update") {
@@ -171,6 +237,15 @@ async function handler(req: Request): Promise<Response> {
     return json(await checkUpdate(url.searchParams.has("force")));
   }
   if (pathname === "/api/sync" && req.method === "POST") return json(await runSync());
+  // Probe a hub with (possibly unsaved) settings-form values — nothing is persisted.
+  if (pathname === "/api/hub/test" && req.method === "POST") {
+    const body = await req.json();
+    const url = await resolveRemotePg(
+      typeof body.remotePg === "string" ? body.remotePg : "",
+      typeof body.remotePgPassword === "string" ? body.remotePgPassword : "",
+    );
+    return json(url ? await testRemote(url) : { ok: false, error: "no hub configured" });
+  }
   if (pathname === "/api/import/claude/ignore" && req.method === "POST") {
     const { claudeId, ignored } = await req.json();
     return json(await setClaudeIgnored(String(claudeId), Boolean(ignored)));
@@ -222,6 +297,8 @@ async function handler(req: Request): Promise<Response> {
       ignorePaths: Array.isArray(body.ignorePaths) ? body.ignorePaths : undefined,
       starredPaths: Array.isArray(body.starredPaths) ? body.starredPaths : undefined,
       htmlFilter: body.htmlFilter === "smart" || body.htmlFilter === "all" ? body.htmlFilter : undefined,
+      remotePg: typeof body.remotePg === "string" ? body.remotePg : undefined,
+      remotePgPassword: typeof body.remotePgPassword === "string" ? body.remotePgPassword : undefined,
     });
     return json(await getReportPaths());
   }

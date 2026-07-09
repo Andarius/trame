@@ -18,6 +18,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ssh "$HOST" "mkdir -p ~/$DIR"
 scp -q "$HERE/docker-compose.yml" "$HOST:$DIR/docker-compose.yml"
 scp -q "$HERE/../db/schema.sql" "$HOST:$DIR/schema.sql"
+scp -q "$HERE/pg_hba.conf" "$HOST:$DIR/pg_hba.conf"
+scp -q "$HERE/gen-certs.sh" "$HOST:$DIR/gen-certs.sh"
+ssh "$HOST" "chmod +x ~/$DIR/gen-certs.sh"
 
 ssh "$HOST" bash -s "$DIR" <<'REMOTE'
 set -euo pipefail
@@ -32,6 +35,8 @@ if [ ! -f .env ]; then
   chmod 600 .env
   echo "created .env (bind: $LAN_IP)"
 fi
+. ./.env
+./gen-certs.sh init "$TRACKER_BIND" "$(hostname)"
 docker compose up -d
 for _ in $(seq 30); do
   status=$(docker inspect -f '{{.State.Health.Status}}' tracker-db 2>/dev/null || echo starting)
@@ -39,7 +44,7 @@ for _ in $(seq 30); do
   sleep 2
 done
 [ "$status" = healthy ] || { echo "tracker-db not healthy: $status" >&2; docker logs --tail 20 tracker-db >&2; exit 1; }
-. ./.env
 echo "tracker-db healthy — laptops use:"
 echo "  export TRACKER_REMOTE_PG=\"postgres://tracker:$POSTGRES_PASSWORD@$TRACKER_BIND:5433/tracker\""
+echo "then fetch this laptop's client cert:  just db-cert"
 REMOTE
