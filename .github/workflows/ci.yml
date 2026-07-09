@@ -9,11 +9,20 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - uses: denoland/setup-deno@v2
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
           deno-version: "2.9"
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+
+      - name: Install frontend deps (pinned, from lockfile)
+        run: cd app/web && npm ci
 
       - name: Build frontend (generates embed.ts)
         run: cd app && deno task web:build
@@ -27,15 +36,15 @@ jobs:
       - name: Lint
         run: cd app && deno lint
 
-      - name: Install Playwright Chromium
-        run: cd app/web && npx playwright install --with-deps chromium
+      - name: Install Playwright Chromium (pinned to @playwright/test)
+        run: cd app/web && npm run e2e:install
 
       - name: Run E2E tests
-        run: cd app/web && npx playwright test
+        run: cd app/web && npm run test:e2e
 
       - name: Upload Playwright artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: playwright-artifacts
           path: app/web/test-results

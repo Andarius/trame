@@ -5,6 +5,9 @@ import {
   deleteSession,
   getEvents,
   openInBrowser,
+  probeResume,
+  type ResumeInfo,
+  resumeSession,
   saveSession,
   type Session,
   type SessionEvent,
@@ -45,11 +48,47 @@ export function Drawer(
   const [log, setLog] = useState("");
   const [flash, setFlash] = useState(false);
   const flashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [resumeMsg, setResumeMsg] = useState<string | null>(null);
+  const [resumeInfo, setResumeInfo] = useState<ResumeInfo | null>(null);
+  const resumeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // probe on open so the button shows whether this session is resumable HERE vs on another device
+  useEffect(() => {
+    setResumeInfo(null);
+    if (!session.repo_path) return;
+    probeResume(session.id).then(setResumeInfo).catch(() => {});
+  }, [session.id, session.repo_path]);
+
+  const doResume = async () => {
+    let msg: string;
+    try {
+      const r = await resumeSession(session.id);
+      if (r.launched) {
+        msg = "terminal opened";
+      } else {
+        // transcript isn't here → can't resume locally; copy the command as an escape hatch
+        try {
+          await navigator.clipboard?.writeText(r.cmd);
+        } catch { /* clipboard blocked — still show why below */ }
+        msg = r.local === false
+          ? (r.homeNode ? `on ${r.homeNode} — copied` : "no transcript here — copied")
+          : "command copied";
+      }
+    } catch {
+      msg = "failed";
+    }
+    setResumeMsg(msg);
+    clearTimeout(resumeTimer.current);
+    resumeTimer.current = setTimeout(() => setResumeMsg(null), 2500);
+  };
 
   useEffect(() => {
     // guard: a stale backend may answer an error object instead of an array
     getEvents(session.id).then((e) => Array.isArray(e) && setEvents(e)).catch(() => {});
-    return () => clearTimeout(flashTimer.current);
+    return () => {
+      clearTimeout(flashTimer.current);
+      clearTimeout(resumeTimer.current);
+    };
   }, [session.id]);
 
   const commit = (over: Record<string, unknown> = {}) =>
@@ -153,6 +192,32 @@ export function Drawer(
             );
           })}
         </div>
+
+        {session.repo_path && (() => {
+          const foreign = resumeInfo?.local === false; // transcript lives on another device
+          const label = resumeMsg ??
+            (foreign
+              ? (resumeInfo?.homeNode ? `On ${resumeInfo.homeNode}` : "No transcript on this device")
+              : "Resume in Claude Code");
+          return (
+            <button type="button"
+              className={`flex items-center justify-center gap-2 rounded-lg border py-2 text-[12px] font-medium transition-colors ${
+                foreign
+                  ? "border-line bg-transparent text-ink-muted hover:border-chipline hover:text-ink-soft"
+                  : "border-copper/40 bg-copper/[0.06] text-copper hover:border-copper/60 hover:bg-copper/10"
+              }`}
+              title={foreign
+                ? `This session's transcript lives on ${
+                  resumeInfo?.homeNode ?? "another device"
+                } — resume it there. Click to copy the command.`
+                : `Opens a terminal in ${session.repo_path} running "claude --resume"`}
+              onClick={doResume}
+            >
+              <span className="text-[13px]">{foreign ? "⧉" : "⏵"}</span>
+              {label}
+            </button>
+          );
+        })()}
       </div>
 
       <div className="flex flex-col gap-1 border-t border-line-soft px-4 py-3.5">
