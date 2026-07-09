@@ -16,6 +16,20 @@ Everything is Postgres, so the SQL is identical on the laptop and the hub.
  /project:track ─▶ hub Postgres if online, else local outbox.jsonl (app drains on launch)
 ```
 
+## Demo
+
+![Trame walkthrough](docs/demo.gif)
+
+> A 20-second tour: filter the board by story, regroup into swimlanes, open a session and
+> **resume it in Claude Code**, then sort the list view.
+> ([higher-quality MP4](docs/demo.mp4) · screens use demo data)
+
+| Kanban board — status columns | Swimlanes — group by project or story |
+| :--- | :--- |
+| [![board](docs/board.png)](docs/board.png) | [![grouped board](docs/board-grouped.png)](docs/board-grouped.png) |
+| **Session drawer — resume in Claude Code** | **Sortable list view** |
+| [![drawer](docs/drawer.png)](docs/drawer.png) | [![list](docs/list.png)](docs/list.png) |
+
 ## Requirements
 - **Deno 2.9+** on each laptop (for `deno desktop`). Install: `curl -fsSL https://deno.land/install.sh | sh`.
 - **Docker + openssl** on the hub machine (certs are generated there; the CA key never leaves it).
