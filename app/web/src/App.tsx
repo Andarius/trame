@@ -626,7 +626,7 @@ export function App() {
           {isSessions && storyFilter && (
             <button type="button"
               onClick={() => setStoryFilter(null)}
-              title="Clear story filter"
+              title="Clear story"
               className="flex items-center gap-1.5 rounded-md border border-copper/50 px-2 py-1 text-[11.5px] text-copper hover:bg-copper/10"
             >
               <span className="text-[9px]">◇</span>
