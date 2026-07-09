@@ -90,7 +90,7 @@ export function List(
                     e.stopPropagation(); // filter instead of opening the row
                     onFilterStory(objective.id);
                   }}
-                  title={`Filter by story: ${objective.title}`}
+                  title={`Show only “${objective.title}”`}
                   className={`truncate text-left text-[11.5px] hover:text-copper ${
                     objective.id === storyFilter ? "text-copper" : "text-ink-muted"
                   }`}

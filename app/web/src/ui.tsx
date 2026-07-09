@@ -344,7 +344,7 @@ export function ObjectiveChip(
   );
   return onClick
     ? (
-      <button type="button" className={cls} title={`Filter sessions by story: ${title}`}
+      <button type="button" className={cls} title={`Show only “${title}” sessions`}
         onClick={(e) => {
           e.stopPropagation(); // don't also open the card's drawer
           onClick();
