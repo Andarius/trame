@@ -230,7 +230,7 @@ export async function createReport(r: { title: string; html: string; client?: st
   return row.id;
 }
 
-// Drain writes made by /project:track while the app was closed/offline.
+// Drain writes made by /trame:track while the app was closed/offline.
 // NOTE (scaffold): the outbox stores session fields only; client/objective-by-name
 // resolution done by the online CLI path is skipped here. Good enough for v0.
 export async function drainOutbox(): Promise<number> {

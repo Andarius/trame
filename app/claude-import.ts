@@ -137,7 +137,7 @@ function extractMeta(head: string, tail: string) {
   return { cwd, aiTitle, lastPrompt, firstPrompt, branch, lastTs, hasActivity };
 }
 
-// mirrors commands/project/track.md's working-dir → client mapping
+// mirrors commands/trame/track.md's working-dir → client mapping
 const clientFor = (path: string): string =>
   path.includes("/Obitrain/") ? "Obitrain" : path.includes("/Polarsen/") ? "Polarsen" : "Side-projects";
 
