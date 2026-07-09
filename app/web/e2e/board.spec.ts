@@ -58,10 +58,20 @@ test("a project can be created from the sidebar", async ({ page }) => {
   await expect(page.locator("aside").getByRole("button", { name: /E2E Project/ })).toBeVisible();
 });
 
-test("group-by-project swimlanes render", async ({ page }) => {
-  await page.goto("/?view=board&group=objective");
-  await expect(page.getByRole("button", { name: /Group · Story/ })).toBeVisible();
+test("group by Story renders swimlanes; the control reflects the choice", async ({ page }) => {
+  await page.goto("/?view=board&group=story");
+  // the icon menu button shows the active dimension
+  await expect(page.getByTitle("Group the board")).toContainText("Story");
   await expect(page.getByText("— No story")).toBeVisible();
+});
+
+test("the Group menu switches to Project grouping", async ({ page }) => {
+  await page.goto("/?view=board");
+  await page.getByTitle("Group the board").click();
+  await page.getByRole("button", { name: /◎ Project/ }).click();
+  // now grouped by Project — the control and the catch-all lane both say Project
+  await expect(page.getByTitle("Group the board")).toContainText("Project");
+  await expect(page.getByText("— No project")).toBeVisible();
 });
 
 test("a Project page creates a Story child via New story", async ({ page }) => {
