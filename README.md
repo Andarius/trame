@@ -17,8 +17,7 @@ Everything is Postgres, so the SQL is identical on the laptop and the hub.
 ```
 
 ## Requirements
-- **Deno 2.9+** on each laptop (for `deno desktop`). Install: `curl -fsSL https://deno.land/install.sh | sh`
-  (this box now has `deno 2.9.1`).
+- **Deno 2.9+** on each laptop (for `deno desktop`). Install: `curl -fsSL https://deno.land/install.sh | sh`.
 - **Docker** on the hub machine.
 - Laptops reach the hub's Postgres over the **home LAN** (no Tailscale required;
   the hub binds to its LAN IP — install Tailscale there if you want sync away from home).
