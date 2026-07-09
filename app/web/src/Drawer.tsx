@@ -65,6 +65,15 @@ export function Drawer(
   const [nextStep, setNextStep] = useState(session.next_step ?? "");
   const [prUrl, setPrUrl] = useState(session.pr_url ?? "");
   const [prNew, setPrNew] = useState("");
+  // JS auto-grow: field-sizing:content isn't supported in the desktop WebKitGTK webview,
+  // so long next-steps would clip. Size the textarea to its content by hand.
+  const nsRef = useRef<HTMLTextAreaElement>(null);
+  const growNs = () => {
+    const el = nsRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  };
   const [prStates, setPrStates] = useState<Record<string, string>>({});
   const prLinks = prUrl.split("\n").map((s) => s.trim()).filter(Boolean);
   const [events, setEvents] = useState<SessionEvent[]>([]);
@@ -89,6 +98,9 @@ export function Drawer(
       prState(url).then((state) => setPrStates((m) => ({ ...m, [url]: state })));
     }
   }, [prUrl]);
+
+  // size the next-step banner to its initial content on open
+  useEffect(growNs, []);
 
   const doResume = async () => {
     let msg: string;
@@ -249,30 +261,6 @@ export function Drawer(
             </button>
           );
         })()}
-
-        {/* Next step — the imperative line for future-you, led at the top (design A: resume banner) */}
-        <div
-          className={`flex items-start gap-2.5 rounded-lg border px-3 py-2 transition-colors ${
-            nextStep ? "border-copper/30 bg-copper/[0.07]" : "border-dashed border-chipline/70"
-          }`}
-          style={nextStep ? { borderLeft: "3px solid var(--color-copper)" } : undefined}
-        >
-          <span
-            className={`shrink-0 pt-[3px] font-mono text-[10px] font-semibold uppercase tracking-[0.14em] ${
-              nextStep ? "text-copper" : "text-ink-muted"
-            }`}
-          >
-            ▶ Next
-          </span>
-          <textarea
-            className="field-sizing-content w-full resize-none bg-transparent font-mono text-[12.5px] leading-snug text-ink outline-none placeholder:font-sans placeholder:text-ink-muted/70"
-            rows={1}
-            value={nextStep}
-            onChange={(e) => setNextStep(e.target.value)}
-            onBlur={() => commitIf(nextStep !== (session.next_step ?? ""))}
-            placeholder="what's the next move on resume?"
-          />
-        </div>
       </div>
 
       <div className="flex flex-col gap-1 border-t border-line-soft px-4 py-3.5">
@@ -366,6 +354,34 @@ export function Drawer(
             />
           </div>
         </Row>
+
+        {/* Next step — the imperative line for future-you, as a banner below the fields (design A) */}
+        <div
+          className={`mt-2 flex items-start gap-2.5 rounded-lg border px-3 py-2 transition-colors ${
+            nextStep ? "border-copper/30 bg-copper/[0.07]" : "border-dashed border-chipline/70"
+          }`}
+          style={nextStep ? { borderLeft: "3px solid var(--color-copper)" } : undefined}
+        >
+          <span
+            className={`shrink-0 pt-[3px] font-mono text-[10px] font-semibold uppercase tracking-[0.14em] ${
+              nextStep ? "text-copper" : "text-ink-muted"
+            }`}
+          >
+            ▶ Next
+          </span>
+          <textarea
+            ref={nsRef}
+            className="w-full resize-none overflow-hidden bg-transparent font-mono text-[12.5px] leading-snug text-ink outline-none placeholder:font-sans placeholder:text-ink-muted/70"
+            rows={1}
+            value={nextStep}
+            onChange={(e) => {
+              setNextStep(e.target.value);
+              growNs();
+            }}
+            onBlur={() => commitIf(nextStep !== (session.next_step ?? ""))}
+            placeholder="what's the next move on resume?"
+          />
+        </div>
       </div>
 
       <div className="flex flex-1 flex-col gap-2.5 border-t border-line-soft px-4 py-3.5">
