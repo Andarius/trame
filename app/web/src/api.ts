@@ -103,6 +103,11 @@ export const updateObjective = (id: string, patch: Record<string, unknown>) => p
 // Open in the system browser (the desktop webview has no window.open).
 // target: app-relative path ("/report/…") or an absolute http(s) URL.
 export const openInBrowser = (target: string) => post("/api/open", { target });
+export const prState = (url: string) =>
+  post("/api/pr-state", { url })
+    .then((r) => r.json() as Promise<{ url: string; state: string }>)
+    .then((d) => d.state)
+    .catch(() => "unknown");
 export const completePath = (path: string) =>
   fetch(`/api/fs/complete?path=${encodeURIComponent(path)}`)
     .then((r) => r.json() as Promise<{ dirs: string[] }>)
