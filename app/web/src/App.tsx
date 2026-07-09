@@ -3,7 +3,6 @@ import {
   applyUpdate,
   type AppStatus,
   type BoardData,
-  type Client,
   createPage,
   createUdb,
   createUdbRow,
@@ -29,7 +28,7 @@ import { List } from "./List";
 import { ImportClaudeModal, NewSessionModal, NewUdbModal, SettingsModal } from "./modals";
 import { confirmDeletePage, Page } from "./Page";
 import { ClientView } from "./ClientView";
-import { appConfirm, clientColor, ConfirmHost, EntityIcon } from "./ui";
+import { appConfirm, ConfirmHost, EntityIcon } from "./ui";
 import { IconPicker } from "./udb/cells";
 import { DatabaseView } from "./udb/DatabaseTable";
 
@@ -176,14 +175,11 @@ function PageNode(
 }
 
 function Sidebar(
-  { view, onNav, status, onSettings, clients, clientId, onOpenClient, pages, pageId, onOpenPage, onNewPage, onNewProject, udbs, dbId, onOpenDb, onNewDb, update, updateState, onUpdate }: {
+  { view, onNav, status, onSettings, pages, pageId, onOpenPage, onNewPage, onNewProject, udbs, dbId, onOpenDb, onNewDb, update, updateState, onUpdate }: {
     view: View;
     onNav: (v: View) => void;
     status: AppStatus | null;
     onSettings: () => void;
-    clients: Client[];
-    clientId: string | null;
-    onOpenClient: (id: string) => void;
     pages: PageMeta[];
     pageId: string | null;
     onOpenPage: (id: string) => void;
@@ -478,9 +474,6 @@ export function App() {
         onNav={setView}
         status={status}
         onSettings={() => setModal("settings")}
-        clients={board?.clients ?? []}
-        clientId={view === "client" ? clientId : null}
-        onOpenClient={openClient}
         pages={pages}
         pageId={pageId}
         onOpenPage={openPage}
