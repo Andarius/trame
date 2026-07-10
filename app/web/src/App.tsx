@@ -549,7 +549,8 @@ export function App() {
         onUpdate={onUpdate}
       />
       <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-3 border-b border-line px-6 py-3">
+        <header className="flex flex-col gap-2 border-b border-line px-6 py-3">
+          <div className="flex items-center gap-3">
           {view === "page" && currentPage
             ? (
               <div className="flex min-w-0 items-center gap-1 text-[13px] text-ink-muted">
@@ -707,22 +708,11 @@ export function App() {
               )}
             </div>
           )}
-          {isSessions && storyFilter && (
-            <button type="button"
-              onClick={() => setStoryFilter(null)}
-              title="Clear story"
-              className="flex items-center gap-1.5 rounded-md border border-copper/50 px-2 py-1 text-[11.5px] text-copper hover:bg-copper/10"
-            >
-              <span className="text-[9px]">◇</span>
-              {board?.objectives.find((o) => o.id === storyFilter)?.title ?? "story"}
-              <span className="text-[11px]">✕</span>
-            </button>
-          )}
           <div className="flex-1" />
           {isSessions && (
             <button type="button"
               onClick={() => setModal("import")}
-              className="rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
+              className="shrink-0 whitespace-nowrap rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
             >
               ⇣ Import from Claude Code
             </button>
@@ -731,7 +721,7 @@ export function App() {
             onClick={doSync}
             disabled={syncing}
             title="Pull teammates' changes and push yours to the hub"
-            className="rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft disabled:opacity-60"
+            className="shrink-0 whitespace-nowrap rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft disabled:opacity-60"
           >
             {syncing ? "Syncing…" : syncFlash ? `Synced · ${syncFlash}` : "Sync now"}
           </button>
@@ -770,7 +760,7 @@ export function App() {
             ? (
               <button type="button"
                 onClick={() => dbId && createUdbRow(dbId).then(() => setUdbEpoch((e) => e + 1))}
-                className="flex items-center gap-1.5 rounded-md bg-copper px-3 py-1.5 text-[12.5px] font-medium text-copper-ink hover:brightness-110"
+                className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md bg-copper px-3 py-1.5 text-[12.5px] font-medium text-copper-ink hover:brightness-110"
               >
                 <span>＋</span> New row
               </button>
@@ -778,11 +768,25 @@ export function App() {
             : isSessions && (
               <button type="button"
                 onClick={() => setModal("session")}
-                className="flex items-center gap-1.5 rounded-md bg-copper px-3 py-1.5 text-[12.5px] font-medium text-copper-ink hover:brightness-110"
+                className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md bg-copper px-3 py-1.5 text-[12.5px] font-medium text-copper-ink hover:brightness-110"
               >
                 <span>＋</span> New session
               </button>
             )}
+          </div>
+          {isSessions && storyFilter && (
+            <div className="flex">
+              <button type="button"
+                onClick={() => setStoryFilter(null)}
+                title="Clear story"
+                className="flex max-w-full items-center gap-1.5 rounded-md border border-copper/50 px-2 py-1 text-[11.5px] text-copper hover:bg-copper/10"
+              >
+                <span className="shrink-0 text-[9px]">◇</span>
+                <span className="truncate">{board?.objectives.find((o) => o.id === storyFilter)?.title ?? "story"}</span>
+                <span className="shrink-0 text-[11px]">✕</span>
+              </button>
+            </div>
+          )}
         </header>
         {!board
           ? <p className="p-6 text-ink-muted">Loading…</p>
