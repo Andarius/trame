@@ -1,0 +1,28 @@
+[sqlfluff]
+dialect = postgres
+templater = raw
+max_line_length = 120
+large_file_skip_byte_limit = 0
+# RF04: schema intentionally uses non-reserved keywords (name, key, content) as columns
+# PG01: bootstrap schema runs in a txn and on PGlite — CONCURRENTLY is wrong here
+# AL03: bare literals in the insert…select data migrations; explicit column lists already order them
+exclude_rules = RF04, PG01, AL03
+
+[sqlfluff:indentation]
+tab_space_size = 2
+
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.functions]
+extended_capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.identifiers]
+extended_capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.types]
+extended_capitalisation_policy = lower
+
+[sqlfluff:rules:layout.long_lines]
+ignore_comment_lines = True
+ignore_comment_clauses = True

@@ -3,6 +3,9 @@ set positional-arguments
 set dotenv-filename := ".env"
 set dotenv-required := false
 
+# Pinned sqlfluff (rule sets change between versions; keep local == CI)
+sqlfluff := "sqlfluff@4.2.2"
+
 # List available recipes
 default:
     @just --list
@@ -90,20 +93,40 @@ hack:
 sync:
     cd app && deno task sync
 
+# Run the Deno unit tests (isolated PGlite in a temp dir)
+[group('dev')]
+test *args:
+    cd app && deno test -A {{ args }}
+
 # Run Playwright e2e tests (isolated backend in /tmp/trame-e2e)
 [group('dev')]
 e2e *args:
     cd app/web && npx playwright test {{ args }}
 
-# Lint
+# Lint (TS + SQL schema)
 [group('dev')]
-lint:
+lint: lint-sql
     cd app && deno lint
 
-# Format
+# Lint the SQL schema (sqlfluff, via uvx — no install needed)
 [group('dev')]
-fmt:
+lint-sql:
+    uvx {{ sqlfluff }} lint db/schema.sql
+
+# Format (TS + SQL schema, in place)
+[group('dev')]
+fmt: fmt-sql
     cd app && deno fmt
+
+# Format the SQL schema in place (sqlfluff)
+[group('dev')]
+fmt-sql:
+    uvx {{ sqlfluff }} format db/schema.sql
+
+# Verify the SQL schema is already formatted (non-mutating; fails on drift)
+[group('dev')]
+fmt-check-sql:
+    uvx {{ sqlfluff }} format - < db/schema.sql | diff -u db/schema.sql - && echo "schema.sql formatted ✓"
 
 # Type check the entry graphs
 [group('dev')]
@@ -115,9 +138,9 @@ check:
 mcp:
     deno run -A mcp/server.ts
 
-# Lint + type check
+# Lint + format-check + type check
 [group('dev')]
-ci: lint check
+ci: lint fmt-check-sql check
 
 # Run the session writer (JSON as arg or on stdin)
 [group('track')]
