@@ -36,11 +36,13 @@ const field =
   "w-full rounded-md border border-chipline bg-transparent px-2 py-1.5 text-xs text-ink outline-none focus:border-copper/60";
 
 export function PropertyEditor(
-  { dbId, prop, allProps, udbs, onClose, onSaved }: {
+  { dbId, prop, allProps, udbs, sortDir, onSort, onClose, onSaved }: {
     dbId: string;
     prop: UdbProp | null; // null = create
     allProps: UdbProp[];
     udbs: UdbMeta[];
+    sortDir?: 1 | -1 | null; // current sort direction on THIS column, if any
+    onSort?: (dir: 1 | -1 | null) => void; // null = clear sort
     onClose: () => void;
     onSaved: () => void;
   },
@@ -91,6 +93,44 @@ export function PropertyEditor(
   return (
     <Popover onClose={onClose} className="w-[260px] p-2.5">
       <div className="flex flex-col gap-2.5">
+        {prop && onSort && (
+          <div className="flex items-center gap-1">
+            <button type="button"
+              className={`flex flex-1 items-center justify-center gap-1 rounded-md border py-1 text-[11px] transition-colors ${
+                sortDir === 1 ? "border-copper/60 text-copper" : "border-chipline text-ink-muted hover:text-ink-soft"
+              }`}
+              onClick={() => {
+                onSort(1);
+                onClose();
+              }}
+            >
+              ▲ Ascending
+            </button>
+            <button type="button"
+              className={`flex flex-1 items-center justify-center gap-1 rounded-md border py-1 text-[11px] transition-colors ${
+                sortDir === -1 ? "border-copper/60 text-copper" : "border-chipline text-ink-muted hover:text-ink-soft"
+              }`}
+              onClick={() => {
+                onSort(-1);
+                onClose();
+              }}
+            >
+              ▼ Descending
+            </button>
+            {sortDir != null && (
+              <button type="button"
+                className="rounded-md border border-chipline px-2 py-1 text-[11px] text-ink-muted hover:text-blocked"
+                title="clear sort"
+                onClick={() => {
+                  onSort(null);
+                  onClose();
+                }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        )}
         <label className="flex flex-col gap-1">
           <span className={lbl}>NAME</span>
           <input autoFocus className={field} value={name} onChange={(e) => setName(e.target.value)} />

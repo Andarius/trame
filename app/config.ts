@@ -22,6 +22,9 @@ export const DATA_DIR = Deno.env.get("TRACKER_DATA_DIR") ?? `${dataHome}/session
 export const OUTBOX = Deno.env.get("TRACKER_OUTBOX") ?? `${dataHome}/session-tracker/outbox.jsonl`;
 // Written by the app on startup so the CLI/MCP can find the (possibly random) port.
 export const PORT_FILE = Deno.env.get("TRACKER_PORT_FILE") ?? `${dataHome}/session-tracker/port.json`;
+// cwd → current Claude session map, written by the UserPromptSubmit hook (track/claude-hook.ts)
+// and read by track/track.ts to attach the Claude session UUID to tracked cards.
+export const CLAUDE_MAP = Deno.env.get("TRACKER_CLAUDE_MAP") ?? `${dataHome}/session-tracker/claude-sessions.json`;
 // Persisted window geometry (desktop mode).
 export const WINDOW_FILE = `${dataHome}/session-tracker/window.json`;
 // App settings editable from the UI (report folders, …). Device-local, not synced.
@@ -31,6 +34,8 @@ export const SETTINGS_FILE = Deno.env.get("TRACKER_SETTINGS_FILE") ??
 export const HOME_DIR = home;
 // Claude Code transcript store (one dir per project cwd), overridable for test fixtures.
 export const CLAUDE_DIR = Deno.env.get("TRACKER_CLAUDE_DIR") ?? `${home}/.claude/projects`;
+// Codex rollout store (date-partitioned JSONL), overridable for test fixtures.
+export const CODEX_DIR = Deno.env.get("TRACKER_CODEX_DIR") ?? `${home}/.codex/sessions`;
 // Colon-separated directories scanned for *.html exploration reports (Explore view).
 export const REPORT_PATHS = (Deno.env.get("TRACKER_REPORT_PATHS") ?? "")
   .split(":")

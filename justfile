@@ -131,6 +131,18 @@ install-cmd:
     cp commands/trame/track.md ~/.claude/commands/trame/track.md
     echo "installed → ~/.claude/commands/trame/track.md"
 
+# Install the native Trame skill for Codex (available from every repository)
+[group('setup')]
+install-skill:
+    mkdir -p ~/.agents/skills/trame-track
+    cp -R skills/trame-track/. ~/.agents/skills/trame-track/
+    echo "installed → ~/.agents/skills/trame-track (invoke with \$trame-track)"
+
+# Choose Claude Code, Codex, or both interactively
+[group('setup')]
+install-track:
+    deno run --config app/deno.json -A scripts/install-track.ts
+
 # Wipe the local PGlite data + outbox (fresh local db)
 [group('setup')]
 reset-local:
@@ -142,3 +154,18 @@ reset-local:
 hooks:
     git config core.hooksPath .githooks
     @echo "pre-commit hook enabled (.githooks). Bypass a commit with --no-verify."
+
+# Read the design docs in the terminal with glow. No arg = browse docs/; `just docs hub-api` opens one
+[group('docs')]
+docs doc='':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v glow >/dev/null || { echo "glow not installed — see https://github.com/charmbracelet/glow (or open docs/ in your editor)" >&2; exit 1; }
+    doc="{{ doc }}"
+    if [ -z "$doc" ]; then
+        glow docs
+    else
+        f="docs/${doc%.md}.md"
+        [ -f "$f" ] || { echo "no such doc: $f" >&2; exit 1; }
+        glow -p "$f"
+    fi

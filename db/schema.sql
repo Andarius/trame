@@ -67,6 +67,51 @@ create table if not exists sessions (
   deleted      boolean not null default false
 );
 
+-- Kanban statuses (the board columns). User-editable: add/rename/recolor/reorder/delete.
+-- sessions.status stores the `key` (a stable slug), NOT the id, so existing rows and the
+-- (repo,branch) upsert keep working. `terminal` marks done-like statuses (collapses the
+-- card, ends the active-session lookup). Built-ins are seeded below with FIXED ids so every
+-- node inserts the same rows and LWW sync dedupes them instead of forking four copies.
+create table if not exists statuses (
+  id         uuid primary key default uuidv7(),
+  key        text not null,                    -- stable slug stored on sessions.status
+  label      text not null,
+  color      text not null,                    -- hex
+  terminal   boolean not null default false,   -- done-like: collapses cards, ends the active-session lookup
+  sort_key   text not null default 'a0',       -- fractional key: column order
+  origin     text not null default 'seed',
+  updated_at timestamptz not null default now(),
+  deleted    boolean not null default false
+);
+insert into statuses (id, key, label, color, terminal, sort_key) values
+  ('00000000-0000-4000-8000-000000000001', 'active',  'Active',  '#7bd88f', false, 'a0'),
+  ('00000000-0000-4000-8000-000000000002', 'paused',  'Paused',  '#e3c567', false, 'a1'),
+  ('00000000-0000-4000-8000-000000000003', 'blocked', 'Blocked', '#e06c75', false, 'a2'),
+  ('00000000-0000-4000-8000-000000000004', 'done',    'Done',    '#6b7280', true,  'a3')
+on conflict (id) do nothing;
+
+-- Inline page comments (Notion-style, block-level). Anchored to a block by its stable
+-- id inside pages.content; no FK on page_id/block_id (LWW pull is updated_at-ordered, a
+-- comment can arrive before its page — readers tolerate orphans and keep `anchor` as a
+-- text snapshot to still show a removed block's note). One row = one note + resolve toggle.
+create table if not exists page_comments (
+  id         uuid primary key default uuidv7(),
+  page_id    uuid not null,
+  block_id   text not null,                    -- Block.id within pages.content
+  anchor     text not null default '',         -- snapshot of the block text when commented
+  body       text not null default '',
+  author     text not null default '',          -- display name of who wrote it (settings.json authorName, else node id)
+  author_avatar text not null default '',        -- optional avatar of the author: image URL or (downscaled) data URI
+  resolved   boolean not null default false,
+  origin     text not null default 'seed',
+  updated_at timestamptz not null default now(),
+  deleted    boolean not null default false
+);
+create index if not exists page_comments_page on page_comments (page_id);
+-- idempotent guard: dirs that created page_comments before these columns existed
+alter table page_comments add column if not exists author text not null default '';
+alter table page_comments add column if not exists author_avatar text not null default '';
+
 create table if not exists session_events (
   id         uuid primary key default gen_random_uuid(),
   session_id uuid not null references sessions(id),
@@ -147,6 +192,11 @@ create table if not exists udb_links (
 create index if not exists udb_links_from on udb_links (prop_id, from_row);
 create index if not exists udb_links_to   on udb_links (prop_id, to_row);
 
+-- Coding-agent linkage. claude_id keeps its legacy name for a compatible migration,
+-- but stores either a Claude or Codex transcript UUID; agent identifies the provider.
+alter table sessions add column if not exists claude_id uuid;
+alter table sessions add column if not exists agent text;
+
 -- Objectives → pages migration (idempotent: copy is conflict-do-nothing, backfills
 -- only fill nulls, and the dual-write in upsertSession keeps both columns equal
 -- until the frontend is fully off objective_id).
@@ -206,13 +256,21 @@ comment on column pages.status    is 'open | done | archived (meaningful for kin
 comment on column pages.content   is 'Ordered block list (jsonb). Whole-doc LWW — concurrent offline edits collide; acceptable single-user.';
 comment on column pages.sort_key  is 'Fractional order key among siblings (base-36 midpoint string; sorts identically in SQL and JS).';
 
-comment on table sessions is 'Claude Code work sessions — the kanban cards. Upserted by /project:track via repo_path+branch among open sessions.';
+comment on table page_comments is 'Inline block-level page comments (Notion-style). Anchored by block_id to a block in pages.content; one row = one note + resolve toggle. No FK (LWW pull ordering); anchor keeps the block''s text so a removed block''s note still renders.';
+
+comment on table sessions is 'Coding-agent work sessions — the kanban cards. Upserted by the Trame tracking skill via transcript id or repo_path+branch.';
 comment on column sessions.status       is 'active | paused | blocked | done — the board columns.';
 comment on column sessions.objective_id is 'LEGACY twin of page_id (no FK since the pages migration). Dual-written until the frontend is fully off it.';
 comment on column sessions.page_id      is 'The page this session ladders up to. Attaching promotes a plain page to kind=''project''.';
 comment on column sessions.next_step    is 'One imperative line — what to do next.';
+comment on column sessions.claude_id    is 'LEGACY NAME: Claude Code or Codex transcript UUID. Imported cards also carry it as their id.';
+comment on column sessions.agent        is 'Transcript provider: claude or codex. Null on older/manual cards; resume detects legacy Claude imports.';
 comment on column sessions.summary      is 'Last "what happened" blurb; also written to session_events as the worklog.';
 comment on column sessions.last_touched is 'Activity clock for board ordering (distinct from updated_at, the LWW clock).';
+
+comment on table statuses is 'Kanban board columns — user-editable. sessions.status stores statuses.key (a stable slug), not the id. terminal marks done-like columns. Built-ins (active/paused/blocked/done) are seeded with fixed ids so LWW sync dedupes them.';
+comment on column statuses.key      is 'Stable slug written to sessions.status; immutable after creation so existing sessions never orphan.';
+comment on column statuses.terminal is 'Done-like: collapses the card and excludes the session from the (repo,branch) active-session lookup.';
 
 comment on table session_events is 'Append-only worklog per session (kind: track | log | status …).';
 comment on column session_events.at   is 'Event time (updated_at is the sync clock, not the event time).';
@@ -249,7 +307,7 @@ comment on column sync_state.last_pushed_at is 'Local-clock watermark: push send
 do $$
 declare t text;
 begin
-  foreach t in array array['clients','objectives','pages','sessions','session_events','reports',
+  foreach t in array array['clients','objectives','pages','page_comments','statuses','sessions','session_events','reports',
                            'udb_databases','udb_properties','udb_rows','udb_links'] loop
     execute format('comment on column %I.id is %L', t, 'PK. uuidv7() on newer tables (time-ordered), gen_random_uuid() v4 on the originals — minted per node, no sequence (offline multi-writer).');
     execute format('comment on column %I.origin is %L', t, 'NODE_ID that wrote the row — push only sends own-origin rows (not ones just pulled).');

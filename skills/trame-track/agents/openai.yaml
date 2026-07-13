@@ -1,0 +1,4 @@
+interface:
+  display_name: "Track in Trame"
+  short_description: "Track this coding session in Trame"
+  default_prompt: "Use $trame-track to save this session and its next step in Trame."

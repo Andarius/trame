@@ -1,18 +1,37 @@
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
-import type { Status } from "./api";
+import type { Status, StatusDef } from "./api";
 
-export const STATUS: Record<Status, { label: string; color: string }> = {
-  active: { label: "Active", color: "var(--color-active)" },
-  paused: { label: "Paused", color: "var(--color-paused)" },
-  blocked: { label: "Blocked", color: "var(--color-blocked)" },
-  done: { label: "Done", color: "var(--color-done)" },
+type StatusStyle = { label: string; color: string; terminal: boolean };
+
+// Runtime registry of the kanban statuses. Statuses are now user-defined and synced,
+// so App refreshes this from board.statuses on every load (setStatuses). The seeded
+// built-ins are the fallback until the first board arrives; an unknown key (e.g. a
+// status a teammate defined but hasn't synced yet) degrades to a neutral grey chip.
+export const STATUS: Record<string, StatusStyle> = {
+  active: { label: "Active", color: "#7bd88f", terminal: false },
+  paused: { label: "Paused", color: "#e3c567", terminal: false },
+  blocked: { label: "Blocked", color: "#e06c75", terminal: false },
+  done: { label: "Done", color: "#6b7280", terminal: true },
 };
+
+// order preserved so callers that iterate columns follow the board's sort_key order
+export let STATUS_ORDER: string[] = ["active", "paused", "blocked", "done"];
+
+export function setStatuses(list: StatusDef[]) {
+  if (!list.length) return; // never blank the registry on an empty/failed load
+  for (const k of Object.keys(STATUS)) delete STATUS[k];
+  for (const s of list) STATUS[s.key] = { label: s.label, color: s.color, terminal: s.terminal };
+  STATUS_ORDER = list.map((s) => s.key);
+}
+
+export const statusStyle = (status: Status): StatusStyle =>
+  STATUS[status] ?? { label: status || "Unknown", color: "#6b7280", terminal: false };
 
 export function StatusDot({ status, size = 8 }: { status: Status; size?: number }) {
   return (
     <span
       className="inline-block shrink-0 rounded-full"
-      style={{ width: size, height: size, background: STATUS[status].color }}
+      style={{ width: size, height: size, background: statusStyle(status).color }}
     />
   );
 }
@@ -113,7 +132,7 @@ export function Popover(
 export function Select(
   { value, options, onChange, placeholder, className }: {
     value: string;
-    options: { value: string; label: string }[];
+    options: { value: string; label: string; dot?: string }[]; // dot = color swatch (project chips)
     onChange: (v: string) => void;
     placeholder?: string;
     className?: string; // trigger styling; defaults to the app's field look
@@ -121,6 +140,8 @@ export function Select(
 ) {
   const [open, setOpen] = useState(false);
   const current = options.find((o) => o.value === value);
+  const dot = (color?: string) =>
+    color && <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: color }} />;
   return (
     <div className="relative">
       <button
@@ -131,6 +152,7 @@ export function Select(
         }`}
         onClick={() => setOpen(true)}
       >
+        {dot(current?.dot)}
         <span className={`flex-1 truncate ${current ? "" : "text-ink-muted/60"}`}>
           {current?.label ?? placeholder ?? "—"}
         </span>
@@ -148,6 +170,7 @@ export function Select(
                 setOpen(false);
               }}
             >
+              {dot(o.dot)}
               <span className="flex-1 truncate">{o.label}</span>
               {o.value === value && <span className="text-[10px] text-copper">✓</span>}
             </button>

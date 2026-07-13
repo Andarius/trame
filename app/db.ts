@@ -2,6 +2,7 @@
 // Same SQL as the hub's Postgres — no dialect translation.
 import { PGlite } from "@electric-sql/pglite";
 import { APP_ROOT, DATA_DIR, NODE_ID, OUTBOX } from "./config.ts";
+import { midKey } from "./udb.ts";
 
 // Memoize a single init PROMISE so concurrent callers all await the same fully-initialized
 // instance (waitReady + schema applied) — otherwise an early query races the schema exec
@@ -68,7 +69,10 @@ export async function getBoard() {
   const pages = (await pg.query(
     `select id, parent_id, kind, title, icon, client_id, color from pages where not deleted order by title`,
   )).rows;
-  return { clients, objectives, sessions, pages };
+  const statuses = (await pg.query(
+    `select id, key, label, color, terminal, sort_key from statuses where not deleted order by sort_key`,
+  )).rows;
+  return { clients, objectives, sessions, pages, statuses };
 }
 
 const PALETTE = ["#7a9ee7", "#b590e7", "#c98a63", "#7bd88f", "#e3c567"];
@@ -132,6 +136,10 @@ async function promoteToProject(pageId: string, clientId: string | null): Promis
 
 export async function upsertSession(s: Record<string, unknown>): Promise<string> {
   const pg = await db();
+  // claude_id is the legacy database column; the public writer uses agent_id
+  // for either Claude or Codex.
+  s.claude_id ??= s.agent_id;
+  if (s.claude_id && !s.agent) s.agent = "claude";
   // Accept human names (from the CLI/MCP) and resolve them to ids.
   if (typeof s.client === "string" && !s.client_id) s.client_id = await resolveClient(s.client);
   if (typeof s.page === "string" && !s.page_id) s.page_id = await resolveObjective(s.page, (s.client_id as string) ?? null);
@@ -144,32 +152,145 @@ export async function upsertSession(s: Record<string, unknown>): Promise<string>
   s.objective_id ??= s.page_id;
   // project = a page that has sessions: attaching promotes a plain page (one-way)
   if (s.page_id) await promoteToProject(s.page_id as string, (s.client_id as string) ?? null);
-  // Upsert by (repo_path, branch) among open sessions when no id is given.
+  // One coding-agent transcript maps to one card, regardless of import vs skill tracking.
+  if (!s.id && s.claude_id) {
+    const hit = (await pg.query(
+      `select id from sessions where (claude_id=$1 or id=$1) and not deleted
+       order by last_touched desc limit 1`,
+      [s.claude_id],
+    )).rows[0] as { id: string } | undefined;
+    if (hit) s.id = hit.id;
+  }
+  // Upsert by (repo_path, branch) among open sessions when no id is given. "Open" = any
+  // non-terminal status (done-like statuses are user-defined, so ask the statuses table).
   if (!s.id && s.repo_path) {
     const hit = (await pg.query(
-      `select id from sessions where repo_path=$1 and coalesce(branch,'')=$2 and status <> 'done' and not deleted
+      `select id from sessions where repo_path=$1 and coalesce(branch,'')=$2 and not deleted
+         and status not in (select key from statuses where terminal and not deleted)
        order by last_touched desc limit 1`,
       [s.repo_path, (s.branch as string) ?? ""],
     )).rows[0] as { id: string } | undefined;
     if (hit) s.id = hit.id;
   }
   const id = (s.id as string) ?? crypto.randomUUID();
+  // Transcript linkage: null never clobbers (UI edits omit it); a fresh value wins.
   await pg.query(
     `insert into sessions
-       (id,title,status,client_id,objective_id,page_id,repo_path,branch,next_step,pr_url,summary,last_touched,origin,updated_at)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now(),$12,now())
+       (id,title,status,client_id,objective_id,page_id,repo_path,branch,next_step,pr_url,summary,claude_id,agent,last_touched,origin,updated_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$13,$14,now(),$12,now())
      on conflict (id) do update set
        title=$2,status=$3,client_id=$4,objective_id=$5,page_id=$6,repo_path=$7,branch=$8,
-       next_step=$9,pr_url=$10,summary=$11,last_touched=now(),origin=$12,updated_at=now()`,
+       next_step=$9,pr_url=$10,summary=$11,claude_id=coalesce($13,sessions.claude_id),
+       agent=coalesce($14,sessions.agent),
+       last_touched=now(),origin=$12,updated_at=now()`,
     [id, s.title, s.status ?? "active", s.client_id ?? null, s.objective_id ?? null, s.page_id ?? null,
-      s.repo_path ?? null, s.branch ?? null, s.next_step ?? null, s.pr_url ?? null, s.summary ?? "", NODE_ID],
+      s.repo_path ?? null, s.branch ?? null, s.next_step ?? null, s.pr_url ?? null, s.summary ?? "", NODE_ID,
+      s.claude_id ?? null, s.agent ?? null],
   );
   return id;
+}
+
+// Quick-find (Ctrl+P): one ranked list across sessions, pages, and databases.
+// Empty query = "recently touched" (title ilike '%%' is true for non-null titles).
+// kind 'client' = a Project page (opens the client view); 'page' covers stories/pages.
+export async function searchAll(q: string) {
+  const pg = await db();
+  const pat = `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+  return (await pg.query(
+    `select * from (
+       select 'session' as kind, id::text as id, title, coalesce(summary,'') as sub,
+              '' as icon, status as meta, '' as color, last_touched as at
+         from sessions
+        where not deleted and (title ilike $1 or summary ilike $1 or coalesce(next_step,'') ilike $1)
+       union all
+       select case when kind='project' then 'client' else 'page' end, id::text, title,
+              coalesce(story,''), coalesce(icon,''), kind, coalesce(color,''), updated_at
+         from pages
+        where not deleted and (title ilike $1 or story ilike $1 or content::text ilike $1)
+       union all
+       select 'database', id::text, name, '', coalesce(icon,''), 'database', '', updated_at
+         from udb_databases
+        where not deleted and name ilike $1
+     ) hits
+     order by at desc
+     limit 20`,
+    [pat],
+  )).rows;
 }
 
 export async function setSessionStatus(id: string, status: string): Promise<void> {
   const pg = await db();
   await pg.query(`update sessions set status=$2, origin=$3, updated_at=now() where id=$1`, [id, status, NODE_ID]);
+}
+
+// statuses (kanban columns)
+
+// slug a label into a key, unique among non-deleted statuses (append -2, -3, … on clash)
+async function uniqueStatusKey(pg: PGlite, label: string): Promise<string> {
+  const base = label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "status";
+  const taken = new Set(
+    ((await pg.query(`select key from statuses where not deleted`)).rows as { key: string }[]).map((r) => r.key),
+  );
+  if (!taken.has(base)) return base;
+  for (let n = 2; ; n++) if (!taken.has(`${base}-${n}`)) return `${base}-${n}`;
+}
+
+export async function createStatus(s: { label: string; color: string; terminal?: boolean }): Promise<string> {
+  const pg = await db();
+  const key = await uniqueStatusKey(pg, s.label);
+  const last = (await pg.query(`select max(sort_key) as k from statuses where not deleted`)).rows[0] as { k: string | null };
+  const row = (await pg.query(
+    `insert into statuses (key, label, color, terminal, sort_key, origin)
+     values ($1,$2,$3,$4,$5,$6) returning id`,
+    [key, s.label, s.color, s.terminal ?? false, midKey(last.k ?? "", ""), NODE_ID],
+  )).rows[0] as { id: string };
+  return row.id;
+}
+
+// key is immutable (sessions reference it) — only label/color/terminal are patchable
+export async function updateStatus(
+  id: string,
+  patch: { label?: string; color?: string; terminal?: boolean },
+): Promise<void> {
+  const pg = await db();
+  await pg.query(
+    `update statuses set label=coalesce($2,label), color=coalesce($3,color),
+       terminal=coalesce($4,terminal), origin=$5, updated_at=now() where id=$1`,
+    [id, patch.label ?? null, patch.color ?? null, patch.terminal ?? null, NODE_ID],
+  );
+}
+
+// reorder by one slot: swap sort_keys with the adjacent neighbor
+export async function moveStatus(id: string, dir: -1 | 1): Promise<void> {
+  const pg = await db();
+  const rows = (await pg.query(
+    `select id, sort_key from statuses where not deleted order by sort_key`,
+  )).rows as { id: string; sort_key: string }[];
+  const i = rows.findIndex((r) => r.id === id), j = i + dir;
+  if (i < 0 || j < 0 || j >= rows.length) return;
+  await pg.query(
+    `update statuses set sort_key = case id when $1 then $4 when $2 then $3 else sort_key end,
+       origin=$5, updated_at=now() where id in ($1,$2)`,
+    [rows[i].id, rows[j].id, rows[i].sort_key, rows[j].sort_key, NODE_ID],
+  );
+}
+
+// soft-delete; reassign any sessions on this status to a fallback so no card is orphaned.
+// refuses to delete the last remaining status.
+export async function deleteStatus(id: string): Promise<void> {
+  const pg = await db();
+  const all = (await pg.query(
+    `select id, key, terminal from statuses where not deleted order by (terminal) asc, sort_key`,
+  )).rows as { id: string; key: string; terminal: boolean }[];
+  const victim = all.find((s) => s.id === id);
+  if (!victim) return;
+  if (all.length <= 1) throw new Error("cannot delete the last status");
+  const fallback = all.find((s) => s.id !== id); // first non-terminal by the ordering above
+  await pg.query(
+    `update sessions set status=$2, origin=$3, updated_at=now() where status=$1 and not deleted`,
+    [victim.key, fallback!.key, NODE_ID],
+  );
+  await pg.query(`update statuses set deleted=true, origin=$2, updated_at=now() where id=$1`, [id, NODE_ID]);
 }
 
 export async function deleteSession(id: string): Promise<void> {

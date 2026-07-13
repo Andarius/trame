@@ -1,4 +1,6 @@
-export type Status = "active" | "paused" | "blocked" | "done";
+// A status is now a user-defined column key (the built-ins are active/paused/blocked/done).
+export type Status = string;
+export type StatusDef = { id: string; key: string; label: string; color: string; terminal: boolean; sort_key: string };
 
 export type Session = {
   id: string;
@@ -24,7 +26,13 @@ export type BoardPage = {
   icon: string | null;
   client_id: string | null;
 };
-export type BoardData = { clients: Client[]; objectives: Objective[]; sessions: Session[]; pages: BoardPage[] };
+export type BoardData = {
+  clients: Client[];
+  objectives: Objective[];
+  sessions: Session[];
+  pages: BoardPage[];
+  statuses: StatusDef[];
+};
 export type AppStatus = {
   nodeId: string;
   remote: boolean;
@@ -45,6 +53,19 @@ export type Report = ReportMeta & { html: string };
 
 export type SessionEvent = { id: string; at: string; summary: string | null; kind: string };
 
+export type SearchHit = {
+  kind: "session" | "client" | "page" | "database";
+  id: string;
+  title: string;
+  sub: string;
+  icon: string;
+  meta: string; // session status, or page kind (story|page), or "database"
+  color: string; // project (client) chip color, "" elsewhere
+  at: string;
+};
+export const search = (q: string) =>
+  fetch(`/api/search?q=${encodeURIComponent(q)}`).then((r) => r.json() as Promise<SearchHit[]>);
+
 export const getBoard = () => fetch("/api/board").then((r) => r.json() as Promise<BoardData>);
 export const getStatus = () => fetch("/api/status").then((r) => r.json() as Promise<AppStatus>);
 export const getReports = () => fetch("/api/reports").then((r) => r.json() as Promise<ReportMeta[]>);
@@ -62,6 +83,8 @@ export type Settings = {
   remotePg: string; // password stripped server-side
   remoteSource: "settings" | "env" | null;
   remoteHasPassword: boolean;
+  authorName: string;
+  authorAvatar: string;
 };
 export const getSettings = () => fetch("/api/settings").then((r) => r.json() as Promise<Settings>);
 export const patchSettings = (
@@ -72,6 +95,8 @@ export const patchSettings = (
     htmlFilter?: "smart" | "all";
     remotePg?: string;
     remotePgPassword?: string;
+    authorName?: string;
+    authorAvatar?: string;
   },
 ) =>
   fetch("/api/settings", {
@@ -92,6 +117,13 @@ export const deleteReportFile = (path: string) =>
 export const getReportFileContent = (path: string) =>
   fetch(`/api/report-files/content?path=${encodeURIComponent(path)}`)
     .then((r) => r.json() as Promise<{ path: string; html: string }>);
+// Live directory listing for the folder block (gated to Explore's scanned roots).
+export const listFolder = (path: string) =>
+  fetch(`/api/folder?path=${encodeURIComponent(path)}`)
+    .then((r) => r.json() as Promise<{ path: string; entries: FolderEntry[] } | { error: string }>);
+// Reveal a filesystem path in the OS (file manager / default app).
+export const openPath = (path: string) =>
+  post("/api/open-path", { path }).then((r) => r.json() as Promise<{ ok?: boolean; error?: string }>);
 
 const post = (path: string, body: unknown) =>
   fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -113,6 +145,7 @@ export const completePath = (path: string) =>
     .then((r) => r.json() as Promise<{ dirs: string[] }>)
     .then((d) => d.dirs ?? [])
     .catch(() => [] as string[]);
+export type ResumeMode = "window" | "tab" | "existing";
 export type ResumeInfo = {
   ok: boolean;
   launched: boolean;
@@ -120,9 +153,12 @@ export type ResumeInfo = {
   homeNode?: string | null;
   cmd: string;
   repo?: string;
+  mode?: ResumeMode;
+  reason?: "no-konsole" | "api-disabled";
+  agent?: "claude" | "codex";
 };
-export const resumeSession = (id: string) =>
-  post("/api/resume", { id }).then((r) => r.json() as Promise<ResumeInfo>);
+export const resumeSession = (id: string, mode?: ResumeMode) =>
+  post("/api/resume", { id, mode }).then((r) => r.json() as Promise<ResumeInfo>);
 export const probeResume = (id: string) =>
   post("/api/resume", { id, probe: true }).then((r) => r.json() as Promise<ResumeInfo>);
 
@@ -132,6 +168,13 @@ export const setStatus = (id: string, status: Status) =>
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ status }),
   });
+
+export const createStatus = (s: { label: string; color: string; terminal?: boolean }) =>
+  post("/api/statuses", s).then((r) => r.json() as Promise<{ id: string }>);
+export const updateStatus = (id: string, patch: { label?: string; color?: string; terminal?: boolean }) =>
+  post(`/api/statuses/${id}`, patch);
+export const moveStatus = (id: string, dir: -1 | 1) => post(`/api/statuses/${id}/move`, { dir });
+export const deleteStatus = (id: string) => post(`/api/statuses/${id}/delete`, {});
 
 export const syncNow = () =>
   fetch("/api/sync", { method: "POST" }).then((r) => r.json() as Promise<{ pulled: number; pushed: number } | null>);
@@ -247,9 +290,22 @@ export const applyUpdate = () =>
 
 export type PageKind = "page" | "story" | "project";
 export type Block =
-  | { type: "text" | "heading" | "todo"; text: string; done?: boolean }
+  | { type: "text" | "heading" | "todo"; text: string; done?: boolean; id?: string }
   | { type: "database"; db_id: string }
-  | { type: "subpage"; page_id: string };
+  | { type: "subpage"; page_id: string }
+  | { type: "folder"; path: string; view?: "list" | "gallery"; id?: string };
+export type FolderEntry = { name: string; path: string; kind: "file" | "dir"; ext: string; isHtml: boolean };
+export type PageComment = {
+  id: string;
+  page_id: string;
+  block_id: string;
+  anchor: string;
+  body: string;
+  author: string;
+  author_avatar: string;
+  resolved: boolean;
+  updated_at: string;
+};
 export type PageMeta = {
   id: string;
   parent_id: string | null;
@@ -267,6 +323,7 @@ export type PageDetail = PageMeta & {
   children: PageMeta[];
   databases: { id: string; name: string; icon: string | null; row_count: number }[];
   sessions: Session[];
+  comments: PageComment[];
 };
 
 export const listPages = () => fetch("/api/pages").then((r) => r.json() as Promise<PageMeta[]>);
@@ -291,8 +348,28 @@ export const movePage = (id: string, to: { parent_id?: string | null; before_id?
   post(`/api/pages/${id}/move`, to).then(jsonOrThrow);
 export const attachUdbToPage = (dbId: string, pageId: string | null) => post(`/api/udb/${dbId}`, { page_id: pageId });
 
-// Claude Code import
+// Inline page comments (block-level notes anchored by Block.id).
+export const listComments = (pageId: string) =>
+  fetch(`/api/comments?page=${pageId}`).then((r) => r.json() as Promise<PageComment[]>);
+export const createComment = (
+  c: { page_id: string; block_id: string; anchor?: string; body: string },
+) => post("/api/comments", c).then((r) => r.json() as Promise<{ id: string }>);
+export const updateComment = (id: string, patch: { body?: string; resolved?: boolean }) =>
+  post(`/api/comments/${id}`, patch).then(jsonOrThrow);
+export const deleteComment = (id: string) => post(`/api/comments/${id}/delete`, {});
+
+// Share a page across Trame instances: export the subtree to a file (native save
+// dialog), import a bundle file back (native open dialog). Both hit native dialogs
+// server-side, so the browser gets a result, not a download.
+export const exportPage = (id: string) =>
+  post(`/api/pages/${id}/export`, {}).then((r) => r.json() as Promise<{ path?: string; cancelled?: boolean; error?: string }>);
+export const importPage = (parentId: string | null = null) =>
+  post("/api/pages/import", { parent_id: parentId })
+    .then((r) => r.json() as Promise<{ id?: string; cancelled?: boolean; error?: string }>);
+
+// Claude Code + Codex import
 export type ClaudeSession = {
+  source: "claude" | "codex";
   claudeId: string;
   title: string;
   repoPath: string | null;
@@ -307,6 +384,7 @@ export type ClaudeSession = {
 export type ClaudeGroup = { repoPath: string; repoName: string; suggestedClient: string; sessions: ClaudeSession[] };
 export type ClaudeScan = { groups: ClaudeGroup[]; total: number; dir: string; node: string };
 export type ClaudeImportItem = {
+  source: "claude" | "codex";
   claudeId: string;
   title: string;
   repoPath: string | null;
@@ -320,5 +398,5 @@ export const scanClaudeImport = (days: number) =>
   fetch(`/api/import/claude?days=${days}`).then((r) => r.json() as Promise<ClaudeScan>);
 export const runClaudeImport = (items: ClaudeImportItem[]) =>
   post("/api/import/claude", { items }).then((r) => r.json() as Promise<{ imported: number; skipped: number }>);
-export const setClaudeIgnored = (claudeId: string, ignored: boolean) =>
-  post("/api/import/claude/ignore", { claudeId, ignored });
+export const setClaudeIgnored = (claudeId: string, ignored: boolean, source: "claude" | "codex" = "claude") =>
+  post("/api/import/claude/ignore", { claudeId, ignored, source });

@@ -5,7 +5,7 @@
 //
 // Input: one JSON object, as argv[0] or on stdin. Shape:
 //   { title, status?, client?, objective?, repo_path?, branch?, next_step?, pr_url?, summary? }
-import { OUTBOX, PORT_FILE } from "../app/config.ts";
+import { CLAUDE_MAP, OUTBOX, PORT_FILE } from "../app/config.ts";
 
 type Input = {
   title: string;
@@ -17,6 +17,9 @@ type Input = {
   next_step?: string;
   pr_url?: string;
   summary?: string;
+  claude_id?: string;
+  agent?: "claude" | "codex";
+  agent_id?: string;
 };
 
 async function readInput(): Promise<Input> {
@@ -25,8 +28,34 @@ async function readInput(): Promise<Input> {
   return JSON.parse(await new Response(Deno.stdin.readable).text());
 }
 
+// The Claude session UUID for this cwd, recorded by the UserPromptSubmit hook
+// (track/claude-hook.ts). Fresh-only: the hook fires on the very prompt that runs
+// /trame:track, so anything older belongs to a previous session.
+async function claudeIdFor(cwd: string): Promise<string | undefined> {
+  try {
+    const map = JSON.parse(await Deno.readTextFile(CLAUDE_MAP)) as
+      Record<string, { id: string; at: string }>;
+    const e = map[cwd];
+    if (e && Date.now() - Date.parse(e.at) < 3600_000) return e.id;
+  } catch { /* hook not installed / no map yet */ }
+  return undefined;
+}
+
 async function main() {
   const inp = await readInput();
+  // Codex exposes the current resumable thread UUID directly. Claude needs the
+  // UserPromptSubmit sidecar hook because slash commands do not receive its id.
+  const codexId = Deno.env.get("CODEX_THREAD_ID");
+  if (!inp.agent_id && codexId) {
+    inp.agent = "codex";
+    inp.agent_id = codexId;
+  } else if (!inp.agent_id) {
+    inp.claude_id ??= await claudeIdFor(inp.repo_path ?? Deno.cwd());
+    if (inp.claude_id) {
+      inp.agent = "claude";
+      inp.agent_id = inp.claude_id;
+    }
+  }
   try {
     const { port } = JSON.parse(await Deno.readTextFile(PORT_FILE));
     const res = await fetch(`http://127.0.0.1:${port}/api/sessions`, {

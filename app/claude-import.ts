@@ -4,9 +4,12 @@
 // Transcripts can be tens of MB: only a head chunk (first cwd) and a tail chunk
 // (LAST ai-title / last-prompt / gitBranch) are read.
 import { addEvent, db, upsertSession } from "./db.ts";
-import { CLAUDE_DIR, NODE_ID, SETTINGS_FILE } from "./config.ts";
+import { CLAUDE_DIR, CODEX_DIR, NODE_ID, SETTINGS_FILE } from "./config.ts";
+
+export type AgentSource = "claude" | "codex";
 
 export type ClaudeSession = {
+  source: AgentSource;
   claudeId: string;
   title: string;
   repoPath: string | null;
@@ -25,6 +28,7 @@ export type ClaudeGroup = {
   sessions: ClaudeSession[];
 };
 export type ClaudeImportItem = {
+  source?: AgentSource;
   claudeId: string;
   title: string;
   repoPath: string | null;
@@ -36,29 +40,43 @@ export type ClaudeImportItem = {
 };
 
 // Ignored ids live in the settings file: a per-machine concern, like the transcripts.
+const ignoredKey = (source: AgentSource, id: string) => `${source}:${id}`;
+
 async function loadIgnored(): Promise<Set<string>> {
   try {
     const s = JSON.parse(await Deno.readTextFile(SETTINGS_FILE));
-    return new Set(Array.isArray(s.claudeIgnored) ? s.claudeIgnored : []);
+    const generic = Array.isArray(s.sessionIgnored) ? s.sessionIgnored as string[] : [];
+    const legacy = Array.isArray(s.claudeIgnored)
+      ? (s.claudeIgnored as string[]).map((id) => ignoredKey("claude", id))
+      : [];
+    return new Set([...generic, ...legacy]);
   } catch {
     return new Set();
   }
 }
 
-export async function setClaudeIgnored(claudeId: string, ignored: boolean): Promise<{ ignored: boolean }> {
+export async function setSessionIgnored(
+  source: AgentSource,
+  sessionId: string,
+  ignored: boolean,
+): Promise<{ ignored: boolean }> {
   await Deno.mkdir(SETTINGS_FILE.replace(/\/[^/]+$/, ""), { recursive: true }).catch(() => {});
   let settings: Record<string, unknown> = {};
   try {
     settings = JSON.parse(await Deno.readTextFile(SETTINGS_FILE));
   } catch { /* fresh file */ }
-  const set = new Set(Array.isArray(settings.claudeIgnored) ? settings.claudeIgnored as string[] : []);
-  ignored ? set.add(claudeId) : set.delete(claudeId);
-  settings.claudeIgnored = [...set];
+  const set = new Set(Array.isArray(settings.sessionIgnored) ? settings.sessionIgnored as string[] : []);
+  const key = ignoredKey(source, sessionId);
+  ignored ? set.add(key) : set.delete(key);
+  settings.sessionIgnored = [...set];
   await Deno.writeTextFile(SETTINGS_FILE, JSON.stringify(settings, null, 2));
   return { ignored };
 }
 
-const HEAD_BYTES = 65_536;
+export const setClaudeIgnored = (claudeId: string, ignored: boolean) =>
+  setSessionIgnored("claude", claudeId, ignored);
+
+const HEAD_BYTES = 524_288;
 const TAIL_BYTES = 262_144;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -137,6 +155,90 @@ function extractMeta(head: string, tail: string) {
   return { cwd, aiTitle, lastPrompt, firstPrompt, branch, lastTs, hasActivity };
 }
 
+function cleanCodexPrompt(text: string): string | null {
+  const line = text.trim().split("\n")[0].trim();
+  if (
+    !line || line.startsWith("<") || line.startsWith("Caveat:") ||
+    line.startsWith("This session is being continued")
+  ) return null;
+  return line;
+}
+
+function extractCodexMeta(head: string, tail: string) {
+  let id: string | null = null, cwd: string | null = null, branch: string | null = null;
+  let firstPrompt: string | null = null, subagent = false;
+  for (const e of parseLines(head)) {
+    if (e.type === "session_meta") {
+      const p = e.payload ?? {};
+      id = typeof p.id === "string" ? p.id : typeof p.session_id === "string" ? p.session_id : id;
+      cwd = typeof p.cwd === "string" ? p.cwd : cwd;
+      branch = typeof p.git?.branch === "string" ? p.git.branch : branch;
+      subagent = Boolean(p.parent_thread_id) || p.thread_source === "subagent" ||
+        (p.source && typeof p.source === "object" && "subagent" in p.source);
+    }
+    if (
+      !firstPrompt && e.type === "event_msg" && e.payload?.type === "user_message" &&
+      typeof e.payload.message === "string"
+    ) firstPrompt = cleanCodexPrompt(e.payload.message);
+  }
+  let lastTs: string | null = null, hasActivity = firstPrompt !== null;
+  for (const e of parseLines(tail)) {
+    if (typeof e.timestamp === "string") lastTs = e.timestamp;
+    if (e.type === "event_msg" && e.payload?.type === "user_message") hasActivity = true;
+  }
+  if (branch === "HEAD" || branch === "") branch = null;
+  return { id, cwd, firstPrompt, branch, lastTs, hasActivity, subagent };
+}
+
+async function codexFiles(dir: string, depth = 0): Promise<string[]> {
+  if (depth > 4) return [];
+  const paths: string[] = [];
+  try {
+    for await (const e of Deno.readDir(dir)) {
+      const path = `${dir}/${e.name}`;
+      if (e.isDirectory) paths.push(...await codexFiles(path, depth + 1));
+      else if (e.isFile && e.name.endsWith(".jsonl")) paths.push(path);
+    }
+  } catch { /* Codex not installed / unreadable date directory */ }
+  return paths;
+}
+
+async function scanCodexSessions(cutoff: number, ignoredIds: Set<string>): Promise<ClaudeSession[]> {
+  const found: ClaudeSession[] = [];
+  for (const path of await codexFiles(CODEX_DIR)) {
+    try {
+      const stat = await Deno.stat(path);
+      const mtime = stat.mtime?.getTime() ?? 0;
+      if (mtime < cutoff) continue;
+      const filename = path.slice(path.lastIndexOf("/") + 1, -6);
+      const filenameId = filename.match(
+        /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i,
+      )?.[1];
+      const { head, tail } = await readChunks(path);
+      const { id, cwd, firstPrompt, branch, lastTs, hasActivity, subagent } = extractCodexMeta(head, tail);
+      const codexId = id ?? filenameId;
+      if (subagent || !codexId || !UUID_RE.test(codexId) || !hasActivity || !cwd) continue;
+      const lastActive = lastTs && !Number.isNaN(Date.parse(lastTs)) ? Date.parse(lastTs) : mtime;
+      if (lastActive < cutoff) continue;
+      const repoName = cwd.split("/").filter(Boolean).pop() ?? "unknown";
+      found.push({
+        source: "codex",
+        claudeId: codexId,
+        title: `${repoName} — ${firstPrompt ? truncate(firstPrompt, 80) : "untitled session"}`,
+        repoPath: cwd,
+        branch,
+        lastActive: new Date(lastActive).toISOString(),
+        suggestedStatus: lastActive > Date.now() - 48 * 3_600_000 ? "active" : "paused",
+        suggestedClient: clientFor(cwd),
+        suggestedProject: repoName,
+        alreadyImported: false,
+        ignored: ignoredIds.has(ignoredKey("codex", codexId)),
+      });
+    } catch { /* raced deletion / unreadable file */ }
+  }
+  return found;
+}
+
 // mirrors commands/trame/track.md's working-dir → client mapping
 const clientFor = (path: string): string =>
   path.includes("/Obitrain/") ? "Obitrain" : path.includes("/Polarsen/") ? "Polarsen" : "Side-projects";
@@ -151,12 +253,13 @@ export async function scanClaudeSessions(
 ): Promise<{ groups: ClaudeGroup[]; total: number; dir: string; node: string }> {
   const cutoff = Date.now() - days * 86_400_000;
   const ignoredIds = await loadIgnored();
-  const found: ClaudeSession[] = [];
+  const found: ClaudeSession[] = await scanCodexSessions(cutoff, ignoredIds);
   let dirs: Deno.DirEntry[] = [];
   try {
     dirs = await Array.fromAsync(Deno.readDir(CLAUDE_DIR));
   } catch {
-    return { groups: [], total: 0, dir: CLAUDE_DIR, node: NODE_ID }; // no Claude Code installation
+    // Codex may still be installed even when Claude Code is not.
+    if (!found.length) return { groups: [], total: 0, dir: `${CLAUDE_DIR} + ${CODEX_DIR}`, node: NODE_ID };
   }
   for (const proj of dirs) {
     if (!proj.isDirectory || proj.name.startsWith("-tmp-")) continue;
@@ -189,6 +292,7 @@ export async function scanClaudeSessions(
         // first prompt states the task; the last one is usually a follow-up ("ok push")
         const topic = aiTitle ?? firstPrompt ?? lastPrompt;
         found.push({
+          source: "claude",
           claudeId,
           title: `${repoName} — ${topic ? truncate(topic, 80) : "untitled session"}`,
           repoPath,
@@ -198,7 +302,7 @@ export async function scanClaudeSessions(
           suggestedClient: clientFor(repoPath),
           suggestedProject: repoName,
           alreadyImported: false,
-          ignored: ignoredIds.has(claudeId),
+          ignored: ignoredIds.has(ignoredKey("claude", claudeId)),
         });
       } catch {
         // raced deletion / unreadable file — skip
@@ -208,9 +312,13 @@ export async function scanClaudeSessions(
   // dedup marker: ignore `deleted` on purpose — a deleted card must never resurrect
   if (found.length) {
     const pg = await db();
+    // a session counts as imported if a card carries its UUID as id (import) or claude_id (/trame:track)
+    const ids = found.map((s) => s.claudeId);
     const existing = new Set(
-      ((await pg.query(`select id from sessions where id = any($1::uuid[])`, [found.map((s) => s.claudeId)]))
-        .rows as { id: string }[]).map((r) => r.id),
+      ((await pg.query(
+        `select id, claude_id from sessions where id = any($1::uuid[]) or claude_id = any($1::uuid[])`,
+        [ids],
+      )).rows as { id: string; claude_id: string | null }[]).flatMap((r) => [r.id, r.claude_id ?? r.id]),
     );
     for (const s of found) s.alreadyImported = existing.has(s.claudeId);
   }
@@ -223,7 +331,7 @@ export async function scanClaudeSessions(
     sessions: sessions.sort((a, b) => b.lastActive.localeCompare(a.lastActive)),
   }));
   groups.sort((a, b) => b.sessions[0].lastActive.localeCompare(a.sessions[0].lastActive));
-  return { groups, total: found.length, dir: CLAUDE_DIR, node: NODE_ID };
+  return { groups, total: found.length, dir: `${CLAUDE_DIR} + ${CODEX_DIR}`, node: NODE_ID };
 }
 
 export async function importClaudeSessions(
@@ -237,7 +345,8 @@ export async function importClaudeSessions(
       skipped++;
       continue;
     }
-    const exists = (await pg.query(`select 1 from sessions where id=$1`, [item.claudeId])).rows.length > 0;
+    const exists =
+      (await pg.query(`select 1 from sessions where id=$1 or claude_id=$1`, [item.claudeId])).rows.length > 0;
     if (exists) {
       skipped++;
       continue; // create-only: never clobber an existing card
@@ -250,8 +359,11 @@ export async function importClaudeSessions(
       page: item.project || undefined,
       repo_path: item.repoPath ?? undefined,
       branch: item.branch ?? undefined,
+      agent: item.source ?? "claude",
+      agent_id: item.claudeId,
     });
-    await addEvent(item.claudeId, `Imported from Claude Code · ${NODE_ID}`, "import");
+    const label = item.source === "codex" ? "Codex" : "Claude Code";
+    await addEvent(item.claudeId, `Imported from ${label} · ${NODE_ID}`, "import");
     // backdate recency to the transcript's last activity so the board keeps real order
     // (updated_at/origin stay fresh — the LWW sync still propagates the row)
     await pg.query(`update sessions set last_touched=$2 where id=$1`, [item.claudeId, item.lastActive]);

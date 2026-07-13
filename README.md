@@ -1,6 +1,6 @@
 # session-tracker
 
-A **local-first** Claude Code session tracker. Each session ladders up to a **story** (grouped
+A **local-first** Claude Code and Codex session tracker. Each session ladders up to a **story** (grouped
 under a **project**); the board is **status columns × swimlanes** — the view no off-the-shelf
 tool gave us. It also holds free-form **pages** and **Notion-style databases**.
 
@@ -55,7 +55,9 @@ app/                       Deno-desktop app
   config.ts                env config (NODE_ID, REMOTE_PG, data dir…)
   web/                     React swimlane board (Vite)
 track/track.ts             the /trame:track writer (hub PG or outbox)
+track/claude-hook.ts       UserPromptSubmit hook: records cwd → Claude session id for track.ts
 commands/trame/track.md    the /trame:track slash command (copy to ~/.claude/…)
+skills/trame-track/        Codex-native $trame-track skill (install into ~/.agents/skills)
 ```
 
 ## Setup
@@ -91,7 +93,23 @@ deno task dev           # opens the desktop window (Deno 2.9+)
 # frontend dev with HMR:        deno task web:dev  (proxies /api to :8787)
 ```
 
-### 4. Wire `/trame:track`
+### 4. Wire session tracking
+
+Choose Claude Code, Codex, or both from one installer:
+```bash
+just install-track
+```
+Use the arrow keys to choose an agent and Enter to confirm.
+
+For non-interactive setup, use `just install-cmd` for Claude Code or
+`just install-skill` for Codex.
+
+In Codex, then use `$trame-track`, `$trame-track paused "note"`, or
+`$trame-track list`. Codex exposes `CODEX_THREAD_ID`, so the shared writer
+automatically links the card to the current resumable session; no hook is needed.
+
+For Claude Code, install the slash command:
+
 `/trame:track` is a Claude Code slash command that records the current session as a card on
 the board — it reads the repo, branch, and a one-line note from the conversation and writes
 straight to your local PGlite (syncing to the hub when online, else queued in the outbox).
@@ -101,6 +119,22 @@ cp commands/trame/track.md ~/.claude/commands/trame/track.md
 ```
 Then from any repo: `/trame:track` to log the session, or
 `/trame:track paused|blocked|done "note"` to set its status with a note.
+
+For the card's **Resume** button to work, the writer needs the Claude session UUID — slash
+commands can't see their own session id, so a `UserPromptSubmit` hook records it per-cwd into
+`~/.local/share/session-tracker/claude-sessions.json`. Register it in `~/.claude/settings.json`
+(per machine):
+```json
+"hooks": {
+  "UserPromptSubmit": [{ "matcher": "", "hooks": [{
+    "type": "command",
+    "command": "deno run -A /path/to/session-tracker/track/claude-hook.ts",
+    "timeout": 5
+  }] }]
+}
+```
+Without the hook `/trame:track` still works — the card just has no transcript link. Cards
+imported from the app's Claude Code + Codex dialog carry the UUID as their id and never need it.
 
 ## How sync works
 - **Transport**: mutual TLS — the hub only accepts connections presenting a client cert

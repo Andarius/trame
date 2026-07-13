@@ -36,7 +36,13 @@ type FolderNode = {
 };
 
 export function Explore(
-  { board, onOpenSettings }: { board: BoardData; onOpenSettings?: () => void },
+  { board, onOpenSettings, initialPath, onConsumed, onBack }: {
+    board: BoardData;
+    onOpenSettings?: () => void;
+    initialPath?: string | null;
+    onConsumed?: () => void;
+    onBack?: () => void;
+  },
 ) {
   const [reports, setReports] = useState<ReportMeta[]>([]);
   const [files, setFiles] = useState<FileHit[]>([]);
@@ -123,6 +129,20 @@ export function Explore(
       setSelected({ kind: "file", title: f.name, date: f.mtime, html, path: f.path });
     }).catch(() => {});
   };
+
+  // Pre-open a file requested from elsewhere (e.g. a folder block's "Explore" button).
+  useEffect(() => {
+    if (!initialPath) return;
+    const hit = files.find((f) => f.path === initialPath);
+    if (hit) selectFile(hit);
+    else {
+      setSelKey(`file:${initialPath}`);
+      getReportFileContent(initialPath)
+        .then((c) => setSelected({ kind: "file", title: initialPath.split("/").pop() ?? initialPath, date: "", html: c.html, path: initialPath }))
+        .catch(() => {});
+    }
+    onConsumed?.();
+  }, [initialPath, files]);
 
   const needle = q.trim().toLowerCase();
   const shownReports = needle
@@ -271,6 +291,15 @@ export function Explore(
   return (
     <div className="flex min-h-0 flex-1">
       <div className="flex w-[330px] shrink-0 flex-col overflow-y-auto border-r border-line p-3">
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="mb-2 flex items-center gap-1.5 self-start rounded-md px-2 py-1 text-[11.5px] text-ink-muted transition-colors hover:bg-panel hover:text-ink-soft"
+          >
+            ← Retour à la page
+          </button>
+        )}
         <div className="mb-1 flex gap-1.5">
           <input
             data-nav="1"

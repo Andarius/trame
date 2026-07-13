@@ -20,7 +20,8 @@ import {
   type UpdateInfo,
 } from "./api";
 import { applyScale, getScale, SCALES } from "./scale";
-import { pageOptions, Popover, Select, STATUS, StatusDot, timeAgo } from "./ui";
+import { pageOptions, Popover, Select, StatusDot, timeAgo } from "./ui";
+import { dataUriToIcon } from "./udb/cells";
 
 function Modal(
   { width = 560, onClose, onSubmit, children }: {
@@ -95,7 +96,7 @@ export function NewSessionModal(
   },
 ) {
   const [title, setTitle] = useState("");
-  const [status, setStatus] = useState<Status>("active");
+  const [status, setStatus] = useState<Status>(board.statuses[0]?.key ?? "active");
   const [client, setClient] = useState(board.clients[0]?.name ?? "");
   const [objective, setObjective] = useState("");
   const [newObjective, setNewObjective] = useState("");
@@ -131,7 +132,7 @@ export function NewSessionModal(
           <Select
             value={status}
             className="bg-transparent px-1 text-[11.5px] text-ink-soft outline-none"
-            options={Object.entries(STATUS).map(([k, v]) => ({ value: k, label: v.label }))}
+            options={board.statuses.map((s) => ({ value: s.key, label: s.label }))}
             onChange={(v) => setStatus(v as Status)}
           />
         </span>
@@ -336,11 +337,15 @@ export function SettingsModal(
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [updState, setUpdState] = useState<"idle" | "busy" | "done">("idle");
   const [scale, setScale] = useState(getScale);
+  const [authorName, setAuthorName] = useState("");
+  const [authorAvatar, setAuthorAvatar] = useState("");
 
   useEffect(() => {
     getSettings().then((s) => {
       setPaths(s.paths.length ? s.paths : [""]);
       setIgnore(s.ignore ?? []);
+      setAuthorName(s.authorName ?? "");
+      setAuthorAvatar(s.authorAvatar ?? "");
       setSource(s.source);
       // only prefill when saved here — an env-provided URL stays in the env
       // unless the user types one (mirrors the report-paths takeover behavior);
@@ -398,6 +403,8 @@ export function SettingsModal(
       ignorePaths: ignore.map((p) => p.trim()).filter(Boolean),
       remotePg: remotePg.trim(),
       remotePgPassword: remotePw.trim(), // blank = keep the stored one
+      authorName: authorName.trim(),
+      authorAvatar: authorAvatar.trim(),
     }).then(() => {
       if (remotePg.trim()) syncNow().catch(() => {}); // first sync right away
       onSaved();
@@ -465,6 +472,43 @@ export function SettingsModal(
           ))}
         </div>
         <span className="text-[10.5px] text-ink-muted/70">applies instantly</span>
+      </div>
+
+      <div className="h-px bg-line" />
+      <div className="text-[12.5px] font-semibold">Your name</div>
+      <p className="m-0 text-[11.5px] leading-relaxed text-ink-muted">
+        Shown as the author on comments you write (so teammates see who said what). Empty falls back to this machine's node id.
+      </p>
+      <div className="flex items-center gap-2.5">
+        <button
+          type="button"
+          title={authorAvatar ? "change avatar" : "choose an avatar image"}
+          className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-panel text-ink-muted transition-colors hover:border-chipline"
+          onClick={async () => {
+            const res = await fetch("/api/pick-image", { method: "POST" }).then((r) => r.json()).catch(() => null);
+            if (res?.dataUri) setAuthorAvatar(await dataUriToIcon(res.dataUri));
+          }}
+        >
+          {authorAvatar
+            ? <img src={authorAvatar} alt="" className="h-full w-full object-cover" />
+            : <span className="text-[15px]">＋</span>}
+        </button>
+        <input
+          className={`${pill} w-64`}
+          placeholder="e.g. Julien"
+          value={authorName}
+          onChange={(e) => setAuthorName(e.target.value)}
+          maxLength={40}
+        />
+        {authorAvatar && (
+          <button
+            type="button"
+            className="text-[11px] text-ink-muted transition-colors hover:text-blocked"
+            onClick={() => setAuthorAvatar("")}
+          >
+            Remove avatar
+          </button>
+        )}
       </div>
 
       <div className="h-px bg-line" />
@@ -714,15 +758,15 @@ export function ImportClaudeModal(
     };
   }, [days]);
 
-  const ignore = (id: string, ignored: boolean) => {
-    setClaudeIgnored(id, ignored);
+  const ignore = (id: string, source: "claude" | "codex", ignored: boolean) => {
+    setClaudeIgnored(id, ignored, source);
     setScan((prev) =>
       prev
         ? {
           ...prev,
           groups: prev.groups.map((g) => ({
             ...g,
-            sessions: g.sessions.map((s) => (s.claudeId === id ? { ...s, ignored } : s)),
+            sessions: g.sessions.map((s) => (s.claudeId === id && s.source === source ? { ...s, ignored } : s)),
           })),
         }
         : prev
@@ -750,6 +794,7 @@ export function ImportClaudeModal(
         ? newProjects[g.repoPath]?.trim() || g.repoName
         : picked || null;
       return g.sessions.filter((s) => checked.has(s.claudeId)).map((s) => ({
+        source: s.source,
         claudeId: s.claudeId,
         title: s.title,
         repoPath: s.repoPath,
@@ -787,7 +832,7 @@ export function ImportClaudeModal(
 
   return (
     <Modal width={720} onClose={onClose} onSubmit={submit}>
-      <div className={label}>IMPORT FROM CLAUDE CODE</div>
+      <div className={label}>IMPORT FROM CLAUDE CODE + CODEX</div>
       <div className="flex items-center gap-1.5">
         {[7, 14, 30].map((d) => (
           <button
@@ -878,7 +923,7 @@ export function ImportClaudeModal(
       <div className="flex min-h-[120px] flex-col gap-3 overflow-y-auto">
         {scan && !scan.groups.length && (
           <div className="py-8 text-center text-[12.5px] text-ink-muted">
-            No Claude Code sessions in the last {days} days.
+            No Claude Code or Codex sessions in the last {days} days.
           </div>
         )}
         {scan && scan.groups.length > 0 && !scan.groups.some((g) => g.sessions.some((s) => isVisible(s, g))) && (
@@ -970,6 +1015,9 @@ export function ImportClaudeModal(
                     disabled={s.alreadyImported || s.ignored}
                     onClick={() => toggle(s.claudeId)}
                   />
+                  <span className="w-11 shrink-0 rounded border border-chipline px-1 py-px text-center text-[9px] uppercase text-ink-muted">
+                    {s.source}
+                  </span>
                   <span className="min-w-0 flex-1 truncate text-ink-soft" title={s.title}>{s.title}</span>
                   {s.alreadyImported && (
                     <span className="rounded border border-chipline px-1.5 py-px text-[9.5px] text-ink-muted">
@@ -992,7 +1040,7 @@ export function ImportClaudeModal(
                         s.ignored ? "" : "opacity-0 group-hover:opacity-100"
                       }`}
                       title={s.ignored ? "Stop ignoring" : "Ignore this session"}
-                      onClick={() => ignore(s.claudeId, !s.ignored)}
+                      onClick={() => ignore(s.claudeId, s.source, !s.ignored)}
                     >
                       {s.ignored ? "↩" : "✕"}
                     </button>
@@ -1004,7 +1052,7 @@ export function ImportClaudeModal(
         })}
       </div>
       <Footer
-        hint={`from ~/.claude/projects on ${scan?.node ?? "this machine"} — existing cards are never overwritten`}
+        hint={`from ~/.claude/projects + ~/.codex/sessions on ${scan?.node ?? "this machine"} — never overwritten`}
         action={busy ? "Importing…" : `Import ${checked.size} session${checked.size === 1 ? "" : "s"}`}
         onClose={onClose}
         onSubmit={submit}
