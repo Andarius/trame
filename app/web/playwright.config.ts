@@ -31,6 +31,7 @@ export default defineConfig({
       TRACKER_NODE_ID: "e2e",
       TRACKER_UPDATE_CHECK: "0",
       TRACKER_CLAUDE_DIR: `${E2E_DIR}/claude-projects`,
+      TRACKER_CODEX_DIR: `${E2E_DIR}/codex-sessions`,
     },
   },
 });

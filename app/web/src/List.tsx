@@ -1,11 +1,10 @@
 import { useState } from "react";
 import type { BoardData } from "./api";
-import { ClientChip, STATUS, StatusDot, timeAgo } from "./ui";
+import { ClientChip, statusStyle, StatusDot, timeAgo } from "./ui";
 
 const GRID = "grid grid-cols-[1fr_110px_120px_180px_150px_90px] items-center gap-4";
 
 type SortKey = "title" | "status" | "client" | "objective" | "branch" | "touched";
-const STATUS_ORDER = Object.keys(STATUS); // active → paused → blocked → done (as declared)
 const COLS: [SortKey, string][] = [
   ["title", "SESSION"],
   ["status", "STATUS"],
@@ -24,13 +23,14 @@ export function List(
   },
 ) {
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "touched", dir: -1 });
+  const statusOrder = board.statuses.map((s) => s.key); // synced column order
 
   const key = (s: BoardData["sessions"][number]): string | number => {
     switch (sort.key) {
       case "title":
         return s.title.toLowerCase();
       case "status":
-        return STATUS_ORDER.indexOf(s.status);
+        return statusOrder.indexOf(s.status);
       case "client":
         return (board.clients.find((c) => c.id === s.client_id)?.name ?? "").toLowerCase();
       case "objective":
@@ -69,7 +69,7 @@ export function List(
       {sessions.map((s) => {
         const client = board.clients.find((c) => c.id === s.client_id);
         const objective = board.objectives.find((o) => o.id === s.objective_id);
-        const done = s.status === "done";
+        const done = statusStyle(s.status).terminal;
         return (
           <div
             key={s.id}
@@ -79,8 +79,8 @@ export function List(
             <span className={`truncate text-[12.5px] font-medium ${done ? "text-ink-muted" : ""}`}>
               {s.title}
             </span>
-            <span className="flex items-center gap-1.5 text-[11.5px]" style={{ color: STATUS[s.status].color }}>
-              <StatusDot status={s.status} size={7} /> {STATUS[s.status].label}
+            <span className="flex items-center gap-1.5 text-[11.5px]" style={{ color: statusStyle(s.status).color }}>
+              <StatusDot status={s.status} size={7} /> {statusStyle(s.status).label}
             </span>
             <span>{client && <ClientChip name={client.name} color={client.color} />}</span>
             {objective && onFilterStory

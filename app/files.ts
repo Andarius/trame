@@ -2,7 +2,13 @@
 // *.excalidraw drawings so the Explore view can search files on disk alongside
 // published reports. Paths come from the UI-editable settings file, falling back
 // to the TRACKER_REPORT_PATHS env var.
-import { HOME_DIR, REMOTE_PG, REPORT_PATHS, SETTINGS_FILE } from "./config.ts";
+import {
+  HOME_DIR,
+  NODE_ID,
+  REMOTE_PG,
+  REPORT_PATHS,
+  SETTINGS_FILE,
+} from "./config.ts";
 
 export type FileHit = { path: string; name: string; mtime: string };
 
@@ -17,6 +23,8 @@ export type ExploreConfig = {
   remotePg: string; // password always stripped — never shipped to the UI
   remoteSource: "settings" | "env" | null;
   remoteHasPassword: boolean;
+  authorName: string; // display name stamped on comments (empty = falls back to node id)
+  authorAvatar: string; // optional avatar stamped on comments: image URL or data URI
 };
 
 // The URL and password are stored as separate settings keys (the UI keeps them
@@ -50,7 +58,10 @@ function urlPassword(url: string): string {
 
 // What sync would use if these (possibly unsaved) UI fields were saved: blank
 // password falls back to the stored one, blank URL to the effective config.
-export async function resolveRemotePg(url: string, password: string): Promise<string | null> {
+export async function resolveRemotePg(
+  url: string,
+  password: string,
+): Promise<string | null> {
   url = url.trim();
   if (!url) return getRemotePg();
   let pw = password.trim() || urlPassword(url);
@@ -69,7 +80,9 @@ export async function getRemotePg(): Promise<string | null> {
   try {
     const settings = JSON.parse(await Deno.readTextFile(SETTINGS_FILE));
     if (typeof settings.remotePg === "string" && settings.remotePg.trim()) {
-      const pw = typeof settings.remotePgPassword === "string" ? settings.remotePgPassword : "";
+      const pw = typeof settings.remotePgPassword === "string"
+        ? settings.remotePgPassword
+        : "";
       return withPassword(settings.remotePg.trim(), pw);
     }
   } catch { /* no settings file yet */ }
@@ -82,20 +95,74 @@ export async function getReportPaths(): Promise<ExploreConfig> {
     settings = JSON.parse(await Deno.readTextFile(SETTINGS_FILE));
   } catch { /* no settings file yet */ }
   const list = (k: string) =>
-    Array.isArray(settings[k]) ? (settings[k] as string[]).map((p) => p.trim()).filter(Boolean) : [];
+    Array.isArray(settings[k])
+      ? (settings[k] as string[]).map((p) => p.trim()).filter(Boolean)
+      : [];
   const ignore = list("ignorePaths");
   const starred = list("starredPaths");
-  const htmlFilter = settings.htmlFilter === "all" ? "all" as const : "smart" as const;
-  const savedRemote = typeof settings.remotePg === "string" ? settings.remotePg.trim() : "";
-  const savedPw = typeof settings.remotePgPassword === "string" ? settings.remotePgPassword : "";
+  const htmlFilter = settings.htmlFilter === "all"
+    ? "all" as const
+    : "smart" as const;
+  const savedRemote = typeof settings.remotePg === "string"
+    ? settings.remotePg.trim()
+    : "";
+  const savedPw = typeof settings.remotePgPassword === "string"
+    ? settings.remotePgPassword
+    : "";
   const effective = savedRemote || REMOTE_PG;
   const remotePg = stripPassword(effective);
-  const remoteSource = savedRemote ? "settings" as const : REMOTE_PG ? "env" as const : null;
-  const remoteHasPassword = Boolean(savedRemote ? savedPw || urlPassword(savedRemote) : urlPassword(REMOTE_PG));
+  const remoteSource = savedRemote
+    ? "settings" as const
+    : REMOTE_PG
+    ? "env" as const
+    : null;
+  const remoteHasPassword = Boolean(
+    savedRemote ? savedPw || urlPassword(savedRemote) : urlPassword(REMOTE_PG),
+  );
+  const authorName = typeof settings.authorName === "string"
+    ? settings.authorName.trim()
+    : "";
+  const authorAvatar = typeof settings.authorAvatar === "string"
+    ? settings.authorAvatar.trim()
+    : "";
   if (Array.isArray(settings.reportPaths)) {
-    return { paths: list("reportPaths").map(expand), ignore, starred, htmlFilter, source: "settings", remotePg, remoteSource, remoteHasPassword };
+    return {
+      paths: list("reportPaths").map(expand),
+      ignore,
+      starred,
+      htmlFilter,
+      source: "settings",
+      remotePg,
+      remoteSource,
+      remoteHasPassword,
+      authorName,
+      authorAvatar,
+    };
   }
-  return { paths: REPORT_PATHS, ignore, starred, htmlFilter, source: "env", remotePg, remoteSource, remoteHasPassword };
+  return {
+    paths: REPORT_PATHS,
+    ignore,
+    starred,
+    htmlFilter,
+    source: "env",
+    remotePg,
+    remoteSource,
+    remoteHasPassword,
+    authorName,
+    authorAvatar,
+  };
+}
+
+// Who to stamp on a comment: the configured display name (else this machine's node id,
+// so a note is never anonymous) and an optional avatar (image URL or data URI).
+export async function getCommentAuthor(): Promise<{ name: string; avatar: string }> {
+  try {
+    const s = JSON.parse(await Deno.readTextFile(SETTINGS_FILE));
+    const name = typeof s.authorName === "string" && s.authorName.trim() ? s.authorName.trim() : NODE_ID;
+    const avatar = typeof s.authorAvatar === "string" ? s.authorAvatar.trim() : "";
+    return { name, avatar };
+  } catch { /* no settings file yet */ }
+  return { name: NODE_ID, avatar: "" };
 }
 
 export async function saveExploreSettings(
@@ -106,16 +173,41 @@ export async function saveExploreSettings(
     htmlFilter?: "smart" | "all";
     remotePg?: string;
     remotePgPassword?: string;
+    authorName?: string;
+    authorAvatar?: string;
   },
 ): Promise<void> {
-  await Deno.mkdir(SETTINGS_FILE.replace(/\/[^/]+$/, ""), { recursive: true }).catch(() => {});
+  await Deno.mkdir(SETTINGS_FILE.replace(/\/[^/]+$/, ""), { recursive: true })
+    .catch(() => {});
   let settings: Record<string, unknown> = {};
   try {
     settings = JSON.parse(await Deno.readTextFile(SETTINGS_FILE));
   } catch { /* fresh file */ }
-  if (patch.reportPaths) settings.reportPaths = patch.reportPaths.map((p) => p.trim()).filter(Boolean);
-  if (patch.ignorePaths) settings.ignorePaths = patch.ignorePaths.map((p) => p.trim()).filter(Boolean);
-  if (patch.starredPaths) settings.starredPaths = patch.starredPaths.map((p) => p.trim()).filter(Boolean);
+  if (patch.authorName !== undefined) {
+    const name = patch.authorName.trim();
+    if (name) settings.authorName = name;
+    else delete settings.authorName;
+  }
+  if (patch.authorAvatar !== undefined) {
+    const avatar = patch.authorAvatar.trim();
+    if (avatar) settings.authorAvatar = avatar;
+    else delete settings.authorAvatar;
+  }
+  if (patch.reportPaths) {
+    settings.reportPaths = patch.reportPaths.map((p) => p.trim()).filter(
+      Boolean,
+    );
+  }
+  if (patch.ignorePaths) {
+    settings.ignorePaths = patch.ignorePaths.map((p) => p.trim()).filter(
+      Boolean,
+    );
+  }
+  if (patch.starredPaths) {
+    settings.starredPaths = patch.starredPaths.map((p) => p.trim()).filter(
+      Boolean,
+    );
+  }
   if (patch.htmlFilter) settings.htmlFilter = patch.htmlFilter;
   if (patch.remotePg !== undefined) {
     let url = patch.remotePg.trim();
@@ -160,7 +252,11 @@ function ignoreRules(ignore: string[]): IgnoreRules {
     } else if (GLOB_CHARS.test(e)) {
       const pattern = expand(e);
       // relative globs match anywhere: anchor them under any prefix
-      globs.push(globToRegExp(pattern.startsWith("/") ? pattern : `**/${pattern}`, { globstar: true }));
+      globs.push(
+        globToRegExp(pattern.startsWith("/") ? pattern : `**/${pattern}`, {
+          globstar: true,
+        }),
+      );
     } else if (e.includes("/")) {
       prefixes.push(expand(e).replace(/\/+$/, ""));
     } else {
@@ -174,11 +270,26 @@ const ignoredDir = (name: string, path: string, ig: IgnoreRules) =>
   ig.prefixes.some((p) => path === p || path.startsWith(p + "/")) ||
   ig.globs.some((g) => g.test(path));
 
-const SKIP = new Set(["node_modules", ".git", "dist", "build", ".cache", ".venv", "venv", "coverage", "target"]);
+const SKIP = new Set([
+  "node_modules",
+  ".git",
+  "dist",
+  "build",
+  ".cache",
+  ".venv",
+  "venv",
+  "coverage",
+  "target",
+]);
 const MAX_HITS = 500;
 const CACHE_MS = 60_000;
 
-async function walk(dir: string, depth: number, out: FileHit[], ig: IgnoreRules): Promise<void> {
+async function walk(
+  dir: string,
+  depth: number,
+  out: FileHit[],
+  ig: IgnoreRules,
+): Promise<void> {
   if (depth < 0 || out.length >= MAX_HITS) return;
   try {
     // readDir errors surface lazily during iteration — keep the loop inside the try
@@ -187,16 +298,27 @@ async function walk(dir: string, depth: number, out: FileHit[], ig: IgnoreRules)
       const p = `${dir}/${e.name}`;
       if (e.isDirectory) {
         // skip heavy/hidden dirs, but .scratch is a common home for generated reports
-        if (SKIP.has(e.name) || (e.name.startsWith(".") && e.name !== ".scratch")) continue;
+        if (
+          SKIP.has(e.name) || (e.name.startsWith(".") && e.name !== ".scratch")
+        ) continue;
         if (ignoredDir(e.name, p, ig)) continue;
         await walk(p, depth - 1, out, ig);
-      } else if (e.isFile && (e.name.endsWith(".html") || e.name.endsWith(".excalidraw"))) {
+      } else if (
+        e.isFile && (e.name.endsWith(".html") || e.name.endsWith(".excalidraw"))
+      ) {
         // bare-name rules apply to files as well ("404.html" ignores it anywhere)
         if (ig.names.has(e.name)) continue;
-        if (ig.prefixes.some((pre) => p.startsWith(pre + "/")) || ig.globs.some((g) => g.test(p))) continue;
+        if (
+          ig.prefixes.some((pre) => p.startsWith(pre + "/")) ||
+          ig.globs.some((g) => g.test(p))
+        ) continue;
         try {
           const st = await Deno.stat(p);
-          out.push({ path: p, name: e.name, mtime: st.mtime?.toISOString() ?? "" });
+          out.push({
+            path: p,
+            name: e.name,
+            mtime: st.mtime?.toISOString() ?? "",
+          });
         } catch { /* raced deletion */ }
       }
     }
@@ -209,7 +331,8 @@ let cache: { at: number; hits: FileHit[] } | null = null;
 // report. App shells and built sites reference LOCAL js/css assets ("/assets/x.js",
 // "./main.tsx"); reports inline everything (CDN references are fine and stay allowed).
 // Files named *.ai.html bypass the sniff entirely (explicit convention override).
-const LOCAL_ASSET = /(?:src|href)\s*=\s*["'](?:\.\.?\/|\/(?!\/))[^"']*?\.(?:m?js|css|tsx?)(?:[?#][^"']*)?["']/i;
+const LOCAL_ASSET =
+  /(?:src|href)\s*=\s*["'](?:\.\.?\/|\/(?!\/))[^"']*?\.(?:m?js|css|tsx?)(?:[?#][^"']*)?["']/i;
 const sniffCache = new Map<string, { mtime: string; report: boolean }>();
 
 async function isReport(hit: FileHit): Promise<boolean> {
@@ -250,7 +373,7 @@ export async function scanReportFiles(force = false): Promise<FileHit[]> {
 async function allowedPath(path: string): Promise<string | null> {
   let real: string;
   try {
-    real = await Deno.realPath(path);
+    real = await Deno.realPath(expand(path));
   } catch {
     return null;
   }
@@ -271,8 +394,45 @@ export async function readReportFile(path: string): Promise<string | null> {
   return real === null ? null : await Deno.readTextFile(real);
 }
 
+// Non-recursive listing of a directory, gated to the same scanned roots as reports.
+// Powers the "folder" page block. Returns null when the path is outside allowed roots.
+export type FolderEntry = { name: string; path: string; kind: "file" | "dir"; ext: string; isHtml: boolean };
+export async function listFolder(path: string): Promise<FolderEntry[] | null> {
+  const real = await allowedPath(path);
+  if (real === null) return null;
+  let info: Deno.FileInfo;
+  try {
+    info = await Deno.stat(real);
+  } catch {
+    return null;
+  }
+  if (!info.isDirectory) return null;
+  const out: FolderEntry[] = [];
+  for await (const e of Deno.readDir(real)) {
+    if (e.name.startsWith(".")) continue;
+    const ext = e.isFile ? (e.name.match(/\.([^.]+)$/)?.[1]?.toLowerCase() ?? "") : "";
+    out.push({
+      name: e.name,
+      path: `${real}/${e.name}`,
+      kind: e.isDirectory ? "dir" : "file",
+      ext,
+      isHtml: ext === "html" || ext === "htm",
+    });
+  }
+  out.sort((a, b) => a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === "dir" ? -1 : 1);
+  return out;
+}
+
+// Resolve a path only if it sits inside an allowed root (for the OS-open endpoint).
+export function resolveAllowedPath(path: string): Promise<string | null> {
+  return allowedPath(path);
+}
+
 // Save an edited scene back to disk (the standalone browser editor posts here).
-export async function writeReportFile(path: string, content: string): Promise<boolean> {
+export async function writeReportFile(
+  path: string,
+  content: string,
+): Promise<boolean> {
   const real = await allowedPath(path);
   if (real === null || !real.endsWith(".excalidraw")) return false;
   await Deno.writeTextFile(real, content);
@@ -280,11 +440,17 @@ export async function writeReportFile(path: string, content: string): Promise<bo
 }
 
 // Delete a report file — system trash when available (recoverable), unlink as fallback.
-export async function deleteReportFile(path: string): Promise<{ ok: boolean; trashed: boolean }> {
+export async function deleteReportFile(
+  path: string,
+): Promise<{ ok: boolean; trashed: boolean }> {
   const real = await allowedPath(path);
   if (real === null) return { ok: false, trashed: false };
   try {
-    const out = await new Deno.Command("gio", { args: ["trash", real], stdout: "null", stderr: "null" })
+    const out = await new Deno.Command("gio", {
+      args: ["trash", real],
+      stdout: "null",
+      stderr: "null",
+    })
       .output();
     if (out.success) {
       cache = null;

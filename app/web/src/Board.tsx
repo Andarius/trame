@@ -11,9 +11,7 @@ import {
 } from "@dnd-kit/core";
 import { useRef, useState } from "react";
 import type { BoardData, Session, Status } from "./api";
-import { ClientChip, ObjectiveChip, STATUS, StatusDot } from "./ui";
-
-const COLUMNS: Status[] = ["active", "paused", "blocked", "done"];
+import { ClientChip, ObjectiveChip, statusStyle, StatusDot } from "./ui";
 
 function TicketBody(
   { s, board, overlay = false, showObjective = true, storyFilter, onFilterStory }: {
@@ -27,7 +25,7 @@ function TicketBody(
 ) {
   const client = board.clients.find((c) => c.id === s.client_id);
   const objective = board.objectives.find((o) => o.id === s.objective_id);
-  const done = s.status === "done";
+  const done = statusStyle(s.status).terminal;
   return (
     <div
       className={`flex flex-col gap-1.5 rounded-lg border bg-card px-2.5 py-2 ${
@@ -106,7 +104,7 @@ function Column(
     >
       <div className="flex items-center gap-1.5 px-1 pt-0.5 pb-1">
         <StatusDot status={status} />
-        <span className="text-[12.5px] font-semibold text-[#d9dde5]">{STATUS[status].label}</span>
+        <span className="text-[12.5px] font-semibold text-[#d9dde5]">{statusStyle(status).label}</span>
         <span className="text-[11.5px] font-medium text-ink-muted">{sessions.length}</span>
       </div>
       {sessions.map((s) => (
@@ -125,14 +123,13 @@ function Column(
 }
 
 export function Board(
-  { board, group, onMove, onOpen, storyFilter, onFilterStory, statusOrder, hideEmpty }: {
+  { board, group, onMove, onOpen, storyFilter, onFilterStory, hideEmpty }: {
     board: BoardData;
     group: "none" | "story" | "project";
     onMove: (id: string, status: Status) => void;
     onOpen: (id: string) => void;
     storyFilter?: string | null;
     onFilterStory?: (id: string) => void;
-    statusOrder?: Status[];
     hideEmpty?: boolean;
   },
 ) {
@@ -165,8 +162,9 @@ export function Board(
   };
   // clicking a card's story chip narrows the board to that story (drag still uses the full set)
   const visible = storyFilter ? board.sessions.filter((s) => s.objective_id === storyFilter) : board.sessions;
-  // status columns: user order (fall back to default), optionally hiding the empty ones
-  const ordered = statusOrder?.length ? statusOrder.filter((s) => COLUMNS.includes(s)) : COLUMNS;
+  // status columns come from the synced statuses table (already sort_key-ordered),
+  // optionally hiding the empty ones
+  const ordered = board.statuses.map((s) => s.key);
   const present = new Set(visible.map((s) => s.status));
   const cols = hideEmpty ? ordered.filter((s) => present.has(s)) : ordered;
   type Lane = { key: string; title: string | null; glyph?: string; color?: string | null; sessions: Session[] };

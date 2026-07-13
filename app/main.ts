@@ -4,6 +4,7 @@
 import {
   APP_ROOT,
   CLAUDE_DIR,
+  CODEX_DIR,
   DATA_DIR,
   NODE_ID,
   PORT,
@@ -16,7 +17,9 @@ import {
   deleteReportFile,
   getRemotePg,
   getReportPaths,
+  listFolder,
   readReportFile,
+  resolveAllowedPath,
   resolveRemotePg,
   saveExploreSettings,
   scanReportFiles,
@@ -27,21 +30,44 @@ import {
   addEvent,
   createObjective,
   createReport,
+  createStatus,
   db,
   deleteSession,
+  deleteStatus,
   drainOutbox,
   getBoard,
   getReport,
   listEvents,
   listReports,
+  moveStatus,
+  searchAll,
   setSessionStatus,
   updateObjective,
+  updateStatus,
   upsertSession,
 } from "./db.ts";
 import { syncOnce, testRemote } from "./sync.ts";
-import { importClaudeSessions, scanClaudeSessions, setClaudeIgnored } from "./claude-import.ts";
+import {
+  importClaudeSessions,
+  scanClaudeSessions,
+  setClaudeIgnored,
+  setSessionIgnored,
+} from "./claude-import.ts";
 import { applyUpdate, checkUpdate, VERSION } from "./update.ts";
-import { attachUdbToPage, createPage, deletePage, getPage, listPages, movePage, updatePage } from "./pages.ts";
+import {
+  attachUdbToPage,
+  createComment,
+  createPage,
+  deleteComment,
+  deletePage,
+  getPage,
+  listComments,
+  listPages,
+  movePage,
+  updateComment,
+  updatePage,
+} from "./pages.ts";
+import { exportPage, importPage } from "./share.ts";
 import {
   createProperty,
   createRow,
@@ -70,17 +96,32 @@ const IMAGE_MIME: Record<string, string> = {
   webp: "image/webp",
   svg: "image/svg+xml",
 };
-async function pickImage(): Promise<{ dataUri: string } | { error: string; cancelled?: boolean }> {
+async function pickImage(): Promise<
+  { dataUri: string } | { error: string; cancelled?: boolean }
+> {
   const dialogs: string[][] = Deno.build.os === "darwin"
-    ? [["osascript", "-e", 'POSIX path of (choose file with prompt "Choose an icon" of type {"public.image"})']]
+    ? [[
+      "osascript",
+      "-e",
+      'POSIX path of (choose file with prompt "Choose an icon" of type {"public.image"})',
+    ]]
     : [
-      ["zenity", "--file-selection", "--title=Choose an icon", "--file-filter=Images | *.png *.jpg *.jpeg *.gif *.webp *.svg"],
+      [
+        "zenity",
+        "--file-selection",
+        "--title=Choose an icon",
+        "--file-filter=Images | *.png *.jpg *.jpeg *.gif *.webp *.svg",
+      ],
       ["kdialog", "--getopenfilename", ".", "image/*"],
     ];
   for (const [cmd, ...args] of dialogs) {
     let out: Deno.CommandOutput;
     try {
-      out = await new Deno.Command(cmd, { args, stdout: "piped", stderr: "null" }).output();
+      out = await new Deno.Command(cmd, {
+        args,
+        stdout: "piped",
+        stderr: "null",
+      }).output();
     } catch {
       continue; // dialog tool not installed — try the next one
     }
@@ -93,15 +134,85 @@ async function pickImage(): Promise<{ dataUri: string } | { error: string; cance
     } catch {
       return { error: `cannot read ${path}` };
     }
-    if (data.length > 10_000_000) return { error: "file too large (max 10 MB)" };
+    if (data.length > 10_000_000) {
+      return { error: "file too large (max 10 MB)" };
+    }
     const ext = path.toLowerCase().split(".").pop() ?? "";
     const mime = IMAGE_MIME[ext];
     if (!mime) return { error: `not an image: .${ext}` };
     let bin = "";
-    for (let i = 0; i < data.length; i += 0x8000) bin += String.fromCharCode(...data.subarray(i, i + 0x8000));
+    for (let i = 0; i < data.length; i += 0x8000) {
+      bin += String.fromCharCode(...data.subarray(i, i + 0x8000));
+    }
     return { dataUri: `data:${mime};base64,${btoa(bin)}` };
   }
   return { error: "no file dialog available (install zenity or kdialog)" };
+}
+
+// Native save/open dialogs for the page-share bundle (same reason pickImage exists:
+// the desktop webview shows no <input type=file> or download prompt). Returns the
+// chosen path, or a {cancelled}/{error} sentinel.
+type PickResult = string | { cancelled: true } | { error: string };
+async function runDialog(dialogs: string[][]): Promise<PickResult> {
+  for (const [cmd, ...args] of dialogs) {
+    let out: Deno.CommandOutput;
+    try {
+      out = await new Deno.Command(cmd, {
+        args,
+        stdout: "piped",
+        stderr: "null",
+      }).output();
+    } catch {
+      continue; // dialog tool not installed — try the next one
+    }
+    if (!out.success) return { cancelled: true };
+    const path = new TextDecoder().decode(out.stdout).trim();
+    return path ? path : { cancelled: true };
+  }
+  return { error: "no file dialog available (install zenity or kdialog)" };
+}
+
+function pickSavePath(defaultName: string): Promise<PickResult> {
+  const home = Deno.env.get("HOME") ?? ".";
+  return runDialog(
+    Deno.build.os === "darwin"
+      ? [[
+        "osascript",
+        "-e",
+        `POSIX path of (choose file name with prompt "Export page" default name "${defaultName}")`,
+      ]]
+      : [
+        [
+          "zenity",
+          "--file-selection",
+          "--save",
+          "--confirm-overwrite",
+          "--title=Export page",
+          `--filename=${home}/${defaultName}`,
+        ],
+        ["kdialog", "--getsavefilename", `${home}/${defaultName}`, "*.json"],
+      ],
+  );
+}
+
+function pickOpenPath(): Promise<PickResult> {
+  return runDialog(
+    Deno.build.os === "darwin"
+      ? [[
+        "osascript",
+        "-e",
+        'POSIX path of (choose file with prompt "Import page" of type {"json","public.json"})',
+      ]]
+      : [
+        [
+          "zenity",
+          "--file-selection",
+          "--title=Import page",
+          "--file-filter=Trame page | *.json",
+        ],
+        ["kdialog", "--getopenfilename", ".", "*.json"],
+      ],
+  );
 }
 
 let lastSync: { at: string; pulled: number; pushed: number } | null = null;
@@ -113,31 +224,64 @@ async function runSync() {
 
 const WEB_DIST = `${APP_ROOT}/web/dist`;
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const shq = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`; // POSIX single-quote
+
+// How to place the resumed session: a fresh "window", a "tab" in an existing terminal
+// window, or type it into an already-open "existing" session (konsole D-Bus, Linux only).
+type LaunchMode = "window" | "tab" | "existing";
 
 // Open a terminal at `cwd` running `command` (kept open afterwards). Best-effort:
 // returns false if no terminal could be launched, so the caller offers copy-to-clipboard.
-function spawnTerminal(cwd: string, command: string): boolean {
+// `existing` is handled by resumeInExisting(); this covers only "window" and "tab".
+function spawnTerminal(
+  cwd: string,
+  command: string,
+  mode: LaunchMode = "window",
+): boolean {
   const inner = `cd ${shq(cwd)} && ${command}`;
   try {
     if (Deno.build.os === "darwin") {
-      const asStr = (s: string) => `"${s.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+      const asStr = (s: string) =>
+        `"${s.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+      // A tab needs Cmd+T on the front window first; a window is Terminal's default.
+      const lines = mode === "tab"
+        ? [
+          `tell application "Terminal" to activate`,
+          `tell application "System Events" to keystroke "t" using command down`,
+          `tell application "Terminal" to do script ${
+            asStr(inner)
+          } in front window`,
+        ]
+        : [
+          `tell application "Terminal" to do script ${asStr(inner)}`,
+          `tell application "Terminal" to activate`,
+        ];
       new Deno.Command("osascript", {
-        args: ["-e", `tell application "Terminal" to do script ${asStr(inner)}`,
-          "-e", `tell application "Terminal" to activate`],
-        stdout: "null", stderr: "null",
+        args: lines.flatMap((l) => ["-e", l]),
+        stdout: "null",
+        stderr: "null",
       }).spawn();
       return true;
     }
     // Linux: first terminal emulator that exists wins; keep the shell open after the command.
     const keep = `${inner}; exec ${Deno.env.get("SHELL") ?? "bash"}`;
-    const terms: [string, string[]][] = [
-      ["gnome-terminal", ["--", "bash", "-lc", keep]],
-      ["konsole", ["-e", "bash", "-lc", keep]],
-      ["x-terminal-emulator", ["-e", "bash", "-lc", keep]],
-      ["xterm", ["-e", "bash", "-lc", keep]],
-    ];
+    // `--new-tab` (konsole) / `--tab` (gnome-terminal) attach to an existing window,
+    // falling back to a new window when none is open.
+    const terms: [string, string[]][] = mode === "tab"
+      ? [
+        ["konsole", ["--new-tab", "-e", "bash", "-lc", keep]],
+        ["gnome-terminal", ["--tab", "--", "bash", "-lc", keep]],
+        ["x-terminal-emulator", ["-e", "bash", "-lc", keep]],
+        ["xterm", ["-e", "bash", "-lc", keep]],
+      ]
+      : [
+        ["gnome-terminal", ["--", "bash", "-lc", keep]],
+        ["konsole", ["-e", "bash", "-lc", keep]],
+        ["x-terminal-emulator", ["-e", "bash", "-lc", keep]],
+        ["xterm", ["-e", "bash", "-lc", keep]],
+      ];
     for (const [bin, args] of terms) {
       try {
         new Deno.Command(bin, { args, stdout: "null", stderr: "null" }).spawn();
@@ -150,9 +294,84 @@ function spawnTerminal(cwd: string, command: string): boolean {
   }
 }
 
+// Run qdbus (Qt6 preferred), returning both streams so callers can inspect errors.
+async function qdbusRaw(
+  args: string[],
+): Promise<{ ok: boolean; out: string; err: string }> {
+  for (const bin of ["qdbus6", "qdbus"]) {
+    try {
+      const r = await new Deno.Command(bin, {
+        args,
+        stdout: "piped",
+        stderr: "piped",
+      }).output();
+      const dec = new TextDecoder();
+      return {
+        ok: r.success,
+        out: dec.decode(r.stdout).trim(),
+        err: dec.decode(r.stderr).trim(),
+      };
+    } catch { /* binary missing — try the next */ }
+  }
+  return { ok: false, out: "", err: "qdbus not found" };
+}
+async function qdbus(...args: string[]): Promise<string | null> {
+  const r = await qdbusRaw(args);
+  return r.ok ? r.out : null;
+}
+
+// Pick the konsole window to type into: the sole one if there's only one; otherwise the
+// focused window, or (when focus is on the browser) the newest by pid. null if none open.
+async function activeKonsoleService(): Promise<string | null> {
+  const list = await qdbus();
+  if (list === null) return null;
+  const svcs = list.split("\n").map((s) => s.trim()).filter((s) =>
+    s.startsWith("org.kde.konsole-")
+  );
+  if (svcs.length <= 1) return svcs[0] ?? null;
+  for (const s of svcs) {
+    const active = await qdbus(
+      s,
+      "/konsole/MainWindow_1",
+      "org.qtproject.Qt.QWidget.isActiveWindow",
+    );
+    if (active === "true") return s;
+  }
+  const pid = (s: string) => Number(s.slice("org.kde.konsole-".length)) || 0;
+  return [...svcs].sort((a, b) => pid(b) - pid(a))[0];
+}
+
+// Type `command` into an already-open konsole session via D-Bus (interrupts whatever's
+// there). `api-disabled` means konsole's security-sensitive D-Bus API is off — the user
+// must enable it in Settings (EnableSecuritySensitiveDBusAPI); `no-konsole` means no
+// reachable konsole/qdbus, so the caller falls back to copying the command.
+type ExistingResult = { ok: boolean; reason?: "no-konsole" | "api-disabled" };
+async function resumeInExisting(
+  cwd: string,
+  command: string,
+): Promise<ExistingResult> {
+  const svc = await activeKonsoleService();
+  if (!svc) return { ok: false, reason: "no-konsole" };
+  const session = await qdbus(
+    svc,
+    "/Windows/1",
+    "org.kde.konsole.Window.currentSession",
+  );
+  if (!session) return { ok: false, reason: "no-konsole" };
+  const r = await qdbusRaw([
+    svc,
+    `/Sessions/${session}`,
+    "org.kde.konsole.Session.sendText",
+    `cd ${shq(cwd)} && ${command}\n`,
+  ]);
+  if (r.ok) return { ok: true };
+  const disabled = /disabled in the settings|AccessDenied/i.test(r.err);
+  return { ok: false, reason: disabled ? "api-disabled" : "no-konsole" };
+}
+
 // Is this session's transcript on THIS machine? `claude --resume` only finds a session
 // whose ~/.claude/projects/<dir>/<id>.jsonl lives locally, so resume is device-bound.
-async function transcriptIsLocal(id: string): Promise<boolean> {
+async function claudeTranscriptIsLocal(id: string): Promise<boolean> {
   try {
     for await (const proj of Deno.readDir(CLAUDE_DIR)) {
       if (!proj.isDirectory) continue;
@@ -162,6 +381,24 @@ async function transcriptIsLocal(id: string): Promise<boolean> {
       } catch { /* not in this project dir — keep looking */ }
     }
   } catch { /* no ~/.claude/projects here */ }
+  return false;
+}
+
+async function codexTranscriptIsLocal(
+  id: string,
+  dir = CODEX_DIR,
+  depth = 0,
+): Promise<boolean> {
+  if (depth > 4) return false;
+  try {
+    for await (const e of Deno.readDir(dir)) {
+      const path = `${dir}/${e.name}`;
+      if (e.isFile && e.name.endsWith(`${id}.jsonl`)) return true;
+      if (e.isDirectory && await codexTranscriptIsLocal(id, path, depth + 1)) {
+        return true;
+      }
+    }
+  } catch { /* Codex not installed / unreadable directory */ }
   return false;
 }
 
@@ -180,8 +417,17 @@ async function prState(url: string): Promise<string> {
         stderr: "null",
       }).output();
       if (out.success) {
-        const j = JSON.parse(new TextDecoder().decode(out.stdout)) as { state: string; isDraft: boolean };
-        state = j.state === "MERGED" ? "merged" : j.state === "CLOSED" ? "closed" : j.isDraft ? "draft" : "open";
+        const j = JSON.parse(new TextDecoder().decode(out.stdout)) as {
+          state: string;
+          isDraft: boolean;
+        };
+        state = j.state === "MERGED"
+          ? "merged"
+          : j.state === "CLOSED"
+          ? "closed"
+          : j.isDraft
+          ? "draft"
+          : "open";
       }
     }
   } catch { /* gh missing / offline → unknown */ }
@@ -190,18 +436,26 @@ async function prState(url: string): Promise<string> {
 }
 
 const json = (data: unknown, status = 200) =>
-  new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
 
 async function serveStatic(pathname: string): Promise<Response> {
   const p = pathname === "/" ? "index.html" : pathname.slice(1);
-  const type = p.endsWith(".js") ? "text/javascript"
-    : p.endsWith(".css") ? "text/css"
-    : p.endsWith(".html") ? "text/html"
+  const type = p.endsWith(".js")
+    ? "text/javascript"
+    : p.endsWith(".css")
+    ? "text/css"
+    : p.endsWith(".html")
+    ? "text/html"
     : "application/octet-stream";
   const headers = {
     "content-type": type,
     // hashed assets are immutable; everything else must revalidate so a rebuild is picked up on reload
-    "cache-control": p.startsWith("assets/") ? "public, max-age=31536000, immutable" : "no-cache",
+    "cache-control": p.startsWith("assets/")
+      ? "public, max-age=31536000, immutable"
+      : "no-cache",
   };
   try {
     // dev: read from disk so `just web-build` refreshes live
@@ -212,7 +466,9 @@ async function serveStatic(pathname: string): Promise<Response> {
     const embedded = ASSETS[p];
     if (embedded) return new Response(new Uint8Array(embedded), { headers });
     // a missing asset must 404 — an HTML body here makes dynamic import() fail with a MIME error
-    if (p.startsWith("assets/")) return new Response("not found", { status: 404 });
+    if (p.startsWith("assets/")) {
+      return new Response("not found", { status: 404 });
+    }
     return new Response(
       `<h1>🧵 Trame</h1><p>Frontend not built — run <code>just web-build</code>.</p>`,
       { headers: { "content-type": "text/html" } },
@@ -223,7 +479,10 @@ async function serveStatic(pathname: string): Promise<Response> {
 let boundPort = PORT; // set to the real port after serve (random in desktop mode)
 
 const html = (body: string, status = 200) =>
-  new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8" } });
+  new Response(body, {
+    status,
+    headers: { "content-type": "text/html; charset=utf-8" },
+  });
 
 // Standalone editor for a .excalidraw scene — for "open in browser", where scripts
 // run (the in-app preview pre-renders static SVG instead; see web/src/excalidraw.ts).
@@ -235,7 +494,9 @@ function excalidrawPage(json: string, path: string): string {
 <body style="margin:0">
 <div id="root" style="position:fixed;inset:0"></div>
 <div id="status" style="position:fixed;right:14px;bottom:14px;z-index:10;font:12px system-ui;color:#555;background:#fffc;border-radius:6px;padding:2px 8px;pointer-events:none"></div>
-<script type="application/json" id="scene">${json.replaceAll("</", "<\\/")}</script>
+<script type="application/json" id="scene">${
+    json.replaceAll("</", "<\\/")
+  }</script>
 <script type="module">
 globalThis.EXCALIDRAW_ASSET_PATH ??= "https://unpkg.com/@excalidraw/excalidraw@0.18.1/dist/prod/";
 import React from "https://esm.sh/react@18.3.1";
@@ -277,64 +538,121 @@ async function handler(req: Request): Promise<Response> {
     const p = url.searchParams.get("path") ?? "";
     const body = await req.text();
     try {
-      if (JSON.parse(body)?.type !== "excalidraw") return json({ error: "not an excalidraw scene" }, 400);
+      if (JSON.parse(body)?.type !== "excalidraw") {
+        return json({ error: "not an excalidraw scene" }, 400);
+      }
     } catch {
       return json({ error: "invalid json" }, 400);
     }
     const ok = await writeReportFile(p, body);
-    return ok ? json({ ok: true }) : json({ error: "not allowed or not found" }, 404);
+    return ok
+      ? json({ ok: true })
+      : json({ error: "not allowed or not found" }, 404);
   }
   if (pathname === "/report-file") {
     const p = url.searchParams.get("path") ?? "";
     const content = await readReportFile(p);
     if (content === null) return html("not allowed or not found", 404);
-    return html(p.endsWith(".excalidraw") ? excalidrawPage(content, p) : content);
+    return html(
+      p.endsWith(".excalidraw") ? excalidrawPage(content, p) : content,
+    );
   }
   // Open a target in the system browser (webview has no window.open).
   if (pathname === "/api/open" && req.method === "POST") {
     const { target } = await req.json();
-    if (typeof target !== "string" || !(target.startsWith("/") || /^https?:\/\//.test(target))) {
+    if (
+      typeof target !== "string" ||
+      !(target.startsWith("/") || /^https?:\/\//.test(target))
+    ) {
       return json({ error: "invalid target" }, 400);
     }
-    const full = target.startsWith("/") ? `http://127.0.0.1:${boundPort}${target}` : target;
+    const full = target.startsWith("/")
+      ? `http://127.0.0.1:${boundPort}${target}`
+      : target;
     const cmd = Deno.build.os === "darwin" ? "open" : "xdg-open";
-    new Deno.Command(cmd, { args: [full], stdout: "null", stderr: "null" }).spawn();
+    new Deno.Command(cmd, { args: [full], stdout: "null", stderr: "null" })
+      .spawn();
     return json({ ok: true });
   }
   // Best-effort PR/MR state for a link (open|draft|merged|closed|unknown).
   if (pathname === "/api/pr-state" && req.method === "POST") {
     const { url } = await req.json();
-    if (typeof url !== "string" || !/^https:\/\//.test(url)) return json({ error: "invalid url" }, 400);
+    if (typeof url !== "string" || !/^https:\/\//.test(url)) {
+      return json({ error: "invalid url" }, 400);
+    }
     return json({ url, state: await prState(url) });
   }
-  // Resume a Claude Code session: open a terminal at its repo running `claude --resume <id>`.
-  // Only works on the machine holding the transcript (~/.claude/projects/.../<id>.jsonl).
+  // Resume a Claude Code or Codex session on the machine holding its transcript.
   if (pathname === "/api/resume" && req.method === "POST") {
-    const { id, probe } = await req.json();
-    if (typeof id !== "string" || !UUID_RE.test(id)) return json({ error: "invalid id" }, 400);
+    const { id, probe, mode } = await req.json();
+    if (typeof id !== "string" || !UUID_RE.test(id)) {
+      return json({ error: "invalid id" }, 400);
+    }
+    const launchMode: LaunchMode = mode === "tab" || mode === "existing"
+      ? mode
+      : "window";
     const pg = await db();
-    const row = (await pg.query(`select repo_path from sessions where id=$1 and not deleted`, [id]))
-      .rows[0] as { repo_path: string | null } | undefined;
+    const row = (await pg.query(
+      `select repo_path, claude_id, agent from sessions where id=$1 and not deleted`,
+      [id],
+    ))
+      .rows[0] as {
+        repo_path: string | null;
+        claude_id: string | null;
+        agent: string | null;
+      } | undefined;
     const repo = row?.repo_path;
-    // home device = the node that imported it (its transcript lives there). Only set for
-    // Claude-imported sessions; /trame:track sessions have no transcript to resume.
+    // Imported cards carry the transcript UUID as id; skill-tracked cards store it
+    // in the legacy-named claude_id column.
+    const cid = row?.claude_id ?? id;
+    // Home device = the node that imported it (its transcript lives there).
     const ev = (await pg.query(
       `select summary from session_events where session_id=$1 and kind='import' and not deleted order by at limit 1`,
       [id],
     )).rows[0] as { summary: string | null } | undefined;
-    // "Imported from Claude Code · <node>" — only trust a node after the separator
+    const agent =
+      row?.agent === "codex" || ev?.summary?.startsWith("Imported from Codex")
+        ? "codex"
+        : "claude";
+    // "Imported from <agent> · <node>" — only trust a node after the separator
     // (older imports had no "· <node>" suffix; splitting would echo the whole label)
     const parts = ev?.summary?.split("·") ?? [];
-    const homeNode = parts.length > 1 ? parts[parts.length - 1].trim() || null : null;
-    const local = await transcriptIsLocal(id);
-    const full = repo ? `cd ${shq(repo)} && claude --resume ${id}` : `claude --resume ${id}`;
-    const base = { local, homeNode, cmd: full, repo };
+    const homeNode = parts.length > 1
+      ? parts[parts.length - 1].trim() || null
+      : null;
+    const local = agent === "codex"
+      ? await codexTranscriptIsLocal(cid)
+      : await claudeTranscriptIsLocal(cid);
+    const cmd = agent === "codex"
+      ? `codex resume ${cid}`
+      : `claude --resume ${cid}`;
+    const full = repo ? `cd ${shq(repo)} && ${cmd}` : cmd;
+    const base = { local, homeNode, cmd: full, repo, agent };
     // probe: report resumability for the button affordance, without opening a terminal
-    if (probe) return json({ ...base, ok: local && Boolean(repo), launched: false });
+    if (probe) {
+      return json({ ...base, ok: local && Boolean(repo), launched: false });
+    }
     // resume only works where the transcript lives — don't open a terminal that just errors
     if (!repo || !local) return json({ ...base, ok: false, launched: false });
-    const launched = spawnTerminal(repo, `claude --resume ${id}`);
-    return json({ ...base, ok: launched, launched, local: true });
+    if (launchMode === "existing") {
+      const r = await resumeInExisting(repo, cmd);
+      return json({
+        ...base,
+        ok: r.ok,
+        launched: r.ok,
+        local: true,
+        mode: launchMode,
+        reason: r.reason,
+      });
+    }
+    const launched = spawnTerminal(repo, cmd, launchMode);
+    return json({
+      ...base,
+      ok: launched,
+      launched,
+      local: true,
+      mode: launchMode,
+    });
   }
   // Directory autocomplete for the Explore "report folders" field. Lists sub-directories
   // of the typed path's parent whose name prefix-matches; ~ is expanded and re-collapsed.
@@ -352,7 +670,9 @@ async function handler(req: Request): Promise<Response> {
         if (e.name.startsWith(".") && !prefix.startsWith(".")) continue; // hide dotdirs unless typed
         if (!e.name.toLowerCase().startsWith(prefix)) continue;
         const full = dir === "/" ? `/${e.name}` : `${dir}/${e.name}`;
-        dirs.push(home && full.startsWith(home) ? `~${full.slice(home.length)}` : full);
+        dirs.push(
+          home && full.startsWith(home) ? `~${full.slice(home.length)}` : full,
+        );
       }
     } catch { /* unreadable / missing dir → no suggestions */ }
     dirs.sort();
@@ -360,18 +680,39 @@ async function handler(req: Request): Promise<Response> {
   }
 
   if (pathname === "/api/board") return json(await getBoard());
-  if (pathname === "/api/status") {
-    return json({ nodeId: NODE_ID, remote: Boolean(await getRemotePg()), lastSync, dataDir: DATA_DIR, desktop: DESKTOP, version: VERSION });
+  // Quick-find (Ctrl+P): search sessions/pages/databases; empty q = recently touched.
+  if (pathname === "/api/search") {
+    return json(await searchAll(url.searchParams.get("q") ?? ""));
   }
-  if (pathname === "/api/update" && req.method === "POST") return json(await applyUpdate());
+  if (pathname === "/api/status") {
+    return json({
+      nodeId: NODE_ID,
+      remote: Boolean(await getRemotePg()),
+      lastSync,
+      dataDir: DATA_DIR,
+      desktop: DESKTOP,
+      version: VERSION,
+    });
+  }
+  if (pathname === "/api/update" && req.method === "POST") {
+    return json(await applyUpdate());
+  }
   if (pathname === "/api/update") {
     // opt-out for sandboxes/CI: no surprise calls to api.github.com
     if (Deno.env.get("TRACKER_UPDATE_CHECK") === "0") {
-      return json({ current: VERSION, latest: null, available: false, releaseUrl: "", canSelfUpdate: false });
+      return json({
+        current: VERSION,
+        latest: null,
+        available: false,
+        releaseUrl: "",
+        canSelfUpdate: false,
+      });
     }
     return json(await checkUpdate(url.searchParams.has("force")));
   }
-  if (pathname === "/api/sync" && req.method === "POST") return json(await runSync());
+  if (pathname === "/api/sync" && req.method === "POST") {
+    return json(await runSync());
+  }
   // Probe a hub with (possibly unsaved) settings-form values — nothing is persisted.
   if (pathname === "/api/hub/test" && req.method === "POST") {
     const body = await req.json();
@@ -379,25 +720,38 @@ async function handler(req: Request): Promise<Response> {
       typeof body.remotePg === "string" ? body.remotePg : "",
       typeof body.remotePgPassword === "string" ? body.remotePgPassword : "",
     );
-    return json(url ? await testRemote(url) : { ok: false, error: "no hub configured" });
+    return json(
+      url ? await testRemote(url) : { ok: false, error: "no hub configured" },
+    );
   }
   if (pathname === "/api/import/claude/ignore" && req.method === "POST") {
-    const { claudeId, ignored } = await req.json();
-    return json(await setClaudeIgnored(String(claudeId), Boolean(ignored)));
+    const { claudeId, ignored, source } = await req.json();
+    return json(
+      source === "codex"
+        ? await setSessionIgnored("codex", String(claudeId), Boolean(ignored))
+        : await setClaudeIgnored(String(claudeId), Boolean(ignored)),
+    );
   }
   if (pathname === "/api/import/claude" && req.method === "POST") {
     const body = await req.json();
-    return json(await importClaudeSessions(Array.isArray(body.items) ? body.items : []));
+    return json(
+      await importClaudeSessions(Array.isArray(body.items) ? body.items : []),
+    );
   }
   if (pathname === "/api/import/claude") {
-    const days = Math.min(90, Math.max(1, Number(url.searchParams.get("days")) || 7));
+    const days = Math.min(
+      90,
+      Math.max(1, Number(url.searchParams.get("days")) || 7),
+    );
     return json(await scanClaudeSessions(days));
   }
   if (pathname === "/api/sessions" && req.method === "POST") {
     const body = await req.json();
     const id = await upsertSession(body);
     // A summary from track/MCP is a worklog entry, not just a field.
-    if (typeof body.summary === "string" && body.summary.trim() && !body.no_event) {
+    if (
+      typeof body.summary === "string" && body.summary.trim() && !body.no_event
+    ) {
       await addEvent(id, body.summary, "track");
     }
     return json({ id });
@@ -428,25 +782,63 @@ async function handler(req: Request): Promise<Response> {
   if (pathname === "/api/settings" && req.method === "POST") {
     const body = await req.json();
     await saveExploreSettings({
-      reportPaths: Array.isArray(body.reportPaths) ? body.reportPaths : undefined,
-      ignorePaths: Array.isArray(body.ignorePaths) ? body.ignorePaths : undefined,
-      starredPaths: Array.isArray(body.starredPaths) ? body.starredPaths : undefined,
-      htmlFilter: body.htmlFilter === "smart" || body.htmlFilter === "all" ? body.htmlFilter : undefined,
+      reportPaths: Array.isArray(body.reportPaths)
+        ? body.reportPaths
+        : undefined,
+      ignorePaths: Array.isArray(body.ignorePaths)
+        ? body.ignorePaths
+        : undefined,
+      starredPaths: Array.isArray(body.starredPaths)
+        ? body.starredPaths
+        : undefined,
+      htmlFilter: body.htmlFilter === "smart" || body.htmlFilter === "all"
+        ? body.htmlFilter
+        : undefined,
       remotePg: typeof body.remotePg === "string" ? body.remotePg : undefined,
-      remotePgPassword: typeof body.remotePgPassword === "string" ? body.remotePgPassword : undefined,
+      remotePgPassword: typeof body.remotePgPassword === "string"
+        ? body.remotePgPassword
+        : undefined,
+      authorName: typeof body.authorName === "string"
+        ? body.authorName
+        : undefined,
+      authorAvatar: typeof body.authorAvatar === "string"
+        ? body.authorAvatar
+        : undefined,
     });
     return json(await getReportPaths());
   }
   if (pathname === "/api/settings") return json(await getReportPaths());
   if (pathname === "/api/report-files/delete" && req.method === "POST") {
     const res = await deleteReportFile((await req.json()).path ?? "");
-    return res.ok ? json(res) : json({ error: "not allowed or not found" }, 404);
+    return res.ok
+      ? json(res)
+      : json({ error: "not allowed or not found" }, 404);
   }
-  if (pathname === "/api/report-files") return json(await scanReportFiles(url.searchParams.has("force")));
+  if (pathname === "/api/report-files") {
+    return json(await scanReportFiles(url.searchParams.has("force")));
+  }
   if (pathname === "/api/report-files/content") {
     const p = url.searchParams.get("path") ?? "";
     const html = await readReportFile(p);
-    return html === null ? json({ error: "not allowed or not found" }, 404) : json({ path: p, html });
+    return html === null
+      ? json({ error: "not allowed or not found" }, 404)
+      : json({ path: p, html });
+  }
+  // Live directory listing + OS-open for the "folder" page block.
+  if (pathname === "/api/folder") {
+    const p = url.searchParams.get("path") ?? "";
+    const entries = await listFolder(p);
+    return entries === null
+      ? json({ error: "not allowed or not found" }, 404)
+      : json({ path: p, entries });
+  }
+  if (pathname === "/api/open-path" && req.method === "POST") {
+    const { path } = await req.json().catch(() => ({}));
+    const real = typeof path === "string" ? await resolveAllowedPath(path) : null;
+    if (real === null) return json({ error: "not allowed or not found" }, 404);
+    const cmd = Deno.build.os === "darwin" ? "open" : "xdg-open";
+    new Deno.Command(cmd, { args: [real], stdout: "null", stderr: "null" }).spawn();
+    return json({ ok: true });
   }
   const rm = pathname.match(/^\/api\/reports\/([^/]+)$/);
   if (rm) {
@@ -459,11 +851,85 @@ async function handler(req: Request): Promise<Response> {
     return json({ ok: true });
   }
 
+  // statuses — the kanban columns (add/rename/recolor/reorder/delete)
+  if (pathname === "/api/statuses" && req.method === "POST") {
+    const b = await req.json();
+    return json({
+      id: await createStatus({
+        label: b.label,
+        color: b.color,
+        terminal: b.terminal,
+      }),
+    });
+  }
+  const stm = pathname.match(/^\/api\/statuses\/([^/]+)(\/delete|\/move)?$/);
+  if (stm && req.method === "POST") {
+    try {
+      if (stm[2] === "/delete") await deleteStatus(stm[1]);
+      else if (stm[2] === "/move") {
+        await moveStatus(stm[1], (await req.json()).dir === -1 ? -1 : 1);
+      } else await updateStatus(stm[1], await req.json());
+    } catch (e) {
+      return json({ error: (e as Error).message }, 400);
+    }
+    return json({ ok: true });
+  }
+
+  // inline page comments (block-level notes)
+  if (pathname === "/api/comments" && req.method === "POST") {
+    return json({ id: await createComment(await req.json()) });
+  }
+  if (pathname === "/api/comments") {
+    const pageId = url.searchParams.get("page");
+    return json(pageId ? await listComments(pageId) : []);
+  }
+  const cmt = pathname.match(/^\/api\/comments\/([^/]+)(\/delete)?$/);
+  if (cmt && req.method === "POST") {
+    if (cmt[2]) await deleteComment(cmt[1]);
+    else await updateComment(cmt[1], await req.json());
+    return json({ ok: true });
+  }
+
   // pages — the nestable tree; project pages also serve /api/objectives above
   if (pathname === "/api/pages" && req.method === "POST") {
     return json({ id: await createPage(await req.json()) });
   }
   if (pathname === "/api/pages") return json(await listPages());
+  // Share: export a page subtree to a portable bundle file another Trame user can import.
+  if (pathname === "/api/pages/import" && req.method === "POST") {
+    const body = await req.json().catch(() => ({})) as {
+      parent_id?: string | null;
+    };
+    const picked = await pickOpenPath();
+    if (typeof picked !== "string") return json(picked);
+    let bundle: unknown;
+    try {
+      bundle = JSON.parse(await Deno.readTextFile(picked));
+    } catch {
+      return json({ error: "cannot read file" }, 400);
+    }
+    try {
+      return json({ id: await importPage(bundle, body.parent_id ?? null) });
+    } catch (e) {
+      return json({ error: (e as Error).message }, 400);
+    }
+  }
+  const pgexp = pathname.match(/^\/api\/pages\/([^/]+)\/export$/);
+  if (pgexp && req.method === "POST") {
+    const bundle = await exportPage(pgexp[1]);
+    if (!bundle) return json({ error: "page not found" }, 404);
+    const title = bundle.pages.find((p) =>
+      p.id === bundle.root
+    )?.title?.trim() || "page";
+    const safe =
+      title.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) ||
+      "page";
+    const picked = await pickSavePath(`${safe}.trame.json`);
+    if (typeof picked !== "string") return json(picked);
+    const dest = picked.endsWith(".json") ? picked : `${picked}.json`;
+    await Deno.writeTextFile(dest, JSON.stringify(bundle, null, 2));
+    return json({ path: dest });
+  }
   const pgm = pathname.match(/^\/api\/pages\/([^/]+)(\/delete|\/move)?$/);
   if (pgm && req.method === "POST") {
     try {
@@ -486,7 +952,9 @@ async function handler(req: Request): Promise<Response> {
   }
   if (pathname === "/api/udb") return json(await listUdbs());
   if (pathname === "/api/udb/icons") return json(await listIcons());
-  if (pathname === "/api/pick-image" && req.method === "POST") return json(await pickImage());
+  if (pathname === "/api/pick-image" && req.method === "POST") {
+    return json(await pickImage());
+  }
   if (pathname === "/api/udb/links" && req.method === "POST") {
     const b = await req.json();
     await setLink(b.prop_id, b.from_row, b.to_row, Boolean(b.remove));
@@ -553,7 +1021,9 @@ try {
       signal: AbortSignal.timeout(800),
     }).then((r) => r.ok).catch(() => false);
     if (alive) {
-      console.error(`Another Trame instance is already running on :${port} (pid ${pid}) — exiting.`);
+      console.error(
+        `Another Trame instance is already running on :${port} (pid ${pid}) — exiting.`,
+      );
       Deno.exit(1);
     }
   }
@@ -579,13 +1049,21 @@ if (Deno.env.get("TRACKER_DESKTOP") === "1") {
 boundPort = server.addr.port;
 
 // Publish the bound port so the CLI / MCP server can find this instance.
-await Deno.mkdir(PORT_FILE.replace(/\/[^/]+$/, ""), { recursive: true }).catch(() => {});
+await Deno.mkdir(PORT_FILE.replace(/\/[^/]+$/, ""), { recursive: true }).catch(
+  () => {},
+);
 await Deno.writeTextFile(
   PORT_FILE,
-  JSON.stringify({ port: server.addr.port, pid: Deno.pid, startedAt: new Date().toISOString() }),
+  JSON.stringify({
+    port: server.addr.port,
+    pid: Deno.pid,
+    startedAt: new Date().toISOString(),
+  }),
 );
 
-if (REPORT_PATHS.length) console.log(`✦ Explore scans: ${REPORT_PATHS.join(" · ")}`);
+if (REPORT_PATHS.length) {
+  console.log(`✦ Explore scans: ${REPORT_PATHS.join(" · ")}`);
+}
 
 // Desktop window: adopt the auto-opened window, restore saved geometry, persist on change.
 // deno-lint-ignore no-explicit-any
@@ -595,7 +1073,13 @@ if (Deno.env.get("TRACKER_DESKTOP") === "1" && BW) {
   try {
     geo = JSON.parse(await Deno.readTextFile(WINDOW_FILE));
   } catch { /* first run */ }
-  const win = new BW({ title: "Trame", width: geo.width ?? 1360, height: geo.height ?? 880, x: geo.x, y: geo.y });
+  const win = new BW({
+    title: "Trame",
+    width: geo.width ?? 1360,
+    height: geo.height ?? 880,
+    x: geo.x,
+    y: geo.y,
+  });
   // ctor opts may not apply when adopting — enforce explicitly
   if (geo.width && geo.height) win.setSize(geo.width, geo.height);
   else win.setSize(1360, 880);
@@ -619,7 +1103,10 @@ if (Deno.env.get("TRACKER_DESKTOP") === "1" && BW) {
       try {
         const [width, height] = win.getSize();
         const [x, y] = win.getPosition();
-        await Deno.writeTextFile(WINDOW_FILE, JSON.stringify({ width, height, x, y }));
+        await Deno.writeTextFile(
+          WINDOW_FILE,
+          JSON.stringify({ width, height, x, y }),
+        );
       } catch { /* window gone */ }
     }, 400);
   };

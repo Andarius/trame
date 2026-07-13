@@ -1,5 +1,5 @@
 import type { BoardData } from "./api";
-import { clientColor, StatusDot, timeAgo } from "./ui";
+import { clientColor, statusStyle, StatusDot, timeAgo } from "./ui";
 
 // Overview for one client: its projects (each openable) with progress, plus any
 // client-tagged sessions that don't ladder up to one of those projects. All derived
@@ -31,7 +31,7 @@ export function ClientView(
       className="flex items-center gap-2 rounded px-1.5 py-1 text-left hover:bg-[#14161c]"
     >
       <StatusDot status={s.status} size={7} />
-      <span className={`text-[12.5px] ${s.status === "done" ? "text-ink-muted line-through" : "text-ink-soft"}`}>
+      <span className={`text-[12.5px] ${statusStyle(s.status).terminal ? "text-ink-muted line-through" : "text-ink-soft"}`}>
         {s.title}
       </span>
       {s.branch && <span className="text-[10.5px] text-ink-muted">⎇ {s.branch}</span>}
@@ -56,7 +56,7 @@ export function ClientView(
         {projects.length === 0 && <span className="px-0.5 text-[12px] text-ink-muted">No stories yet.</span>}
         {projects.map((p) => {
           const ss = sessionsOf(p.id);
-          const done = ss.filter((s) => s.status === "done").length;
+          const done = ss.filter((s) => statusStyle(s.status).terminal).length;
           return (
             <div key={p.id} className="flex flex-col gap-1 rounded-lg border border-line bg-[#101219] p-3">
               <button type="button"

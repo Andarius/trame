@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { DateInput, Popover } from "../ui";
+import { Markdown } from "../md";
 import {
   type Derived,
   getStatus,
@@ -70,7 +71,7 @@ async function downscale(src: string): Promise<string> {
   return canvas.toDataURL("image/png");
 }
 
-async function dataUriToIcon(uri: string): Promise<string> {
+export async function dataUriToIcon(uri: string): Promise<string> {
   return uri.startsWith("data:image/svg") ? uri : await downscale(uri);
 }
 
@@ -235,9 +236,42 @@ export function IconPicker(
   );
 }
 
-function TextCell({ value, mono, commit }: { value: string; mono?: boolean; commit: (v: unknown) => void }) {
+function TextCell(
+  { value, mono, commit, panel }: { value: string; mono?: boolean; commit: (v: unknown) => void; panel?: boolean },
+) {
   const [v, setV] = useState(value);
+  const [editing, setEditing] = useState(false);
   useEffect(() => setV(value), [value]);
+  // panel (row detail): render Markdown, click to edit into a growing textarea.
+  // table: a single-line truncating input.
+  if (panel) {
+    if (editing) {
+      return (
+        <textarea
+          autoFocus
+          className={`field-sizing-content w-full resize-none whitespace-pre-wrap break-words rounded-md border border-chipline bg-panel px-1.5 py-1 text-xs leading-relaxed text-ink outline-none ${
+            mono ? "font-mono text-[11px]" : ""
+          }`}
+          rows={1}
+          value={v}
+          onChange={(e) => setV(e.target.value)}
+          onBlur={() => {
+            setEditing(false);
+            if (v !== value) commit(v || null);
+          }}
+        />
+      );
+    }
+    return (
+      <div
+        className="min-h-[28px] cursor-text rounded-md border border-transparent px-1.5 py-1 text-xs text-ink transition-colors hover:bg-panel/50"
+        title="click to edit"
+        onClick={() => setEditing(true)}
+      >
+        {v ? <Markdown text={v} /> : <span className="text-ink-muted/40">Empty</span>}
+      </div>
+    );
+  }
   return (
     <input
       className={`${cellInput} ${mono ? "font-mono text-[11px]" : ""}`}
@@ -492,7 +526,9 @@ function RelationCell(
   );
 }
 
-export function DerivedCell({ value, cfg, kind }: { value: Derived; cfg: PropConfig; kind: "formula" | "rollup" }) {
+export function DerivedCell(
+  { value, cfg, kind, panel }: { value: Derived; cfg: PropConfig; kind: "formula" | "rollup"; panel?: boolean },
+) {
   if (value !== null && typeof value === "object" && "error" in value) {
     return (
       <span className="px-1.5 py-1 text-[11px] text-blocked" title={value.error}>
@@ -503,7 +539,9 @@ export function DerivedCell({ value, cfg, kind }: { value: Derived; cfg: PropCon
   const isNum = value !== null && value !== "" && !Number.isNaN(Number(value));
   return (
     <span
-      className={`truncate px-1.5 py-1 text-xs tabular-nums text-ink-soft ${isNum ? "text-right" : ""}`}
+      className={`block px-1.5 py-1 text-xs tabular-nums text-ink-soft ${isNum ? "text-right" : ""} ${
+        panel ? "whitespace-pre-wrap break-words" : "truncate"
+      }`}
       title={kind === "formula" ? cfg.expr : undefined}
     >
       {isNum ? fmtNumber(value, cfg) : String(value ?? "")}
@@ -512,12 +550,13 @@ export function DerivedCell({ value, cfg, kind }: { value: Derived; cfg: PropCon
 }
 
 export function Cell(
-  { prop, row, onPatch, onSaved, onPropChanged }: {
+  { prop, row, onPatch, onSaved, onPropChanged, panel }: {
     prop: UdbProp;
     row: UdbRow;
     onPatch: (propId: string, value: unknown) => void;
     onSaved: () => void;
     onPropChanged: () => void;
+    panel?: boolean; // row-detail panel: text wraps to full multiline instead of truncating
   },
 ) {
   const v = row.vals[prop.id];
@@ -525,7 +564,7 @@ export function Cell(
   switch (prop.type) {
     case "title":
     case "text":
-      return <TextCell value={typeof v === "string" ? v : ""} commit={commit} />;
+      return <TextCell value={typeof v === "string" ? v : ""} commit={commit} panel={panel} />;
     case "number":
       return <NumberCell value={v ?? null} cfg={prop.config} commit={commit} />;
     case "checkbox":
@@ -542,7 +581,7 @@ export function Cell(
       return <RelationCell prop={prop} row={row} onSaved={onSaved} />;
     case "formula":
     case "rollup":
-      return <DerivedCell value={row.derived[prop.id] ?? null} cfg={prop.config} kind={prop.type} />;
+      return <DerivedCell value={row.derived[prop.id] ?? null} cfg={prop.config} kind={prop.type} panel={panel} />;
     default:
       return null;
   }

@@ -4,21 +4,29 @@ import {
   type AppStatus,
   type BoardData,
   createPage,
+  createStatus,
   createUdb,
   createUdbRow,
+  deleteStatus,
   deleteUdb,
+  exportPage,
   getBoard,
   getStatus,
   getUpdate,
+  importPage,
   listPages,
+  moveStatus as apiMoveStatus,
   openInBrowser,
   listUdbs,
   type PageMeta,
+  type SearchHit,
   setStatus as apiSetStatus,
   type Status,
+  type StatusDef,
   syncNow,
   type UdbMeta,
   type UpdateInfo,
+  updateStatus,
   updateUdb,
 } from "./api";
 import { Board } from "./Board";
@@ -26,9 +34,10 @@ import { Drawer } from "./Drawer";
 import { Explore } from "./Explore";
 import { List } from "./List";
 import { ImportClaudeModal, NewSessionModal, NewUdbModal, SettingsModal } from "./modals";
+import { Palette } from "./Palette";
 import { confirmDeletePage, Page } from "./Page";
 import { ClientView } from "./ClientView";
-import { appConfirm, ConfirmHost, EntityIcon, Popover, STATUS } from "./ui";
+import { appConfirm, ConfirmHost, EntityIcon, Popover, setStatuses } from "./ui";
 import { IconPicker } from "./udb/cells";
 import { DatabaseView } from "./udb/DatabaseTable";
 
@@ -184,7 +193,7 @@ function PageNode(
 }
 
 function Sidebar(
-  { view, onNav, status, onSettings, pages, pageId, onOpenPage, onNewPage, onNewProject, udbs, dbId, onOpenDb, onNewDb, update, updateState, onUpdate }: {
+  { view, onNav, status, onSettings, pages, pageId, onOpenPage, onNewPage, onNewProject, onImportPage, udbs, dbId, onOpenDb, onNewDb, update, updateState, onUpdate }: {
     view: View;
     onNav: (v: View) => void;
     status: AppStatus | null;
@@ -194,6 +203,7 @@ function Sidebar(
     onOpenPage: (id: string) => void;
     onNewPage: (parentId: string | null) => void;
     onNewProject: () => void;
+    onImportPage: () => void;
     udbs: UdbMeta[];
     dbId: string | null;
     onOpenDb: (id: string) => void;
@@ -308,7 +318,10 @@ function Sidebar(
           onNewChild={(id) => onNewPage(id)}
         />
       ))}
-      <NewChip label="New page" indent={26} onClick={() => onNewPage(null)} />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <NewChip label="New page" indent={26} onClick={() => onNewPage(null)} />
+        <NewChip label="Import" indent={9} onClick={onImportPage} />
+      </div>
       <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
         DATABASES
       </div>
@@ -368,6 +381,108 @@ function Sidebar(
   );
 }
 
+const STATUS_PALETTE = [
+  "#7bd88f", "#5fb8e8", "#7a9ee7", "#b590e7", "#e08bc4",
+  "#e06c75", "#e3925e", "#e3c567", "#9aa4b2", "#6b7280",
+];
+
+// Board-column manager (lives in the "Columns" popover): reorder, rename, recolor,
+// flag done-like (terminal), delete, and add statuses. All edits hit the synced DB.
+function StatusManager({ statuses, onChanged }: { statuses: StatusDef[]; onChanged: () => void }) {
+  const [paletteFor, setPaletteFor] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const run = (p: Promise<unknown>) => {
+    setBusy(true);
+    p.then(onChanged).finally(() => setBusy(false));
+  };
+  return (
+    <div className="mt-1 border-t border-line-soft pt-1.5">
+      <div className="px-2 pb-1 text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70">STATUSES</div>
+      {statuses.map((s, i) => (
+        <div key={s.id}>
+          <div className="flex items-center gap-1 px-1.5 py-0.5">
+            <div className="flex flex-col leading-none">
+              <button type="button"
+                disabled={i === 0 || busy}
+                onClick={() => run(apiMoveStatus(s.id, -1))}
+                className="text-[7px] text-ink-muted hover:text-ink disabled:opacity-25"
+                title="move up"
+              >
+                ▲
+              </button>
+              <button type="button"
+                disabled={i === statuses.length - 1 || busy}
+                onClick={() => run(apiMoveStatus(s.id, 1))}
+                className="text-[7px] text-ink-muted hover:text-ink disabled:opacity-25"
+                title="move down"
+              >
+                ▼
+              </button>
+            </div>
+            <button type="button"
+              onClick={() => setPaletteFor((c) => (c === s.id ? null : s.id))}
+              className="h-3 w-3 shrink-0 rounded-full ring-1 ring-inset ring-white/10"
+              style={{ background: s.color }}
+              title="change color"
+            />
+            <input
+              defaultValue={s.label}
+              key={s.label}
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                if (v && v !== s.label) run(updateStatus(s.id, { label: v }));
+              }}
+              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+              className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-xs text-ink-soft outline-none hover:bg-panel/60 focus:border-chipline focus:bg-panel"
+            />
+            <button type="button"
+              onClick={() => run(updateStatus(s.id, { terminal: !s.terminal }))}
+              disabled={busy}
+              className={`shrink-0 rounded px-1 text-[10px] ${s.terminal ? "text-copper" : "text-ink-muted/50 hover:text-ink-muted"}`}
+              title={s.terminal ? "done-like column (click to unset)" : "mark as a done-like column"}
+            >
+              ⚑
+            </button>
+            <button type="button"
+              disabled={statuses.length <= 1 || busy}
+              onClick={() =>
+                appConfirm(`Delete the "${s.label}" status? Sessions in it move to another column.`).then((ok) =>
+                  ok && run(deleteStatus(s.id))
+                )}
+              className="shrink-0 rounded px-1 text-[11px] text-ink-muted/60 hover:text-blocked disabled:opacity-25"
+              title="delete status"
+            >
+              ✕
+            </button>
+          </div>
+          {paletteFor === s.id && (
+            <div className="flex flex-wrap gap-1 px-2 pb-1.5 pt-0.5">
+              {STATUS_PALETTE.map((c) => (
+                <button type="button"
+                  key={c}
+                  onClick={() => {
+                    setPaletteFor(null);
+                    if (c !== s.color) run(updateStatus(s.id, { color: c }));
+                  }}
+                  className={`h-4 w-4 rounded-full ring-1 ring-inset ${c === s.color ? "ring-white/70" : "ring-white/10"}`}
+                  style={{ background: c }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+      <button type="button"
+        disabled={busy}
+        onClick={() => run(createStatus({ label: "New status", color: STATUS_PALETTE[2] }))}
+        className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11.5px] text-ink-muted/70 hover:text-copper disabled:opacity-50"
+      >
+        <span className="text-[11px]">＋</span> Add status
+      </button>
+    </div>
+  );
+}
+
 export function App() {
   const params = new URLSearchParams(location.search);
   const [board, setBoard] = useState<BoardData | null>(null);
@@ -380,31 +495,17 @@ export function App() {
   const [groupMenu, setGroupMenu] = useState(false);
   const [colMenu, setColMenu] = useState(false);
   const [storyFilter, setStoryFilter] = useState<string | null>(params.get("story")); // narrow sessions to one story
-  const DEFAULT_ORDER: Status[] = ["active", "paused", "blocked", "done"];
+  // column order + the status set itself now live in the synced DB (board.statuses);
+  // only "hide empty" stays a per-device preference.
   const [hideEmpty, setHideEmpty] = useState<boolean>(() => localStorage.getItem("trame:hideEmpty") === "1");
-  const [statusOrder, setStatusOrder] = useState<Status[]>(() => {
-    try {
-      const arr = JSON.parse(localStorage.getItem("trame:statusOrder") ?? "null");
-      return Array.isArray(arr) && arr.length === 4 ? arr as Status[] : DEFAULT_ORDER;
-    } catch {
-      return DEFAULT_ORDER;
-    }
-  });
   useEffect(() => localStorage.setItem("trame:hideEmpty", hideEmpty ? "1" : "0"), [hideEmpty]);
-  useEffect(() => localStorage.setItem("trame:statusOrder", JSON.stringify(statusOrder)), [statusOrder]);
-  const moveStatus = (s: Status, dir: -1 | 1) =>
-    setStatusOrder((cur) => {
-      const i = cur.indexOf(s), j = i + dir;
-      if (i < 0 || j < 0 || j >= cur.length) return cur;
-      const next = [...cur];
-      [next[i], next[j]] = [next[j], next[i]];
-      return next;
-    });
   const [modal, setModal] = useState<"session" | "settings" | "udb" | "import" | null>(
     (params.get("new") as "session" | "settings" | "udb" | "import" | null) ?? null,
   );
   const [openId, setOpenId] = useState<string | null>(params.get("session"));
   const [exploreEpoch, setExploreEpoch] = useState(0); // bump to rescan files after settings change
+  const [exploreTarget, setExploreTarget] = useState<string | null>(null); // report path to pre-open in Explore
+  const [exploreReturn, setExploreReturn] = useState<string | null>(null); // page id to go back to from Explore
   const [udbs, setUdbs] = useState<UdbMeta[]>([]);
   const [pages, setPages] = useState<PageMeta[]>([]);
   const [dbId, setDbId] = useState<string | null>(params.get("db"));
@@ -415,9 +516,35 @@ export function App() {
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [updateState, setUpdateState] = useState<"idle" | "busy" | "done">("idle");
   const [updateDismissed, setUpdateDismissed] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [shareFlash, setShareFlash] = useState<string | null>(null); // transient Share-button label
+  const shareFlashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Ctrl/Cmd+P — Notion-style quick find (preventDefault beats the print dialog)
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "p") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    addEventListener("keydown", h);
+    return () => removeEventListener("keydown", h);
+  }, []);
+
+  const onPalettePick = (h: SearchHit) => {
+    setPaletteOpen(false);
+    if (h.kind === "session") setOpenId(h.id);
+    else if (h.kind === "client") openClient(h.id);
+    else if (h.kind === "database") openDb(h.id);
+    else openPage(h.id);
+  };
 
   const refresh = () => {
-    getBoard().then(setBoard).catch(() => {});
+    getBoard().then((b) => {
+      setBoard(b);
+      setStatuses(b.statuses); // keep the status registry (labels/colors) in sync with the board
+    }).catch(() => {});
     getStatus().then(setStatus).catch(() => {});
     listUdbs().then((d) => Array.isArray(d) && setUdbs(d)).catch(() => {});
     listPages().then((d) => Array.isArray(d) && setPages(d)).catch(() => {});
@@ -445,13 +572,20 @@ export function App() {
     syncFlashTimer.current = setTimeout(() => setSyncFlash(null), 2500);
   };
   useEffect(() => () => clearTimeout(syncFlashTimer.current), []);
-  // keep the story filter in the URL so a refresh/reload restores it
+  // mirror the navigational state into the URL so a refresh/reload restores it
   useEffect(() => {
     const u = new URL(location.href);
-    if (storyFilter) u.searchParams.set("story", storyFilter);
-    else u.searchParams.delete("story");
+    const p = u.searchParams;
+    const put = (k: string, v: string | null) => (v ? p.set(k, v) : p.delete(k));
+    put("view", view === "board" ? null : view); // board is the default, keep it out
+    put("page", view === "page" ? pageId : null);
+    put("db", view === "database" ? dbId : null);
+    put("client", view === "client" ? clientId : null);
+    put("session", openId);
+    put("group", group === "none" ? null : group);
+    put("story", storyFilter);
     history.replaceState(null, "", u);
-  }, [storyFilter]);
+  }, [view, pageId, dbId, clientId, openId, group, storyFilter]);
   useEffect(() => {
     refresh();
     const t = setInterval(refresh, 5000);
@@ -490,16 +624,26 @@ export function App() {
     });
 
   const openDb = (id: string) => {
+    setExploreReturn(null);
     setDbId(id);
     setView("database");
   };
   const openPage = (id: string) => {
+    setExploreReturn(null);
     setPageId(id);
     setView("page");
   };
   const openClient = (id: string) => {
+    setExploreReturn(null);
     setClientId(id);
     setView("client");
+  };
+  // Jump to Explore and pre-open a report file (e.g. from a folder block's "Explore" button),
+  // remembering the page to return to.
+  const openReport = (path: string) => {
+    setExploreReturn(pageId);
+    setExploreTarget(path);
+    setView("explore");
   };
   const newProject = () =>
     createPage({ kind: "project" }).then((r) => {
@@ -511,6 +655,32 @@ export function App() {
       refresh();
       openPage(r.id);
     });
+
+  // Export the page subtree to a bundle file; flash the outcome on the button.
+  const flashShare = (msg: string | null, hold = 2600) => {
+    clearTimeout(shareFlashTimer.current);
+    setShareFlash(msg);
+    if (msg) shareFlashTimer.current = setTimeout(() => setShareFlash(null), hold);
+  };
+  const sharePage = (id: string) => {
+    flashShare("Saving…", 0);
+    exportPage(id).then((r) => {
+      if (r.path) flashShare("Saved ✓");
+      else if (r.cancelled) flashShare(null);
+      else flashShare(r.error ?? "failed");
+    }).catch(() => flashShare("failed"));
+  };
+  // Import a bundle another Trame user sent; drop it at the top level, then open it.
+  const importPageFile = () =>
+    importPage(null).then((r) => {
+      if (r.id) {
+        refresh();
+        openPage(r.id);
+      } else if (r.error) {
+        appConfirm(`Import failed: ${r.error}`, "OK");
+      }
+    }).catch(() => appConfirm("Import failed.", "OK"));
+  useEffect(() => () => clearTimeout(shareFlashTimer.current), []);
   const newDb = () => setModal("udb");
   const currentDb = view === "database" ? udbs.find((d) => d.id === dbId) ?? null : null;
   const currentPage = view === "page" ? pages.find((p) => p.id === pageId) ?? null : null;
@@ -532,7 +702,10 @@ export function App() {
     <div className="flex h-full">
       <Sidebar
         view={view}
-        onNav={setView}
+        onNav={(v) => {
+          setExploreReturn(null);
+          setView(v);
+        }}
         status={status}
         onSettings={() => setModal("settings")}
         pages={pages}
@@ -540,6 +713,7 @@ export function App() {
         onOpenPage={openPage}
         onNewPage={newPage}
         onNewProject={newProject}
+        onImportPage={importPageFile}
         udbs={udbs}
         dbId={dbId}
         onOpenDb={openDb}
@@ -666,7 +840,7 @@ export function App() {
                 <span className="text-[8px]">▾</span>
               </button>
               {colMenu && (
-                <Popover onClose={() => setColMenu(false)} className="w-52">
+                <Popover onClose={() => setColMenu(false)} className="w-[264px]">
                   <button type="button"
                     onClick={() => setHideEmpty((v) => !v)}
                     className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-ink-soft hover:bg-panel"
@@ -679,31 +853,7 @@ export function App() {
                     </span>
                     <span className="flex-1">Hide empty statuses</span>
                   </button>
-                  <div className="mt-1 border-t border-line-soft px-2 pb-1 pt-2 text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70">
-                    ORDER
-                  </div>
-                  {statusOrder.map((s, i) => (
-                    <div key={s} className="flex items-center gap-2 px-2 py-1 text-xs">
-                      <span className="h-[7px] w-[7px] rounded-full" style={{ background: STATUS[s].color }} />
-                      <span className="flex-1 text-ink-soft">{STATUS[s].label}</span>
-                      <button type="button"
-                        disabled={i === 0}
-                        onClick={() => moveStatus(s, -1)}
-                        className="px-1 text-ink-muted hover:text-ink disabled:opacity-25"
-                        title="move left"
-                      >
-                        ◀
-                      </button>
-                      <button type="button"
-                        disabled={i === statusOrder.length - 1}
-                        onClick={() => moveStatus(s, 1)}
-                        className="px-1 text-ink-muted hover:text-ink disabled:opacity-25"
-                        title="move right"
-                      >
-                        ▶
-                      </button>
-                    </div>
-                  ))}
+                  <StatusManager statuses={board?.statuses ?? []} onChanged={refresh} />
                 </Popover>
               )}
             </div>
@@ -714,7 +864,7 @@ export function App() {
               onClick={() => setModal("import")}
               className="shrink-0 whitespace-nowrap rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
             >
-              ⇣ Import from Claude Code
+              ⇣ Import from Claude Code + Codex
             </button>
           )}
           <button type="button"
@@ -725,6 +875,15 @@ export function App() {
           >
             {syncing ? "Syncing…" : syncFlash ? `Synced · ${syncFlash}` : "Sync now"}
           </button>
+          {view === "page" && currentPage && (
+            <button type="button"
+              onClick={() => sharePage(currentPage.id)}
+              title="Export this page — with its sub-pages and databases — to a file another Trame user can import"
+              className="shrink-0 whitespace-nowrap rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
+            >
+              {shareFlash ?? "Share"}
+            </button>
+          )}
           {view === "page" && currentPage && (
             <button type="button"
               onClick={() =>
@@ -799,7 +958,6 @@ export function App() {
               onOpen={setOpenId}
               storyFilter={storyFilter}
               onFilterStory={(id) => setStoryFilter((cur) => cur === id ? null : id)}
-              statusOrder={statusOrder}
               hideEmpty={hideEmpty}
             />
           )
@@ -823,6 +981,7 @@ export function App() {
                 onOpenPage={openPage}
                 onOpenSession={setOpenId}
                 onOpenClient={openClient}
+                onOpenReport={openReport}
                 onChanged={refresh}
               />
             )
@@ -835,7 +994,16 @@ export function App() {
           ? (clientId
             ? <ClientView board={board} clientId={clientId} onOpenPage={openPage} onOpenSession={setOpenId} />
             : <p className="p-6 text-ink-muted">No client selected.</p>)
-          : <Explore key={exploreEpoch} board={board} onOpenSettings={() => setModal("settings")} />}
+          : (
+            <Explore
+              key={exploreEpoch}
+              board={board}
+              onOpenSettings={() => setModal("settings")}
+              initialPath={exploreTarget}
+              onConsumed={() => setExploreTarget(null)}
+              onBack={exploreReturn ? () => openPage(exploreReturn) : undefined}
+            />
+          )}
       </main>
       {openId && board && (() => {
         const session = board.sessions.find((s) => s.id === openId);
@@ -851,6 +1019,7 @@ export function App() {
           )
           : null;
       })()}
+      {paletteOpen && <Palette onClose={() => setPaletteOpen(false)} onPick={onPalettePick} />}
       {modal === "import" && board && (
         <ImportClaudeModal
           board={board}

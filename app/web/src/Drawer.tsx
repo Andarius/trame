@@ -8,13 +8,26 @@ import {
   prState,
   probeResume,
   type ResumeInfo,
+  type ResumeMode,
   resumeSession,
   saveSession,
   type Session,
   type SessionEvent,
   type Status,
 } from "./api";
-import { appConfirm, pageOptions, Select, STATUS, StatusDot, timeAgo } from "./ui";
+import { appConfirm, clientColor, pageOptions, Popover, Select, StatusDot, timeAgo } from "./ui";
+
+// How the Resume button places the session; the last pick is the default, persisted.
+const RESUME_MODES: { mode: ResumeMode; label: string; hint: string }[] = [
+  { mode: "window", label: "New window", hint: "opens a fresh terminal window" },
+  { mode: "tab", label: "New tab", hint: "adds a tab to your open terminal" },
+  { mode: "existing", label: "Existing session", hint: "types into your focused konsole" },
+];
+const RESUME_DONE: Record<ResumeMode, string> = {
+  window: "terminal opened",
+  tab: "tab opened",
+  existing: "sent to terminal",
+};
 
 const sectionLbl = "text-[10px] font-medium tracking-[0.8px] text-ink-muted/70";
 const rowLbl = "shrink-0 pt-[5px] text-[11px] text-ink-muted";
@@ -95,6 +108,10 @@ export function Drawer(
   const flashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [resumeMsg, setResumeMsg] = useState<string | null>(null);
   const [resumeInfo, setResumeInfo] = useState<ResumeInfo | null>(null);
+  const [resumeMenu, setResumeMenu] = useState(false);
+  const [resumeMode, setResumeMode] = useState<ResumeMode>(
+    () => (localStorage.getItem("trame:resumeMode") as ResumeMode | null) ?? "window",
+  );
   const resumeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // probe on open so the button shows whether this session is resumable HERE vs on another device
@@ -117,18 +134,23 @@ export function Drawer(
     if (nsEditing) growNs();
   }, [nsEditing]);
 
-  const doResume = async () => {
+  const doResume = async (mode: ResumeMode = resumeMode) => {
+    setResumeMenu(false);
+    setResumeMode(mode);
+    localStorage.setItem("trame:resumeMode", mode);
     let msg: string;
     try {
-      const r = await resumeSession(session.id);
+      const r = await resumeSession(session.id, mode);
       if (r.launched) {
-        msg = "terminal opened";
+        msg = RESUME_DONE[mode];
       } else {
-        // transcript isn't here → can't resume locally; copy the command as an escape hatch
+        // couldn't launch → copy the command as an escape hatch, then explain why
         try {
           await navigator.clipboard?.writeText(r.cmd);
         } catch { /* clipboard blocked — still show why below */ }
-        msg = r.local === false
+        msg = r.reason === "api-disabled"
+          ? "enable konsole D-Bus — copied"
+          : r.local === false
           ? (r.homeNode ? `on ${r.homeNode} — copied` : "no transcript here — copied")
           : "command copied";
       }
@@ -237,27 +259,28 @@ export function Drawer(
           onBlur={() => commitIf(title !== session.title)}
         />
 
-        <div className="grid grid-cols-4 gap-1 rounded-lg bg-panel p-1">
-          {(Object.keys(STATUS) as Status[]).map((s) => {
+        <div className="flex flex-wrap gap-1 rounded-lg bg-panel p-1">
+          {board.statuses.map((def) => {
+            const s = def.key;
             const active = status === s;
             return (
               <button type="button"
-                key={s}
+                key={def.id}
                 onClick={() => {
                   setStatus(s);
                   commit({ status: s });
                 }}
-                className={`flex items-center justify-center gap-1.5 rounded-md py-1.5 text-[11px] transition-colors ${
+                className={`flex flex-1 basis-[calc(25%-0.25rem)] items-center justify-center gap-1.5 rounded-md py-1.5 text-[11px] transition-colors ${
                   active ? "font-medium" : "text-ink-muted hover:text-ink-soft"
                 }`}
                 style={active
                   ? {
-                    background: `color-mix(in srgb, ${STATUS[s].color} 13%, transparent)`,
-                    color: STATUS[s].color,
+                    background: `color-mix(in srgb, ${def.color} 13%, transparent)`,
+                    color: def.color,
                   }
                   : undefined}
               >
-                <StatusDot status={s} size={6} /> {STATUS[s].label}
+                <StatusDot status={s} size={6} /> {def.label}
               </button>
             );
           })}
@@ -265,27 +288,60 @@ export function Drawer(
 
         {session.repo_path && (() => {
           const foreign = resumeInfo?.local === false; // transcript lives on another device
-          const label = resumeMsg ??
-            (foreign
-              ? (resumeInfo?.homeNode ? `On ${resumeInfo.homeNode}` : "No transcript on this device")
-              : "Resume in Claude Code");
-          return (
-            <button type="button"
-              className={`flex items-center justify-center gap-2 rounded-lg border py-2 text-[12px] font-medium transition-colors ${
-                foreign
-                  ? "border-line bg-transparent text-ink-muted hover:border-chipline hover:text-ink-soft"
-                  : "border-copper/40 bg-copper/[0.06] text-copper hover:border-copper/60 hover:bg-copper/10"
-              }`}
-              title={foreign
-                ? `This session's transcript lives on ${
+          // Foreign transcript: single button that copies the command (launch modes don't apply).
+          if (foreign) {
+            return (
+              <button type="button"
+                className="flex items-center justify-center gap-2 rounded-lg border border-line bg-transparent py-2 text-[12px] font-medium text-ink-muted transition-colors hover:border-chipline hover:text-ink-soft"
+                title={`This session's transcript lives on ${
                   resumeInfo?.homeNode ?? "another device"
-                } — resume it there. Click to copy the command.`
-                : `Opens a terminal in ${session.repo_path} running "claude --resume"`}
-              onClick={doResume}
-            >
-              <span className="text-[13px]">{foreign ? "⧉" : "⏵"}</span>
-              {label}
-            </button>
+                } — resume it there. Click to copy the command.`}
+                onClick={() => doResume()}
+              >
+                <span className="text-[13px]">⧉</span>
+                {resumeMsg ??
+                  (resumeInfo?.homeNode ? `On ${resumeInfo.homeNode}` : "No transcript on this device")}
+              </button>
+            );
+          }
+          const active = RESUME_MODES.find((m) => m.mode === resumeMode) ?? RESUME_MODES[0];
+          const agentLabel = resumeInfo?.agent === "codex" ? "Codex" : "Claude";
+          const btn = "border-copper/40 bg-copper/[0.06] text-copper transition-colors hover:border-copper/60 hover:bg-copper/10";
+          return (
+            <div className="relative flex">
+              <button type="button"
+                className={`flex flex-1 items-center justify-center gap-2 rounded-l-lg border border-r-0 py-2 text-[12px] font-medium ${btn}`}
+                title={`Resume in ${session.repo_path} — ${active.hint}`}
+                onClick={() => doResume()}
+              >
+                <span className="text-[13px]">⏵</span>
+                {resumeMsg ?? `Resume ${agentLabel} · ${active.label}`}
+              </button>
+              <button type="button"
+                className={`flex items-center rounded-r-lg border px-2 text-[10px] ${btn}`}
+                title="choose how to open"
+                onClick={() => setResumeMenu((v) => !v)}
+              >
+                ▾
+              </button>
+              {resumeMenu && (
+                <Popover onClose={() => setResumeMenu(false)} className="left-auto right-0 min-w-[220px]">
+                  {RESUME_MODES.map((m) => (
+                    <button type="button"
+                      key={m.mode}
+                      className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-panel"
+                      onClick={() => doResume(m.mode)}
+                    >
+                      <span className="flex-1">
+                        <span className="block text-xs text-ink-soft">{m.label}</span>
+                        <span className="block text-[10px] text-ink-muted/70">{m.hint}</span>
+                      </span>
+                      {m.mode === resumeMode && <span className="pt-0.5 text-[10px] text-copper">✓</span>}
+                    </button>
+                  ))}
+                </Popover>
+              )}
+            </div>
           );
         })()}
       </div>
@@ -297,7 +353,7 @@ export function Drawer(
             className={rowVal}
             options={[
               { value: "", label: "none" },
-              ...board.clients.map((c) => ({ value: c.name, label: c.name })),
+              ...board.clients.map((c) => ({ value: c.name, label: c.name, dot: clientColor(c.name, c.color) })),
             ]}
             onChange={(v) => {
               setClient(v);

@@ -27,6 +27,7 @@
     "web:build": "cd web && npm install && npm run build && cd .. && deno run -A ../scripts/gen-embed.ts"
   },
   "imports": {
+    "@clack/prompts": "npm:@clack/prompts@^1.6.0",
     "@electric-sql/pglite": "npm:@electric-sql/pglite@0.5.3",
     "postgres": "npm:postgres@^3.4"
   },
