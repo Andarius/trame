@@ -6,6 +6,7 @@ import {
   CLAUDE_DIR,
   CODEX_DIR,
   DATA_DIR,
+  HOST,
   NODE_ID,
   PORT,
   PORT_FILE,
@@ -13,6 +14,8 @@ import {
   SYNC_INTERVAL_MS,
   WINDOW_FILE,
 } from "./config.ts";
+import { handlePluginRoute, listPluginManifests, startPlugins } from "./plugins/index.ts";
+import { type LaunchMode, shq, spawnTerminal } from "./terminal.ts";
 import {
   deleteReportFile,
   getRemotePg,
@@ -226,73 +229,6 @@ const WEB_DIST = `${APP_ROOT}/web/dist`;
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const shq = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`; // POSIX single-quote
-
-// How to place the resumed session: a fresh "window", a "tab" in an existing terminal
-// window, or type it into an already-open "existing" session (konsole D-Bus, Linux only).
-type LaunchMode = "window" | "tab" | "existing";
-
-// Open a terminal at `cwd` running `command` (kept open afterwards). Best-effort:
-// returns false if no terminal could be launched, so the caller offers copy-to-clipboard.
-// `existing` is handled by resumeInExisting(); this covers only "window" and "tab".
-function spawnTerminal(
-  cwd: string,
-  command: string,
-  mode: LaunchMode = "window",
-): boolean {
-  const inner = `cd ${shq(cwd)} && ${command}`;
-  try {
-    if (Deno.build.os === "darwin") {
-      const asStr = (s: string) =>
-        `"${s.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
-      // A tab needs Cmd+T on the front window first; a window is Terminal's default.
-      const lines = mode === "tab"
-        ? [
-          `tell application "Terminal" to activate`,
-          `tell application "System Events" to keystroke "t" using command down`,
-          `tell application "Terminal" to do script ${
-            asStr(inner)
-          } in front window`,
-        ]
-        : [
-          `tell application "Terminal" to do script ${asStr(inner)}`,
-          `tell application "Terminal" to activate`,
-        ];
-      new Deno.Command("osascript", {
-        args: lines.flatMap((l) => ["-e", l]),
-        stdout: "null",
-        stderr: "null",
-      }).spawn();
-      return true;
-    }
-    // Linux: first terminal emulator that exists wins; keep the shell open after the command.
-    const keep = `${inner}; exec ${Deno.env.get("SHELL") ?? "bash"}`;
-    // `--new-tab` (konsole) / `--tab` (gnome-terminal) attach to an existing window,
-    // falling back to a new window when none is open.
-    const terms: [string, string[]][] = mode === "tab"
-      ? [
-        ["konsole", ["--new-tab", "-e", "bash", "-lc", keep]],
-        ["gnome-terminal", ["--tab", "--", "bash", "-lc", keep]],
-        ["x-terminal-emulator", ["-e", "bash", "-lc", keep]],
-        ["xterm", ["-e", "bash", "-lc", keep]],
-      ]
-      : [
-        ["gnome-terminal", ["--", "bash", "-lc", keep]],
-        ["konsole", ["-e", "bash", "-lc", keep]],
-        ["x-terminal-emulator", ["-e", "bash", "-lc", keep]],
-        ["xterm", ["-e", "bash", "-lc", keep]],
-      ];
-    for (const [bin, args] of terms) {
-      try {
-        new Deno.Command(bin, { args, stdout: "null", stderr: "null" }).spawn();
-        return true;
-      } catch { /* not installed — try the next */ }
-    }
-    return false;
-  } catch {
-    return false;
-  }
-}
 
 // Run qdbus (Qt6 preferred), returning both streams so callers can inspect errors.
 async function qdbusRaw(
@@ -603,8 +539,9 @@ async function handler(req: Request): Promise<Response> {
       } | undefined;
     const repo = row?.repo_path;
     // Imported cards carry the transcript UUID as id; skill-tracked cards store it
-    // in the legacy-named claude_id column.
-    const cid = row?.claude_id ?? id;
+    // in the legacy-named claude_id column. cid flows into a shell command, so it
+    // must be a UUID like id — guard against a poisoned/synced claude_id value.
+    const cid = row?.claude_id && UUID_RE.test(row.claude_id) ? row.claude_id : id;
     // Home device = the node that imported it (its transcript lives there).
     const ev = (await pg.query(
       `select summary from session_events where session_id=$1 and kind='import' and not deleted order by at limit 1`,
@@ -678,6 +615,9 @@ async function handler(req: Request): Promise<Response> {
     dirs.sort();
     return json({ dirs: dirs.slice(0, 24) });
   }
+
+  if (pathname === "/api/plugins") return json(await listPluginManifests());
+  if (pathname.startsWith("/api/plugins/")) return handlePluginRoute(req, url);
 
   if (pathname === "/api/board") return json(await getBoard());
   // Quick-find (Ctrl+P): search sessions/pages/databases; empty q = recently touched.
@@ -1033,6 +973,7 @@ try {
 await drainOutbox();
 runSync().catch(console.error);
 setInterval(() => runSync().catch(console.error), SYNC_INTERVAL_MS);
+startPlugins();
 
 // Under `deno desktop` (TRACKER_DESKTOP=1) don't pin a port — the framework binds the
 // address the webview navigates to. Headless `serve` uses a fixed port so the browser
@@ -1043,7 +984,7 @@ if (Deno.env.get("TRACKER_DESKTOP") === "1") {
   server = Deno.serve(handler);
 } else {
   console.log(`🧵 Trame → http://localhost:${PORT}  (local db: ${DATA_DIR})`);
-  server = Deno.serve({ port: PORT }, handler);
+  server = Deno.serve({ port: PORT, hostname: HOST }, handler);
 }
 
 boundPort = server.addr.port;

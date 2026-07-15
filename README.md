@@ -2,7 +2,10 @@
 
 A **local-first** Claude Code and Codex session tracker. Each session ladders up to a **story** (grouped
 under a **project**); the board is **status columns × swimlanes** — the view no off-the-shelf
-tool gave us. It also holds free-form **pages** and **Notion-style databases**.
+tool gave us, and the columns are **yours to define**. It also holds free-form **pages** (with inline
+comments and one-file sharing) and **Notion-style databases** (sortable / filterable / groupable views).
+`⌘P` jumps to any session, page, or database; a card's **Resume** button reopens the session in Claude
+Code or Codex.
 
 Stack: **Deno-desktop** app → **local PGlite** (embedded Postgres, offline read+write) →
 custom **push/pull LWW sync** → **Postgres on a home server** (the hub). No PowerSync, no Electric.
@@ -53,6 +56,7 @@ app/                       Deno-desktop app
   db.ts                    local PGlite + queries + outbox drain
   sync.ts                  custom LWW push/pull to the hub
   config.ts                env config (NODE_ID, REMOTE_PG, data dir…)
+  share.ts                 export/import a page subtree as a portable *.trame.json bundle
   web/                     React swimlane board (Vite)
 track/track.ts             the /trame:track writer (hub PG or outbox)
 track/claude-hook.ts       UserPromptSubmit hook: records cwd → Claude session id for track.ts

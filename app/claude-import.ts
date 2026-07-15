@@ -5,6 +5,7 @@
 // (LAST ai-title / last-prompt / gitBranch) are read.
 import { addEvent, db, upsertSession } from "./db.ts";
 import { CLAUDE_DIR, CODEX_DIR, NODE_ID, SETTINGS_FILE } from "./config.ts";
+import { updateSettings } from "./settings-store.ts";
 
 export type AgentSource = "claude" | "codex";
 
@@ -60,16 +61,12 @@ export async function setSessionIgnored(
   sessionId: string,
   ignored: boolean,
 ): Promise<{ ignored: boolean }> {
-  await Deno.mkdir(SETTINGS_FILE.replace(/\/[^/]+$/, ""), { recursive: true }).catch(() => {});
-  let settings: Record<string, unknown> = {};
-  try {
-    settings = JSON.parse(await Deno.readTextFile(SETTINGS_FILE));
-  } catch { /* fresh file */ }
-  const set = new Set(Array.isArray(settings.sessionIgnored) ? settings.sessionIgnored as string[] : []);
-  const key = ignoredKey(source, sessionId);
-  ignored ? set.add(key) : set.delete(key);
-  settings.sessionIgnored = [...set];
-  await Deno.writeTextFile(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+  await updateSettings((settings) => {
+    const set = new Set(Array.isArray(settings.sessionIgnored) ? settings.sessionIgnored as string[] : []);
+    const key = ignoredKey(source, sessionId);
+    ignored ? set.add(key) : set.delete(key);
+    settings.sessionIgnored = [...set];
+  });
   return { ignored };
 }
 

@@ -16,7 +16,7 @@ import {
   updateComment,
   updatePage,
 } from "./api";
-import { appConfirm, ClientChip, EntityIcon, Popover, Select, STATUS, StatusDot, timeAgo } from "./ui";
+import { appConfirm, ClientChip, EntityIcon, Popover, Select, statusStyle, StatusDot, timeAgo } from "./ui";
 
 // Stable block id so a comment survives edits/reorders of the surrounding text.
 const genId = () => crypto.randomUUID().slice(0, 8);
@@ -481,8 +481,8 @@ export function Page(
   // sessions come from the polled board (not the fetch-once getPage) so they stay live
   const sessions = board.sessions
     .filter((s) => s.page_id === pageId || s.objective_id === pageId)
-    .sort((a, b) => (a.status === "done" ? 1 : 0) - (b.status === "done" ? 1 : 0));
-  const done = sessions.filter((s) => s.status === "done").length;
+    .sort((a, b) => (statusStyle(a.status).terminal ? 1 : 0) - (statusStyle(b.status).terminal ? 1 : 0));
+  const done = sessions.filter((s) => statusStyle(s.status).terminal).length;
   const blockIds = new Set(blocks.filter(isText).map((b) => b.id).filter(Boolean) as string[]);
   const orphans = comments.filter((c) => !blockIds.has(c.block_id));
   const resolvedCount = comments.filter((c) => c.resolved && blockIds.has(c.block_id)).length;
@@ -656,10 +656,10 @@ export function Page(
                 className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-[#14161c]"
               >
                 <StatusDot status={s.status} size={7} />
-                <span className={`text-xs font-medium ${s.status === "done" ? "text-ink-muted" : ""}`}>{s.title}</span>
+                <span className={`text-xs font-medium ${statusStyle(s.status).terminal ? "text-ink-muted" : ""}`}>{s.title}</span>
                 {s.branch && <span className="text-[10.5px] text-ink-muted">{s.branch}</span>}
                 <span className="flex-1" />
-                <span className="text-[10px] text-ink-muted/70">{STATUS[s.status].label}</span>
+                <span className="text-[10px] text-ink-muted/70">{statusStyle(s.status).label}</span>
               </div>
             ))}
             {sessions.length === 0 && <span className="py-1 text-[11.5px] text-ink-muted">no sessions yet</span>}

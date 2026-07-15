@@ -9,6 +9,7 @@ import {
   REPORT_PATHS,
   SETTINGS_FILE,
 } from "./config.ts";
+import { updateSettings } from "./settings-store.ts";
 
 export type FileHit = { path: string; name: string; mtime: string };
 
@@ -177,57 +178,50 @@ export async function saveExploreSettings(
     authorAvatar?: string;
   },
 ): Promise<void> {
-  await Deno.mkdir(SETTINGS_FILE.replace(/\/[^/]+$/, ""), { recursive: true })
-    .catch(() => {});
-  let settings: Record<string, unknown> = {};
-  try {
-    settings = JSON.parse(await Deno.readTextFile(SETTINGS_FILE));
-  } catch { /* fresh file */ }
-  if (patch.authorName !== undefined) {
-    const name = patch.authorName.trim();
-    if (name) settings.authorName = name;
-    else delete settings.authorName;
-  }
-  if (patch.authorAvatar !== undefined) {
-    const avatar = patch.authorAvatar.trim();
-    if (avatar) settings.authorAvatar = avatar;
-    else delete settings.authorAvatar;
-  }
-  if (patch.reportPaths) {
-    settings.reportPaths = patch.reportPaths.map((p) => p.trim()).filter(
-      Boolean,
-    );
-  }
-  if (patch.ignorePaths) {
-    settings.ignorePaths = patch.ignorePaths.map((p) => p.trim()).filter(
-      Boolean,
-    );
-  }
-  if (patch.starredPaths) {
-    settings.starredPaths = patch.starredPaths.map((p) => p.trim()).filter(
-      Boolean,
-    );
-  }
-  if (patch.htmlFilter) settings.htmlFilter = patch.htmlFilter;
-  if (patch.remotePg !== undefined) {
-    let url = patch.remotePg.trim();
-    let pw = patch.remotePgPassword?.trim() ?? "";
-    // a full URL pasted with an embedded password gets split on save
-    if (!pw) pw = urlPassword(url);
-    url = stripPassword(url);
-    if (url) {
-      settings.remotePg = url;
-      if (pw) settings.remotePgPassword = pw;
-      // blank password = keep the stored one (the UI never gets it back)
-    } else {
-      // empty clears the override — env var (or offline) takes back over
-      delete settings.remotePg;
-      delete settings.remotePgPassword;
+  await updateSettings((settings) => {
+    if (patch.authorName !== undefined) {
+      const name = patch.authorName.trim();
+      if (name) settings.authorName = name;
+      else delete settings.authorName;
     }
-  }
-  await Deno.writeTextFile(SETTINGS_FILE, JSON.stringify(settings, null, 2));
-  // the URL may carry the hub password — keep the file private
-  await Deno.chmod(SETTINGS_FILE, 0o600).catch(() => {});
+    if (patch.authorAvatar !== undefined) {
+      const avatar = patch.authorAvatar.trim();
+      if (avatar) settings.authorAvatar = avatar;
+      else delete settings.authorAvatar;
+    }
+    if (patch.reportPaths) {
+      settings.reportPaths = patch.reportPaths.map((p) => p.trim()).filter(
+        Boolean,
+      );
+    }
+    if (patch.ignorePaths) {
+      settings.ignorePaths = patch.ignorePaths.map((p) => p.trim()).filter(
+        Boolean,
+      );
+    }
+    if (patch.starredPaths) {
+      settings.starredPaths = patch.starredPaths.map((p) => p.trim()).filter(
+        Boolean,
+      );
+    }
+    if (patch.htmlFilter) settings.htmlFilter = patch.htmlFilter;
+    if (patch.remotePg !== undefined) {
+      let url = patch.remotePg.trim();
+      let pw = patch.remotePgPassword?.trim() ?? "";
+      // a full URL pasted with an embedded password gets split on save
+      if (!pw) pw = urlPassword(url);
+      url = stripPassword(url);
+      if (url) {
+        settings.remotePg = url;
+        if (pw) settings.remotePgPassword = pw;
+        // blank password = keep the stored one (the UI never gets it back)
+      } else {
+        // empty clears the override — env var (or offline) takes back over
+        delete settings.remotePg;
+        delete settings.remotePgPassword;
+      }
+    }
+  });
   cache = null; // rescan with the new config
 }
 
