@@ -11,14 +11,16 @@ import {
   deleteUdb,
   exportPage,
   getBoard,
+  getPlugins,
   getStatus,
   getUpdate,
   importPage,
   listPages,
+  listUdbs,
   moveStatus as apiMoveStatus,
   openInBrowser,
-  listUdbs,
   type PageMeta,
+  type PluginManifest,
   type SearchHit,
   setStatus as apiSetStatus,
   type Status,
@@ -33,35 +35,90 @@ import { Board } from "./Board";
 import { Drawer } from "./Drawer";
 import { Explore } from "./Explore";
 import { List } from "./List";
-import { ImportClaudeModal, NewSessionModal, NewUdbModal, SettingsModal } from "./modals";
+import {
+  ImportClaudeModal,
+  NewSessionModal,
+  NewUdbModal,
+  SettingsModal,
+} from "./modals";
 import { Palette } from "./Palette";
 import { confirmDeletePage, Page } from "./Page";
 import { ClientView } from "./ClientView";
-import { appConfirm, ConfirmHost, EntityIcon, Popover, setStatuses } from "./ui";
+import {
+  appConfirm,
+  ConfirmHost,
+  EntityIcon,
+  Popover,
+  setStatuses,
+} from "./ui";
+import { FRONTEND_PLUGINS } from "./plugins";
+import { PluginsModal } from "./plugins/PluginsModal";
+import { PluginSettingsModal } from "./plugins/PluginSettingsModal";
 import { IconPicker } from "./udb/cells";
 import { DatabaseView } from "./udb/DatabaseTable";
 
-type View = "board" | "list" | "explore" | "database" | "page" | "client";
+type View =
+  | "board"
+  | "list"
+  | "explore"
+  | "database"
+  | "page"
+  | "client"
+  | "plugin";
 
 const post = (path: string, body: unknown) =>
-  fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  fetch(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
 
 // inline SVG with hardcoded colors — the span version relied on the --color-copper
 // var and color-mix opacity, one of which the Linux WebKitGTK webview drops (logo
 // rendered invisible). SVG with literal hex is bulletproof across both webviews.
 function LogoMark() {
   return (
-    <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true" className="shrink-0">
+    <svg
+      width="26"
+      height="26"
+      viewBox="0 0 26 26"
+      aria-hidden="true"
+      className="shrink-0"
+    >
       <rect width="26" height="26" rx="7" fill="#c98a63" />
-      <rect x="6" y="11" width="14" height="3.5" rx="1.75" fill="#120e0b" fillOpacity="0.85" />
-      <rect x="11.5" y="6" width="3.5" height="14" rx="1.75" fill="#120e0b" fillOpacity="0.55" />
+      <rect
+        x="6"
+        y="11"
+        width="14"
+        height="3.5"
+        rx="1.75"
+        fill="#120e0b"
+        fillOpacity="0.85"
+      />
+      <rect
+        x="11.5"
+        y="6"
+        width="3.5"
+        height="14"
+        rx="1.75"
+        fill="#120e0b"
+        fillOpacity="0.55"
+      />
     </svg>
   );
 }
 
 function GroupIcon() {
   return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      aria-hidden="true"
+    >
       <rect x="2" y="2.5" width="12" height="4" rx="1" />
       <rect x="2" y="9.5" width="12" height="4" rx="1" />
     </svg>
@@ -72,26 +129,50 @@ function GroupIcon() {
 // and as tofu with the FE0E text selector on WebKitGTK — neither is acceptable
 function GearIcon({ size = 15 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
       <circle cx="12" cy="12" r="3" />
       <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
     </svg>
   );
 }
 
-const NAV: { key: "sessions" | "explore"; glyph: string; label: string; view: View }[] = [
+const NAV: {
+  key: "sessions" | "explore";
+  glyph: string;
+  label: string;
+  view: View;
+}[] = [
   { key: "sessions", glyph: "▦", label: "Sessions", view: "board" },
   { key: "explore", glyph: "✦", label: "Explore", view: "explore" },
 ];
 
-const pageGlyph = (kind: string) => (kind === "project" ? "◎" : kind === "story" ? "◇" : "□");
+const pageGlyph = (
+  kind: string,
+) => (kind === "project" ? "◎" : kind === "story" ? "◇" : "□");
 
 // "New …" affordance under a sidebar section — a subtle dashed chip. `indent` is
 // the x of the section's icon column (tree rows: 26 = 8px pad + 14px chevron + 4px
 // gap; flat rows: 8); the chip shifts by its own padding+border so the ＋ lines up.
-function NewChip({ label, indent, onClick }: { label: string; indent: number; onClick: () => void }) {
+function NewChip(
+  { label, indent, onClick }: {
+    label: string;
+    indent: number;
+    onClick: () => void;
+  },
+) {
   return (
-    <button type="button"
+    <button
+      type="button"
       className="mt-0.5 flex w-fit items-center gap-1.5 rounded-md border border-dashed border-chipline px-2 py-1 text-[12px] text-ink-muted/70 hover:border-copper/60 hover:text-copper"
       style={{ marginLeft: indent - 9 }}
       onClick={onClick}
@@ -102,7 +183,19 @@ function NewChip({ label, indent, onClick }: { label: string; indent: number; on
 }
 
 function PageNode(
-  { p, depth, childrenOf, dbsOf, expanded, onToggle, current, currentDb, onOpenPage, onOpenDb, onNewChild }: {
+  {
+    p,
+    depth,
+    childrenOf,
+    dbsOf,
+    expanded,
+    onToggle,
+    current,
+    currentDb,
+    onOpenPage,
+    onOpenDb,
+    onNewChild,
+  }: {
     p: PageMeta;
     depth: number;
     childrenOf: Map<string | null, PageMeta[]>;
@@ -125,27 +218,45 @@ function PageNode(
     <>
       <div
         className={`group flex items-center gap-1 rounded-md py-[5px] pr-1 text-left text-[13px] ${
-          active ? "bg-[#1a1d26] font-medium text-ink" : "text-ink-muted hover:text-ink-soft"
+          active
+            ? "bg-[#1a1d26] font-medium text-ink"
+            : "text-ink-muted hover:text-ink-soft"
         }`}
         style={{ paddingLeft: 8 + depth * 14 }}
       >
-        <button type="button"
-          className={`w-[14px] shrink-0 text-[9px] ${hasKids ? "text-ink-muted/70 hover:text-ink" : "text-transparent"}`}
+        <button
+          type="button"
+          className={`w-[14px] shrink-0 text-[9px] ${
+            hasKids ? "text-ink-muted/70 hover:text-ink" : "text-transparent"
+          }`}
           onClick={() => hasKids && onToggle(p.id)}
           tabIndex={hasKids ? 0 : -1}
         >
           {open ? "▾" : "▸"}
         </button>
-        <button type="button" className="flex min-w-0 flex-1 items-center gap-1.5" onClick={() => onOpenPage(p.id)}>
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-1.5"
+          onClick={() => onOpenPage(p.id)}
+        >
           <span
-            className={`text-[12px] ${active && !(p.kind === "project" && p.color) ? "text-copper" : ""}`}
-            style={p.kind === "project" && p.color ? { color: p.color } : undefined}
+            className={`text-[12px] ${
+              active && !(p.kind === "project" && p.color) ? "text-copper" : ""
+            }`}
+            style={p.kind === "project" && p.color
+              ? { color: p.color }
+              : undefined}
           >
             <EntityIcon icon={p.icon} fallback={pageGlyph(p.kind)} />
           </span>
-          <span className={`truncate ${p.title ? "" : "italic text-ink-muted/60"}`}>{p.title || "Untitled"}</span>
+          <span
+            className={`truncate ${p.title ? "" : "italic text-ink-muted/60"}`}
+          >
+            {p.title || "Untitled"}
+          </span>
         </button>
-        <button type="button"
+        <button
+          type="button"
           className="hidden shrink-0 rounded px-1 text-[12px] text-ink-muted hover:text-ink group-hover:block"
           title="new sub-page"
           onClick={() => onNewChild(p.id)}
@@ -156,11 +267,14 @@ function PageNode(
       {open && dbs.map((d) => {
         const dbActive = d.id === currentDb;
         return (
-          <button type="button"
+          <button
+            type="button"
             key={d.id}
             onClick={() => onOpenDb(d.id)}
             className={`flex items-center gap-1.5 rounded-md py-[5px] pr-2 text-left text-[13px] ${
-              dbActive ? "bg-[#1a1d26] font-medium text-ink" : "text-ink-muted hover:text-ink-soft"
+              dbActive
+                ? "bg-[#1a1d26] font-medium text-ink"
+                : "text-ink-muted hover:text-ink-soft"
             }`}
             style={{ paddingLeft: 8 + (depth + 1) * 14 + 14 }}
           >
@@ -168,7 +282,9 @@ function PageNode(
               <EntityIcon icon={d.icon} fallback="⌗" />
             </span>
             <span className="flex-1 truncate">{d.name}</span>
-            <span className="text-[10.5px] text-ink-muted/60">{d.row_count || ""}</span>
+            <span className="text-[10.5px] text-ink-muted/60">
+              {d.row_count || ""}
+            </span>
           </button>
         );
       })}
@@ -193,13 +309,37 @@ function PageNode(
 }
 
 function Sidebar(
-  { view, onNav, status, onSettings, pages, pageId, onOpenPage, onNewPage, onNewProject, onImportPage, udbs, dbId, onOpenDb, onNewDb, update, updateState, onUpdate }: {
+  {
+    view,
+    onNav,
+    status,
+    onSettings,
+    pages,
+    pageId,
+    plugins,
+    pluginId,
+    onOpenPlugin,
+    onOpenPage,
+    onNewPage,
+    onNewProject,
+    onImportPage,
+    udbs,
+    dbId,
+    onOpenDb,
+    onNewDb,
+    update,
+    updateState,
+    onUpdate,
+  }: {
     view: View;
     onNav: (v: View) => void;
     status: AppStatus | null;
     onSettings: () => void;
     pages: PageMeta[];
     pageId: string | null;
+    plugins: PluginManifest[];
+    pluginId: string | null;
+    onOpenPlugin: (id: string) => void;
     onOpenPage: (id: string) => void;
     onNewPage: (parentId: string | null) => void;
     onNewProject: () => void;
@@ -215,7 +355,18 @@ function Sidebar(
 ) {
   const activeKey = view === "board" || view === "list" ? "sessions" : view;
   const synced = status?.remote && status.lastSync;
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(() => {
+    try {
+      return new Set<string>(
+        JSON.parse(localStorage.getItem("trame:expanded") ?? "[]"),
+      );
+    } catch {
+      return new Set<string>();
+    }
+  });
+  useEffect(() => {
+    localStorage.setItem("trame:expanded", JSON.stringify([...expanded]));
+  }, [expanded]);
 
   const byId = useMemo(() => new Map(pages.map((p) => [p.id, p])), [pages]);
   const childrenOf = useMemo(() => {
@@ -230,7 +381,9 @@ function Sidebar(
   const dbsOf = useMemo(() => {
     const m = new Map<string, UdbMeta[]>();
     for (const d of udbs) {
-      if (d.page_id && byId.has(d.page_id)) m.set(d.page_id, [...(m.get(d.page_id) ?? []), d]);
+      if (d.page_id && byId.has(d.page_id)) {
+        m.set(d.page_id, [...(m.get(d.page_id) ?? []), d]);
+      }
     }
     return m;
   }, [udbs, byId]);
@@ -241,7 +394,9 @@ function Sidebar(
     if (!pageId) return;
     setExpanded((prev) => {
       const next = new Set(prev);
-      for (let p = byId.get(pageId); p?.parent_id; p = byId.get(p.parent_id)) next.add(p.parent_id);
+      for (let p = byId.get(pageId); p?.parent_id; p = byId.get(p.parent_id)) {
+        next.add(p.parent_id);
+      }
       return next;
     });
   }, [pageId, byId]);
@@ -266,15 +421,45 @@ function Sidebar(
       {NAV.map((item) => {
         const active = item.key === activeKey;
         return (
-          <button type="button"
+          <button
+            type="button"
             key={item.key}
             onClick={() => onNav(item.view)}
             className={`flex items-center gap-2.5 rounded-md px-2 py-[7px] text-left text-[13.5px] ${
-              active ? "bg-[#1a1d26] font-medium text-ink" : "text-ink-muted hover:text-ink-soft"
+              active
+                ? "bg-[#1a1d26] font-medium text-ink"
+                : "text-ink-muted hover:text-ink-soft"
             }`}
           >
-            <span className={`text-[13px] ${active ? "text-copper" : ""}`}>{item.glyph}</span>
+            <span className={`text-[13px] ${active ? "text-copper" : ""}`}>
+              {item.glyph}
+            </span>
             {item.label}
+          </button>
+        );
+      })}
+      {plugins.filter((p) => p.enabled).map((p) => {
+        const active = view === "plugin" && p.id === pluginId;
+        return (
+          <button
+            type="button"
+            key={p.id}
+            onClick={() => onOpenPlugin(p.id)}
+            className={`flex items-center gap-2.5 rounded-md px-2 py-[7px] text-left text-[13.5px] ${
+              active
+                ? "bg-[#1a1d26] font-medium text-ink"
+                : "text-ink-muted hover:text-ink-soft"
+            }`}
+          >
+            <span className={`text-[13px] ${active ? "text-copper" : ""}`}>
+              {p.glyph}
+            </span>
+            {p.label}
+            {p.badge != null && p.badge > 0 && (
+              <span className="ml-auto rounded-full bg-copper/15 px-1.5 py-0.5 text-[10px] font-medium text-copper">
+                {p.badge}
+              </span>
+            )}
           </button>
         );
       })}
@@ -282,7 +467,9 @@ function Sidebar(
       <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
         PROJECTS
       </div>
-      {(childrenOf.get(null) ?? []).filter((p) => p.kind === "project" || p.kind === "story").map((p) => (
+      {(childrenOf.get(null) ?? []).filter((p) =>
+        p.kind === "project" || p.kind === "story"
+      ).map((p) => (
         <PageNode
           key={p.id}
           p={p}
@@ -302,7 +489,9 @@ function Sidebar(
       <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
         PAGES
       </div>
-      {(childrenOf.get(null) ?? []).filter((p) => p.kind === "page").map((p) => (
+      {(childrenOf.get(null) ?? []).filter((p) => p.kind === "page").map((
+        p,
+      ) => (
         <PageNode
           key={p.id}
           p={p}
@@ -328,19 +517,24 @@ function Sidebar(
       {looseDbs.map((d) => {
         const active = view === "database" && d.id === dbId;
         return (
-          <button type="button"
+          <button
+            type="button"
             key={d.id}
             onClick={() => onOpenDb(d.id)}
             // pl-[26px]: align the ⌗ with the ◎/□ glyph column of the tree sections above
             className={`flex items-center gap-1.5 rounded-md py-[7px] pl-[26px] pr-2 text-left text-[13.5px] ${
-              active ? "bg-[#1a1d26] font-medium text-ink" : "text-ink-muted hover:text-ink-soft"
+              active
+                ? "bg-[#1a1d26] font-medium text-ink"
+                : "text-ink-muted hover:text-ink-soft"
             }`}
           >
             <span className={`text-[13px] ${active ? "text-copper" : ""}`}>
               <EntityIcon icon={d.icon} fallback="⌗" />
             </span>
             <span className="flex-1 truncate">{d.name}</span>
-            <span className="text-[10.5px] text-ink-muted/60">{d.row_count || ""}</span>
+            <span className="text-[10.5px] text-ink-muted/60">
+              {d.row_count || ""}
+            </span>
           </button>
         );
       })}
@@ -349,7 +543,9 @@ function Sidebar(
       <div className="flex items-center gap-2 px-2 py-2 text-[11.5px] text-ink-muted">
         <span
           className="h-[7px] w-[7px] rounded-full"
-          style={{ background: synced ? "var(--color-active)" : "var(--color-done)" }}
+          style={{
+            background: synced ? "var(--color-active)" : "var(--color-done)",
+          }}
         />
         <span className="flex-1">
           {status
@@ -370,10 +566,19 @@ function Sidebar(
             disabled={updateState === "busy"}
             onClick={onUpdate}
           >
-            {updateState === "done" ? "↻ restart" : updateState === "busy" ? "…" : `↑ v${update.latest}`}
+            {updateState === "done"
+              ? "↻ restart"
+              : updateState === "busy"
+              ? "…"
+              : `↑ v${update.latest}`}
           </button>
         )}
-        <button type="button" className="text-ink-muted hover:text-ink-soft" title="Settings" onClick={onSettings}>
+        <button
+          type="button"
+          className="text-ink-muted hover:text-ink-soft"
+          title="Settings"
+          onClick={onSettings}
+        >
           <GearIcon />
         </button>
       </div>
@@ -382,13 +587,23 @@ function Sidebar(
 }
 
 const STATUS_PALETTE = [
-  "#7bd88f", "#5fb8e8", "#7a9ee7", "#b590e7", "#e08bc4",
-  "#e06c75", "#e3925e", "#e3c567", "#9aa4b2", "#6b7280",
+  "#7bd88f",
+  "#5fb8e8",
+  "#7a9ee7",
+  "#b590e7",
+  "#e08bc4",
+  "#e06c75",
+  "#e3925e",
+  "#e3c567",
+  "#9aa4b2",
+  "#6b7280",
 ];
 
 // Board-column manager (lives in the "Columns" popover): reorder, rename, recolor,
 // flag done-like (terminal), delete, and add statuses. All edits hit the synced DB.
-function StatusManager({ statuses, onChanged }: { statuses: StatusDef[]; onChanged: () => void }) {
+function StatusManager(
+  { statuses, onChanged }: { statuses: StatusDef[]; onChanged: () => void },
+) {
   const [paletteFor, setPaletteFor] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const run = (p: Promise<unknown>) => {
@@ -397,12 +612,15 @@ function StatusManager({ statuses, onChanged }: { statuses: StatusDef[]; onChang
   };
   return (
     <div className="mt-1 border-t border-line-soft pt-1.5">
-      <div className="px-2 pb-1 text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70">STATUSES</div>
+      <div className="px-2 pb-1 text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+        STATUSES
+      </div>
       {statuses.map((s, i) => (
         <div key={s.id}>
           <div className="flex items-center gap-1 px-1.5 py-0.5">
             <div className="flex flex-col leading-none">
-              <button type="button"
+              <button
+                type="button"
                 disabled={i === 0 || busy}
                 onClick={() => run(apiMoveStatus(s.id, -1))}
                 className="text-[7px] text-ink-muted hover:text-ink disabled:opacity-25"
@@ -410,7 +628,8 @@ function StatusManager({ statuses, onChanged }: { statuses: StatusDef[]; onChang
               >
                 ▲
               </button>
-              <button type="button"
+              <button
+                type="button"
                 disabled={i === statuses.length - 1 || busy}
                 onClick={() => run(apiMoveStatus(s.id, 1))}
                 className="text-[7px] text-ink-muted hover:text-ink disabled:opacity-25"
@@ -419,7 +638,8 @@ function StatusManager({ statuses, onChanged }: { statuses: StatusDef[]; onChang
                 ▼
               </button>
             </div>
-            <button type="button"
+            <button
+              type="button"
               onClick={() => setPaletteFor((c) => (c === s.id ? null : s.id))}
               className="h-3 w-3 shrink-0 rounded-full ring-1 ring-inset ring-white/10"
               style={{ background: s.color }}
@@ -432,23 +652,32 @@ function StatusManager({ statuses, onChanged }: { statuses: StatusDef[]; onChang
                 const v = e.target.value.trim();
                 if (v && v !== s.label) run(updateStatus(s.id, { label: v }));
               }}
-              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+              onKeyDown={(e) =>
+                e.key === "Enter" && (e.target as HTMLInputElement).blur()}
               className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-xs text-ink-soft outline-none hover:bg-panel/60 focus:border-chipline focus:bg-panel"
             />
-            <button type="button"
+            <button
+              type="button"
               onClick={() => run(updateStatus(s.id, { terminal: !s.terminal }))}
               disabled={busy}
-              className={`shrink-0 rounded px-1 text-[10px] ${s.terminal ? "text-copper" : "text-ink-muted/50 hover:text-ink-muted"}`}
-              title={s.terminal ? "done-like column (click to unset)" : "mark as a done-like column"}
+              className={`shrink-0 rounded px-1 text-[10px] ${
+                s.terminal
+                  ? "text-copper"
+                  : "text-ink-muted/50 hover:text-ink-muted"
+              }`}
+              title={s.terminal
+                ? "done-like column (click to unset)"
+                : "mark as a done-like column"}
             >
               ⚑
             </button>
-            <button type="button"
+            <button
+              type="button"
               disabled={statuses.length <= 1 || busy}
               onClick={() =>
-                appConfirm(`Delete the "${s.label}" status? Sessions in it move to another column.`).then((ok) =>
-                  ok && run(deleteStatus(s.id))
-                )}
+                appConfirm(
+                  `Delete the "${s.label}" status? Sessions in it move to another column.`,
+                ).then((ok) => ok && run(deleteStatus(s.id)))}
               className="shrink-0 rounded px-1 text-[11px] text-ink-muted/60 hover:text-blocked disabled:opacity-25"
               title="delete status"
             >
@@ -458,13 +687,16 @@ function StatusManager({ statuses, onChanged }: { statuses: StatusDef[]; onChang
           {paletteFor === s.id && (
             <div className="flex flex-wrap gap-1 px-2 pb-1.5 pt-0.5">
               {STATUS_PALETTE.map((c) => (
-                <button type="button"
+                <button
+                  type="button"
                   key={c}
                   onClick={() => {
                     setPaletteFor(null);
                     if (c !== s.color) run(updateStatus(s.id, { color: c }));
                   }}
-                  className={`h-4 w-4 rounded-full ring-1 ring-inset ${c === s.color ? "ring-white/70" : "ring-white/10"}`}
+                  className={`h-4 w-4 rounded-full ring-1 ring-inset ${
+                    c === s.color ? "ring-white/70" : "ring-white/10"
+                  }`}
                   style={{ background: c }}
                 />
               ))}
@@ -472,9 +704,11 @@ function StatusManager({ statuses, onChanged }: { statuses: StatusDef[]; onChang
           )}
         </div>
       ))}
-      <button type="button"
+      <button
+        type="button"
         disabled={busy}
-        onClick={() => run(createStatus({ label: "New status", color: STATUS_PALETTE[2] }))}
+        onClick={() =>
+          run(createStatus({ label: "New status", color: STATUS_PALETTE[2] }))}
         className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11.5px] text-ink-muted/70 hover:text-copper disabled:opacity-50"
       >
         <span className="text-[11px]">＋</span> Add status
@@ -487,20 +721,42 @@ export function App() {
   const params = new URLSearchParams(location.search);
   const [board, setBoard] = useState<BoardData | null>(null);
   const [status, setStatus] = useState<AppStatus | null>(null);
-  const [view, setView] = useState<View>((params.get("view") as View) ?? "board");
+  const [view, setView] = useState<View>(
+    (params.get("view") as View) ?? "board",
+  );
   const [group, setGroup] = useState<"none" | "story" | "project">(() => {
     const g = params.get("group");
-    return g === "story" || g === "objective" ? "story" : g === "project" ? "project" : "none";
+    return g === "story" || g === "objective"
+      ? "story"
+      : g === "project"
+      ? "project"
+      : "none";
   });
   const [groupMenu, setGroupMenu] = useState(false);
   const [colMenu, setColMenu] = useState(false);
-  const [storyFilter, setStoryFilter] = useState<string | null>(params.get("story")); // narrow sessions to one story
+  const [storyFilter, setStoryFilter] = useState<string | null>(
+    params.get("story"),
+  ); // narrow sessions to one story
   // column order + the status set itself now live in the synced DB (board.statuses);
   // only "hide empty" stays a per-device preference.
-  const [hideEmpty, setHideEmpty] = useState<boolean>(() => localStorage.getItem("trame:hideEmpty") === "1");
-  useEffect(() => localStorage.setItem("trame:hideEmpty", hideEmpty ? "1" : "0"), [hideEmpty]);
-  const [modal, setModal] = useState<"session" | "settings" | "udb" | "import" | null>(
-    (params.get("new") as "session" | "settings" | "udb" | "import" | null) ?? null,
+  const [hideEmpty, setHideEmpty] = useState<boolean>(() =>
+    localStorage.getItem("trame:hideEmpty") === "1"
+  );
+  useEffect(
+    () => localStorage.setItem("trame:hideEmpty", hideEmpty ? "1" : "0"),
+    [hideEmpty],
+  );
+  const [modal, setModal] = useState<
+    | "session"
+    | "settings"
+    | "plugins"
+    | "pluginSettings"
+    | "udb"
+    | "import"
+    | null
+  >(
+    (params.get("new") as "session" | "settings" | "udb" | "import" | null) ??
+      null,
   );
   const [openId, setOpenId] = useState<string | null>(params.get("session"));
   const [exploreEpoch, setExploreEpoch] = useState(0); // bump to rescan files after settings change
@@ -511,10 +767,15 @@ export function App() {
   const [dbId, setDbId] = useState<string | null>(params.get("db"));
   const [pageId, setPageId] = useState<string | null>(params.get("page"));
   const [clientId, setClientId] = useState<string | null>(params.get("client"));
+  const [plugins, setPlugins] = useState<PluginManifest[]>([]);
+  const [pluginId, setPluginId] = useState<string | null>(params.get("plugin"));
   const [udbEpoch, setUdbEpoch] = useState(0); // bump to refetch the open database view
+  const [dbReadOnly, setDbReadOnly] = useState(false); // active db tab is a read-only summary view
   const [dbIconOpen, setDbIconOpen] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
-  const [updateState, setUpdateState] = useState<"idle" | "busy" | "done">("idle");
+  const [updateState, setUpdateState] = useState<"idle" | "busy" | "done">(
+    "idle",
+  );
   const [updateDismissed, setUpdateDismissed] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shareFlash, setShareFlash] = useState<string | null>(null); // transient Share-button label
@@ -523,7 +784,10 @@ export function App() {
   // Ctrl/Cmd+P — Notion-style quick find (preventDefault beats the print dialog)
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "p") {
+      if (
+        (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey &&
+        e.key.toLowerCase() === "p"
+      ) {
         e.preventDefault();
         setPaletteOpen((v) => !v);
       }
@@ -540,14 +804,26 @@ export function App() {
     else openPage(h.id);
   };
 
+  // keep state identity when a poll returns unchanged data, so re-renders only happen on real changes
+  const keepSame = <T,>(next: T) => (prev: T | null): T =>
+    prev !== null && JSON.stringify(prev) === JSON.stringify(next)
+      ? prev
+      : next;
   const refresh = () => {
     getBoard().then((b) => {
-      setBoard(b);
+      setBoard(keepSame(b));
       setStatuses(b.statuses); // keep the status registry (labels/colors) in sync with the board
     }).catch(() => {});
-    getStatus().then(setStatus).catch(() => {});
-    listUdbs().then((d) => Array.isArray(d) && setUdbs(d)).catch(() => {});
-    listPages().then((d) => Array.isArray(d) && setPages(d)).catch(() => {});
+    getStatus().then((s) => setStatus(keepSame(s))).catch(() => {});
+    listUdbs().then((d) => Array.isArray(d) && setUdbs(keepSame(d))).catch(
+      () => {},
+    );
+    listPages().then((d) => Array.isArray(d) && setPages(keepSame(d))).catch(
+      () => {},
+    );
+    getPlugins().then((p) => Array.isArray(p) && setPlugins(keepSame(p))).catch(
+      () => {},
+    );
   };
 
   // "Sync now" is otherwise silent when nothing moves (0↓0↑) — flash the result so it reads as alive
@@ -561,7 +837,9 @@ export function App() {
     try {
       const r = await syncNow();
       refresh();
-      msg = r ? (r.pulled || r.pushed ? `${r.pulled}↓ ${r.pushed}↑` : "up to date") : "offline";
+      msg = r
+        ? (r.pulled || r.pushed ? `${r.pulled}↓ ${r.pushed}↑` : "up to date")
+        : "offline";
     } catch {
       msg = "failed";
     } finally {
@@ -576,16 +854,20 @@ export function App() {
   useEffect(() => {
     const u = new URL(location.href);
     const p = u.searchParams;
-    const put = (k: string, v: string | null) => (v ? p.set(k, v) : p.delete(k));
+    const put = (
+      k: string,
+      v: string | null,
+    ) => (v ? p.set(k, v) : p.delete(k));
     put("view", view === "board" ? null : view); // board is the default, keep it out
     put("page", view === "page" ? pageId : null);
     put("db", view === "database" ? dbId : null);
     put("client", view === "client" ? clientId : null);
+    put("plugin", view === "plugin" ? pluginId : null);
     put("session", openId);
     put("group", group === "none" ? null : group);
     put("story", storyFilter);
     history.replaceState(null, "", u);
-  }, [view, pageId, dbId, clientId, openId, group, storyFilter]);
+  }, [view, pageId, dbId, clientId, pluginId, openId, group, storyFilter]);
   useEffect(() => {
     refresh();
     const t = setInterval(refresh, 5000);
@@ -610,11 +892,22 @@ export function App() {
     }
     if (updateState !== "idle") return;
     setUpdateState("busy");
-    applyUpdate().then((r) => setUpdateState(r.ok ? "done" : "idle")).catch(() => setUpdateState("idle"));
+    applyUpdate().then((r) => setUpdateState(r.ok ? "done" : "idle")).catch(
+      () => setUpdateState("idle"),
+    );
   };
 
   const onMove = (id: string, s: Status) => {
-    setBoard((b) => b ? { ...b, sessions: b.sessions.map((x) => x.id === id ? { ...x, status: s } : x) } : b);
+    setBoard((b) =>
+      b
+        ? {
+          ...b,
+          sessions: b.sessions.map((x) =>
+            x.id === id ? { ...x, status: s } : x
+          ),
+        }
+        : b
+    );
     apiSetStatus(id, s).then(refresh).catch(refresh);
   };
   const createSession = (s: Record<string, unknown>) =>
@@ -638,6 +931,11 @@ export function App() {
     setClientId(id);
     setView("client");
   };
+  const openPlugin = (id: string) => {
+    setExploreReturn(null);
+    setPluginId(id);
+    setView("plugin");
+  };
   // Jump to Explore and pre-open a report file (e.g. from a folder block's "Explore" button),
   // remembering the page to return to.
   const openReport = (path: string) => {
@@ -660,7 +958,9 @@ export function App() {
   const flashShare = (msg: string | null, hold = 2600) => {
     clearTimeout(shareFlashTimer.current);
     setShareFlash(msg);
-    if (msg) shareFlashTimer.current = setTimeout(() => setShareFlash(null), hold);
+    if (msg) {
+      shareFlashTimer.current = setTimeout(() => setShareFlash(null), hold);
+    }
   };
   const sharePage = (id: string) => {
     flashShare("Saving…", 0);
@@ -682,21 +982,42 @@ export function App() {
     }).catch(() => appConfirm("Import failed.", "OK"));
   useEffect(() => () => clearTimeout(shareFlashTimer.current), []);
   const newDb = () => setModal("udb");
-  const currentDb = view === "database" ? udbs.find((d) => d.id === dbId) ?? null : null;
-  const currentPage = view === "page" ? pages.find((p) => p.id === pageId) ?? null : null;
+  const currentDb = view === "database"
+    ? udbs.find((d) => d.id === dbId) ?? null
+    : null;
+  const currentPage = view === "page"
+    ? pages.find((p) => p.id === pageId) ?? null
+    : null;
 
   // breadcrumb: ancestors of the open page (nearest last)
   const crumbs = useMemo(() => {
     if (!currentPage) return [];
     const byId = new Map(pages.map((p) => [p.id, p]));
     const out: PageMeta[] = [];
-    for (let p = byId.get(currentPage.parent_id ?? ""); p; p = byId.get(p.parent_id ?? "")) out.unshift(p);
+    for (
+      let p = byId.get(currentPage.parent_id ?? "");
+      p;
+      p = byId.get(p.parent_id ?? "")
+    ) out.unshift(p);
     return out;
   }, [currentPage, pages]);
 
   const isSessions = view === "board" || view === "list";
-  const currentClient = view === "client" ? board?.clients.find((c) => c.id === clientId) ?? null : null;
-  const title = isSessions ? "Sessions" : view === "database" ? currentDb?.name ?? "Database" : view === "client" ? currentClient?.name ?? "Client" : "Explore";
+  const currentClient = view === "client"
+    ? board?.clients.find((c) => c.id === clientId) ?? null
+    : null;
+  const currentPlugin = view === "plugin"
+    ? plugins.find((p) => p.id === pluginId) ?? null
+    : null;
+  const title = isSessions
+    ? "Sessions"
+    : view === "database"
+    ? currentDb?.name ?? "Database"
+    : view === "client"
+    ? currentClient?.name ?? "Client"
+    : view === "plugin"
+    ? currentPlugin?.label ?? "Plugin"
+    : "Explore";
 
   return (
     <div className="flex h-full">
@@ -710,6 +1031,9 @@ export function App() {
         onSettings={() => setModal("settings")}
         pages={pages}
         pageId={pageId}
+        plugins={plugins}
+        pluginId={pluginId}
+        onOpenPlugin={openPlugin}
         onOpenPage={openPage}
         onNewPage={newPage}
         onNewProject={newProject}
@@ -725,223 +1049,289 @@ export function App() {
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex flex-col gap-2 border-b border-line px-6 py-3">
           <div className="flex items-center gap-3">
-          {view === "page" && currentPage
-            ? (
-              <div className="flex min-w-0 items-center gap-1 text-[13px] text-ink-muted">
-                {crumbs.map((c) => (
-                  <span key={c.id} className="flex items-center gap-1">
-                    <button type="button" className="max-w-[160px] truncate hover:text-ink-soft" onClick={() => openPage(c.id)}>
-                      {c.title || "Untitled"}
-                    </button>
-                    <span className="text-ink-muted/50">/</span>
+            {view === "page" && currentPage
+              ? (
+                <div className="flex min-w-0 items-center gap-1 text-[13px] text-ink-muted">
+                  {crumbs.map((c) => (
+                    <span key={c.id} className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        className="max-w-[160px] truncate hover:text-ink-soft"
+                        onClick={() =>
+                          openPage(c.id)}
+                      >
+                        {c.title || "Untitled"}
+                      </button>
+                      <span className="text-ink-muted/50">/</span>
+                    </span>
+                  ))}
+                  <span className="truncate font-medium text-ink">
+                    {currentPage.title || "Untitled"}
                   </span>
-                ))}
-                <span className="truncate font-medium text-ink">{currentPage.title || "Untitled"}</span>
-              </div>
-            )
-            : view === "database" && currentDb
-            ? (
-              <div className="flex items-center gap-1">
-                <div className="relative">
-                  <button type="button"
-                    className="rounded-md p-1 text-[15px] leading-none transition-colors hover:bg-panel"
-                    title="database icon"
-                    onClick={() => setDbIconOpen(true)}
-                  >
-                    <EntityIcon icon={currentDb.icon} fallback="⌗" className={currentDb.icon ? "" : "text-ink-muted"} />
-                  </button>
-                  {dbIconOpen && (
-                    <IconPicker
-                      current={currentDb.icon}
-                      onPick={(icon) => updateUdb(currentDb.id, { icon }).then(refresh)}
-                      onClose={() => setDbIconOpen(false)}
-                    />
-                  )}
                 </div>
-                <input
-                  key={currentDb.id}
-                  className="rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[15px] font-semibold text-ink outline-none transition-colors hover:bg-panel/60 focus:border-chipline focus:bg-panel"
-                  defaultValue={currentDb.name}
-                  onBlur={(e) => {
-                    const v = e.target.value.trim();
-                    if (v && v !== currentDb.name) updateUdb(currentDb.id, { name: v }).then(refresh);
-                  }}
-                  onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-                />
-              </div>
-            )
-            : <h1 className="text-[15px] font-semibold">{title}</h1>}
-          {isSessions && (
-            <div className="flex rounded-[7px] bg-panel p-[3px]">
-              {(["board", "list"] as const).map((v) => (
-                <button type="button"
-                  key={v}
-                  onClick={() => setView(v)}
-                  className={`rounded-[5px] px-2.5 py-[3px] text-xs capitalize ${
-                    view === v ? "bg-[#272b37] font-medium text-ink" : "text-ink-muted hover:text-ink-soft"
-                  }`}
-                >
-                  {v}
-                </button>
-              ))}
-            </div>
-          )}
-          {view === "board" && (
-            <div className="relative">
-              <button type="button"
-                onClick={() => setGroupMenu((o) => !o)}
-                title="Group the board"
-                className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] ${
-                  group !== "none"
-                    ? "border-copper/50 text-copper"
-                    : "border-line text-ink-muted hover:text-ink-soft"
-                }`}
-              >
-                <GroupIcon />
-                {group === "none" ? "Group" : group === "story" ? "Story" : "Project"}
-                <span className="text-[8px]">▾</span>
-              </button>
-              {groupMenu && (
-                <Popover onClose={() => setGroupMenu(false)} className="w-40">
-                  <div className="px-2 pb-1 pt-1 text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70">
-                    GROUP BY
-                  </div>
-                  {([["none", "None"], ["story", "◇ Story"], ["project", "◎ Project"]] as const).map(([v, label]) => (
+              )
+              : view === "database" && currentDb
+              ? (
+                <div className="flex items-center gap-1">
+                  <div className="relative">
                     <button
                       type="button"
-                      key={v}
-                      onClick={() => {
-                        setGroup(v);
-                        setGroupMenu(false);
-                      }}
-                      className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-panel ${
-                        group === v ? "text-ink" : "text-ink-soft"
-                      }`}
+                      className="rounded-md p-1 text-[15px] leading-none transition-colors hover:bg-panel"
+                      title="database icon"
+                      onClick={() => setDbIconOpen(true)}
                     >
-                      <span className="flex-1">{label}</span>
-                      {group === v && <span className="text-[11px] text-copper">✓</span>}
+                      <EntityIcon
+                        icon={currentDb.icon}
+                        fallback="⌗"
+                        className={currentDb.icon ? "" : "text-ink-muted"}
+                      />
                     </button>
-                  ))}
-                </Popover>
-              )}
-            </div>
-          )}
-          {view === "board" && (
-            <div className="relative">
-              <button type="button"
-                onClick={() => setColMenu((o) => !o)}
-                title="Columns"
-                className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] ${
-                  hideEmpty ? "border-copper/50 text-copper" : "border-line text-ink-muted hover:text-ink-soft"
-                }`}
-              >
-                <span className="text-[11px]">▤</span>
-                Columns
-                <span className="text-[8px]">▾</span>
-              </button>
-              {colMenu && (
-                <Popover onClose={() => setColMenu(false)} className="w-[264px]">
-                  <button type="button"
-                    onClick={() => setHideEmpty((v) => !v)}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-ink-soft hover:bg-panel"
-                  >
-                    <span className={`flex h-3.5 w-3.5 items-center justify-center rounded border text-[9px] ${
-                      hideEmpty ? "border-copper bg-copper text-copper-ink" : "border-chipline"
+                    {dbIconOpen && (
+                      <IconPicker
+                        current={currentDb.icon}
+                        onPick={(icon) =>
+                          updateUdb(currentDb.id, { icon }).then(refresh)}
+                        onClose={() => setDbIconOpen(false)}
+                      />
+                    )}
+                  </div>
+                  <input
+                    key={currentDb.id}
+                    className="rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[15px] font-semibold text-ink outline-none transition-colors hover:bg-panel/60 focus:border-chipline focus:bg-panel"
+                    defaultValue={currentDb.name}
+                    onBlur={(e) => {
+                      const v = e.target.value.trim();
+                      if (v && v !== currentDb.name) {
+                        updateUdb(currentDb.id, {
+                          name: v,
+                        }).then(refresh);
+                      }
+                    }}
+                    onKeyDown={(e) =>
+                      e.key === "Enter" &&
+                      (e.target as HTMLInputElement).blur()}
+                  />
+                </div>
+              )
+              : <h1 className="text-[15px] font-semibold">{title}</h1>}
+            {isSessions && (
+              <div className="flex rounded-[7px] bg-panel p-[3px]">
+                {(["board", "list"] as const).map((v) => (
+                  <button
+                    type="button"
+                    key={v}
+                    onClick={() => setView(v)}
+                    className={`rounded-[5px] px-2.5 py-[3px] text-xs capitalize ${
+                      view === v
+                        ? "bg-[#272b37] font-medium text-ink"
+                        : "text-ink-muted hover:text-ink-soft"
                     }`}
-                    >
-                      {hideEmpty ? "✓" : ""}
-                    </span>
-                    <span className="flex-1">Hide empty statuses</span>
+                  >
+                    {v}
                   </button>
-                  <StatusManager statuses={board?.statuses ?? []} onChanged={refresh} />
-                </Popover>
-              )}
-            </div>
-          )}
-          <div className="flex-1" />
-          {isSessions && (
-            <button type="button"
-              onClick={() => setModal("import")}
-              className="shrink-0 whitespace-nowrap rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
-            >
-              ⇣ Import from Claude Code + Codex
-            </button>
-          )}
-          <button type="button"
-            onClick={doSync}
-            disabled={syncing}
-            title="Pull teammates' changes and push yours to the hub"
-            className="shrink-0 whitespace-nowrap rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft disabled:opacity-60"
-          >
-            {syncing ? "Syncing…" : syncFlash ? `Synced · ${syncFlash}` : "Sync now"}
-          </button>
-          {view === "page" && currentPage && (
-            <button type="button"
-              onClick={() => sharePage(currentPage.id)}
-              title="Export this page — with its sub-pages and databases — to a file another Trame user can import"
-              className="shrink-0 whitespace-nowrap rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
-            >
-              {shareFlash ?? "Share"}
-            </button>
-          )}
-          {view === "page" && currentPage && (
-            <button type="button"
-              onClick={() =>
-                confirmDeletePage(currentPage).then((ok) => {
-                  if (ok) {
-                    setView("board");
-                    setPageId(null);
-                    refresh();
-                  }
-                })}
-              className="rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-blocked"
-            >
-              Delete
-            </button>
-          )}
-          {view === "database" && currentDb && (
-            <button type="button"
-              onClick={async () => {
-                if (await appConfirm(`Delete database "${currentDb.name}" and all its rows?`)) {
-                  deleteUdb(currentDb.id).then(() => {
-                    setView("board");
-                    setDbId(null);
-                    refresh();
-                  });
-                }
-              }}
-              className="rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-blocked"
-            >
-              Delete
-            </button>
-          )}
-          {view === "database"
-            ? (
-              <button type="button"
-                onClick={() => dbId && createUdbRow(dbId).then(() => setUdbEpoch((e) => e + 1))}
-                className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md bg-copper px-3 py-1.5 text-[12.5px] font-medium text-copper-ink hover:brightness-110"
+                ))}
+              </div>
+            )}
+            {view === "board" && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setGroupMenu((o) => !o)}
+                  title="Group the board"
+                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] ${
+                    group !== "none"
+                      ? "border-copper/50 text-copper"
+                      : "border-line text-ink-muted hover:text-ink-soft"
+                  }`}
+                >
+                  <GroupIcon />
+                  {group === "none"
+                    ? "Group"
+                    : group === "story"
+                    ? "Story"
+                    : "Project"}
+                  <span className="text-[8px]">▾</span>
+                </button>
+                {groupMenu && (
+                  <Popover onClose={() => setGroupMenu(false)} className="w-40">
+                    <div className="px-2 pb-1 pt-1 text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+                      GROUP BY
+                    </div>
+                    {([["none", "None"], ["story", "◇ Story"], [
+                      "project",
+                      "◎ Project",
+                    ]] as const).map(([v, label]) => (
+                      <button
+                        type="button"
+                        key={v}
+                        onClick={() => {
+                          setGroup(v);
+                          setGroupMenu(false);
+                        }}
+                        className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-panel ${
+                          group === v ? "text-ink" : "text-ink-soft"
+                        }`}
+                      >
+                        <span className="flex-1">{label}</span>
+                        {group === v && (
+                          <span className="text-[11px] text-copper">✓</span>
+                        )}
+                      </button>
+                    ))}
+                  </Popover>
+                )}
+              </div>
+            )}
+            {view === "board" && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setColMenu((o) => !o)}
+                  title="Columns"
+                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] ${
+                    hideEmpty
+                      ? "border-copper/50 text-copper"
+                      : "border-line text-ink-muted hover:text-ink-soft"
+                  }`}
+                >
+                  <span className="text-[11px]">▤</span>
+                  Columns
+                  <span className="text-[8px]">▾</span>
+                </button>
+                {colMenu && (
+                  <Popover
+                    onClose={() => setColMenu(false)}
+                    className="w-[264px]"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setHideEmpty((v) => !v)}
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-ink-soft hover:bg-panel"
+                    >
+                      <span
+                        className={`flex h-3.5 w-3.5 items-center justify-center rounded border text-[9px] ${
+                          hideEmpty
+                            ? "border-copper bg-copper text-copper-ink"
+                            : "border-chipline"
+                        }`}
+                      >
+                        {hideEmpty ? "✓" : ""}
+                      </span>
+                      <span className="flex-1">Hide empty statuses</span>
+                    </button>
+                    <StatusManager
+                      statuses={board?.statuses ?? []}
+                      onChanged={refresh}
+                    />
+                  </Popover>
+                )}
+              </div>
+            )}
+            <div className="flex-1" />
+            {isSessions && (
+              <button
+                type="button"
+                onClick={() => setModal("import")}
+                className="shrink-0 whitespace-nowrap rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
               >
-                <span>＋</span> New row
-              </button>
-            )
-            : isSessions && (
-              <button type="button"
-                onClick={() => setModal("session")}
-                className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md bg-copper px-3 py-1.5 text-[12.5px] font-medium text-copper-ink hover:brightness-110"
-              >
-                <span>＋</span> New session
+                ⇣ Import from Claude Code + Codex
               </button>
             )}
+            <button
+              type="button"
+              onClick={doSync}
+              disabled={syncing}
+              title="Pull teammates' changes and push yours to the hub"
+              className="shrink-0 whitespace-nowrap rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft disabled:opacity-60"
+            >
+              {syncing
+                ? "Syncing…"
+                : syncFlash
+                ? `Synced · ${syncFlash}`
+                : "Sync now"}
+            </button>
+            {view === "page" && currentPage && (
+              <button
+                type="button"
+                onClick={() => sharePage(currentPage.id)}
+                title="Export this page — with its sub-pages and databases — to a file another Trame user can import"
+                className="shrink-0 whitespace-nowrap rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
+              >
+                {shareFlash ?? "Share"}
+              </button>
+            )}
+            {view === "page" && currentPage && (
+              <button
+                type="button"
+                onClick={() =>
+                  confirmDeletePage(currentPage).then((ok) => {
+                    if (ok) {
+                      setView("board");
+                      setPageId(null);
+                      refresh();
+                    }
+                  })}
+                className="rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-blocked"
+              >
+                Delete
+              </button>
+            )}
+            {view === "database" && currentDb && (
+              <button
+                type="button"
+                onClick={async () => {
+                  if (
+                    await appConfirm(
+                      `Delete database "${currentDb.name}" and all its rows?`,
+                    )
+                  ) {
+                    deleteUdb(currentDb.id).then(() => {
+                      setView("board");
+                      setDbId(null);
+                      refresh();
+                    });
+                  }
+                }}
+                className="rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-blocked"
+              >
+                Delete
+              </button>
+            )}
+            {view === "database" && !dbReadOnly
+              ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    dbId &&
+                    createUdbRow(dbId).then(() => setUdbEpoch((e) => e + 1))}
+                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md bg-copper px-3 py-1.5 text-[12.5px] font-medium text-copper-ink hover:brightness-110"
+                >
+                  <span>＋</span> New row
+                </button>
+              )
+              : isSessions && (
+                <button
+                  type="button"
+                  onClick={() => setModal("session")}
+                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md bg-copper px-3 py-1.5 text-[12.5px] font-medium text-copper-ink hover:brightness-110"
+                >
+                  <span>＋</span> New session
+                </button>
+              )}
           </div>
           {isSessions && storyFilter && (
             <div className="flex">
-              <button type="button"
+              <button
+                type="button"
                 onClick={() => setStoryFilter(null)}
                 title="Clear story"
                 className="flex max-w-full items-center gap-1.5 rounded-md border border-copper/50 px-2 py-1 text-[11.5px] text-copper hover:bg-copper/10"
               >
                 <span className="shrink-0 text-[9px]">◇</span>
-                <span className="truncate">{board?.objectives.find((o) => o.id === storyFilter)?.title ?? "story"}</span>
+                <span className="truncate">
+                  {board?.objectives.find((o) => o.id === storyFilter)?.title ??
+                    "story"}
+                </span>
                 <span className="shrink-0 text-[11px]">✕</span>
               </button>
             </div>
@@ -957,7 +1347,8 @@ export function App() {
               onMove={onMove}
               onOpen={setOpenId}
               storyFilter={storyFilter}
-              onFilterStory={(id) => setStoryFilter((cur) => cur === id ? null : id)}
+              onFilterStory={(id) =>
+                setStoryFilter((cur) => cur === id ? null : id)}
               hideEmpty={hideEmpty}
             />
           )
@@ -967,7 +1358,8 @@ export function App() {
               board={board}
               onOpen={setOpenId}
               storyFilter={storyFilter}
-              onFilterStory={(id) => setStoryFilter((cur) => cur === id ? null : id)}
+              onFilterStory={(id) =>
+                setStoryFilter((cur) => cur === id ? null : id)}
             />
           )
           : view === "page"
@@ -988,12 +1380,35 @@ export function App() {
             : <p className="p-6 text-ink-muted">No page selected.</p>)
           : view === "database"
           ? (dbId
-            ? <DatabaseView key={dbId} dbId={dbId} epoch={udbEpoch} udbs={udbs} />
+            ? (
+              <DatabaseView
+                key={dbId}
+                dbId={dbId}
+                epoch={udbEpoch}
+                udbs={udbs}
+                onReadOnly={setDbReadOnly}
+              />
+            )
             : <p className="p-6 text-ink-muted">No database selected.</p>)
           : view === "client"
           ? (clientId
-            ? <ClientView board={board} clientId={clientId} onOpenPage={openPage} onOpenSession={setOpenId} />
+            ? (
+              <ClientView
+                board={board}
+                clientId={clientId}
+                onOpenPage={openPage}
+                onOpenSession={setOpenId}
+              />
+            )
             : <p className="p-6 text-ink-muted">No client selected.</p>)
+          : view === "plugin"
+          ? (() => {
+            const Panel = FRONTEND_PLUGINS.find((p) => p.id === pluginId)
+              ?.Panel;
+            return Panel
+              ? <Panel onOpenSettings={() => setModal("pluginSettings")} />
+              : <p className="p-6 text-ink-muted">Unknown plugin.</p>;
+          })()
           : (
             <Explore
               key={exploreEpoch}
@@ -1019,7 +1434,9 @@ export function App() {
           )
           : null;
       })()}
-      {paletteOpen && <Palette onClose={() => setPaletteOpen(false)} onPick={onPalettePick} />}
+      {paletteOpen && (
+        <Palette onClose={() => setPaletteOpen(false)} onPick={onPalettePick} />
+      )}
       {modal === "import" && board && (
         <ImportClaudeModal
           board={board}
@@ -1031,7 +1448,11 @@ export function App() {
         />
       )}
       {modal === "session" && board && (
-        <NewSessionModal board={board} onClose={() => setModal(null)} onCreate={createSession} />
+        <NewSessionModal
+          board={board}
+          onClose={() => setModal(null)}
+          onCreate={createSession}
+        />
       )}
       {modal === "udb" && (
         <NewUdbModal
@@ -1045,7 +1466,18 @@ export function App() {
         />
       )}
       {modal === "settings" && (
-        <SettingsModal onClose={() => setModal(null)} onSaved={() => setExploreEpoch((e) => e + 1)} />
+        <SettingsModal
+          onClose={() => setModal(null)}
+          onSaved={() => setExploreEpoch((e) => e + 1)}
+          onOpenPlugins={() => setModal("plugins")}
+        />
+      )}
+      {modal === "plugins" && <PluginsModal onClose={() => setModal(null)} />}
+      {modal === "pluginSettings" && pluginId && (
+        <PluginSettingsModal
+          pluginId={pluginId}
+          onClose={() => setModal(null)}
+        />
       )}
       {update && (update.available || update.applied) && !updateDismissed && (
         <div className="fixed bottom-4 right-4 z-[60] flex w-[320px] flex-col gap-2.5 rounded-xl border border-[#323649] bg-[#171923] p-3.5 shadow-2xl shadow-black/50">
@@ -1072,7 +1504,9 @@ export function App() {
             : (
               <>
                 <p className="m-0 text-[12.5px] font-medium text-ink">
-                  <span className="text-copper">↑</span> Trame v{update.latest} is available
+                  <span className="text-copper">↑</span> Trame v{update.latest}
+                  {" "}
+                  is available
                 </p>
                 <p className="m-0 text-[11.5px] text-ink-muted">
                   You're on v{update.current}.{" "}
@@ -1098,7 +1532,11 @@ export function App() {
                     disabled={updateState === "busy"}
                     onClick={onUpdate}
                   >
-                    {updateState === "busy" ? "Updating…" : update.canSelfUpdate ? "Update now" : "Open release"}
+                    {updateState === "busy"
+                      ? "Updating…"
+                      : update.canSelfUpdate
+                      ? "Update now"
+                      : "Open release"}
                   </button>
                 </div>
               </>

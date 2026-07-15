@@ -43,4 +43,18 @@ export const REPORT_PATHS = (Deno.env.get("TRACKER_REPORT_PATHS") ?? "")
   .filter(Boolean)
   .map((p) => p.replace(/^~(?=\/|$)/, home));
 export const PORT = Number(Deno.env.get("TRACKER_PORT") ?? "8787");
+// Headless serve binds loopback by default — the API exposes local data (and plugin
+// state); set TRACKER_HOST=0.0.0.0 to deliberately serve over the LAN.
+export const HOST = Deno.env.get("TRACKER_HOST") ?? "127.0.0.1";
 export const SYNC_INTERVAL_MS = Number(Deno.env.get("TRACKER_SYNC_MS") ?? "15000");
+// Deployments plugin: adaptive poll cadence — idle by default, fast while a
+// pipeline is in flight on a watched GitLab project's default branch (catches
+// the approval gate within seconds), then back to idle. Plus an offline
+// fixture (JSON file) for tests/demos.
+export const DEPLOYMENTS_POLL_IDLE_MS = Number(
+  Deno.env.get("TRACKER_DEPLOYMENTS_POLL_IDLE_MS") ?? "300000",
+);
+export const DEPLOYMENTS_POLL_ACTIVE_MS = Number(
+  Deno.env.get("TRACKER_DEPLOYMENTS_POLL_ACTIVE_MS") ?? "10000",
+);
+export const DEPLOYMENTS_FIXTURE = Deno.env.get("TRACKER_DEPLOYMENTS_FIXTURE") ?? "";

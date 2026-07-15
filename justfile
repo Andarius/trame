@@ -62,9 +62,10 @@ dev:
 serve:
     cd app && deno task serve
 
-# Build a distributable desktop app (Linux .AppImage; .app/.dmg on macOS)
+# Build a distributable desktop app (Linux .AppImage; .app/.dmg on macOS).
+# Depends on web-build: a stale embed.ts would silently ship an old UI.
 [group('dev')]
-bundle:
+bundle: web-build
     cd app && deno task bundle
 
 # Build the React frontend into app/web/dist

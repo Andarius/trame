@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { DateInput, Popover } from "../ui";
+import type { LucideIcon } from "lucide-react";
+import { DateInput, EntityIcon, Popover } from "../ui";
 import { Markdown } from "../md";
 import {
   type Derived,
@@ -17,19 +18,96 @@ import {
   updateUdbProp,
 } from "../api";
 
-export const OPTION_COLORS = ["#7a9ee7", "#b590e7", "#c98a63", "#7bd88f", "#e3c567", "#e06c75", "#6b7280"];
+export const OPTION_COLORS = [
+  "#7a9ee7",
+  "#b590e7",
+  "#c98a63",
+  "#7bd88f",
+  "#e3c567",
+  "#e06c75",
+  "#6b7280",
+];
 
 const cellInput =
   "w-full truncate rounded-md border border-transparent bg-transparent px-1.5 py-1 text-xs text-ink outline-none transition-colors hover:bg-panel/70 focus:border-chipline focus:bg-panel";
 
 export function fmtNumber(v: unknown, cfg: PropConfig): string {
-  if (v === null || v === undefined || v === "" || Number.isNaN(Number(v))) return "";
+  if (v === null || v === undefined || v === "" || Number.isNaN(Number(v))) {
+    return "";
+  }
   const n = Number(v);
   const s = cfg.precision != null ? n.toFixed(cfg.precision) : String(n);
   if (cfg.format === "euro") return `${s} €`;
   if (cfg.format === "dollar") return `$${s}`;
   if (cfg.format === "percent") return `${s} %`;
   return s;
+}
+
+// Notion-style "Show as": render a number as plain text, a progress bar, or a
+// ring filled to value/max in the configured color. Falls back to plain text.
+export function NumberViz({ value, cfg }: { value: unknown; cfg: PropConfig }) {
+  const label = fmtNumber(value, cfg);
+  const has = value !== null && value !== undefined && value !== "" &&
+    !Number.isNaN(Number(value));
+  const showAs = cfg.show_as ?? "number";
+  if (showAs === "number" || !has) {
+    return <>{label || <span className="text-ink-muted/40">&nbsp;</span>}</>;
+  }
+  const max = cfg.max && cfg.max > 0 ? cfg.max : 100;
+  const frac = Math.max(0, Math.min(1, Number(value) / max));
+  const color = cfg.color || "var(--color-copper)";
+  const withValue = cfg.show_value !== false;
+  if (showAs === "bar") {
+    return (
+      <span className="flex w-full items-center gap-1.5">
+        <span className="relative h-1.5 min-w-6 flex-1 overflow-hidden rounded-full bg-line">
+          <span
+            className="absolute inset-y-0 left-0 rounded-full"
+            style={{ width: `${frac * 100}%`, background: color }}
+          />
+        </span>
+        {withValue && (
+          <span className="shrink-0 tabular-nums text-[11px] text-ink-soft">
+            {label}
+          </span>
+        )}
+      </span>
+    );
+  }
+  const R = 7, C = 2 * Math.PI * R;
+  return (
+    <span className="flex items-center gap-1.5">
+      <svg
+        width="18"
+        height="18"
+        viewBox="0 0 18 18"
+        className="-rotate-90 shrink-0"
+      >
+        <circle
+          cx="9"
+          cy="9"
+          r={R}
+          fill="none"
+          stroke="var(--color-line)"
+          strokeWidth="2.5"
+        />
+        <circle
+          cx="9"
+          cy="9"
+          r={R}
+          fill="none"
+          stroke={color}
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeDasharray={C}
+          strokeDashoffset={C * (1 - frac)}
+        />
+      </svg>
+      {withValue && (
+        <span className="tabular-nums text-[11px] text-ink-soft">{label}</span>
+      )}
+    </span>
+  );
 }
 
 export function OptionChip({ opt }: { opt: SelectOption }) {
@@ -46,9 +124,30 @@ export function OptionChip({ opt }: { opt: SelectOption }) {
 export { Popover };
 
 const QUICK_ICONS = [
-  "🎯", "📊", "📈", "🧪", "🤖", "💡", "📚", "📣",
-  "📡", "✍️", "💽", "🔥", "⭐", "✅", "❓", "🗂️",
-  "🚀", "🧵", "🗄️", "🔑", "🧠", "📦", "🛠️", "🌍",
+  "🎯",
+  "📊",
+  "📈",
+  "🧪",
+  "🤖",
+  "💡",
+  "📚",
+  "📣",
+  "📡",
+  "✍️",
+  "💽",
+  "🔥",
+  "⭐",
+  "✅",
+  "❓",
+  "🗂️",
+  "🚀",
+  "🧵",
+  "🗄️",
+  "🔑",
+  "🧠",
+  "📦",
+  "🛠️",
+  "🌍",
 ];
 
 // SVGs pass through untouched; raster images are downscaled to 64px so data URIs
@@ -78,7 +177,9 @@ export async function dataUriToIcon(uri: string): Promise<string> {
 async function fileToIcon(file: File): Promise<string> {
   if (file.type === "image/svg+xml") {
     const text = await file.text();
-    return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(text)))}`;
+    return `data:image/svg+xml;base64,${
+      btoa(unescape(encodeURIComponent(text)))
+    }`;
   }
   const url = URL.createObjectURL(file);
   try {
@@ -95,11 +196,16 @@ export function IconPicker(
     onClose: () => void;
   },
 ) {
-  const [tab, setTab] = useState<"emoji" | "icons" | "upload">("emoji");
+  const [tab, setTab] = useState<"emoji" | "library" | "icons" | "upload">(
+    "emoji",
+  );
   const [value, setValue] = useState("");
   const [used, setUsed] = useState<string[] | null>(null);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // Lucide icon library — lazily imported (its own chunk) the first time the tab opens
+  const [lib, setLib] = useState<Record<string, LucideIcon> | null>(null);
+  const [q, setQ] = useState("");
   const pick = (icon: string | null) => {
     onPick(icon);
     onClose();
@@ -114,19 +220,42 @@ export function IconPicker(
       fileRef.current?.click();
       return;
     }
-    const res = await fetch("/api/pick-image", { method: "POST" }).then((r) => r.json()).catch(() => null);
+    const res = await fetch("/api/pick-image", { method: "POST" }).then((r) =>
+      r.json()
+    ).catch(() => null);
     if (res?.dataUri) pick(await dataUriToIcon(res.dataUri));
     else if (res?.error && !res.cancelled) setUploadErr(res.error);
   };
 
   useEffect(() => {
-    if (tab === "icons" && used === null) listUdbIcons().then(setUsed).catch(() => setUsed([]));
-  }, [tab, used]);
+    if (tab === "icons" && used === null) {
+      listUdbIcons().then(setUsed).catch(() => setUsed([]));
+    }
+    if (tab === "library" && lib === null) {
+      import("lucide-react").then((m) => setLib(m.icons)).catch(() =>
+        setLib({})
+      );
+    }
+  }, [tab, used, lib]);
+
+  // A Lucide icon (stroke=currentColor) → a light-stroked SVG data-uri, so it
+  // renders as an image via EntityIcon (offline, theme-independent).
+  const pickSvg = (svg: SVGSVGElement | null) => {
+    if (!svg) return;
+    const c = svg.cloneNode(true) as SVGSVGElement;
+    c.setAttribute("stroke", "#e6e9ef");
+    c.removeAttribute("width");
+    c.removeAttribute("height");
+    const s = new XMLSerializer().serializeToString(c);
+    pick(`data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(s)))}`);
+  };
 
   // Ctrl+V anywhere in the picker: image data or an image link
   useEffect(() => {
     const h = async (e: ClipboardEvent) => {
-      const item = [...(e.clipboardData?.items ?? [])].find((i) => i.type.startsWith("image/"));
+      const item = [...(e.clipboardData?.items ?? [])].find((i) =>
+        i.type.startsWith("image/")
+      );
       if (item) {
         e.preventDefault();
         const f = item.getAsFile();
@@ -144,9 +273,12 @@ export function IconPicker(
   });
 
   const tabBtn = (t: typeof tab, label: string) => (
-    <button type="button"
+    <button
+      type="button"
       className={`border-b-2 px-0.5 pb-1 text-[11.5px] transition-colors ${
-        tab === t ? "border-ink font-medium text-ink" : "border-transparent text-ink-muted hover:text-ink-soft"
+        tab === t
+          ? "border-ink font-medium text-ink"
+          : "border-transparent text-ink-muted hover:text-ink-soft"
       }`}
       onClick={() => setTab(t)}
     >
@@ -159,11 +291,16 @@ export function IconPicker(
       <div className="flex flex-col gap-2">
         <div className="flex items-baseline gap-3 border-b border-line pb-0">
           {tabBtn("emoji", "Emoji")}
-          {tabBtn("icons", "Icons")}
+          {tabBtn("library", "Icons")}
+          {tabBtn("icons", "Recent")}
           {tabBtn("upload", "Upload")}
           <span className="flex-1" />
           {current && (
-            <button type="button" className="pb-1 text-[11.5px] text-ink-muted hover:text-blocked" onClick={() => pick(null)}>
+            <button
+              type="button"
+              className="pb-1 text-[11.5px] text-ink-muted hover:text-blocked"
+              onClick={() => pick(null)}
+            >
               Remove
             </button>
           )}
@@ -173,7 +310,12 @@ export function IconPicker(
           <>
             <div className="grid grid-cols-8 gap-0.5">
               {QUICK_ICONS.map((g) => (
-                <button type="button" key={g} className="rounded p-1 text-[14px] leading-none hover:bg-panel" onClick={() => pick(g)}>
+                <button
+                  type="button"
+                  key={g}
+                  className="rounded p-1 text-[14px] leading-none hover:bg-panel"
+                  onClick={() => pick(g)}
+                >
                   {g}
                 </button>
               ))}
@@ -184,25 +326,82 @@ export function IconPicker(
               placeholder="any emoji — Enter to set"
               value={value}
               onChange={(e) => setValue(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && value.trim() && pick(value.trim())}
+              onKeyDown={(e) =>
+                e.key === "Enter" && value.trim() && pick(value.trim())}
             />
+          </>
+        )}
+
+        {tab === "library" && (
+          <>
+            <input
+              autoFocus
+              className="w-full rounded-md border border-chipline bg-transparent px-2 py-1 text-xs text-ink outline-none placeholder:text-ink-muted/50 focus:border-copper/60"
+              placeholder="search icons…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+            {lib === null
+              ? (
+                <span className="py-2 text-[11px] text-ink-muted/60">
+                  loading…
+                </span>
+              )
+              : (() => {
+                const needle = q.toLowerCase().replace(/\s+/g, "");
+                const names = Object.keys(lib)
+                  .filter((n) => n.toLowerCase().includes(needle))
+                  .slice(0, 120);
+                return (
+                  <div className="grid max-h-44 grid-cols-7 gap-1 overflow-y-auto text-ink-soft">
+                    {names.map((n) => {
+                      const Icon = lib[n];
+                      return (
+                        <button
+                          type="button"
+                          key={n}
+                          title={n}
+                          className="flex items-center justify-center rounded p-1.5 hover:bg-panel"
+                          onClick={(e) =>
+                            pickSvg(e.currentTarget.querySelector("svg"))}
+                        >
+                          <Icon size={18} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
           </>
         )}
 
         {tab === "icons" && (
           used === null
-            ? <span className="py-2 text-[11px] text-ink-muted/60">loading…</span>
+            ? (
+              <span className="py-2 text-[11px] text-ink-muted/60">
+                loading…
+              </span>
+            )
             : used.length === 0
-            ? <span className="py-2 text-[11px] text-ink-muted/60">No uploaded icons yet — add one via Upload.</span>
+            ? (
+              <span className="py-2 text-[11px] text-ink-muted/60">
+                No uploaded icons yet — add one via Upload.
+              </span>
+            )
             : (
               <div className="grid max-h-44 grid-cols-7 gap-1 overflow-y-auto">
                 {used.map((icon) => (
-                  <button type="button"
+                  <button
+                    type="button"
                     key={icon}
                     className="flex items-center justify-center rounded p-1 hover:bg-panel"
                     onClick={() => pick(icon)}
                   >
-                    <img src={icon} alt="" className="h-5 w-5 rounded-[3px] object-contain" />
+                    <img
+                      src={icon}
+                      alt=""
+                      className="h-5 w-5 rounded-[3px] object-contain"
+                    />
                   </button>
                 ))}
               </div>
@@ -221,14 +420,19 @@ export function IconPicker(
                 if (f) pick(await fileToIcon(f));
               }}
             />
-            <button type="button"
+            <button
+              type="button"
               className="flex w-full items-center justify-center gap-2 rounded-lg border border-chipline bg-panel px-3 py-2.5 text-xs text-ink-soft transition-colors hover:border-copper/50"
               onClick={upload}
             >
               🖼 Upload an image
             </button>
-            <span className="text-[10.5px] text-ink-muted/70">or Ctrl+V to paste an image or link</span>
-            {uploadErr && <span className="text-[10.5px] text-blocked">{uploadErr}</span>}
+            <span className="text-[10.5px] text-ink-muted/70">
+              or Ctrl+V to paste an image or link
+            </span>
+            {uploadErr && (
+              <span className="text-[10.5px] text-blocked">{uploadErr}</span>
+            )}
           </div>
         )}
       </div>
@@ -237,7 +441,12 @@ export function IconPicker(
 }
 
 function TextCell(
-  { value, mono, commit, panel }: { value: string; mono?: boolean; commit: (v: unknown) => void; panel?: boolean },
+  { value, mono, commit, panel }: {
+    value: string;
+    mono?: boolean;
+    commit: (v: unknown) => void;
+    panel?: boolean;
+  },
 ) {
   const [v, setV] = useState(value);
   const [editing, setEditing] = useState(false);
@@ -268,7 +477,9 @@ function TextCell(
         title="click to edit"
         onClick={() => setEditing(true)}
       >
-        {v ? <Markdown text={v} /> : <span className="text-ink-muted/40">Empty</span>}
+        {v
+          ? <Markdown text={v} />
+          : <span className="text-ink-muted/40">Empty</span>}
       </div>
     );
   }
@@ -278,23 +489,34 @@ function TextCell(
       value={v}
       onChange={(e) => setV(e.target.value)}
       onBlur={() => v !== value && commit(v || null)}
-      onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+      onKeyDown={(e) =>
+        e.key === "Enter" && (e.target as HTMLInputElement).blur()}
     />
   );
 }
 
-function NumberCell({ value, cfg, commit }: { value: unknown; cfg: PropConfig; commit: (v: unknown) => void }) {
+function NumberCell(
+  { value, cfg, commit }: {
+    value: unknown;
+    cfg: PropConfig;
+    commit: (v: unknown) => void;
+  },
+) {
   const shown = value === null || value === undefined ? "" : String(value);
   const [v, setV] = useState(shown);
   const [editing, setEditing] = useState(false);
   useEffect(() => setV(shown), [shown]);
   if (!editing) {
+    const viz = cfg.show_as && cfg.show_as !== "number";
     return (
-      <button type="button"
-        className={`${cellInput} text-right tabular-nums`}
+      <button
+        type="button"
+        className={`${cellInput} tabular-nums ${
+          viz ? "text-left" : "text-right"
+        }`}
         onClick={() => setEditing(true)}
       >
-        {fmtNumber(value, cfg) || <span className="text-ink-muted/40">&nbsp;</span>}
+        <NumberViz value={value} cfg={cfg} />
       </button>
     );
   }
@@ -310,17 +532,23 @@ function NumberCell({ value, cfg, commit }: { value: unknown; cfg: PropConfig; c
         const n = v.trim() === "" ? null : Number(v.replace(",", "."));
         if (n === null || !Number.isNaN(n)) commit(n);
       }}
-      onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+      onKeyDown={(e) =>
+        e.key === "Enter" && (e.target as HTMLInputElement).blur()}
     />
   );
 }
 
-function CheckboxCell({ value, commit }: { value: unknown; commit: (v: unknown) => void }) {
+function CheckboxCell(
+  { value, commit }: { value: unknown; commit: (v: unknown) => void },
+) {
   const on = value === true;
   return (
-    <button type="button"
+    <button
+      type="button"
       className={`mx-1.5 my-1 flex h-4 w-4 items-center justify-center rounded border text-[10px] transition-colors ${
-        on ? "border-copper bg-copper text-copper-ink" : "border-chipline text-transparent hover:border-copper/50"
+        on
+          ? "border-copper bg-copper text-copper-ink"
+          : "border-chipline text-transparent hover:border-copper/50"
       }`}
       onClick={() => commit(!on)}
     >
@@ -329,7 +557,13 @@ function CheckboxCell({ value, commit }: { value: unknown; commit: (v: unknown) 
   );
 }
 
-function DateCell({ value, cfg, commit }: { value: unknown; cfg: PropConfig; commit: (v: unknown) => void }) {
+function DateCell(
+  { value, cfg, commit }: {
+    value: unknown;
+    cfg: PropConfig;
+    commit: (v: unknown) => void;
+  },
+) {
   const d = (value ?? {}) as { start?: string; end?: string };
   const set = (patch: Partial<{ start: string; end: string }>) => {
     const next = { ...d, ...patch };
@@ -353,7 +587,9 @@ function DateCell({ value, cfg, commit }: { value: unknown; cfg: PropConfig; com
   );
 }
 
-function UrlCell({ value, commit }: { value: string; commit: (v: unknown) => void }) {
+function UrlCell(
+  { value, commit }: { value: string; commit: (v: unknown) => void },
+) {
   const [v, setV] = useState(value);
   useEffect(() => setV(value), [value]);
   return (
@@ -364,10 +600,12 @@ function UrlCell({ value, commit }: { value: string; commit: (v: unknown) => voi
         placeholder=""
         onChange={(e) => setV(e.target.value)}
         onBlur={() => v !== value && commit(v || null)}
-        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+        onKeyDown={(e) =>
+          e.key === "Enter" && (e.target as HTMLInputElement).blur()}
       />
       {value && (
-        <button type="button"
+        <button
+          type="button"
           className="px-1 text-[11px] text-ink-muted opacity-0 transition-opacity hover:text-copper group-hover:opacity-100"
           title="open in browser"
           onClick={() => openInBrowser(value)}
@@ -396,7 +634,9 @@ function SelectCell(
     : (typeof value === "string" && value ? [value] : []);
   const toggle = (id: string) => {
     if (multi) {
-      const next = selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id];
+      const next = selected.includes(id)
+        ? selected.filter((x) => x !== id)
+        : [...selected, id];
       commit(next.length ? next : null);
     } else {
       commit(selected.includes(id) ? null : id);
@@ -416,10 +656,13 @@ function SelectCell(
     onPropChanged();
     toggle(opt.id);
   };
-  const shown = options.filter((o) => o.name.toLowerCase().includes(filter.toLowerCase()));
+  const shown = options.filter((o) =>
+    o.name.toLowerCase().includes(filter.toLowerCase())
+  );
   return (
     <div className="relative">
-      <button type="button"
+      <button
+        type="button"
         className="flex min-h-[26px] w-full flex-wrap items-center gap-1 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-panel/70"
         onClick={() => setOpen(true)}
       >
@@ -436,26 +679,40 @@ function SelectCell(
             placeholder={multi ? "filter or create…" : "filter…"}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && !shown.length && createOption()}
+            onKeyDown={(e) =>
+              e.key === "Enter" && !shown.length && createOption()}
           />
           <div className="flex max-h-52 flex-col overflow-y-auto">
             {shown.map((o) => (
-              <button type="button"
+              <button
+                type="button"
                 key={o.id}
                 className="flex items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-panel"
                 onClick={() => toggle(o.id)}
               >
                 <OptionChip opt={o} />
                 <span className="flex-1" />
-                {selected.includes(o.id) && <span className="text-[10px] text-copper">✓</span>}
+                {selected.includes(o.id) && (
+                  <span className="text-[10px] text-copper">✓</span>
+                )}
               </button>
             ))}
-            {filter.trim() && !options.some((o) => o.name.toLowerCase() === filter.trim().toLowerCase()) && (
-              <button type="button" className="rounded-md px-2 py-1 text-left text-xs text-ink-muted hover:bg-panel" onClick={createOption}>
+            {filter.trim() && !options.some((o) =>
+              o.name.toLowerCase() === filter.trim().toLowerCase()
+            ) && (
+              <button
+                type="button"
+                className="rounded-md px-2 py-1 text-left text-xs text-ink-muted hover:bg-panel"
+                onClick={createOption}
+              >
                 ＋ create “{filter.trim()}”
               </button>
             )}
-            {!shown.length && !filter.trim() && <span className="px-2 py-1 text-[11px] text-ink-muted/60">no options yet — type to create</span>}
+            {!shown.length && !filter.trim() && (
+              <span className="px-2 py-1 text-[11px] text-ink-muted/60">
+                no options yet — type to create
+              </span>
+            )}
           </div>
         </Popover>
       )}
@@ -477,7 +734,11 @@ function RelationCell(
   }, [open, target, prop.config.target_db]);
   const titleProp = target?.properties.find((p) => p.type === "title");
   const candidates = (target?.rows ?? [])
-    .map((r) => ({ id: r.id, title: String(r.vals[titleProp?.id ?? ""] ?? "") }))
+    .map((r) => ({
+      id: r.id,
+      title: String(r.vals[titleProp?.id ?? ""] ?? ""),
+      icon: r.icon,
+    }))
     .filter((r) => r.title.toLowerCase().includes(filter.toLowerCase()));
   const linked = new Set(chips.map((c) => c.id));
   const toggle = (id: string) => {
@@ -485,16 +746,20 @@ function RelationCell(
   };
   return (
     <div className="relative">
-      <button type="button"
+      <button
+        type="button"
         className="flex min-h-[26px] w-full flex-wrap items-center gap-1 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-panel/70"
         onClick={() => setOpen(true)}
       >
         {chips.map((c) => (
           <span
             key={c.id}
-            className="max-w-full truncate rounded border border-chipline/60 px-1.5 py-0.5 text-[10.5px] leading-none text-ink-soft"
+            className="flex max-w-full items-center gap-1 truncate rounded border border-chipline/60 px-1.5 py-0.5 text-[10.5px] leading-none text-ink-soft"
           >
-            {c.title || "untitled"}
+            {c.icon && (
+              <EntityIcon icon={c.icon} className="shrink-0 text-[11px]" />
+            )}
+            <span className="truncate">{c.title || "untitled"}</span>
           </span>
         ))}
       </button>
@@ -509,16 +774,26 @@ function RelationCell(
           />
           <div className="flex max-h-52 flex-col overflow-y-auto">
             {candidates.map((c) => (
-              <button type="button"
+              <button
+                type="button"
                 key={c.id}
                 className="flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-ink-soft hover:bg-panel"
                 onClick={() => toggle(c.id)}
               >
+                {c.icon && (
+                  <EntityIcon icon={c.icon} className="shrink-0 text-[13px]" />
+                )}
                 <span className="flex-1 truncate">{c.title || "untitled"}</span>
-                {linked.has(c.id) && <span className="text-[10px] text-copper">✓</span>}
+                {linked.has(c.id) && (
+                  <span className="text-[10px] text-copper">✓</span>
+                )}
               </button>
             ))}
-            {!candidates.length && <span className="px-2 py-1 text-[11px] text-ink-muted/60">{target ? "no matches" : "loading…"}</span>}
+            {!candidates.length && (
+              <span className="px-2 py-1 text-[11px] text-ink-muted/60">
+                {target ? "no matches" : "loading…"}
+              </span>
+            )}
           </div>
         </Popover>
       )}
@@ -527,24 +802,33 @@ function RelationCell(
 }
 
 export function DerivedCell(
-  { value, cfg, kind, panel }: { value: Derived; cfg: PropConfig; kind: "formula" | "rollup"; panel?: boolean },
+  { value, cfg, kind, panel }: {
+    value: Derived;
+    cfg: PropConfig;
+    kind: "formula" | "rollup";
+    panel?: boolean;
+  },
 ) {
   if (value !== null && typeof value === "object" && "error" in value) {
     return (
-      <span className="px-1.5 py-1 text-[11px] text-blocked" title={value.error}>
+      <span
+        className="px-1.5 py-1 text-[11px] text-blocked"
+        title={value.error}
+      >
         ! <span className="text-blocked/60">error</span>
       </span>
     );
   }
   const isNum = value !== null && value !== "" && !Number.isNaN(Number(value));
+  const viz = isNum && cfg.show_as && cfg.show_as !== "number";
   return (
     <span
-      className={`block px-1.5 py-1 text-xs tabular-nums text-ink-soft ${isNum ? "text-right" : ""} ${
-        panel ? "whitespace-pre-wrap break-words" : "truncate"
-      }`}
+      className={`block px-1.5 py-1 text-xs tabular-nums text-ink-soft ${
+        isNum && !viz ? "text-right" : ""
+      } ${panel ? "whitespace-pre-wrap break-words" : "truncate"}`}
       title={kind === "formula" ? cfg.expr : undefined}
     >
-      {isNum ? fmtNumber(value, cfg) : String(value ?? "")}
+      {isNum ? <NumberViz value={value} cfg={cfg} /> : String(value ?? "")}
     </span>
   );
 }
@@ -564,7 +848,13 @@ export function Cell(
   switch (prop.type) {
     case "title":
     case "text":
-      return <TextCell value={typeof v === "string" ? v : ""} commit={commit} panel={panel} />;
+      return (
+        <TextCell
+          value={typeof v === "string" ? v : ""}
+          commit={commit}
+          panel={panel}
+        />
+      );
     case "number":
       return <NumberCell value={v ?? null} cfg={prop.config} commit={commit} />;
     case "checkbox":
@@ -574,14 +864,37 @@ export function Cell(
     case "url":
       return <UrlCell value={typeof v === "string" ? v : ""} commit={commit} />;
     case "select":
-      return <SelectCell prop={prop} value={v} multi={false} commit={commit} onPropChanged={onPropChanged} />;
+      return (
+        <SelectCell
+          prop={prop}
+          value={v}
+          multi={false}
+          commit={commit}
+          onPropChanged={onPropChanged}
+        />
+      );
     case "multi_select":
-      return <SelectCell prop={prop} value={v} multi commit={commit} onPropChanged={onPropChanged} />;
+      return (
+        <SelectCell
+          prop={prop}
+          value={v}
+          multi
+          commit={commit}
+          onPropChanged={onPropChanged}
+        />
+      );
     case "relation":
       return <RelationCell prop={prop} row={row} onSaved={onSaved} />;
     case "formula":
     case "rollup":
-      return <DerivedCell value={row.derived[prop.id] ?? null} cfg={prop.config} kind={prop.type} panel={panel} />;
+      return (
+        <DerivedCell
+          value={row.derived[prop.id] ?? null}
+          cfg={prop.config}
+          kind={prop.type}
+          panel={panel}
+        />
+      );
     default:
       return null;
   }

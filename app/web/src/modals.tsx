@@ -7,10 +7,12 @@ import {
   type ClaudeScan,
   type ClaudeSession,
   completePath,
+  getPlugins,
   getSettings,
   getUpdate,
   openInBrowser,
   patchSettings,
+  type PluginManifest,
   runClaudeImport,
   scanClaudeImport,
   setClaudeIgnored,
@@ -323,7 +325,11 @@ function PathList(
 }
 
 export function SettingsModal(
-  { onClose, onSaved }: { onClose: () => void; onSaved: () => void },
+  { onClose, onSaved, onOpenPlugins }: {
+    onClose: () => void;
+    onSaved: () => void;
+    onOpenPlugins: () => void;
+  },
 ) {
   const [paths, setPaths] = useState<string[]>([]);
   const [ignore, setIgnore] = useState<string[]>([]);
@@ -339,6 +345,7 @@ export function SettingsModal(
   const [scale, setScale] = useState(getScale);
   const [authorName, setAuthorName] = useState("");
   const [authorAvatar, setAuthorAvatar] = useState("");
+  const [pluginList, setPluginList] = useState<PluginManifest[]>([]);
 
   useEffect(() => {
     getSettings().then((s) => {
@@ -359,6 +366,7 @@ export function SettingsModal(
       setUpdate(u);
       if (u.applied) setUpdState("done");
     }).catch(() => {});
+    getPlugins().then(setPluginList).catch(() => {});
   }, []);
 
   const runUpdate = () => {
@@ -561,6 +569,22 @@ export function SettingsModal(
             ✕ {hubTest.error}
           </span>
         )}
+      </div>
+
+      <div className="h-px bg-line" />
+      <div className="flex items-center gap-2">
+        <span className="text-[12.5px] font-semibold">Plugins</span>
+        <span className="text-[10.5px] text-ink-muted/70">
+          {pluginList.filter((p) => p.enabled).length} of {pluginList.length} enabled
+        </span>
+        <span className="flex-1" />
+        <button
+          type="button"
+          className="rounded-md border border-chipline px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
+          onClick={onOpenPlugins}
+        >
+          Manage plugins →
+        </button>
       </div>
 
       <div className="h-px bg-line" />
