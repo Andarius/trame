@@ -311,6 +311,10 @@ create table if not exists sync_state (
   last_pushed_at timestamptz not null default 'epoch'
 );
 insert into sync_state (id) values (1) on conflict do nothing;
+-- Hub-API sync cursor (phase 3): last change_log rev consumed. Null = never synced
+-- through the API → next pass does a full snapshot. Independent of the timestamp
+-- watermarks so either transport can take over without a re-pull storm.
+alter table sync_state add column if not exists api_cursor bigint;
 
 -- Change log (hub-API migration, phase 2). Per-replica, NOT synced. One mechanism,
 -- three jobs: rev is the future pull cursor (server-issued, monotonic — client clocks

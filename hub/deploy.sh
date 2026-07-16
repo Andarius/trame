@@ -20,6 +20,9 @@ scp -q "$HERE/docker-compose.yml" "$HOST:$DIR/docker-compose.yml"
 scp -q "$HERE/../db/schema.sql" "$HOST:$DIR/schema.sql"
 scp -q "$HERE/pg_hba.conf" "$HOST:$DIR/pg_hba.conf"
 scp -q "$HERE/gen-certs.sh" "$HOST:$DIR/gen-certs.sh"
+ssh "$HOST" "mkdir -p ~/$DIR/api ~/$DIR/protocol"
+scp -q "$HERE/api/"*.ts "$HERE/api/deno.json" "$HOST:$DIR/api/"
+scp -q "$HERE/../protocol/"*.ts "$HOST:$DIR/protocol/"
 ssh "$HOST" "chmod +x ~/$DIR/gen-certs.sh"
 
 ssh "$HOST" bash -s "$DIR" <<'REMOTE'
@@ -35,6 +38,8 @@ if [ ! -f .env ]; then
   chmod 600 .env
   echo "created .env (bind: $LAN_IP)"
 fi
+# deployed layout is flat (protocol/ beside api/), unlike the repo — pin the mounts
+grep -q TRACKER_PROTOCOL_SRC .env || echo "TRACKER_PROTOCOL_SRC=./protocol" >> .env
 . ./.env
 ./gen-certs.sh init "$TRACKER_BIND" "$(hostname)"
 docker compose up -d
@@ -51,4 +56,6 @@ echo "schema.sql applied"
 echo "tracker-db healthy — laptops use:"
 echo "  export TRACKER_REMOTE_PG=\"postgres://tracker:$POSTGRES_PASSWORD@$TRACKER_BIND:5433/tracker\""
 echo "then fetch this laptop's client cert:  just db-cert"
+echo "hub API: https://$TRACKER_BIND:8443  (mint a device token:"
+echo "  docker exec tracker-api deno run -A --config /srv/hub/api/deno.json /srv/hub/api/main.ts mint <node-id>)"
 REMOTE

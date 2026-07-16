@@ -89,6 +89,22 @@ export async function getRemotePg(): Promise<string | null> {
   return REMOTE_PG || null;
 }
 
+// Hub API sync (phase 3, feature-flagged): used instead of direct Postgres when
+// enabled AND fully configured. settings.json wins over env; re-read every pass.
+export async function getHubApi(): Promise<{ url: string; token: string } | null> {
+  let s: Record<string, unknown> = {};
+  try {
+    s = JSON.parse(await Deno.readTextFile(SETTINGS_FILE));
+  } catch { /* no settings file yet */ }
+  const enabled = s.syncViaApi === true || Deno.env.get("TRACKER_SYNC_VIA_API") === "1";
+  if (!enabled) return null;
+  const url = (typeof s.hubApi === "string" && s.hubApi.trim()) ||
+    Deno.env.get("TRACKER_HUB_API") || "";
+  const token = (typeof s.hubApiToken === "string" && s.hubApiToken.trim()) ||
+    Deno.env.get("TRACKER_HUB_API_TOKEN") || "";
+  return url && token ? { url: url.replace(/\/$/, ""), token } : null;
+}
+
 export async function getReportPaths(): Promise<ExploreConfig> {
   let settings: Record<string, unknown> = {};
   try {
