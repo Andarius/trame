@@ -1,0 +1,78 @@
+{
+  "items": [
+    {
+      "source": "github",
+      "repo": "acme/webapp",
+      "environment": "production",
+      "ref": "main",
+      "title": "Deploy 2.4.0 — checkout revamp",
+      "requester": "julien",
+      "waitingSince": "2026-07-12T09:12:00Z",
+      "url": "https://github.com/acme/webapp/actions/runs/123456789",
+      "status": "waiting",
+      "action": {
+        "kind": "github-approve",
+        "repo": "acme/webapp",
+        "runId": 123456789,
+        "environmentId": 7
+      }
+    },
+    {
+      "source": "gitlab",
+      "repo": "acme/api",
+      "environment": "live",
+      "ref": "v1.8.2",
+      "title": "release: v1.8.2",
+      "requester": "marie",
+      "waitingSince": "2026-07-13T06:40:00Z",
+      "url": "https://gitlab.com/acme/api/-/environments/42",
+      "status": "waiting",
+      "action": {
+        "kind": "gitlab-approve",
+        "project": "acme/api",
+        "deploymentId": 4242
+      }
+    },
+    {
+      "source": "gitlab",
+      "repo": "acme/billing",
+      "environment": "production",
+      "ref": "v3.0.0",
+      "title": "release: v3.0.0 — invoicing engine",
+      "requester": "sam",
+      "waitingSince": "2026-07-11T17:05:00Z",
+      "url": "https://gitlab.com/acme/billing/-/environments/17",
+      "status": "waiting",
+      "action": {
+        "kind": "gitlab-play",
+        "project": "acme/billing",
+        "jobId": 9911
+      }
+    },
+    {
+      "source": "gitlab",
+      "repo": "acme/api",
+      "environment": "staging",
+      "ref": "v1.8.3",
+      "title": "release: v1.8.3",
+      "requester": "marie",
+      "waitingSince": "2026-07-15T08:30:00Z",
+      "url": "https://gitlab.com/acme/api/-/jobs/55010",
+      "status": "running",
+      "action": null
+    },
+    {
+      "source": "gitlab",
+      "repo": "acme/webapp",
+      "environment": "preview",
+      "ref": "main",
+      "title": "Deploy 2.3.9 — hotfix",
+      "requester": "julien",
+      "waitingSince": "2026-07-14T22:05:00Z",
+      "url": "https://gitlab.com/acme/webapp/-/jobs/54888",
+      "status": "failed",
+      "action": null
+    }
+  ],
+  "errors": []
+}

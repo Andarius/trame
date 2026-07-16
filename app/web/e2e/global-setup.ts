@@ -31,6 +31,40 @@ async function writeClaudeFixtures(root: string) {
   await writeFile(`${root}/-tmp-scratch/44444444-4444-4444-8444-444444444444.jsonl`, line({ cwd: "/tmp/scratch" }));
 }
 
+// A backdated primary Codex rollout plus a subagent rollout. Keeping both outside
+// the UI's 30-day presets lets the existing Claude window tests stay focused.
+async function writeCodexFixtures(root: string) {
+  const line = (o: Record<string, unknown>) => `${JSON.stringify(o)}\n`;
+  const day = `${root}/2026/05/20`;
+  await mkdir(day, { recursive: true });
+  const old = new Date(Date.now() - 40 * 86_400_000);
+  const id = "66666666-6666-4666-8666-666666666666";
+  const subId = "77777777-7777-4777-8777-777777777777";
+  const meta = (sessionId: string, subagent = false) => ({
+    timestamp: old.toISOString(),
+    type: "session_meta",
+    payload: {
+      id: sessionId,
+      cwd: "/repo/codex-project",
+      git: { branch: "feat/codex-import" },
+      thread_source: subagent ? "subagent" : "user",
+      parent_thread_id: subagent ? id : null,
+      source: subagent ? { subagent: { other: "test" } } : "cli",
+    },
+  });
+  const user = {
+    timestamp: old.toISOString(),
+    type: "event_msg",
+    payload: { type: "user_message", message: "parse Codex rollout sessions", text_elements: [] },
+  };
+  const primary = `${day}/rollout-2026-05-20T10-00-00-${id}.jsonl`;
+  const sub = `${day}/rollout-2026-05-20T10-01-00-${subId}.jsonl`;
+  await writeFile(primary, line(meta(id)) + line(user));
+  await writeFile(sub, line(meta(subId, true)) + line(user));
+  await utimes(primary, old, old);
+  await utimes(sub, old, old);
+}
+
 // Fresh sandbox for every run — the webServer creates a clean PGlite dir inside it.
 // NOTE: Playwright starts the webServer BEFORE this runs, but PGlite init is lazy
 // (first db() call), so wiping here is safe as long as no request happened yet —
@@ -38,6 +72,7 @@ async function writeClaudeFixtures(root: string) {
 export default async function globalSetup() {
   await rm("/tmp/trame-e2e", { recursive: true, force: true });
   await writeClaudeFixtures("/tmp/trame-e2e/claude-projects");
+  await writeCodexFixtures("/tmp/trame-e2e/codex-sessions");
   // warm up PGlite now (first init can take >10s on cold CI runners): the server is
   // already listening, this first request builds the fresh data dir before any test.
   const deadline = Date.now() + 120_000;

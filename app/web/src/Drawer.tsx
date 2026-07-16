@@ -5,18 +5,62 @@ import {
   deleteSession,
   getEvents,
   openInBrowser,
+  prState,
   probeResume,
   type ResumeInfo,
+  type ResumeMode,
   resumeSession,
   saveSession,
   type Session,
   type SessionEvent,
   type Status,
 } from "./api";
-import { appConfirm, pageOptions, Select, STATUS, StatusDot, timeAgo } from "./ui";
+import { appConfirm, clientColor, pageOptions, Popover, Select, StatusDot, timeAgo } from "./ui";
+
+// How the Resume button places the session; the last pick is the default, persisted.
+const RESUME_MODES: { mode: ResumeMode; label: string; hint: string }[] = [
+  { mode: "window", label: "New window", hint: "opens a fresh terminal window" },
+  { mode: "tab", label: "New tab", hint: "adds a tab to your open terminal" },
+  { mode: "existing", label: "Existing session", hint: "types into your focused konsole" },
+];
+const RESUME_DONE: Record<ResumeMode, string> = {
+  window: "terminal opened",
+  tab: "tab opened",
+  existing: "sent to terminal",
+};
 
 const sectionLbl = "text-[10px] font-medium tracking-[0.8px] text-ink-muted/70";
 const rowLbl = "shrink-0 pt-[5px] text-[11px] text-ink-muted";
+
+// PR/MR link chips: state colors + a short label (repo#42 / proj!39) parsed from the URL
+const PR_STATE_COLOR: Record<string, string> = {
+  open: "#7bd88f",
+  draft: "#8b93a3",
+  merged: "#b590e7",
+  closed: "#e06c75",
+  unknown: "#5a6172",
+};
+// expand / collapse (full-screen) glyph — inline SVG so it renders on WebKitGTK
+function ExpandIcon({ open }: { open: boolean }) {
+  return (
+    <svg
+      width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+    >
+      <path d={open ? "M2 6h4V2M14 6h-4V2M2 10h4v4M14 10h-4v4" : "M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4"} />
+    </svg>
+  );
+}
+function prLabel(url: string): string {
+  try {
+    const u = new URL(url);
+    const mr = u.pathname.includes("/merge_requests/");
+    const m = u.pathname.match(/\/([^/]+)\/(?:pull|-\/merge_requests)\/(\d+)/);
+    return m ? `${m[1]}${mr ? "!" : "#"}${m[2]}` : `${u.host}${u.pathname}`;
+  } catch {
+    return url;
+  }
+}
 const rowVal =
   "w-full truncate rounded-md border border-transparent bg-transparent px-2 py-1 text-xs text-ink outline-none transition-colors hover:bg-panel focus:border-chipline focus:bg-panel";
 
@@ -44,12 +88,30 @@ export function Drawer(
   const [branch, setBranch] = useState(session.branch ?? "");
   const [nextStep, setNextStep] = useState(session.next_step ?? "");
   const [prUrl, setPrUrl] = useState(session.pr_url ?? "");
+  const [prNew, setPrNew] = useState("");
+  // JS auto-grow: field-sizing:content isn't supported in the desktop WebKitGTK webview,
+  // so long next-steps would clip. Size the textarea to its content by hand.
+  const [expanded, setExpanded] = useState(false);
+  const nsRef = useRef<HTMLTextAreaElement>(null);
+  const [nsEditing, setNsEditing] = useState(false);
+  const growNs = () => {
+    const el = nsRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  };
+  const [prStates, setPrStates] = useState<Record<string, string>>({});
+  const prLinks = prUrl.split("\n").map((s) => s.trim()).filter(Boolean);
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const [log, setLog] = useState("");
   const [flash, setFlash] = useState(false);
   const flashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [resumeMsg, setResumeMsg] = useState<string | null>(null);
   const [resumeInfo, setResumeInfo] = useState<ResumeInfo | null>(null);
+  const [resumeMenu, setResumeMenu] = useState(false);
+  const [resumeMode, setResumeMode] = useState<ResumeMode>(
+    () => (localStorage.getItem("trame:resumeMode") as ResumeMode | null) ?? "window",
+  );
   const resumeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // probe on open so the button shows whether this session is resumable HERE vs on another device
@@ -59,18 +121,36 @@ export function Drawer(
     probeResume(session.id).then(setResumeInfo).catch(() => {});
   }, [session.id, session.repo_path]);
 
-  const doResume = async () => {
+  // resolve each PR/MR link's state (best-effort; server caches, GitHub via gh)
+  useEffect(() => {
+    for (const url of prLinks) {
+      if (prStates[url]) continue;
+      prState(url).then((state) => setPrStates((m) => ({ ...m, [url]: state })));
+    }
+  }, [prUrl]);
+
+  // size the next-step textarea to its content when it enters edit mode
+  useEffect(() => {
+    if (nsEditing) growNs();
+  }, [nsEditing]);
+
+  const doResume = async (mode: ResumeMode = resumeMode) => {
+    setResumeMenu(false);
+    setResumeMode(mode);
+    localStorage.setItem("trame:resumeMode", mode);
     let msg: string;
     try {
-      const r = await resumeSession(session.id);
+      const r = await resumeSession(session.id, mode);
       if (r.launched) {
-        msg = "terminal opened";
+        msg = RESUME_DONE[mode];
       } else {
-        // transcript isn't here → can't resume locally; copy the command as an escape hatch
+        // couldn't launch → copy the command as an escape hatch, then explain why
         try {
           await navigator.clipboard?.writeText(r.cmd);
         } catch { /* clipboard blocked — still show why below */ }
-        msg = r.local === false
+        msg = r.reason === "api-disabled"
+          ? "enable konsole D-Bus — copied"
+          : r.local === false
           ? (r.homeNode ? `on ${r.homeNode} — copied` : "no transcript here — copied")
           : "command copied";
       }
@@ -140,7 +220,12 @@ export function Drawer(
   });
 
   return (
-    <div className="flex h-full w-[400px] shrink-0 flex-col overflow-y-auto border-l border-line bg-sidebar shadow-[-16px_0_40px_rgba(0,0,0,0.35)]">
+    <div
+      className={expanded
+        ? "fixed inset-0 z-50 flex justify-center overflow-y-auto bg-sidebar"
+        : "flex h-full w-[400px] shrink-0 flex-col overflow-y-auto border-l border-line bg-sidebar shadow-[-16px_0_40px_rgba(0,0,0,0.35)]"}
+    >
+      <div className={expanded ? "flex min-h-full w-full max-w-[860px] flex-col" : "contents"}>
       <div className="flex items-center gap-2 px-4 pb-1 pt-3.5">
         <span className={sectionLbl}>SESSION</span>
         <span className="flex-1" />
@@ -149,6 +234,13 @@ export function Drawer(
             {session.repo_path.split("/").slice(-2).join("/")}
           </span>
         )}
+        <button type="button"
+          className="flex items-center rounded-md px-1.5 py-1 text-ink-muted transition-colors hover:bg-panel hover:text-ink"
+          title={expanded ? "collapse to side panel" : "expand to full screen"}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          <ExpandIcon open={expanded} />
+        </button>
         <button type="button"
           className="rounded-md px-1.5 py-0.5 text-[13px] text-ink-muted transition-colors hover:bg-panel hover:text-ink"
           title="close (esc)"
@@ -167,27 +259,28 @@ export function Drawer(
           onBlur={() => commitIf(title !== session.title)}
         />
 
-        <div className="grid grid-cols-4 gap-1 rounded-lg bg-panel p-1">
-          {(Object.keys(STATUS) as Status[]).map((s) => {
+        <div className="flex flex-wrap gap-1 rounded-lg bg-panel p-1">
+          {board.statuses.map((def) => {
+            const s = def.key;
             const active = status === s;
             return (
               <button type="button"
-                key={s}
+                key={def.id}
                 onClick={() => {
                   setStatus(s);
                   commit({ status: s });
                 }}
-                className={`flex items-center justify-center gap-1.5 rounded-md py-1.5 text-[11px] transition-colors ${
+                className={`flex flex-1 basis-[calc(25%-0.25rem)] items-center justify-center gap-1.5 rounded-md py-1.5 text-[11px] transition-colors ${
                   active ? "font-medium" : "text-ink-muted hover:text-ink-soft"
                 }`}
                 style={active
                   ? {
-                    background: `color-mix(in srgb, ${STATUS[s].color} 13%, transparent)`,
-                    color: STATUS[s].color,
+                    background: `color-mix(in srgb, ${def.color} 13%, transparent)`,
+                    color: def.color,
                   }
                   : undefined}
               >
-                <StatusDot status={s} size={6} /> {STATUS[s].label}
+                <StatusDot status={s} size={6} /> {def.label}
               </button>
             );
           })}
@@ -195,27 +288,60 @@ export function Drawer(
 
         {session.repo_path && (() => {
           const foreign = resumeInfo?.local === false; // transcript lives on another device
-          const label = resumeMsg ??
-            (foreign
-              ? (resumeInfo?.homeNode ? `On ${resumeInfo.homeNode}` : "No transcript on this device")
-              : "Resume in Claude Code");
-          return (
-            <button type="button"
-              className={`flex items-center justify-center gap-2 rounded-lg border py-2 text-[12px] font-medium transition-colors ${
-                foreign
-                  ? "border-line bg-transparent text-ink-muted hover:border-chipline hover:text-ink-soft"
-                  : "border-copper/40 bg-copper/[0.06] text-copper hover:border-copper/60 hover:bg-copper/10"
-              }`}
-              title={foreign
-                ? `This session's transcript lives on ${
+          // Foreign transcript: single button that copies the command (launch modes don't apply).
+          if (foreign) {
+            return (
+              <button type="button"
+                className="flex items-center justify-center gap-2 rounded-lg border border-line bg-transparent py-2 text-[12px] font-medium text-ink-muted transition-colors hover:border-chipline hover:text-ink-soft"
+                title={`This session's transcript lives on ${
                   resumeInfo?.homeNode ?? "another device"
-                } — resume it there. Click to copy the command.`
-                : `Opens a terminal in ${session.repo_path} running "claude --resume"`}
-              onClick={doResume}
-            >
-              <span className="text-[13px]">{foreign ? "⧉" : "⏵"}</span>
-              {label}
-            </button>
+                } — resume it there. Click to copy the command.`}
+                onClick={() => doResume()}
+              >
+                <span className="text-[13px]">⧉</span>
+                {resumeMsg ??
+                  (resumeInfo?.homeNode ? `On ${resumeInfo.homeNode}` : "No transcript on this device")}
+              </button>
+            );
+          }
+          const active = RESUME_MODES.find((m) => m.mode === resumeMode) ?? RESUME_MODES[0];
+          const agentLabel = resumeInfo?.agent === "codex" ? "Codex" : "Claude";
+          const btn = "border-copper/40 bg-copper/[0.06] text-copper transition-colors hover:border-copper/60 hover:bg-copper/10";
+          return (
+            <div className="relative flex">
+              <button type="button"
+                className={`flex flex-1 items-center justify-center gap-2 rounded-l-lg border border-r-0 py-2 text-[12px] font-medium ${btn}`}
+                title={`Resume in ${session.repo_path} — ${active.hint}`}
+                onClick={() => doResume()}
+              >
+                <span className="text-[13px]">⏵</span>
+                {resumeMsg ?? `Resume ${agentLabel} · ${active.label}`}
+              </button>
+              <button type="button"
+                className={`flex items-center rounded-r-lg border px-2 text-[10px] ${btn}`}
+                title="choose how to open"
+                onClick={() => setResumeMenu((v) => !v)}
+              >
+                ▾
+              </button>
+              {resumeMenu && (
+                <Popover onClose={() => setResumeMenu(false)} className="left-auto right-0 min-w-[220px]">
+                  {RESUME_MODES.map((m) => (
+                    <button type="button"
+                      key={m.mode}
+                      className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-panel"
+                      onClick={() => doResume(m.mode)}
+                    >
+                      <span className="flex-1">
+                        <span className="block text-xs text-ink-soft">{m.label}</span>
+                        <span className="block text-[10px] text-ink-muted/70">{m.hint}</span>
+                      </span>
+                      {m.mode === resumeMode && <span className="pt-0.5 text-[10px] text-copper">✓</span>}
+                    </button>
+                  ))}
+                </Popover>
+              )}
+            </div>
           );
         })()}
       </div>
@@ -227,7 +353,7 @@ export function Drawer(
             className={rowVal}
             options={[
               { value: "", label: "none" },
-              ...board.clients.map((c) => ({ value: c.name, label: c.name })),
+              ...board.clients.map((c) => ({ value: c.name, label: c.name, dot: clientColor(c.name, c.color) })),
             ]}
             onChange={(v) => {
               setClient(v);
@@ -259,34 +385,102 @@ export function Drawer(
           />
         </Row>
         <Row label="PR / MR">
-          <div className="flex items-center gap-1">
+          <div className="flex min-w-0 flex-col gap-1">
+            {prLinks.map((url) => {
+              const state = prStates[url] ?? "unknown";
+              return (
+                <div key={url} className="group flex items-center gap-1.5 rounded-md px-2 py-1 hover:bg-panel">
+                  <span
+                    className="h-[7px] w-[7px] shrink-0 rounded-full"
+                    style={{ background: PR_STATE_COLOR[state] ?? PR_STATE_COLOR.unknown }}
+                    title={state}
+                  />
+                  <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink" title={url}>
+                    {prLabel(url)}
+                  </span>
+                  {state !== "unknown" && <span className="shrink-0 text-[10px] text-ink-muted">{state}</span>}
+                  <button type="button"
+                    className="shrink-0 text-[11.5px] text-ink-muted transition-colors hover:text-copper"
+                    title="open in browser"
+                    onClick={() => openInBrowser(url)}
+                  >
+                    ↗
+                  </button>
+                  <button type="button"
+                    className="shrink-0 text-[11.5px] text-ink-muted opacity-0 transition-opacity hover:text-blocked group-hover:opacity-100"
+                    title="remove"
+                    onClick={() => {
+                      const next = prLinks.filter((u) => u !== url).join("\n");
+                      setPrUrl(next);
+                      commit({ pr_url: next || undefined });
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              );
+            })}
             <input
-              className={`${rowVal} flex-1`}
-              value={prUrl}
-              onChange={(e) => setPrUrl(e.target.value)}
-              onBlur={() => commitIf(prUrl !== (session.pr_url ?? ""))}
-              placeholder="https://…"
+              className={rowVal}
+              value={prNew}
+              onChange={(e) => setPrNew(e.target.value)}
+              placeholder={prLinks.length ? "add another PR / MR…" : "https://…"}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                const url = prNew.trim();
+                if (!/^https?:\/\//.test(url)) return;
+                const next = [...prLinks, url].join("\n");
+                setPrUrl(next);
+                setPrNew("");
+                commit({ pr_url: next });
+              }}
             />
-            {prUrl && (
-              <button type="button"
-                className="rounded-md px-1.5 py-0.5 text-[11.5px] text-ink-muted transition-colors hover:bg-panel hover:text-copper"
-                title="open in browser"
-                onClick={() => openInBrowser(prUrl)}
-              >
-                ↗
-              </button>
-            )}
           </div>
         </Row>
-        <Row label="Next step">
-          <input
-            className={rowVal}
-            value={nextStep}
-            onChange={(e) => setNextStep(e.target.value)}
-            onBlur={() => commitIf(nextStep !== (session.next_step ?? ""))}
-            placeholder="one imperative line"
-          />
-        </Row>
+
+        {/* Next step — the imperative line for future-you, as a banner below the fields (design A) */}
+        <div
+          className={`mt-2 flex items-start gap-2.5 rounded-lg border px-3 py-2 transition-colors ${
+            nextStep ? "border-copper/30 bg-copper/[0.07]" : "border-dashed border-chipline/70"
+          }`}
+          style={nextStep ? { borderLeft: "3px solid var(--color-copper)" } : undefined}
+        >
+          <span
+            className={`shrink-0 pt-[3px] font-mono text-[10px] font-semibold uppercase tracking-[0.14em] ${
+              nextStep ? "text-copper" : "text-ink-muted"
+            }`}
+          >
+            ▶ Next
+          </span>
+          {nsEditing
+            ? (
+              <textarea
+                ref={nsRef}
+                autoFocus
+                className="w-full resize-none overflow-hidden bg-transparent font-mono text-[12.5px] leading-snug text-ink outline-none placeholder:font-sans placeholder:text-ink-muted/70"
+                rows={1}
+                value={nextStep}
+                onChange={(e) => {
+                  setNextStep(e.target.value);
+                  growNs();
+                }}
+                onBlur={() => {
+                  commitIf(nextStep !== (session.next_step ?? ""));
+                  setNsEditing(false);
+                }}
+                placeholder="what's the next move on resume?"
+              />
+            )
+            : (
+              <div
+                className="w-full cursor-text whitespace-pre-wrap font-mono text-[12.5px] leading-snug text-ink"
+                title="click to edit"
+                onClick={() => setNsEditing(true)}
+              >
+                {nextStep || <span className="font-sans text-ink-muted/70">what's the next move on resume?</span>}
+              </div>
+            )}
+        </div>
       </div>
 
       <div className="flex flex-1 flex-col gap-2.5 border-t border-line-soft px-4 py-3.5">
@@ -326,6 +520,7 @@ export function Drawer(
           ✓ Saved
         </span>
         <span className="text-[10px] text-ink-muted/50">auto-saves · esc to close</span>
+      </div>
       </div>
     </div>
   );

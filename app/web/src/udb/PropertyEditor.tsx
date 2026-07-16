@@ -10,8 +10,8 @@ import {
   type UdbProp,
   updateUdbProp,
 } from "../api";
-import { appConfirm, Popover, Select } from "../ui";
-import { OPTION_COLORS } from "./cells";
+import { appConfirm, EntityIcon, Popover, Select } from "../ui";
+import { IconPicker, OPTION_COLORS } from "./cells";
 
 const TYPES: { key: PropType; label: string; glyph: string }[] = [
   { key: "text", label: "Text", glyph: "≡" },
@@ -30,17 +30,20 @@ export const TYPE_GLYPH: Record<string, string> = Object.fromEntries(
   [...TYPES.map((t) => [t.key, t.glyph]), ["title", "Aa"]],
 );
 
-const FORMULA_PLACEHOLDER = "impact * confidence * ease\nround(x, 1), nullif(y, 0), case when … end";
+const FORMULA_PLACEHOLDER =
+  "impact * confidence * ease\nround(x, 1), nullif(y, 0), case when … end";
 const lbl = "text-[10px] font-medium tracking-[0.6px] text-ink-muted/75";
 const field =
   "w-full rounded-md border border-chipline bg-transparent px-2 py-1.5 text-xs text-ink outline-none focus:border-copper/60";
 
 export function PropertyEditor(
-  { dbId, prop, allProps, udbs, onClose, onSaved }: {
+  { dbId, prop, allProps, udbs, sortDir, onSort, onClose, onSaved }: {
     dbId: string;
     prop: UdbProp | null; // null = create
     allProps: UdbProp[];
     udbs: UdbMeta[];
+    sortDir?: 1 | -1 | null; // current sort direction on THIS column, if any
+    onSort?: (dir: 1 | -1 | null) => void; // null = clear sort
     onClose: () => void;
     onSaved: () => void;
   },
@@ -50,12 +53,15 @@ export function PropertyEditor(
   const [config, setConfig] = useState<PropConfig>(prop?.config ?? {});
   const [error, setError] = useState<string | null>(null);
   const [targetProps, setTargetProps] = useState<UdbProp[]>([]);
+  const [iconOpen, setIconOpen] = useState(false);
 
   const relationProps = allProps.filter((p) => p.type === "relation");
   const rollupRel = relationProps.find((p) => p.id === config.relation_prop);
   useEffect(() => {
     if (type === "rollup" && rollupRel?.config.target_db) {
-      getUdb(rollupRel.config.target_db).then((u) => setTargetProps(u.properties)).catch(() => {});
+      getUdb(rollupRel.config.target_db).then((u) =>
+        setTargetProps(u.properties)
+      ).catch(() => {});
     }
   }, [type, rollupRel?.config.target_db]);
 
@@ -64,8 +70,13 @@ export function PropertyEditor(
   const save = async () => {
     setError(null);
     try {
-      if (prop) await updateUdbProp(prop.id, { name: name || prop.name, config });
-      else await createUdbProp(dbId, { name: name || "Untitled", type, config });
+      if (prop) {
+        await updateUdbProp(prop.id, { name: name || prop.name, config });
+      } else {await createUdbProp(dbId, {
+          name: name || "Untitled",
+          type,
+          config,
+        });}
       onSaved();
       onClose();
     } catch (e) {
@@ -75,7 +86,9 @@ export function PropertyEditor(
 
   const remove = async () => {
     if (!prop) return;
-    const extra = prop.type === "relation" ? " (removes both sides of the relation)" : "";
+    const extra = prop.type === "relation"
+      ? " (removes both sides of the relation)"
+      : "";
     if (await appConfirm(`Delete column "${prop.name}"?${extra}`)) {
       deleteUdbProp(prop.id).then(() => {
         onSaved();
@@ -91,17 +104,92 @@ export function PropertyEditor(
   return (
     <Popover onClose={onClose} className="w-[260px] p-2.5">
       <div className="flex flex-col gap-2.5">
-        <label className="flex flex-col gap-1">
-          <span className={lbl}>NAME</span>
-          <input autoFocus className={field} value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
+        {prop && onSort && (
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              className={`flex flex-1 items-center justify-center gap-1 rounded-md border py-1 text-[11px] transition-colors ${
+                sortDir === 1
+                  ? "border-copper/60 text-copper"
+                  : "border-chipline text-ink-muted hover:text-ink-soft"
+              }`}
+              onClick={() => {
+                onSort(1);
+                onClose();
+              }}
+            >
+              ▲ Ascending
+            </button>
+            <button
+              type="button"
+              className={`flex flex-1 items-center justify-center gap-1 rounded-md border py-1 text-[11px] transition-colors ${
+                sortDir === -1
+                  ? "border-copper/60 text-copper"
+                  : "border-chipline text-ink-muted hover:text-ink-soft"
+              }`}
+              onClick={() => {
+                onSort(-1);
+                onClose();
+              }}
+            >
+              ▼ Descending
+            </button>
+            {sortDir != null && (
+              <button
+                type="button"
+                className="rounded-md border border-chipline px-2 py-1 text-[11px] text-ink-muted hover:text-blocked"
+                title="clear sort"
+                onClick={() => {
+                  onSort(null);
+                  onClose();
+                }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        )}
+        <div className="flex items-end gap-2">
+          <div className="relative flex flex-col gap-1">
+            <span className={lbl}>ICON</span>
+            <button
+              type="button"
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-chipline text-[15px] hover:border-copper/50"
+              title="set column icon"
+              onClick={() => setIconOpen(true)}
+            >
+              {config.icon
+                ? <EntityIcon icon={config.icon} className="text-[15px]" />
+                : <span className="text-ink-muted">＋</span>}
+            </button>
+            {iconOpen && (
+              <IconPicker
+                current={config.icon}
+                onPick={(ic) => set({ icon: ic })}
+                onClose={() => setIconOpen(false)}
+              />
+            )}
+          </div>
+          <label className="flex min-w-0 flex-1 flex-col gap-1">
+            <span className={lbl}>NAME</span>
+            <input
+              autoFocus
+              className={field}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </label>
+        </div>
 
         {!prop && (
           <label className="flex flex-col gap-1">
             <span className={lbl}>TYPE</span>
             <Select
               value={type}
-              options={TYPES.map((t) => ({ value: t.key, label: `${t.glyph} ${t.label}` }))}
+              options={TYPES.map((t) => ({
+                value: t.key,
+                label: `${t.glyph} ${t.label}`,
+              }))}
               onChange={(v) => setType(v as PropType)}
             />
           </label>
@@ -123,34 +211,112 @@ export function PropertyEditor(
           </label>
         )}
 
+        {type === "number" && (
+          <div className="flex flex-col gap-1">
+            <span className={lbl}>SHOW AS</span>
+            <div className="flex gap-1">
+              {(["number", "bar", "ring"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  className={`flex-1 rounded-md border px-2 py-1 text-[11px] capitalize ${
+                    (config.show_as ?? "number") === m
+                      ? "border-copper text-copper"
+                      : "border-chipline text-ink-muted hover:text-ink-soft"
+                  }`}
+                  onClick={() => set({ show_as: m })}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+            {config.show_as && config.show_as !== "number" && (
+              <div className="mt-1 flex flex-col gap-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-ink-muted">Color</span>
+                  <div className="flex gap-1">
+                    {OPTION_COLORS.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        className={`h-4 w-4 rounded-full border ${
+                          config.color === c ? "border-ink" : "border-black/30"
+                        }`}
+                        style={{ background: c }}
+                        title="fill color"
+                        onClick={() => set({ color: c })}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <label className="flex items-center gap-2 text-[11px] text-ink-muted">
+                  Max (100%)
+                  <input
+                    type="number"
+                    className="w-20 rounded-md border border-chipline bg-transparent px-1.5 py-0.5 text-[11px] text-ink outline-none"
+                    value={config.max ?? ""}
+                    placeholder="100"
+                    onChange={(e) =>
+                      set({
+                        max: e.target.value === ""
+                          ? undefined
+                          : Number(e.target.value),
+                      })}
+                  />
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-[11px] text-ink-muted">
+                  <input
+                    type="checkbox"
+                    checked={config.show_value !== false}
+                    onChange={(e) => set({ show_value: e.target.checked })}
+                  />
+                  Show number
+                </label>
+              </div>
+            )}
+          </div>
+        )}
+
         {(type === "select" || type === "multi_select") && (
           <div className="flex flex-col gap-1">
             <span className={lbl}>OPTIONS</span>
             {options.map((o, i) => (
               <div key={o.id} className="flex items-center gap-1.5">
-                <button type="button"
+                <button
+                  type="button"
                   className="h-3.5 w-3.5 shrink-0 rounded-full border border-black/30"
                   style={{ background: o.color }}
                   title="cycle color"
                   onClick={() =>
                     patchOption(i, {
-                      color: OPTION_COLORS[(OPTION_COLORS.indexOf(o.color) + 1) % OPTION_COLORS.length],
+                      color: OPTION_COLORS[
+                        (OPTION_COLORS.indexOf(o.color) + 1) %
+                        OPTION_COLORS.length
+                      ],
                     })}
                 />
                 <input
                   className={`${field} py-1`}
                   value={o.name}
-                  onChange={(e) => patchOption(i, { name: e.target.value })}
+                  onChange={(e) =>
+                    patchOption(i, { name: e.target.value })}
                 />
-                <button type="button"
+                <button
+                  type="button"
                   className="px-0.5 text-ink-muted hover:text-blocked"
-                  onClick={() => set({ options: options.filter((_, j) => j !== i) })}
+                  onClick={() =>
+                    set({
+                      options: options.filter((_, j) =>
+                        j !== i
+                      ),
+                    })}
                 >
                   ✕
                 </button>
               </div>
             ))}
-            <button type="button"
+            <button
+              type="button"
               className="w-fit rounded px-1 py-0.5 text-[11px] text-ink-muted hover:text-ink-soft"
               onClick={() =>
                 set({
@@ -174,7 +340,9 @@ export function PropertyEditor(
           >
             <span
               className={`flex h-4 w-4 items-center justify-center rounded border text-[10px] transition-colors ${
-                config.end ? "border-copper bg-copper text-copper-ink" : "border-chipline text-transparent"
+                config.end
+                  ? "border-copper bg-copper text-copper-ink"
+                  : "border-chipline text-transparent"
               }`}
             >
               ✓
@@ -200,14 +368,16 @@ export function PropertyEditor(
                 className={field}
                 placeholder="(defaults to this database's name)"
                 value={config.reverse_name ?? ""}
-                onChange={(e) => set({ reverse_name: e.target.value || undefined })}
+                onChange={(e) =>
+                  set({ reverse_name: e.target.value || undefined })}
               />
             </label>
           </>
         )}
         {type === "relation" && prop && (
           <p className="m-0 text-[11px] text-ink-muted">
-            ⇄ {udbs.find((d) => d.id === prop.config.target_db)?.name ?? "?"} ·{" "}
+            ⇄ {udbs.find((d) => d.id === prop.config.target_db)?.name ?? "?"} ·
+            {" "}
             {prop.config.owner ? "owner side" : "reverse side"}
           </p>
         )}
@@ -222,7 +392,8 @@ export function PropertyEditor(
               onChange={(e) => set({ expr: e.target.value })}
             />
             <span className="text-[10px] text-ink-muted/70">
-              reference columns by name — bare (<code>impact</code>) or quoted (<code>"ICE score"</code>)
+              reference columns by name — bare (<code>impact</code>) or quoted
+              (<code>"ICE score"</code>)
             </span>
           </label>
         )}
@@ -234,7 +405,10 @@ export function PropertyEditor(
               <Select
                 value={config.relation_prop ?? ""}
                 placeholder="choose relation…"
-                options={relationProps.map((p) => ({ value: p.id, label: p.name }))}
+                options={relationProps.map((p) => ({
+                  value: p.id,
+                  label: p.name,
+                }))}
                 onChange={(v) => set({ relation_prop: v })}
               />
             </label>
@@ -242,7 +416,9 @@ export function PropertyEditor(
               <span className={lbl}>CALCULATE</span>
               <Select
                 value={config.agg ?? "count"}
-                options={["count", "sum", "avg", "min", "max", "latest"].map((a) => ({ value: a, label: a }))}
+                options={["count", "sum", "avg", "min", "max", "latest"].map((
+                  a,
+                ) => ({ value: a, label: a }))}
                 onChange={(v) => set({ agg: v as PropConfig["agg"] })}
               />
             </label>
@@ -253,7 +429,9 @@ export function PropertyEditor(
                   value={config.target_prop ?? ""}
                   placeholder="choose property…"
                   options={targetProps
-                    .filter((p) => !["relation", "formula", "rollup"].includes(p.type))
+                    .filter((p) =>
+                      !["relation", "formula", "rollup"].includes(p.type)
+                    )
                     .map((p) => ({ value: p.id, label: p.name }))}
                   onChange={(v) => set({ target_prop: v })}
                 />
@@ -266,7 +444,9 @@ export function PropertyEditor(
                   value={config.date_prop ?? ""}
                   options={[
                     { value: "", label: "last edited" },
-                    ...targetProps.filter((p) => p.type === "date").map((p) => ({ value: p.id, label: p.name })),
+                    ...targetProps.filter((p) => p.type === "date").map((
+                      p,
+                    ) => ({ value: p.id, label: p.name })),
                   ]}
                   onChange={(v) => set({ date_prop: v || undefined })}
                 />
@@ -275,17 +455,32 @@ export function PropertyEditor(
           </>
         )}
 
-        {error && <p className="m-0 whitespace-pre-wrap text-[11px] leading-snug text-blocked">{error}</p>}
+        {error && (
+          <p className="m-0 whitespace-pre-wrap text-[11px] leading-snug text-blocked">
+            {error}
+          </p>
+        )}
 
         <div className="flex items-center gap-2 border-t border-line pt-2">
           {prop && prop.type !== "title" && (
-            <button type="button" className="text-[11px] text-ink-muted hover:text-blocked" onClick={remove}>Delete</button>
+            <button
+              type="button"
+              className="text-[11px] text-ink-muted hover:text-blocked"
+              onClick={remove}
+            >
+              Delete
+            </button>
           )}
           <span className="flex-1" />
-          <button type="button" className="rounded-md px-2 py-1 text-xs text-ink-muted hover:text-ink-soft" onClick={onClose}>
+          <button
+            type="button"
+            className="rounded-md px-2 py-1 text-xs text-ink-muted hover:text-ink-soft"
+            onClick={onClose}
+          >
             Cancel
           </button>
-          <button type="button"
+          <button
+            type="button"
             className="rounded-md bg-copper px-2.5 py-1 text-xs font-medium text-copper-ink hover:brightness-110"
             onClick={save}
           >

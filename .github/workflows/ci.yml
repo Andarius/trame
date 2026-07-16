@@ -33,8 +33,17 @@ jobs:
       - name: Typecheck frontend (TS 7)
         run: cd app/web && npm run typecheck
 
+      - name: Unit tests
+        run: cd app && deno test -A
+
       - name: Lint
         run: cd app && deno lint
+
+      - name: Lint SQL schema (sqlfluff, pinned)
+        run: pipx run sqlfluff==4.2.2 lint db/schema.sql
+
+      - name: Check SQL schema formatting
+        run: pipx run sqlfluff==4.2.2 format - < db/schema.sql | diff -u db/schema.sql - && echo "schema.sql formatted"
 
       - name: Install Playwright Chromium (pinned to @playwright/test)
         run: cd app/web && npm run e2e:install

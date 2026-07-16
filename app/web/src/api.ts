@@ -1,4 +1,13 @@
-export type Status = "active" | "paused" | "blocked" | "done";
+// A status is now a user-defined column key (the built-ins are active/paused/blocked/done).
+export type Status = string;
+export type StatusDef = {
+  id: string;
+  key: string;
+  label: string;
+  color: string;
+  terminal: boolean;
+  sort_key: string;
+};
 
 export type Session = {
   id: string;
@@ -14,7 +23,13 @@ export type Session = {
   summary: string;
   last_touched: string;
 };
-export type Objective = { id: string; title: string; story: string; client_id: string | null; status: string };
+export type Objective = {
+  id: string;
+  title: string;
+  story: string;
+  client_id: string | null;
+  status: string;
+};
 export type Client = { id: string; name: string; color: string | null };
 export type BoardPage = {
   id: string;
@@ -24,7 +39,13 @@ export type BoardPage = {
   icon: string | null;
   client_id: string | null;
 };
-export type BoardData = { clients: Client[]; objectives: Objective[]; sessions: Session[]; pages: BoardPage[] };
+export type BoardData = {
+  clients: Client[];
+  objectives: Objective[];
+  sessions: Session[];
+  pages: BoardPage[];
+  statuses: StatusDef[];
+};
 export type AppStatus = {
   nodeId: string;
   remote: boolean;
@@ -43,14 +64,40 @@ export type ReportMeta = {
 };
 export type Report = ReportMeta & { html: string };
 
-export type SessionEvent = { id: string; at: string; summary: string | null; kind: string };
+export type SessionEvent = {
+  id: string;
+  at: string;
+  summary: string | null;
+  kind: string;
+};
 
-export const getBoard = () => fetch("/api/board").then((r) => r.json() as Promise<BoardData>);
-export const getStatus = () => fetch("/api/status").then((r) => r.json() as Promise<AppStatus>);
-export const getReports = () => fetch("/api/reports").then((r) => r.json() as Promise<ReportMeta[]>);
-export const getReport = (id: string) => fetch(`/api/reports/${id}`).then((r) => r.json() as Promise<Report>);
+export type SearchHit = {
+  kind: "session" | "client" | "page" | "database";
+  id: string;
+  title: string;
+  sub: string;
+  icon: string;
+  meta: string; // session status, or page kind (story|page), or "database"
+  color: string; // project (client) chip color, "" elsewhere
+  at: string;
+};
+export const search = (q: string) =>
+  fetch(`/api/search?q=${encodeURIComponent(q)}`).then((r) =>
+    r.json() as Promise<SearchHit[]>
+  );
+
+export const getBoard = () =>
+  fetch("/api/board").then((r) => r.json() as Promise<BoardData>);
+export const getStatus = () =>
+  fetch("/api/status").then((r) => r.json() as Promise<AppStatus>);
+export const getReports = () =>
+  fetch("/api/reports").then((r) => r.json() as Promise<ReportMeta[]>);
+export const getReport = (id: string) =>
+  fetch(`/api/reports/${id}`).then((r) => r.json() as Promise<Report>);
 export const getEvents = (id: string) =>
-  fetch(`/api/sessions/${id}/events`).then((r) => r.json() as Promise<SessionEvent[]>);
+  fetch(`/api/sessions/${id}/events`).then((r) =>
+    r.json() as Promise<SessionEvent[]>
+  );
 
 export type FileHit = { path: string; name: string; mtime: string };
 export type Settings = {
@@ -62,8 +109,11 @@ export type Settings = {
   remotePg: string; // password stripped server-side
   remoteSource: "settings" | "env" | null;
   remoteHasPassword: boolean;
+  authorName: string;
+  authorAvatar: string;
 };
-export const getSettings = () => fetch("/api/settings").then((r) => r.json() as Promise<Settings>);
+export const getSettings = () =>
+  fetch("/api/settings").then((r) => r.json() as Promise<Settings>);
 export const patchSettings = (
   patch: {
     reportPaths?: string[];
@@ -72,6 +122,8 @@ export const patchSettings = (
     htmlFilter?: "smart" | "all";
     remotePg?: string;
     remotePgPassword?: string;
+    authorName?: string;
+    authorAvatar?: string;
   },
 ) =>
   fetch("/api/settings", {
@@ -82,7 +134,9 @@ export const patchSettings = (
 export const saveSettings = (reportPaths: string[], ignorePaths: string[]) =>
   patchSettings({ reportPaths, ignorePaths });
 export const getReportFiles = (force = false) =>
-  fetch(`/api/report-files${force ? "?force" : ""}`).then((r) => r.json() as Promise<FileHit[]>);
+  fetch(`/api/report-files${force ? "?force" : ""}`).then((r) =>
+    r.json() as Promise<FileHit[]>
+  );
 export const deleteReportFile = (path: string) =>
   fetch("/api/report-files/delete", {
     method: "POST",
@@ -92,22 +146,49 @@ export const deleteReportFile = (path: string) =>
 export const getReportFileContent = (path: string) =>
   fetch(`/api/report-files/content?path=${encodeURIComponent(path)}`)
     .then((r) => r.json() as Promise<{ path: string; html: string }>);
+// Live directory listing for the folder block (gated to Explore's scanned roots).
+export const listFolder = (path: string) =>
+  fetch(`/api/folder?path=${encodeURIComponent(path)}`)
+    .then((r) =>
+      r.json() as Promise<
+        { path: string; entries: FolderEntry[] } | { error: string }
+      >
+    );
+// Reveal a filesystem path in the OS (file manager / default app).
+export const openPath = (path: string) =>
+  post("/api/open-path", { path }).then((r) =>
+    r.json() as Promise<{ ok?: boolean; error?: string }>
+  );
 
 const post = (path: string, body: unknown) =>
-  fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  fetch(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
 
-export const saveSession = (s: Record<string, unknown>) => post("/api/sessions", s);
-export const deleteSession = (id: string) => post(`/api/sessions/${id}/delete`, {});
-export const addLog = (id: string, summary: string) => post(`/api/sessions/${id}/events`, { summary });
-export const updateObjective = (id: string, patch: Record<string, unknown>) => post(`/api/objectives/${id}`, patch);
+export const saveSession = (s: Record<string, unknown>) =>
+  post("/api/sessions", s);
+export const deleteSession = (id: string) =>
+  post(`/api/sessions/${id}/delete`, {});
+export const addLog = (id: string, summary: string) =>
+  post(`/api/sessions/${id}/events`, { summary });
+export const updateObjective = (id: string, patch: Record<string, unknown>) =>
+  post(`/api/objectives/${id}`, patch);
 // Open in the system browser (the desktop webview has no window.open).
 // target: app-relative path ("/report/…") or an absolute http(s) URL.
 export const openInBrowser = (target: string) => post("/api/open", { target });
+export const prState = (url: string) =>
+  post("/api/pr-state", { url })
+    .then((r) => r.json() as Promise<{ url: string; state: string }>)
+    .then((d) => d.state)
+    .catch(() => "unknown");
 export const completePath = (path: string) =>
   fetch(`/api/fs/complete?path=${encodeURIComponent(path)}`)
     .then((r) => r.json() as Promise<{ dirs: string[] }>)
     .then((d) => d.dirs ?? [])
     .catch(() => [] as string[]);
+export type ResumeMode = "window" | "tab" | "existing";
 export type ResumeInfo = {
   ok: boolean;
   launched: boolean;
@@ -115,11 +196,18 @@ export type ResumeInfo = {
   homeNode?: string | null;
   cmd: string;
   repo?: string;
+  mode?: ResumeMode;
+  reason?: "no-konsole" | "api-disabled";
+  agent?: "claude" | "codex";
 };
-export const resumeSession = (id: string) =>
-  post("/api/resume", { id }).then((r) => r.json() as Promise<ResumeInfo>);
+export const resumeSession = (id: string, mode?: ResumeMode) =>
+  post("/api/resume", { id, mode }).then((r) =>
+    r.json() as Promise<ResumeInfo>
+  );
 export const probeResume = (id: string) =>
-  post("/api/resume", { id, probe: true }).then((r) => r.json() as Promise<ResumeInfo>);
+  post("/api/resume", { id, probe: true }).then((r) =>
+    r.json() as Promise<ResumeInfo>
+  );
 
 export const setStatus = (id: string, status: Status) =>
   fetch(`/api/sessions/${id}/status`, {
@@ -128,14 +216,30 @@ export const setStatus = (id: string, status: Status) =>
     body: JSON.stringify({ status }),
   });
 
+export const createStatus = (
+  s: { label: string; color: string; terminal?: boolean },
+) => post("/api/statuses", s).then((r) => r.json() as Promise<{ id: string }>);
+export const updateStatus = (
+  id: string,
+  patch: { label?: string; color?: string; terminal?: boolean },
+) => post(`/api/statuses/${id}`, patch);
+export const moveStatus = (id: string, dir: -1 | 1) =>
+  post(`/api/statuses/${id}/move`, { dir });
+export const deleteStatus = (id: string) =>
+  post(`/api/statuses/${id}/delete`, {});
+
 export const syncNow = () =>
-  fetch("/api/sync", { method: "POST" }).then((r) => r.json() as Promise<{ pulled: number; pushed: number } | null>);
+  fetch("/api/sync", { method: "POST" }).then((r) =>
+    r.json() as Promise<{ pulled: number; pushed: number } | null>
+  );
 export const testHub = (remotePg: string, remotePgPassword: string) =>
   fetch("/api/hub/test", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ remotePg, remotePgPassword }),
-  }).then((r) => r.json() as Promise<{ ok: boolean; tls?: boolean; error?: string }>);
+  }).then((r) =>
+    r.json() as Promise<{ ok: boolean; tls?: boolean; error?: string }>
+  );
 
 // user-defined databases
 
@@ -156,6 +260,12 @@ export type SelectOption = { id: string; name: string; color: string };
 export type PropConfig = {
   format?: "plain" | "euro" | "dollar" | "percent";
   precision?: number;
+  icon?: string | null; // custom column icon (emoji or image data-uri); else the type glyph
+  // number visualization (Notion-style "Show as"): plain number, bar, or ring
+  show_as?: "number" | "bar" | "ring";
+  color?: string; // bar/ring fill color
+  max?: number; // value that reads as 100% (default 100)
+  show_value?: boolean; // show the numeric label next to the bar/ring (default true)
   options?: SelectOption[];
   end?: boolean;
   target_db?: string;
@@ -187,7 +297,7 @@ export type UdbMeta = {
   sort_key: string;
   row_count: number;
 };
-export type RelChip = { id: string; title: string };
+export type RelChip = { id: string; title: string; icon?: string | null };
 export type Derived = number | string | null | { error: string };
 export type UdbRow = {
   id: string;
@@ -197,7 +307,12 @@ export type UdbRow = {
   relations: Record<string, RelChip[]>;
   derived: Record<string, Derived>;
 };
-export type Udb = { db: { id: string; name: string; icon: string | null }; properties: UdbProp[]; rows: UdbRow[] };
+// db.views holds the ViewTabs bundle (typed loosely here to avoid a cycle with udb/view.tsx; that module validates it)
+export type Udb = {
+  db: { id: string; name: string; icon: string | null; views: unknown };
+  properties: UdbProp[];
+  rows: UdbRow[];
+};
 
 const jsonOrThrow = async (r: Response) => {
   const body = await r.json();
@@ -205,26 +320,65 @@ const jsonOrThrow = async (r: Response) => {
   return body;
 };
 
-export const listUdbs = () => fetch("/api/udb").then((r) => r.json() as Promise<UdbMeta[]>);
-export const getUdb = (id: string) => fetch(`/api/udb/${id}`).then((r) => r.json() as Promise<Udb>);
-export const createUdb = (name: string) => post("/api/udb", { name }).then((r) => r.json() as Promise<{ id: string }>);
-export const updateUdb = (id: string, patch: { name?: string; icon?: string | null }) => post(`/api/udb/${id}`, patch);
+export const listUdbs = () =>
+  fetch("/api/udb").then((r) => r.json() as Promise<UdbMeta[]>);
+export const getUdb = (id: string) =>
+  fetch(`/api/udb/${id}`).then((r) => r.json() as Promise<Udb>);
+export const createUdb = (name: string) =>
+  post("/api/udb", { name }).then((r) => r.json() as Promise<{ id: string }>);
+export const updateUdb = (
+  id: string,
+  patch: { name?: string; icon?: string | null; views?: unknown },
+) => post(`/api/udb/${id}`, patch);
 export const deleteUdb = (id: string) => post(`/api/udb/${id}/delete`, {});
-export const createUdbProp = (dbId: string, p: { name: string; type: PropType; config?: PropConfig }) =>
-  post(`/api/udb/${dbId}/props`, p).then(jsonOrThrow) as Promise<{ id: string }>;
+export const createUdbProp = (
+  dbId: string,
+  p: { name: string; type: PropType; config?: PropConfig },
+) =>
+  post(`/api/udb/${dbId}/props`, p).then(jsonOrThrow) as Promise<
+    { id: string }
+  >;
 export const updateUdbProp = (
   id: string,
-  patch: { name?: string; config?: PropConfig; width?: number | null; sort_key?: string },
+  patch: {
+    name?: string;
+    config?: PropConfig;
+    width?: number | null;
+    sort_key?: string;
+  },
 ) => post(`/api/udb/props/${id}`, patch).then(jsonOrThrow);
-export const deleteUdbProp = (id: string) => post(`/api/udb/props/${id}/delete`, {});
-export const createUdbRow = (dbId: string, vals?: Record<string, unknown>, icon?: string | null) =>
-  post(`/api/udb/${dbId}/rows`, { vals, icon }).then((r) => r.json() as Promise<{ id: string }>);
-export const patchUdbRow = (id: string, vals: Record<string, unknown>, icon?: string | null) =>
+export const deleteUdbProp = (id: string) =>
+  post(`/api/udb/props/${id}/delete`, {});
+export const createUdbRow = (
+  dbId: string,
+  vals?: Record<string, unknown>,
+  icon?: string | null,
+) =>
+  post(`/api/udb/${dbId}/rows`, { vals, icon }).then((r) =>
+    r.json() as Promise<{ id: string }>
+  );
+export const patchUdbRow = (
+  id: string,
+  vals: Record<string, unknown>,
+  icon?: string | null,
+) =>
   post(`/api/udb/rows/${id}`, icon === undefined ? { vals } : { vals, icon });
-export const deleteUdbRow = (id: string) => post(`/api/udb/rows/${id}/delete`, {});
-export const setUdbLink = (propId: string, fromRow: string, toRow: string, remove = false) =>
-  post("/api/udb/links", { prop_id: propId, from_row: fromRow, to_row: toRow, remove });
-export const listUdbIcons = () => fetch("/api/udb/icons").then((r) => r.json() as Promise<string[]>);
+export const deleteUdbRow = (id: string) =>
+  post(`/api/udb/rows/${id}/delete`, {});
+export const setUdbLink = (
+  propId: string,
+  fromRow: string,
+  toRow: string,
+  remove = false,
+) =>
+  post("/api/udb/links", {
+    prop_id: propId,
+    from_row: fromRow,
+    to_row: toRow,
+    remove,
+  });
+export const listUdbIcons = () =>
+  fetch("/api/udb/icons").then((r) => r.json() as Promise<string[]>);
 
 export type UpdateInfo = {
   current: string;
@@ -234,17 +388,44 @@ export type UpdateInfo = {
   canSelfUpdate: boolean;
   applied: boolean;
 };
-export const getUpdate = () => fetch("/api/update").then((r) => r.json() as Promise<UpdateInfo>);
+export const getUpdate = () =>
+  fetch("/api/update").then((r) => r.json() as Promise<UpdateInfo>);
 export const applyUpdate = () =>
-  post("/api/update", {}).then((r) => r.json() as Promise<{ ok: boolean; error?: string }>);
+  post("/api/update", {}).then((r) =>
+    r.json() as Promise<{ ok: boolean; error?: string }>
+  );
 
 // pages — the nestable tree; kind='project' pages are the former objectives
 
 export type PageKind = "page" | "story" | "project";
 export type Block =
-  | { type: "text" | "heading" | "todo"; text: string; done?: boolean }
+  | {
+    type: "text" | "heading" | "todo";
+    text: string;
+    done?: boolean;
+    id?: string;
+  }
   | { type: "database"; db_id: string }
-  | { type: "subpage"; page_id: string };
+  | { type: "subpage"; page_id: string }
+  | { type: "folder"; path: string; view?: "list" | "gallery"; id?: string };
+export type FolderEntry = {
+  name: string;
+  path: string;
+  kind: "file" | "dir";
+  ext: string;
+  isHtml: boolean;
+};
+export type PageComment = {
+  id: string;
+  page_id: string;
+  block_id: string;
+  anchor: string;
+  body: string;
+  author: string;
+  author_avatar: string;
+  resolved: boolean;
+  updated_at: string;
+};
 export type PageMeta = {
   id: string;
   parent_id: string | null;
@@ -260,14 +441,28 @@ export type PageDetail = PageMeta & {
   story: string;
   content: Block[];
   children: PageMeta[];
-  databases: { id: string; name: string; icon: string | null; row_count: number }[];
+  databases: {
+    id: string;
+    name: string;
+    icon: string | null;
+    row_count: number;
+  }[];
   sessions: Session[];
+  comments: PageComment[];
 };
 
-export const listPages = () => fetch("/api/pages").then((r) => r.json() as Promise<PageMeta[]>);
-export const getPage = (id: string) => fetch(`/api/pages/${id}`).then((r) => r.json() as Promise<PageDetail>);
+export const listPages = () =>
+  fetch("/api/pages").then((r) => r.json() as Promise<PageMeta[]>);
+export const getPage = (id: string) =>
+  fetch(`/api/pages/${id}`).then((r) => r.json() as Promise<PageDetail>);
 export const createPage = (
-  p: { title?: string; parent_id?: string | null; kind?: PageKind; icon?: string | null; client_id?: string | null },
+  p: {
+    title?: string;
+    parent_id?: string | null;
+    kind?: PageKind;
+    icon?: string | null;
+    client_id?: string | null;
+  },
 ) => post("/api/pages", p).then((r) => r.json() as Promise<{ id: string }>);
 export const updatePage = (
   id: string,
@@ -282,12 +477,44 @@ export const updatePage = (
   },
 ) => post(`/api/pages/${id}`, patch).then(jsonOrThrow);
 export const deletePage = (id: string) => post(`/api/pages/${id}/delete`, {});
-export const movePage = (id: string, to: { parent_id?: string | null; before_id?: string; after_id?: string }) =>
-  post(`/api/pages/${id}/move`, to).then(jsonOrThrow);
-export const attachUdbToPage = (dbId: string, pageId: string | null) => post(`/api/udb/${dbId}`, { page_id: pageId });
+export const movePage = (
+  id: string,
+  to: { parent_id?: string | null; before_id?: string; after_id?: string },
+) => post(`/api/pages/${id}/move`, to).then(jsonOrThrow);
+export const attachUdbToPage = (dbId: string, pageId: string | null) =>
+  post(`/api/udb/${dbId}`, { page_id: pageId });
 
-// Claude Code import
+// Inline page comments (block-level notes anchored by Block.id).
+export const listComments = (pageId: string) =>
+  fetch(`/api/comments?page=${pageId}`).then((r) =>
+    r.json() as Promise<PageComment[]>
+  );
+export const createComment = (
+  c: { page_id: string; block_id: string; anchor?: string; body: string },
+) => post("/api/comments", c).then((r) => r.json() as Promise<{ id: string }>);
+export const updateComment = (
+  id: string,
+  patch: { body?: string; resolved?: boolean },
+) => post(`/api/comments/${id}`, patch).then(jsonOrThrow);
+export const deleteComment = (id: string) =>
+  post(`/api/comments/${id}/delete`, {});
+
+// Share a page across Trame instances: export the subtree to a file (native save
+// dialog), import a bundle file back (native open dialog). Both hit native dialogs
+// server-side, so the browser gets a result, not a download.
+export const exportPage = (id: string) =>
+  post(`/api/pages/${id}/export`, {}).then((r) =>
+    r.json() as Promise<{ path?: string; cancelled?: boolean; error?: string }>
+  );
+export const importPage = (parentId: string | null = null) =>
+  post("/api/pages/import", { parent_id: parentId })
+    .then((r) =>
+      r.json() as Promise<{ id?: string; cancelled?: boolean; error?: string }>
+    );
+
+// Claude Code + Codex import
 export type ClaudeSession = {
+  source: "claude" | "codex";
   claudeId: string;
   title: string;
   repoPath: string | null;
@@ -299,9 +526,20 @@ export type ClaudeSession = {
   alreadyImported: boolean;
   ignored: boolean;
 };
-export type ClaudeGroup = { repoPath: string; repoName: string; suggestedClient: string; sessions: ClaudeSession[] };
-export type ClaudeScan = { groups: ClaudeGroup[]; total: number; dir: string; node: string };
+export type ClaudeGroup = {
+  repoPath: string;
+  repoName: string;
+  suggestedClient: string;
+  sessions: ClaudeSession[];
+};
+export type ClaudeScan = {
+  groups: ClaudeGroup[];
+  total: number;
+  dir: string;
+  node: string;
+};
 export type ClaudeImportItem = {
+  source: "claude" | "codex";
   claudeId: string;
   title: string;
   repoPath: string | null;
@@ -312,8 +550,41 @@ export type ClaudeImportItem = {
   lastActive: string;
 };
 export const scanClaudeImport = (days: number) =>
-  fetch(`/api/import/claude?days=${days}`).then((r) => r.json() as Promise<ClaudeScan>);
+  fetch(`/api/import/claude?days=${days}`).then((r) =>
+    r.json() as Promise<ClaudeScan>
+  );
 export const runClaudeImport = (items: ClaudeImportItem[]) =>
-  post("/api/import/claude", { items }).then((r) => r.json() as Promise<{ imported: number; skipped: number }>);
-export const setClaudeIgnored = (claudeId: string, ignored: boolean) =>
-  post("/api/import/claude/ignore", { claudeId, ignored });
+  post("/api/import/claude", { items }).then((r) =>
+    r.json() as Promise<{ imported: number; skipped: number }>
+  );
+export const setClaudeIgnored = (
+  claudeId: string,
+  ignored: boolean,
+  source: "claude" | "codex" = "claude",
+) => post("/api/import/claude/ignore", { claudeId, ignored, source });
+
+// Plugins — first-party panels, compile-time registered (web/src/plugins/),
+// enabled per device via settings. Plugin-specific endpoints live with the plugin.
+export type PluginManifest = {
+  id: string;
+  label: string;
+  glyph: string;
+  description: string;
+  enabled: boolean;
+  badge: number | null;
+};
+export const getPlugins = () =>
+  fetch("/api/plugins").then((r) => r.json() as Promise<PluginManifest[]>);
+export const setPluginEnabled = (id: string, enabled: boolean) =>
+  post(`/api/plugins/${id}/enable`, { enabled });
+export const getPluginSettings = (id: string) =>
+  fetch(`/api/plugins/${id}/settings`).then((r) =>
+    r.json() as Promise<Record<string, unknown>>
+  );
+export const savePluginSettings = (
+  id: string,
+  patch: Record<string, unknown>,
+) =>
+  post(`/api/plugins/${id}/settings`, patch).then((r) =>
+    r.json() as Promise<Record<string, unknown>>
+  );

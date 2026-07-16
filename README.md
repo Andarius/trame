@@ -1,8 +1,12 @@
 # session-tracker
 
-A **local-first** Claude Code session tracker. Each session ladders up to a **story** (grouped
+A **local-first** Claude Code and Codex session tracker. Each session ladders up to a **story** (grouped
 under a **project**); the board is **status columns × swimlanes** — the view no off-the-shelf
-tool gave us. It also holds free-form **pages** and **Notion-style databases**.
+tool gave us, and the columns are **yours to define**. It also holds free-form **pages** (with inline
+comments and one-file sharing) and **Notion-style databases** (sortable / filterable / groupable views).
+`⌘P` jumps to any session, page, or database; a card's **Resume** button reopens the session in Claude
+Code or Codex. Opt-in **plugins** add side panels — the first one lists GitHub/GitLab
+**deployments waiting for approval**.
 
 Stack: **Deno-desktop** app → **local PGlite** (embedded Postgres, offline read+write) →
 custom **push/pull LWW sync** → **Postgres on a home server** (the hub). No PowerSync, no Electric.
@@ -22,13 +26,13 @@ Everything is Postgres, so the SQL is identical on the laptop and the hub.
 ![Trame walkthrough](docs/demo.gif)
 
 > A short tour: filter the board by story, regroup into swimlanes, open a session and
-> **resume it in Claude Code**, sort the list, then browse a page and a database.
-> ([higher-quality MP4](docs/demo.mp4) · screens use demo data)
+> **resume it in Claude Code or Codex**, sort the list, then browse a page and a database.
+> ([higher-quality MP4](docs/demo.mp4) · screens use demo data, recorded pre-0.4)
 
 | Kanban board — status columns | Swimlanes — group by project or story |
 | :--- | :--- |
 | [![board](docs/board.png)](docs/board.png) | [![grouped board](docs/board-grouped.png)](docs/board-grouped.png) |
-| **Session drawer — resume in Claude Code** | **Sortable list view** |
+| **Session drawer — resume in Claude Code / Codex** | **Sortable list view** |
 | [![drawer](docs/drawer.png)](docs/drawer.png) | [![list](docs/list.png)](docs/list.png) |
 | **Pages — notes & docs next to the work** | **Databases — Notion-style tables** |
 | [![page](docs/page.png)](docs/page.png) | [![database](docs/database.png)](docs/database.png) |
@@ -53,9 +57,15 @@ app/                       Deno-desktop app
   db.ts                    local PGlite + queries + outbox drain
   sync.ts                  custom LWW push/pull to the hub
   config.ts                env config (NODE_ID, REMOTE_PG, data dir…)
+  share.ts                 export/import a page subtree as a portable *.trame.json bundle
+  csrf.ts                  same-origin guard for /api (it spawns terminals, opens files…)
+  plugins/                 opt-in in-tree plugins (deployments: GitHub/GitLab approvals)
+  settings-store.ts        single writer for the device-local settings JSON (0600, holds tokens)
   web/                     React swimlane board (Vite)
 track/track.ts             the /trame:track writer (hub PG or outbox)
-commands/trame/track.md    the /trame:track slash command (copy to ~/.claude/…)
+track/claude-hook.ts       UserPromptSubmit hook: records cwd → Claude session id for track.ts
+commands/trame/track.md    the /trame:track slash command — install with `just install-cmd`
+skills/trame-track/        Codex-native $trame-track skill — install with `just install-skill`
 ```
 
 ## Setup
@@ -91,16 +101,63 @@ deno task dev           # opens the desktop window (Deno 2.9+)
 # frontend dev with HMR:        deno task web:dev  (proxies /api to :8787)
 ```
 
-### 4. Wire `/trame:track`
+### 4. Wire session tracking
+
+Choose Claude Code, Codex, or both from one installer:
+```bash
+just install-track
+```
+Use the arrow keys to choose an agent and Enter to confirm.
+
+For non-interactive setup, use `just install-cmd` for Claude Code or
+`just install-skill` for Codex.
+
+In Codex, then use `$trame-track`, `$trame-track paused "note"`, or
+`$trame-track list`. Codex exposes `CODEX_THREAD_ID`, so the shared writer
+automatically links the card to the current resumable session; no hook is needed.
+
+For Claude Code, install the slash command:
+
 `/trame:track` is a Claude Code slash command that records the current session as a card on
 the board — it reads the repo, branch, and a one-line note from the conversation and writes
 straight to your local PGlite (syncing to the hub when online, else queued in the outbox).
-Install it into Claude Code:
+Install it into Claude Code (the recipe rewrites the writer path for your checkout —
+don't copy the file by hand):
 ```bash
-cp commands/trame/track.md ~/.claude/commands/trame/track.md
+just install-cmd
 ```
 Then from any repo: `/trame:track` to log the session, or
 `/trame:track paused|blocked|done "note"` to set its status with a note.
+
+For the card's **Resume** button to work, the writer needs the Claude session UUID — slash
+commands can't see their own session id, so a `UserPromptSubmit` hook records it per-cwd into
+`~/.local/share/session-tracker/claude-sessions.json`. Register it in `~/.claude/settings.json`
+(per machine):
+```json
+"hooks": {
+  "UserPromptSubmit": [{ "matcher": "", "hooks": [{
+    "type": "command",
+    "command": "deno run -A /path/to/session-tracker/track/claude-hook.ts",
+    "timeout": 5
+  }] }]
+}
+```
+Without the hook `/trame:track` still works — the card just has no transcript link. Cards
+imported from the app's Claude Code + Codex dialog carry the UUID as their id and never need it.
+
+### 5. Plugins (optional)
+
+⚙ Settings → **Manage plugins**. Everything ships disabled — a networked plugin never reaches
+out until you switch it on.
+
+**Deployments** lists GitHub/GitLab releases **waiting for approval** in the sidebar (plus
+in-progress and recently-failed ones), and approves the gate / plays the manual job from the
+panel. Point it at the repos and projects to watch, then authenticate per forge with a PAT,
+`GITHUB_TOKEN` / `GITLAB_TOKEN`, or the `gh` / `glab` CLI (optional — there's a login button
+that spawns a terminal).
+
+> Tokens live only in this machine's `settings.json` (mode 0600). They are never synced to the
+> hub and never sent back to the UI, and each is bound to the forge host you configured.
 
 ## How sync works
 - **Transport**: mutual TLS — the hub only accepts connections presenting a client cert
