@@ -39,6 +39,9 @@ jobs:
       - name: Lint
         run: cd app && deno lint
 
+      - name: Hub API typecheck + tests + lint
+        run: cd hub/api && deno check main.ts && deno test -A && deno lint
+
       - name: Lint SQL schema (sqlfluff, pinned)
         run: pipx run sqlfluff==4.2.2 lint db/schema.sql
 

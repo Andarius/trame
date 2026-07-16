@@ -40,5 +40,37 @@ services:
       timeout: 5s
       retries: 5
 
+  # Hub API (phase 3 of docs/hub-api.md): the auth boundary in front of Postgres.
+  # Deno terminates TLS itself with the same gen-certs material as the db. DB access
+  # is docker-network-only; pg_hba scopes a scram rule to the fixed subnet below.
+  tracker-api:
+    image: denoland/deno:alpine
+    container_name: tracker-api
+    restart: unless-stopped
+    depends_on:
+      tracker-db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://tracker:${POSTGRES_PASSWORD}@tracker-db:5432/tracker
+      DENO_DIR: /deno-cache
+    command: ["run", "-A", "--config", "/srv/hub/api/deno.json", "/srv/hub/api/main.ts"]
+    volumes:
+      # TRACKER_API_SRC/TRACKER_PROTOCOL_SRC: deploy.sh layout is flat; default = repo layout.
+      # Mount paths preserve the api → ../../protocol relative import.
+      - ${TRACKER_API_SRC:-./api}:/srv/hub/api:ro
+      - ${TRACKER_PROTOCOL_SRC:-../protocol}:/srv/protocol:ro
+      - ./certs:/certs:ro
+      - tracker-deno-cache:/deno-cache
+    ports:
+      - "${TRACKER_BIND:-127.0.0.1}:${TRACKER_API_PORT:-8443}:8443"
+
+networks:
+  # Fixed subnet so the pg_hba rule for tracker-api can be scoped tightly.
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.94.0/24
+
 volumes:
   tracker-db-data:
+  tracker-deno-cache:
