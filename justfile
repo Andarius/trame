@@ -190,6 +190,27 @@ hooks:
     git config core.hooksPath .githooks
     @echo "pre-commit hook enabled (.githooks). Bypass a commit with --no-verify."
 
+# Seed + serve an isolated demo instance on :8799 (fictional data — the README screenshots)
+[group('docs')]
+demo:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dir=/tmp/trame-demo
+    rm -rf "$dir"; mkdir -p "$dir/claude-projects"
+    # blank REMOTE_PG explicitly: just loads .env, and demo data must never reach a real hub
+    export TRACKER_REMOTE_PG= TRACKER_NODE_ID=demo TRACKER_UPDATE_CHECK=0
+    export TRACKER_PORT=8799 TRACKER_HOST=127.0.0.1
+    export TRACKER_DATA_DIR="$dir/pglite" TRACKER_PORT_FILE="$dir/port.json"
+    export TRACKER_SETTINGS_FILE="$dir/settings.json" TRACKER_OUTBOX="$dir/outbox.jsonl"
+    export TRACKER_CLAUDE_DIR="$dir/claude-projects"
+    trap 'kill 0' EXIT
+    (cd app && deno run -A main.ts) &
+    until curl -sf http://127.0.0.1:8799/api/status >/dev/null 2>&1; do sleep 1; done
+    DEMO_CLAUDE_DIR="$dir/claude-projects" TRAME_URL=http://127.0.0.1:8799 \
+      deno run --config app/deno.json -A scripts/demo-seed.ts
+    echo "demo → http://127.0.0.1:8799  (ctrl-c to stop)"
+    wait
+
 # Read the design docs in the terminal with glow. No arg = browse docs/; `just docs hub-api` opens one
 [group('docs')]
 docs doc='':
