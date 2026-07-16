@@ -8,7 +8,8 @@ import postgres from "postgres";
 import { checkServerIdentity } from "node:tls";
 import { db } from "./db.ts";
 import { NODE_ID, TLS_DIR } from "./config.ts";
-import { getRemotePg } from "./files.ts";
+import { getHubApi, getRemotePg } from "./files.ts";
+import { syncOnceApi } from "./sync-api.ts";
 
 // mTLS to the hub when certs exist (fetched by `just db-cert`); without them we try
 // plaintext and a TLS-enforcing hub rejects with a clear pg_hba error.
@@ -60,179 +61,8 @@ export async function testRemote(
   }
 }
 
-export const TABLES = [
-  // users/devices first: pages/page_comments carry owner_id/author_id into them.
-  // No FKs (LWW pull order), but keep the referenced-before-referrer convention.
-  {
-    name: "users",
-    cols: ["id", "name", "avatar", "origin", "updated_at", "deleted"],
-  },
-  {
-    name: "devices",
-    cols: ["id", "node_id", "user_id", "origin", "updated_at", "deleted"],
-  },
-  {
-    name: "clients",
-    cols: ["id", "name", "color", "origin", "updated_at", "deleted"],
-  },
-  // pages replaced objectives (same ids); it must sync before every table that FKs it.
-  // parent_id has no FK, so updated_at-ordered pulls within the table are safe.
-  {
-    name: "pages",
-    cols: [
-      "id",
-      "parent_id",
-      "kind",
-      "title",
-      "icon",
-      "story",
-      "client_id",
-      "status",
-      "content",
-      "color",
-      "sort_key",
-      "owner_id",
-      "origin",
-      "updated_at",
-      "deleted",
-    ],
-  },
-  {
-    name: "page_comments",
-    cols: [
-      "id",
-      "page_id",
-      "block_id",
-      "anchor",
-      "body",
-      "author",
-      "author_avatar",
-      "author_id",
-      "resolved",
-      "origin",
-      "updated_at",
-      "deleted",
-    ],
-  },
-  {
-    name: "statuses",
-    cols: [
-      "id",
-      "key",
-      "label",
-      "color",
-      "terminal",
-      "sort_key",
-      "origin",
-      "updated_at",
-      "deleted",
-    ],
-  },
-  {
-    name: "sessions",
-    cols: [
-      "id",
-      "title",
-      "status",
-      "client_id",
-      "objective_id",
-      "page_id",
-      "repo_path",
-      "branch",
-      "next_step",
-      "pr_url",
-      "summary",
-      "claude_id",
-      "agent",
-      "last_touched",
-      "origin",
-      "updated_at",
-      "deleted",
-    ],
-  },
-  {
-    name: "session_events",
-    cols: [
-      "id",
-      "session_id",
-      "at",
-      "summary",
-      "kind",
-      "origin",
-      "updated_at",
-      "deleted",
-    ],
-  },
-  {
-    name: "reports",
-    cols: [
-      "id",
-      "title",
-      "html",
-      "client_id",
-      "objective_id",
-      "page_id",
-      "created_at",
-      "origin",
-      "updated_at",
-      "deleted",
-    ],
-  },
-  {
-    name: "udb_databases",
-    cols: [
-      "id",
-      "name",
-      "icon",
-      "page_id",
-      "sort_key",
-      "views",
-      "origin",
-      "updated_at",
-      "deleted",
-    ],
-  },
-  {
-    name: "udb_properties",
-    cols: [
-      "id",
-      "db_id",
-      "name",
-      "type",
-      "config",
-      "sort_key",
-      "width",
-      "origin",
-      "updated_at",
-      "deleted",
-    ],
-  },
-  {
-    name: "udb_rows",
-    cols: [
-      "id",
-      "db_id",
-      "icon",
-      "vals",
-      "sort_key",
-      "origin",
-      "updated_at",
-      "deleted",
-    ],
-  },
-  {
-    name: "udb_links",
-    cols: [
-      "id",
-      "prop_id",
-      "from_row",
-      "to_row",
-      "origin",
-      "updated_at",
-      "deleted",
-    ],
-  },
-] as const;
+export { ENTITIES as TABLES } from "../protocol/entities.ts";
+import { ENTITIES as TABLES } from "../protocol/entities.ts";
 
 function localUpsert(name: string, cols: readonly string[]) {
   const ph = cols.map((_, i) => `$${i + 1}`).join(",");
@@ -246,6 +76,10 @@ function localUpsert(name: string, cols: readonly string[]) {
 export async function syncOnce(): Promise<
   { pulled: number; pushed: number } | null
 > {
+  // phase 3 flag: sync through the hub API instead of direct Postgres when enabled
+  const hubApi = await getHubApi();
+  if (hubApi) return await syncOnceApi(hubApi);
+
   // settings.json (⚙ in the app) wins over TRACKER_REMOTE_PG — re-read every pass
   const remotePg = await getRemotePg();
   if (!remotePg) {
