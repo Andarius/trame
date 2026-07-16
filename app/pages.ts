@@ -4,13 +4,13 @@
 // tolerates orphans (sync can deliver a child before its parent).
 import { db } from "./db.ts";
 import { NODE_ID } from "./config.ts";
-import { getCommentAuthor } from "./files.ts";
+import { getIdentity } from "./identity.ts";
 import { midKey } from "./udb.ts";
 
 const LIST_COLS =
   "id, parent_id, kind, title, icon, status, client_id, color, sort_key";
 const COMMENT_COLS =
-  "id, page_id, block_id, anchor, body, author, author_avatar, resolved, updated_at";
+  "id, page_id, block_id, anchor, body, author, author_avatar, author_id, resolved, updated_at";
 
 export async function listPages() {
   const pg = await db();
@@ -69,8 +69,8 @@ export async function createPage(
   const pg = await db();
   const parentId = p.parent_id ?? null;
   const row = (await pg.query(
-    `insert into pages (kind, title, icon, client_id, parent_id, sort_key, origin)
-     values ($1,$2,$3,$4,$5,$6,$7) returning id`,
+    `insert into pages (kind, title, icon, client_id, parent_id, sort_key, owner_id, origin)
+     values ($1,$2,$3,$4,$5,$6,$7,$8) returning id`,
     [
       ["project", "story"].includes(p.kind ?? "") ? p.kind : "page",
       p.title ?? "",
@@ -78,6 +78,7 @@ export async function createPage(
       p.client_id ?? null,
       parentId,
       await endKey(pg, parentId),
+      (await getIdentity()).userId,
       NODE_ID,
     ],
   )).rows[0] as { id: string };
@@ -226,11 +227,11 @@ export async function createComment(
   p: { page_id: string; block_id: string; anchor?: string; body: string },
 ): Promise<string> {
   const pg = await db();
-  const { name: author, avatar } = await getCommentAuthor();
+  const me = await getIdentity();
   const row = (await pg.query(
-    `insert into page_comments (page_id, block_id, anchor, body, author, author_avatar, origin)
-     values ($1,$2,$3,$4,$5,$6,$7) returning id`,
-    [p.page_id, p.block_id, p.anchor ?? "", p.body, author, avatar, NODE_ID],
+    `insert into page_comments (page_id, block_id, anchor, body, author, author_avatar, author_id, origin)
+     values ($1,$2,$3,$4,$5,$6,$7,$8) returning id`,
+    [p.page_id, p.block_id, p.anchor ?? "", p.body, me.name, me.avatar, me.userId, NODE_ID],
   )).rows[0] as { id: string };
   return row.id;
 }

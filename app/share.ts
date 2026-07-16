@@ -5,6 +5,7 @@
 // rows and the copy is owned by this node), rewriting all cross-references as it goes.
 import { db } from "./db.ts";
 import { NODE_ID } from "./config.ts";
+import { getIdentity } from "./identity.ts";
 import { midKey } from "./udb.ts";
 
 export const BUNDLE_TAG = "trame-page-bundle";
@@ -268,6 +269,8 @@ export async function importPage(
   const rowMap = new Map(bundle.rows.map((r) => [r.id, crypto.randomUUID()]));
 
   const rootKey = await endKey(pg, parentId);
+  // the import is a copy — the importer becomes its owner
+  const ownerId = (await getIdentity()).userId;
 
   await pg.transaction(async (tx) => {
     for (const p of bundle.pages) {
@@ -279,8 +282,8 @@ export async function importPage(
         ? pageMap.get(p.client_id)!
         : null;
       await tx.query(
-        `insert into pages (id, parent_id, kind, title, icon, story, client_id, status, content, sort_key, color, origin)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+        `insert into pages (id, parent_id, kind, title, icon, story, client_id, status, content, sort_key, color, owner_id, origin)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
         [
           pageMap.get(p.id),
           newParent,
@@ -293,6 +296,7 @@ export async function importPage(
           JSON.stringify(remapContent(p.content, pageMap, dbMap)),
           isRoot ? rootKey : p.sort_key,
           p.color ?? null,
+          ownerId,
           NODE_ID,
         ],
       );

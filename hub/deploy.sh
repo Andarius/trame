@@ -3,8 +3,8 @@
 #   Copies docker-compose.yml + db/schema.sql, creates .env (password + LAN bind)
 #   on first run, then `docker compose up -d` and waits for the healthcheck.
 #   Idempotent: re-running redeploys the files and restarts the stack; the
-#   existing .env and data volume are kept. Schema only auto-applies on an
-#   empty data volume (postgres initdb behavior).
+#   existing .env and data volume are kept. schema.sql is re-applied (idempotently)
+#   on every deploy once the db is healthy — the hub's migration mechanism.
 # USAGE: hub/deploy.sh [ssh-host]   (default: $TRACKER_HUB_HOST or 'hub')
 # EXAMPLES:
 #   just db-deploy
@@ -44,6 +44,10 @@ for _ in $(seq 30); do
   sleep 2
 done
 [ "$status" = healthy ] || { echo "tracker-db not healthy: $status" >&2; docker logs --tail 20 tracker-db >&2; exit 1; }
+# schema.sql is fully idempotent — this is how schema changes reach an existing hub
+# (the initdb mount only runs on an empty data volume)
+docker exec -i tracker-db psql -q -U tracker -d tracker -v ON_ERROR_STOP=1 < schema.sql
+echo "schema.sql applied"
 echo "tracker-db healthy — laptops use:"
 echo "  export TRACKER_REMOTE_PG=\"postgres://tracker:$POSTGRES_PASSWORD@$TRACKER_BIND:5433/tracker\""
 echo "then fetch this laptop's client cert:  just db-cert"

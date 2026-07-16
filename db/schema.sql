@@ -90,6 +90,36 @@ insert into statuses (id, key, label, color, terminal, sort_key) values
 ('00000000-0000-4000-8000-000000000004', 'done', 'Done', '#6b7280', true, 'a3')
 on conflict (id) do nothing;
 
+-- Users: profile only — credentials come with the hub API (Phase 3) and stay hub-only,
+-- so no secrets ever ride the laptop sync. Synced so every node renders authors offline.
+-- Julien is seeded with a FIXED id (same reason as the statuses seed): every node
+-- inserts the identical row and LWW dedupes it instead of forking one user per node.
+create table if not exists users (
+  id uuid primary key default uuidv7(),
+  name text not null default '',
+  avatar text not null default '',        -- image URL or (downscaled) data URI
+  origin text not null default 'seed',
+  updated_at timestamptz not null default now(),
+  deleted boolean not null default false
+);
+insert into users (id, name) values
+('00000000-0000-4000-8000-000000000101', 'Julien')
+on conflict (id) do nothing;
+
+-- Devices: NODE_ID -> user mapping ("which user am I" for a node). Rows are claimed
+-- at app startup with id = uuidv5(node_id) so concurrent claims converge on one row
+-- (see app/identity.ts). No unique(node_id): LWW upserts by id — deterministic ids
+-- make duplicates structurally impossible.
+create table if not exists devices (
+  id uuid primary key default uuidv7(),
+  node_id text not null,
+  user_id uuid not null,   -- no FK: LWW pull order (see pages.parent_id)
+  origin text not null default 'seed',
+  updated_at timestamptz not null default now(),
+  deleted boolean not null default false
+);
+create index if not exists devices_node on devices (node_id);
+
 -- Inline page comments (Notion-style, block-level). Anchored to a block by its stable
 -- id inside pages.content; no FK on page_id/block_id (LWW pull is updated_at-ordered, a
 -- comment can arrive before its page — readers tolerate orphans and keep `anchor` as a
@@ -111,6 +141,23 @@ create index if not exists page_comments_page on page_comments (page_id);
 -- idempotent guard: dirs that created page_comments before these columns existed
 alter table page_comments add column if not exists author text not null default '';
 alter table page_comments add column if not exists author_avatar text not null default '';
+
+-- Identity links (hub-API migration, phase 1). author/author_avatar stay as the
+-- denormalized write-time snapshot; author_id/owner_id are the durable identity.
+alter table page_comments add column if not exists author_id uuid;   -- no FK: LWW pull order
+alter table pages add column if not exists owner_id uuid;            -- creating user; no FK
+
+-- Backfill to the seeded user (sole user today). Fills nulls only and deliberately
+-- leaves updated_at/origin untouched: every replica runs this same deterministic
+-- backfill locally, so nothing rides the sync and no node claims the rows as its own.
+-- Guarded to the single-user era (same rule as the startup device claim) so a second
+-- user's not-yet-attributed rows are never misassigned by a later re-run.
+-- (pages backfill sits after the legacy pages migrations below, to catch their copies.)
+update page_comments set author_id = '00000000-0000-4000-8000-000000000101'
+where author_id is null and (
+  select count(*) from users
+  where not deleted
+) = 1;
 
 create table if not exists session_events (
   id uuid primary key default gen_random_uuid(),
@@ -249,6 +296,14 @@ on conflict (id) do nothing;
 update pages set kind = 'story', parent_id = coalesce(parent_id, client_id)
 where kind = 'project' and client_id is not null and id not in (select id from clients);
 
+-- Identity backfill for pages — after the legacy migrations so their copies are covered
+-- in the same pass. Same rules and single-user guard as the page_comments backfill above.
+update pages set owner_id = '00000000-0000-4000-8000-000000000101'
+where owner_id is null and (
+  select count(*) from users
+  where not deleted
+) = 1;
+
 -- Local-only sync bookkeeping (harmless if it also exists on the hub).
 create table if not exists sync_state (
   id int primary key default 1,
@@ -274,8 +329,18 @@ comment on column pages.story is 'Project blurb, shown as the page description.'
 comment on column pages.status is 'open | done | archived (meaningful for kind=''project'').';
 comment on column pages.content is 'Ordered block list (jsonb). Whole-doc LWW — concurrent offline edits collide; acceptable single-user.';
 comment on column pages.sort_key is 'Fractional order key among siblings (base-36 midpoint string; sorts identically in SQL and JS).';
+comment on column pages.owner_id is 'users.id of the creator (no FK: LWW pull order). Ownership semantics only — ACL enforcement is a later phase.';
 
 comment on table page_comments is 'Inline block-level page comments (Notion-style). Anchored by block_id to a block in pages.content; one row = one note + resolve toggle. No FK (LWW pull ordering); anchor keeps the block''s text so a removed block''s note still renders.';
+comment on column page_comments.author_id is 'users.id of the writer (no FK: LWW pull order). author/author_avatar stay as the write-time display snapshot.';
+
+comment on table users is 'User profiles (identity for authors/owners). Profile only — credentials are hub-side (phase 3), never synced. Julien seeded with a fixed id so LWW dedupes across nodes.';
+comment on column users.name is 'Display name shown on comments; empty = fall back to the device''s node id.';
+comment on column users.avatar is 'Image URL or (downscaled) data URI.';
+
+comment on table devices is 'NODE_ID -> user mapping. Claimed at app startup with id = uuidv5(node_id) so concurrent claims converge; unclaimed nodes wait for the hub-API claim flow (phase 3).';
+comment on column devices.node_id is 'The device''s NODE_ID (TRACKER_NODE_ID env, else hostname) — same value rows carry as origin.';
+comment on column devices.user_id is 'users.id this device writes as (no FK: LWW pull order).';
 
 comment on table sessions is 'Coding-agent work sessions — the kanban cards. Upserted by the Trame tracking skill via transcript id or repo_path+branch.';
 comment on column sessions.status is 'active | paused | blocked | done — the board columns.';
@@ -327,7 +392,7 @@ do $$
 declare t text;
 begin
   foreach t in array array['clients','objectives','pages','page_comments','statuses','sessions','session_events','reports',
-                           'udb_databases','udb_properties','udb_rows','udb_links'] loop
+                           'udb_databases','udb_properties','udb_rows','udb_links','users','devices'] loop
     execute format('comment on column %I.id is %L', t, 'PK. uuidv7() on newer tables (time-ordered), gen_random_uuid() v4 on the originals — minted per node, no sequence (offline multi-writer).');
     execute format('comment on column %I.origin is %L', t, 'NODE_ID that wrote the row — push only sends own-origin rows (not ones just pulled).');
     execute format('comment on column %I.updated_at is %L', t, 'LWW clock: on conflict the newer updated_at wins, on both ends of the sync.');

@@ -61,6 +61,16 @@ export async function testRemote(
 }
 
 export const TABLES = [
+  // users/devices first: pages/page_comments carry owner_id/author_id into them.
+  // No FKs (LWW pull order), but keep the referenced-before-referrer convention.
+  {
+    name: "users",
+    cols: ["id", "name", "avatar", "origin", "updated_at", "deleted"],
+  },
+  {
+    name: "devices",
+    cols: ["id", "node_id", "user_id", "origin", "updated_at", "deleted"],
+  },
   {
     name: "clients",
     cols: ["id", "name", "color", "origin", "updated_at", "deleted"],
@@ -81,6 +91,7 @@ export const TABLES = [
       "content",
       "color",
       "sort_key",
+      "owner_id",
       "origin",
       "updated_at",
       "deleted",
@@ -96,6 +107,7 @@ export const TABLES = [
       "body",
       "author",
       "author_avatar",
+      "author_id",
       "resolved",
       "origin",
       "updated_at",
