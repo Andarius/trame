@@ -152,7 +152,7 @@ create table change_log (
   row_id uuid not null,
   op     text not null,        -- upsert | delete
   at     timestamptz not null default now(),
-  actor  bigint,               -- user id; null during legacy coexistence
+  actor  uuid,                 -- users.id; null during legacy coexistence
   source text                  -- 'api' | 'legacy-direct'
 );
 ```
