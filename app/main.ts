@@ -51,6 +51,7 @@ import {
   upsertSession,
 } from "./db.ts";
 import { syncOnce, testRemote } from "./sync.ts";
+import { startRealtime } from "./realtime.ts";
 import { updateUserProfile } from "./identity.ts";
 import {
   importClaudeSessions,
@@ -988,6 +989,9 @@ try {
 await drainOutbox();
 runSync().catch(console.error);
 setInterval(() => runSync().catch(console.error), SYNC_INTERVAL_MS);
+// hub WS nudges (when syncViaApi is on): a nudge just runs the same sync early —
+// the poll above stays as the fallback when the socket is down
+startRealtime(() => runSync().catch(console.error));
 startPlugins();
 
 // Under `deno desktop` (TRACKER_DESKTOP=1) don't pin a port — the framework binds the

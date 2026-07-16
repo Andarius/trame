@@ -22,6 +22,20 @@ export function createApp(db: DB): Hono<Env> {
     await next();
   });
 
+  // WSS bypasses the HTTP middleware chain, so the token is re-checked HERE, at
+  // the handshake, and a bad one is rejected before the upgrade completes.
+  // WebSocket clients can't set an Authorization header — the token rides a query
+  // param, which TLS keeps off the wire.
+  app.get("/ws", async (c) => {
+    if (c.req.header("upgrade")?.toLowerCase() !== "websocket") {
+      return c.json({ error: "websocket endpoint" }, 426);
+    }
+    const caller = await verifyToken(db, c.req.query("token") ?? "");
+    if (!caller) return c.json({ error: "invalid or missing token" }, 401);
+    const { handleWs } = await import("./realtime.ts");
+    return handleWs(db, c.req.raw, caller.nodeId);
+  });
+
   app.post("/sync", async (c) => {
     // versioned so an older client gets a clear signal, never a stuck queue
     const version = c.req.header("x-trame-protocol");
