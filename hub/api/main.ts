@@ -28,6 +28,15 @@ if (Deno.args[0] === "mint") {
 const PORT = Number(Deno.env.get("PORT") ?? "8443");
 const app = createApp(db);
 
+// ONE LISTEN connection between PG and the API (never one per laptop) — the
+// change_log triggers NOTIFY 'changes'; debounce bursts, then nudge every socket.
+const { broadcast } = await import("./realtime.ts");
+let nudgeTimer: ReturnType<typeof setTimeout> | undefined;
+await sql.listen("changes", () => {
+  clearTimeout(nudgeTimer);
+  nudgeTimer = setTimeout(() => broadcast(db).catch(console.error), 200);
+});
+
 let tls: { cert: string; key: string } | undefined;
 try {
   tls = {
