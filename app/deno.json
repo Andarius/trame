@@ -32,7 +32,8 @@
     "@std/assert": "jsr:@std/assert@^1",
     "@std/uuid": "jsr:@std/uuid@^1",
     "@electric-sql/pglite": "npm:@electric-sql/pglite@0.5.3",
-    "postgres": "npm:postgres@^3.4"
+    "postgres": "npm:postgres@^3.4",
+    "ws": "npm:ws@^8.18"
   },
   "compilerOptions": {
     "lib": ["deno.window", "dom", "dom.iterable"]

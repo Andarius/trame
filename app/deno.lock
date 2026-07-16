@@ -12,7 +12,9 @@
     "npm:@electric-sql/pglite@0.2.17": "0.2.17",
     "npm:@electric-sql/pglite@0.5.3": "0.5.3",
     "npm:@modelcontextprotocol/sdk@^1.12.0": "1.29.0_zod@3.25.76",
+    "npm:@types/ws@8": "8.18.1",
     "npm:postgres@^3.4.0": "3.4.9",
+    "npm:ws@^8.18.0": "8.21.1",
     "npm:zod@^3.24.0": "3.25.76"
   },
   "jsr": {
@@ -94,6 +96,18 @@
         "raw-body",
         "zod",
         "zod-to-json-schema"
+      ]
+    },
+    "@types/node@26.1.1": {
+      "integrity": "sha512-nxAkRSVkN1Y0JC1W8ky/fTfkGsMmcrRsbx+3XoZE+rMOX71kLYTV7fLXpqud1GpbpP5TuffXFqfX7fH2GgZREw==",
+      "dependencies": [
+        "undici-types"
+      ]
+    },
+    "@types/ws@8.18.1": {
+      "integrity": "sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==",
+      "dependencies": [
+        "@types/node"
       ]
     },
     "accepts@2.0.0": {
@@ -579,6 +593,9 @@
         "mime-types"
       ]
     },
+    "undici-types@8.3.0": {
+      "integrity": "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ=="
+    },
     "unpipe@1.0.0": {
       "integrity": "sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ=="
     },
@@ -594,6 +611,9 @@
     },
     "wrappy@1.0.2": {
       "integrity": "sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ=="
+    },
+    "ws@8.21.1": {
+      "integrity": "sha512-+0NTnW77fFN/DjQi6k/Sq/Yvk4Sgajw7urW8V+asjXnRgDs9gyGkdb7EzgfhA4goXsRIZKE28fzIXBHEzhuiWw=="
     },
     "zod-to-json-schema@3.25.2_zod@3.25.76": {
       "integrity": "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA==",
@@ -611,7 +631,8 @@
       "jsr:@std/uuid@1",
       "npm:@clack/prompts@^1.6.0",
       "npm:@electric-sql/pglite@0.5.3",
-      "npm:postgres@^3.4.0"
+      "npm:postgres@^3.4.0",
+      "npm:ws@^8.18.0"
     ]
   }
 }
