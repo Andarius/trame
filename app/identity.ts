@@ -1,6 +1,7 @@
 // Device→user identity (hub-API migration, phase 1). A device (NODE_ID) maps to a
 // users row through the synced devices table; writes stamp the resolved user id.
 import { v5 } from "@std/uuid";
+import type { PGlite } from "@electric-sql/pglite";
 import { db } from "./db.ts";
 import { NODE_ID, SETTINGS_FILE } from "./config.ts";
 
@@ -11,9 +12,10 @@ export const deviceId = (nodeId: string) =>
   v5.generate(DEVICE_NS, new TextEncoder().encode(nodeId));
 
 // Claim this NODE_ID for the sole user. With several users we can't guess — the
-// device stays unclaimed until the hub API's claim flow (phase 3).
-export async function claimDevice(): Promise<void> {
-  const pg = await db();
+// device stays unclaimed until the hub API's claim flow (phase 3). Runs inside db()
+// init (handle passed in), so PGlite stays lazy — nothing forces it open at startup.
+export async function claimDevice(handle?: PGlite): Promise<void> {
+  const pg = handle ?? await db();
   const claimed = (await pg.query(
     `select 1 from devices where node_id=$1 and not deleted limit 1`,
     [NODE_ID],

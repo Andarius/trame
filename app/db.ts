@@ -19,6 +19,10 @@ async function openPg(): Promise<PGlite> {
   const schema = await Deno.readTextFile(`${APP_ROOT}/../db/schema.sql`)
     .catch(async () => (await import("./embed.ts")).SCHEMA);
   await pg.exec(schema);
+  // claim the device→user mapping as part of init (with the handle — db() would deadlock
+  // on its own memoized promise) so any first db touch, not just server startup, claims.
+  const { claimDevice } = await import("./identity.ts");
+  await claimDevice(pg).catch(console.error);
   await Deno.writeTextFile(OK_MARKER, "1"); // init completed — dir is real data from now on
   return pg;
 }
