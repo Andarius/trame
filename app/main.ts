@@ -51,7 +51,7 @@ import {
   upsertSession,
 } from "./db.ts";
 import { syncOnce, testRemote } from "./sync.ts";
-import { claimDevice, updateUserProfile } from "./identity.ts";
+import { updateUserProfile } from "./identity.ts";
 import {
   importClaudeSessions,
   scanClaudeSessions,
@@ -983,9 +983,8 @@ try {
   }
 } catch { /* no port file — fine */ }
 
-// Startup: claim this device's identity (rides the first push), pick up any offline
-// CLI writes, sync once, then poll.
-await claimDevice().catch(console.error);
+// Startup: pick up any offline CLI writes, sync once, then poll. The device→user
+// claim happens inside db() init (kept lazy — e2e wipes the data dir post-listen).
 await drainOutbox();
 runSync().catch(console.error);
 setInterval(() => runSync().catch(console.error), SYNC_INTERVAL_MS);
