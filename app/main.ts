@@ -51,6 +51,7 @@ import {
   upsertSession,
 } from "./db.ts";
 import { syncOnce, testRemote } from "./sync.ts";
+import { claimDevice, updateUserProfile } from "./identity.ts";
 import {
   importClaudeSessions,
   scanClaudeSessions,
@@ -752,6 +753,12 @@ async function handler(req: Request): Promise<Response> {
         ? body.authorAvatar
         : undefined,
     });
+    // an explicit save also updates the synced profile (never done at startup —
+    // stale local names on two machines would ping-pong the users row)
+    await updateUserProfile({
+      name: typeof body.authorName === "string" ? body.authorName : undefined,
+      avatar: typeof body.authorAvatar === "string" ? body.authorAvatar : undefined,
+    }).catch(console.error);
     return json(await getReportPaths());
   }
   if (pathname === "/api/settings") return json(await getReportPaths());
@@ -976,7 +983,9 @@ try {
   }
 } catch { /* no port file — fine */ }
 
-// Startup: pick up any offline CLI writes, sync once, then poll.
+// Startup: claim this device's identity (rides the first push), pick up any offline
+// CLI writes, sync once, then poll.
+await claimDevice().catch(console.error);
 await drainOutbox();
 runSync().catch(console.error);
 setInterval(() => runSync().catch(console.error), SYNC_INTERVAL_MS);

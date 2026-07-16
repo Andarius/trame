@@ -78,6 +78,12 @@ export async function getBoard() {
 
 const PALETTE = ["#7a9ee7", "#b590e7", "#c98a63", "#7bd88f", "#e3c567"];
 
+// owner_id for page inserts, resolved from the origin param already in the statement
+// (a subquery, not identity.ts, to keep db.ts free of an import cycle). Null while
+// the device is unclaimed — the schema backfill covers pre-identity rows.
+const OWNER_ID_SQL = (originParam: number) =>
+  `(select user_id from devices where node_id=$${originParam} and not deleted limit 1)`;
+
 // "client" is now the top-level Project page — find-or-create by title.
 export async function resolveClient(name: string, color?: string): Promise<string> {
   const pg = await db();
@@ -90,7 +96,8 @@ export async function resolveClient(name: string, color?: string): Promise<strin
   for (const c of name) h = (h * 31 + c.charCodeAt(0)) | 0;
   const col = color ?? PALETTE[Math.abs(h) % PALETTE.length];
   const row = (await pg.query(
-    `insert into pages (kind, title, color, origin) values ('project',$1,$2,$3) returning id`,
+    `insert into pages (kind, title, color, origin, owner_id)
+     values ('project',$1,$2,$3,${OWNER_ID_SQL(3)}) returning id`,
     [name, col, NODE_ID],
   )).rows[0] as { id: string };
   return row.id;
@@ -107,7 +114,8 @@ export async function resolveObjective(title: string, clientId: string | null): 
   )).rows[0] as { id: string } | undefined;
   if (hit) return hit.id;
   const row = (await pg.query(
-    `insert into pages (kind, title, client_id, parent_id, origin) values ('story',$1,$2,$2,$3) returning id`,
+    `insert into pages (kind, title, client_id, parent_id, origin, owner_id)
+     values ('story',$1,$2,$2,$3,${OWNER_ID_SQL(3)}) returning id`,
     [title, clientId, NODE_ID],
   )).rows[0] as { id: string };
   return row.id;
@@ -117,7 +125,8 @@ export async function createObjective(o: { title: string; story?: string; client
   const pg = await db();
   const clientId = o.client ? await resolveClient(o.client) : null;
   const row = (await pg.query(
-    `insert into pages (kind, title, story, client_id, parent_id, origin) values ('story',$1,$2,$3,$3,$4) returning id`,
+    `insert into pages (kind, title, story, client_id, parent_id, origin, owner_id)
+     values ('story',$1,$2,$3,$3,$4,${OWNER_ID_SQL(4)}) returning id`,
     [o.title, o.story ?? "", clientId, NODE_ID],
   )).rows[0] as { id: string };
   return row.id;

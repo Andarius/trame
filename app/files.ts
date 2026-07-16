@@ -4,7 +4,6 @@
 // to the TRACKER_REPORT_PATHS env var.
 import {
   HOME_DIR,
-  NODE_ID,
   REMOTE_PG,
   REPORT_PATHS,
   SETTINGS_FILE,
@@ -152,18 +151,6 @@ export async function getReportPaths(): Promise<ExploreConfig> {
     authorName,
     authorAvatar,
   };
-}
-
-// Who to stamp on a comment: the configured display name (else this machine's node id,
-// so a note is never anonymous) and an optional avatar (image URL or data URI).
-export async function getCommentAuthor(): Promise<{ name: string; avatar: string }> {
-  try {
-    const s = JSON.parse(await Deno.readTextFile(SETTINGS_FILE));
-    const name = typeof s.authorName === "string" && s.authorName.trim() ? s.authorName.trim() : NODE_ID;
-    const avatar = typeof s.authorAvatar === "string" ? s.authorAvatar.trim() : "";
-    return { name, avatar };
-  } catch { /* no settings file yet */ }
-  return { name: NODE_ID, avatar: "" };
 }
 
 export async function saveExploreSettings(
