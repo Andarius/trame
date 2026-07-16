@@ -53,7 +53,8 @@ services:
     environment:
       DATABASE_URL: postgres://tracker:${POSTGRES_PASSWORD}@tracker-db:5432/tracker
       DENO_DIR: /deno-cache
-    command: ["run", "-A", "--config", "/srv/hub/api/deno.json", "/srv/hub/api/main.ts"]
+    # --frozen: the mount is read-only — validate the shipped lockfile, never write it
+    command: ["run", "-A", "--frozen", "--config", "/srv/hub/api/deno.json", "/srv/hub/api/main.ts"]
     volumes:
       # TRACKER_API_SRC/TRACKER_PROTOCOL_SRC: deploy.sh layout is flat; default = repo layout.
       # Mount paths preserve the api → ../../protocol relative import.
