@@ -109,6 +109,60 @@ Deno.test("a relation whose target db did not travel is dropped on import", asyn
   assertEquals(rels.rows[0].n, 0, "the dangling relation was dropped");
 });
 
+// Regression: view tabs reference properties by id. Import mints fresh property ids, so a
+// bundle written through unchanged leaves tabs pointing at ids that no longer exist —
+// sorts/filters silently vanish and grouped views stop resolving.
+Deno.test("import remaps view property ids and keeps the page color", async () => {
+  const pg = await app.db();
+  const root = await app.createPage({ title: "Views root", kind: "project" });
+  await pg.query(`update pages set color=$2 where id=$1`, [root, "#c98a63"]);
+  const dbId = await app.createUdb("Viewy DB");
+  await app.attach(dbId, root);
+  const tp = await titleProp(dbId);
+  const pts = await app.createProperty(dbId, { name: "Pts", type: "number" });
+  await pg.query(`update udb_databases set views=$2 where id=$1`, [dbId, JSON.stringify({
+    tabs: [{
+      id: "t1",
+      name: "By pts",
+      config: {
+        sorts: [{ propId: pts, dir: -1 }],
+        filters: [{ propId: tp, op: "contains", value: "a" }],
+        groupBy: tp,
+        aggs: { [pts]: "sum" },
+      },
+    }],
+    active: "t1",
+  })]);
+
+  const newRoot = await app.importPage(await app.exportPage(root), null);
+
+  const imported = (await pg.query<{ id: string; views: { tabs: { config: Record<string, never> }[] } }>(
+    `select id, views from udb_databases where page_id=$1 and not deleted`,
+    [newRoot],
+  )).rows[0];
+  const props = (await pg.query<{ id: string; name: string; type: string }>(
+    `select id, name, type from udb_properties where db_id=$1 and not deleted`,
+    [imported.id],
+  )).rows;
+  const newPts = props.find((p) => p.name === "Pts")!.id;
+  const newTitle = props.find((p) => p.type === "title")!.id;
+  assertNotEquals(newPts, pts, "the property was remapped");
+
+  const cfg = imported.views.tabs[0].config as unknown as {
+    sorts: { propId: string }[];
+    filters: { propId: string }[];
+    groupBy: string;
+    aggs: Record<string, string>;
+  };
+  assertEquals(cfg.sorts[0].propId, newPts);
+  assertEquals(cfg.filters[0].propId, newTitle);
+  assertEquals(cfg.groupBy, newTitle);
+  assertEquals(Object.keys(cfg.aggs), [newPts]);
+
+  const page = (await pg.query<{ color: string | null }>(`select color from pages where id=$1`, [newRoot])).rows[0];
+  assertEquals(page.color, "#c98a63", "project color survives the round-trip");
+});
+
 Deno.test("importPage rejects a non-bundle", async () => {
   await assertRejects(() => app.importPage({ nope: true }, null), Error, "not a Trame page bundle");
 });

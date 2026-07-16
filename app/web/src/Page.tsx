@@ -464,7 +464,9 @@ export function Page(
   const slashInsert = (kind: "subpage" | "database", replaceIdx: number) => {
     // drop the "/…" block the user was typing in, then create the target
     const next = blocks.filter((_, j) => j !== replaceIdx);
-    changeBlocks(next.length ? next : [{ type: "text", text: "" }]);
+    // needs an id like every other block — a comment on an id-less block is stored
+    // against "" and orphans for good once ensureIds backfills a real one
+    changeBlocks(next.length ? next : [{ type: "text", text: "", id: genId() } as Block]);
     if (kind === "subpage") newSubpage();
     else {
       createUdb("Untitled").then((r) => attachUdbToPage(r.id, pageId)).then(() => {

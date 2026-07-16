@@ -66,6 +66,11 @@ export async function setSessionIgnored(
     const key = ignoredKey(source, sessionId);
     ignored ? set.add(key) : set.delete(key);
     settings.sessionIgnored = [...set];
+    // loadIgnored still merges the pre-0.4 claudeIgnored array — drop the id there too,
+    // or the next scan would re-hide what we just unignored.
+    if (!ignored && source === "claude" && Array.isArray(settings.claudeIgnored)) {
+      settings.claudeIgnored = (settings.claudeIgnored as string[]).filter((id) => id !== sessionId);
+    }
   });
   return { ignored };
 }

@@ -21,6 +21,7 @@ type PageRow = {
   status: string;
   content: Json[];
   sort_key: string;
+  color: string | null;
 };
 type DbRow = {
   id: string;
@@ -74,7 +75,7 @@ export async function exportPage(id: string): Promise<Bundle | null> {
        union all
        select p.* from pages p join sub on p.parent_id = sub.id where not p.deleted
      )
-     select id, parent_id, kind, title, icon, story, client_id, status, content, sort_key from sub`,
+     select id, parent_id, kind, title, icon, story, client_id, status, content, sort_key, color from sub`,
     [id],
   )).rows;
   if (!pages.length) return null;
@@ -182,6 +183,39 @@ const remapContent = (
   return out;
 };
 
+// View tabs reference properties by id (sorts/filters/groupBy/aggs). Import mints fresh
+// property ids, so rewrite every reference and drop the ones whose property didn't travel.
+const remapViews = (views: unknown, propMap: Map<string, string>): unknown => {
+  const t = views as { tabs?: unknown[] } | null;
+  if (!t || !Array.isArray(t.tabs)) return views ?? [];
+  const at = (v: unknown) => (typeof v === "string" ? propMap.get(v) : undefined);
+  const keep = (list: unknown[]) =>
+    list.flatMap((x) => {
+      const np = at((x as { propId?: unknown })?.propId);
+      return np ? [{ ...(x as object), propId: np }] : [];
+    });
+  return {
+    ...t,
+    tabs: t.tabs.map((tab) => {
+      const x = (tab ?? {}) as { config?: Record<string, unknown> };
+      const c: Record<string, unknown> = { ...(x.config ?? {}) };
+      if (Array.isArray(c.sorts)) c.sorts = keep(c.sorts);
+      if (Array.isArray(c.filters)) c.filters = keep(c.filters);
+      if (c.groupBy) c.groupBy = at(c.groupBy) ?? null;
+      if (c.aggs && typeof c.aggs === "object") {
+        c.aggs = Object.fromEntries(
+          Object.entries(c.aggs as Record<string, unknown>)
+            .flatMap(([k, v]) => {
+              const np = propMap.get(k);
+              return np ? [[np, v] as const] : [];
+            }),
+        );
+      }
+      return { ...x, config: c };
+    }),
+  };
+};
+
 const remapConfig = (
   p: PropRow,
   propMap: Map<string, string>,
@@ -245,8 +279,8 @@ export async function importPage(
         ? pageMap.get(p.client_id)!
         : null;
       await tx.query(
-        `insert into pages (id, parent_id, kind, title, icon, story, client_id, status, content, sort_key, origin)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        `insert into pages (id, parent_id, kind, title, icon, story, client_id, status, content, sort_key, color, origin)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
         [
           pageMap.get(p.id),
           newParent,
@@ -258,6 +292,7 @@ export async function importPage(
           p.status,
           JSON.stringify(remapContent(p.content, pageMap, dbMap)),
           isRoot ? rootKey : p.sort_key,
+          p.color ?? null,
           NODE_ID,
         ],
       );
@@ -273,7 +308,7 @@ export async function importPage(
           d.name,
           d.icon,
           d.sort_key,
-          JSON.stringify(d.views ?? []),
+          JSON.stringify(remapViews(d.views, propMap)),
           pageId,
           NODE_ID,
         ],

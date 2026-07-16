@@ -1,6 +1,7 @@
 // Local database = PGlite (embedded Postgres, persisted to DATA_DIR).
 // Same SQL as the hub's Postgres — no dialect translation.
 import { PGlite } from "@electric-sql/pglite";
+import { v5 } from "@std/uuid";
 import { APP_ROOT, DATA_DIR, NODE_ID, OUTBOX } from "./config.ts";
 import { midKey } from "./udb.ts";
 
@@ -134,6 +135,18 @@ async function promoteToProject(pageId: string, clientId: string | null): Promis
   );
 }
 
+// Columns are user-editable, but the session default, the importers and the tracking
+// skills all still emit fixed keys ('active'…) — park an unknown one on a surviving
+// column, else the card renders in no column at all.
+async function resolveStatusKey(pg: PGlite, key: unknown): Promise<string> {
+  const want = typeof key === "string" && key ? key : "active";
+  const rows = (await pg.query(
+    `select key from statuses where not deleted order by terminal, sort_key`,
+  )).rows as { key: string }[];
+  if (!rows.length) return want; // not seeded yet — keep the caller's key
+  return rows.some((r) => r.key === want) ? want : rows[0].key;
+}
+
 export async function upsertSession(s: Record<string, unknown>): Promise<string> {
   const pg = await db();
   // claude_id is the legacy database column; the public writer uses agent_id
@@ -183,7 +196,7 @@ export async function upsertSession(s: Record<string, unknown>): Promise<string>
        next_step=$9,pr_url=$10,summary=$11,claude_id=coalesce($13,sessions.claude_id),
        agent=coalesce($14,sessions.agent),
        last_touched=now(),origin=$12,updated_at=now()`,
-    [id, s.title, s.status ?? "active", s.client_id ?? null, s.objective_id ?? null, s.page_id ?? null,
+    [id, s.title, await resolveStatusKey(pg, s.status), s.client_id ?? null, s.objective_id ?? null, s.page_id ?? null,
       s.repo_path ?? null, s.branch ?? null, s.next_step ?? null, s.pr_url ?? null, s.summary ?? "", NODE_ID,
       s.claude_id ?? null, s.agent ?? null],
   );
@@ -235,16 +248,25 @@ async function uniqueStatusKey(pg: PGlite, label: string): Promise<string> {
   for (let n = 2; ; n++) if (!taken.has(`${base}-${n}`)) return `${base}-${n}`;
 }
 
+// Two offline nodes adding the same label must converge on ONE column: derive the id from
+// the key, the same reason schema.sql seeds the built-ins with fixed ids. `do update` also
+// revives a status whose key was deleted earlier.
+const STATUS_NS = "6f1d4a2e-8c3b-4f9a-9d2e-5b7c1a0e3f84";
+export const statusId = (key: string) => v5.generate(STATUS_NS, new TextEncoder().encode(key));
+
 export async function createStatus(s: { label: string; color: string; terminal?: boolean }): Promise<string> {
   const pg = await db();
   const key = await uniqueStatusKey(pg, s.label);
   const last = (await pg.query(`select max(sort_key) as k from statuses where not deleted`)).rows[0] as { k: string | null };
-  const row = (await pg.query(
-    `insert into statuses (key, label, color, terminal, sort_key, origin)
-     values ($1,$2,$3,$4,$5,$6) returning id`,
-    [key, s.label, s.color, s.terminal ?? false, midKey(last.k ?? "", ""), NODE_ID],
-  )).rows[0] as { id: string };
-  return row.id;
+  const id = await statusId(key);
+  await pg.query(
+    `insert into statuses (id, key, label, color, terminal, sort_key, origin)
+     values ($1,$2,$3,$4,$5,$6,$7)
+     on conflict (id) do update set
+       label=$3, color=$4, terminal=$5, sort_key=$6, deleted=false, origin=$7, updated_at=now()`,
+    [id, key, s.label, s.color, s.terminal ?? false, midKey(last.k ?? "", ""), NODE_ID],
+  );
+  return id;
 }
 
 // key is immutable (sessions reference it) — only label/color/terminal are patchable

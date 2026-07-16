@@ -57,8 +57,10 @@ export async function handlePluginRoute(
 
   if (subPath === "/enable" && req.method === "POST") {
     const body = await req.json().catch(() => ({}));
-    await setPluginEnabled(plugin.id, body.enabled === true);
-    return json({ enabled: body.enabled === true });
+    const enabled = body.enabled === true;
+    await setPluginEnabled(plugin.id, enabled);
+    if (enabled) plugin.onEnabled?.(); // the start() loop may be an idle interval away
+    return json({ enabled });
   }
   if (subPath === "/settings") {
     if (req.method === "POST") {

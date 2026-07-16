@@ -51,6 +51,6 @@ The writer also attaches the Claude session UUID (recorded per-cwd by the UserPr
    `title, status, client, objective, repo_path (=working dir), branch, next_step, pr_url, summary`
 5. Pipe it to the writer:
    ```bash
-   echo '<json>' | deno run -A /home/julien/Projects/session-tracker/track/track.ts
+   echo '<json>' | deno run -A __TRACK_WRITER__
    ```
 6. Report one line from the writer output: tracked/queued, title, status, and the `next_step` you wrote.

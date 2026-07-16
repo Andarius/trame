@@ -105,14 +105,18 @@ export async function githubAuth(slice: PluginSettings): Promise<Auth> {
   return t ? { token: t, source: "cli" } : { token: "", source: "none" };
 }
 
+// ambient:false = base URL came from the request — GITLAB_TOKEN/CLI are bound to the
+// saved host, so a caller-supplied host must carry its own token.
 export async function gitlabAuth(
   slice: PluginSettings,
   baseUrl: string,
+  opts?: { ambient?: boolean },
 ): Promise<Auth> {
   const pat = typeof slice.gitlabToken === "string"
     ? slice.gitlabToken.trim()
     : "";
   if (pat) return { token: pat, source: "settings" };
+  if (opts?.ambient === false) return { token: "", source: "none" };
   const env = Deno.env.get("GITLAB_TOKEN") ?? "";
   if (env) return { token: env, source: "env" };
   const host = new URL(baseUrl).hostname;

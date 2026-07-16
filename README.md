@@ -117,9 +117,10 @@ For Claude Code, install the slash command:
 `/trame:track` is a Claude Code slash command that records the current session as a card on
 the board — it reads the repo, branch, and a one-line note from the conversation and writes
 straight to your local PGlite (syncing to the hub when online, else queued in the outbox).
-Install it into Claude Code:
+Install it into Claude Code (the recipe rewrites the writer path for your checkout —
+don't copy the file by hand):
 ```bash
-cp commands/trame/track.md ~/.claude/commands/trame/track.md
+just install-cmd
 ```
 Then from any repo: `/trame:track` to log the session, or
 `/trame:track paused|blocked|done "note"` to set its status with a note.

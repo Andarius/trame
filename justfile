@@ -139,9 +139,9 @@ check:
 mcp:
     deno run -A mcp/server.ts
 
-# Lint + format-check + type check
+# Lint + format-check + type check + unit tests
 [group('dev')]
-ci: lint fmt-check-sql check
+ci: lint fmt-check-sql check test
 
 # Run the session writer (JSON as arg or on stdin)
 [group('track')]
@@ -151,16 +151,27 @@ track *args:
 # Install the /trame:track slash command into ~/.claude
 [group('setup')]
 install-cmd:
-    mkdir -p ~/.claude/commands/trame
-    cp commands/trame/track.md ~/.claude/commands/trame/track.md
-    echo "installed → ~/.claude/commands/trame/track.md"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dest="$HOME/.claude/commands/trame"
+    mkdir -p "$dest"
+    cp commands/trame/track.md "$dest/track.md"
+    # the installed copy must point at THIS checkout's writer (-i.bak: BSD sed too)
+    sed -i.bak "s|__TRACK_WRITER__|{{ justfile_directory() }}/track/track.ts|g" "$dest/track.md"
+    rm -f "$dest/track.md.bak"
+    echo "installed → $dest/track.md"
 
 # Install the native Trame skill for Codex (available from every repository)
 [group('setup')]
 install-skill:
-    mkdir -p ~/.agents/skills/trame-track
-    cp -R skills/trame-track/. ~/.agents/skills/trame-track/
-    echo "installed → ~/.agents/skills/trame-track (invoke with \$trame-track)"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dest="$HOME/.agents/skills/trame-track"
+    mkdir -p "$dest"
+    cp -R skills/trame-track/. "$dest/"
+    sed -i.bak "s|__TRACK_WRITER__|{{ justfile_directory() }}/track/track.ts|g" "$dest/SKILL.md"
+    rm -f "$dest/SKILL.md.bak"
+    echo "installed → $dest (invoke with \$trame-track)"
 
 # Choose Claude Code, Codex, or both interactively
 [group('setup')]
