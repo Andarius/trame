@@ -6,7 +6,7 @@ description: Log, update, pause, block, complete, or list coding-agent work sess
 # Track in Trame
 
 Use the shared writer at
-`/home/julien/Projects/session-tracker/track/track.ts`. It posts to the running
+`__TRACK_WRITER__`. It posts to the running
 Trame app or queues locally when the app is closed. In Codex, the writer reads
 `CODEX_THREAD_ID` automatically so the card can resume this exact session.
 
@@ -33,7 +33,7 @@ For tracking actions:
    `summary` to:
 
    ```bash
-   deno run -A /home/julien/Projects/session-tracker/track/track.ts
+   deno run -A __TRACK_WRITER__
    ```
 
 5. Report whether the writer tracked or queued the session, plus its title,

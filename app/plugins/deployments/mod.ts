@@ -213,10 +213,8 @@ async function testForge(body: Record<string, unknown>): Promise<
     glBaseOverridden = next !== cur;
     slice.gitlabBaseUrl = next;
   }
-  // Security: never send the SAVED GitLab token to a host the user hasn't saved.
-  // Testing a different base URL requires supplying the token in the same request
-  // — otherwise a CSRF POST could point the base at an attacker host and exfil the
-  // stored PAT via the `private-token` header.
+  // Never send a credential the caller didn't supply to a host the caller named:
+  // drop the saved PAT, and (via ambient:false below) GITLAB_TOKEN/CLI too.
   if (glBaseOverridden && !glToken) slice.gitlabToken = "";
   try {
     if (body.forge === "github") {
@@ -242,7 +240,7 @@ async function testForge(body: Record<string, unknown>): Promise<
       return { ok: true, user: u.login, source: auth.source };
     }
     const base = baseUrlOf(slice);
-    const auth = await gitlabAuth(slice, base);
+    const auth = await gitlabAuth(slice, base, { ambient: !glBaseOverridden });
     if (auth.source === "none") {
       return {
         ok: false,
@@ -434,6 +432,12 @@ const deployments: Plugin = {
   ungatedRoutes: ["/test", "/auth-status", "/login"],
 
   badge: () => state.items.length || null,
+
+  // Enabled from a cold start, the loop below is up to one idle interval (5 min) away
+  // — fill the panel now instead of leaving it on "Loading…".
+  onEnabled() {
+    poll().catch(console.error);
+  },
 
   start() {
     // Self-rescheduling loop: idle cadence, but 10s while a pipeline is in

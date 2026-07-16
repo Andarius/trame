@@ -33,6 +33,9 @@ jobs:
       - name: Typecheck frontend (TS 7)
         run: cd app/web && npm run typecheck
 
+      - name: Unit tests
+        run: cd app && deno test -A
+
       - name: Lint
         run: cd app && deno lint
 

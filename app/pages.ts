@@ -190,6 +190,17 @@ export async function deletePage(id: string): Promise<void> {
       where not deleted and page_id in (select id from sub)`,
     [id, NODE_ID],
   );
+  // before the pages update below — the subtree walk only follows live rows
+  await pg.query(
+    `with recursive sub as (
+       select id from pages where id=$1
+       union all
+       select p.id from pages p join sub on p.parent_id = sub.id where not p.deleted
+     )
+     update page_comments set deleted=true, origin=$2, updated_at=now()
+      where not deleted and page_id in (select id from sub)`,
+    [id, NODE_ID],
+  );
   await pg.query(
     `with recursive sub as (
        select id from pages where id=$1

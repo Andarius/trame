@@ -37,6 +37,8 @@ export interface Plugin {
   // setInterval; each tick must check ctx.enabled() first (sync-loop pattern —
   // toggling in settings takes effect on the next tick, no teardown needed).
   start?(ctx: PluginContext): void;
+  // Just switched on: refresh now instead of leaving the UI empty until the next tick.
+  onEnabled?(): void;
   // Nav badge from in-memory state — must not do I/O.
   badge?(): number | null;
   // Allowlist/sanitize a settings patch before it is merged into the slice

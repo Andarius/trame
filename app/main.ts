@@ -15,6 +15,7 @@ import {
   WINDOW_FILE,
 } from "./config.ts";
 import { handlePluginRoute, listPluginManifests, startPlugins } from "./plugins/index.ts";
+import { isCrossSite } from "./csrf.ts";
 import { type LaunchMode, shq, spawnTerminal } from "./terminal.ts";
 import {
   deleteReportFile,
@@ -463,6 +464,12 @@ createRoot(document.getElementById("root")).render(React.createElement(Excalidra
 async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const { pathname } = url;
+
+  // CSRF: /api spawns terminals, opens files and approves deployments — a foreign page
+  // can't read the response but the side effect would still fire.
+  if (pathname.startsWith("/api/") && isCrossSite(req)) {
+    return json({ error: "cross-origin request blocked" }, 403);
+  }
 
   // Raw report pages — targets for "open in system browser".
   const rawDb = pathname.match(/^\/report\/([^/]+)$/);
