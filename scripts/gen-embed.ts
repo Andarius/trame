@@ -17,6 +17,10 @@ async function listDist(dir: string, prefix = ""): Promise<string[]> {
 }
 
 const files = await listDist("");
+if (!files.includes("index.html")) {
+  console.error("gen-embed: app/web/dist/index.html missing — run the vite build first (`just web-build`)");
+  Deno.exit(1);
+}
 const imports: string[] = [`import schemaSql from "../db/schema.sql" with { type: "text" };`];
 const entries: string[] = [];
 files.forEach((f, i) => {

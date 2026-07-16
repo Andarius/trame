@@ -7,10 +7,11 @@ test.describe.configure({ mode: "serial" });
 
 const UUID1 = "11111111-1111-4111-8111-111111111111";
 const UUID2 = "22222222-2222-4222-8222-222222222222";
+const CODEX_UUID = "66666666-6666-4666-8666-666666666666";
 
 // retry-safe: a retried run finds the cards from the failed attempt — wipe them first
 test.beforeAll(async ({ request }) => {
-  for (const id of [UUID1, UUID2]) {
+  for (const id of [UUID1, UUID2, CODEX_UUID]) {
     await request.post(`/api/sessions/${id}/delete`).catch(() => {});
   }
 });
@@ -20,7 +21,7 @@ test("scan previews sessions, filters by window, hides subagents and tmp dirs", 
   await request.post("/api/pages", { data: { title: "Import notes", kind: "page" } });
   await page.goto("/");
   await page.getByRole("button", { name: /Import from Claude Code/ }).click();
-  await expect(page.getByText("IMPORT FROM CLAUDE CODE", { exact: true })).toBeVisible();
+  await expect(page.getByText("IMPORT FROM CLAUDE CODE + CODEX", { exact: true })).toBeVisible();
   // 7-day window: only uuid1 (last ai-title wins in the composed title)
   await expect(page.getByText("alpha — Ship the import feature")).toBeVisible();
   await expect(page.getByText("1 found", { exact: true })).toBeVisible();
@@ -59,6 +60,42 @@ test("scan previews sessions, filters by window, hides subagents and tmp dirs", 
   await page.getByPlaceholder(/filter .* sessions/).fill("zzz-nothing");
   await expect(page.getByText(/Nothing matches/)).toBeVisible();
   await page.keyboard.press("Escape");
+});
+
+test("scan parses primary Codex rollouts, excludes subagents, and imports resumably", async ({ request }) => {
+  const scan = await (await request.get("/api/import/claude?days=90")).json();
+  const sessions = scan.groups.flatMap((g: { sessions: unknown[] }) => g.sessions) as {
+    source: string;
+    claudeId: string;
+    title: string;
+    branch: string | null;
+  }[];
+  const codex = sessions.filter((s) => s.source === "codex");
+  expect(codex).toEqual([expect.objectContaining({
+    claudeId: CODEX_UUID,
+    title: "codex-project — parse Codex rollout sessions",
+    branch: "feat/codex-import",
+  })]);
+
+  const item = {
+    source: "codex",
+    claudeId: CODEX_UUID,
+    title: codex[0].title,
+    repoPath: "/repo/codex-project",
+    branch: codex[0].branch,
+    client: "Side-projects",
+    project: null,
+    status: "paused",
+    lastActive: new Date(Date.now() - 40 * 86_400_000).toISOString(),
+  };
+  expect(await (await request.post("/api/import/claude", { data: { items: [item] } })).json())
+    .toEqual({ imported: 1, skipped: 0, ids: [CODEX_UUID] });
+  const resume = await (await request.post("/api/resume", { data: { id: CODEX_UUID, probe: true } })).json();
+  expect(resume).toEqual(expect.objectContaining({
+    agent: "codex",
+    local: true,
+    cmd: `cd '/repo/codex-project' && codex resume ${CODEX_UUID}`,
+  }));
 });
 
 test("import creates the card, the auto project, and the worklog event", async ({ page }) => {

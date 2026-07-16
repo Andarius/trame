@@ -8,6 +8,8 @@ async function pickOption(page: Page, labelText: string, option: string) {
   await label.getByRole("button", { name: option }).last().click();
 }
 
+// Data rows are `div.group.grid`; header columns are also `.group` now (Tailwind
+// group-hover), so row selectors must include `.grid` to skip the header.
 // User-defined databases: one serialized flow on the shared fresh backend —
 // create db → typed columns → rows/cells → relations (two-way) → formula →
 // rollup → resize → icons → delete.
@@ -57,9 +59,9 @@ test("create a row and edit cells in the grid", async ({ page }) => {
   await expect(page.getByText("✓ Saved")).toBeVisible();
   await page.keyboard.press("Escape");
   // scope to main — the sidebar's page tree rows also carry Tailwind's .group
-  await expect(page.locator("main div.group input").first()).toHaveValue("row-1");
+  await expect(page.locator("main div.group.grid input").first()).toHaveValue("row-1");
   // number cell: click-to-edit, Enter commits
-  const row = page.locator("main div.group").first();
+  const row = page.locator("main div.group.grid").first();
   await row.locator("button.text-right").click();
   await row.locator("input.text-right").fill("42");
   await row.locator("input.text-right").press("Enter");
@@ -69,7 +71,7 @@ test("create a row and edit cells in the grid", async ({ page }) => {
 test("select cell creates an option inline", async ({ page }) => {
   await page.goto("/?view=database");
   await page.getByRole("button", { name: "Bench" }).click();
-  const row = page.locator("main div.group").first();
+  const row = page.locator("main div.group.grid").first();
   // the select cell is the empty flex-wrap button in the Priority column (3rd cell)
   await row.locator("div.relative > button.flex-wrap").first().click();
   await page.getByPlaceholder("filter…").fill("High");
@@ -101,7 +103,7 @@ test("two-way relation: reverse property auto-created, links visible from both s
   await page.getByRole("button", { name: "Add", exact: true }).click();
 
   // link from the owner side via the picker
-  const row = page.locator("main div.group").first();
+  const row = page.locator("main div.group.grid").first();
   await row.locator("div.relative > button.flex-wrap").nth(1).click();
   await page.getByPlaceholder("search rows…").fill("target");
   await page.getByRole("button", { name: "target-1" }).click();
@@ -111,7 +113,7 @@ test("two-way relation: reverse property auto-created, links visible from both s
   // reverse side: Refs got a "Bench" relation column with the link
   await page.getByRole("button", { name: "Refs" }).first().click();
   await expect(page.getByRole("button", { name: "⇄ Bench" })).toBeVisible();
-  await expect(page.locator("main div.group").first().getByText("row-1")).toBeVisible();
+  await expect(page.locator("main div.group.grid").first().getByText("row-1")).toBeVisible();
 });
 
 test("formula: SQL expression computes; invalid expression is rejected at save", async ({ page }) => {
@@ -122,7 +124,7 @@ test("formula: SQL expression computes; invalid expression is rejected at save",
   await pickOption(page, "TYPE", "ƒ Formula");
   await page.getByLabel("SQL EXPRESSION").fill("score * 2");
   await page.getByRole("button", { name: "Add", exact: true }).click();
-  await expect(page.locator("main div.group").first().getByText("84")).toBeVisible();
+  await expect(page.locator("main div.group.grid").first().getByText("84")).toBeVisible();
   // invalid: unknown identifier surfaces the server error inline
   await page.getByTitle("add column").click();
   await page.getByLabel("NAME").fill("Broken");
@@ -142,7 +144,7 @@ test("rollup: count over the relation", async ({ page }) => {
   await pickOption(page, "RELATION", "Refs");
   await pickOption(page, "CALCULATE", "count");
   await page.getByRole("button", { name: "Add", exact: true }).click();
-  await expect(page.locator("main div.group").first().getByText("1", { exact: true })).toBeVisible();
+  await expect(page.locator("main div.group.grid").first().getByText("1", { exact: true })).toBeVisible();
 });
 
 test("column resize persists across reload", async ({ page }) => {
@@ -174,7 +176,7 @@ test("icons: emoji on a row, image icons listed in the gallery", async ({ page, 
   // emoji via the picker on the first row
   await page.locator('button[title="row icon"]').first().click();
   await page.getByRole("button", { name: "🎯" }).click();
-  await expect(page.locator("main div.group").first().getByText("🎯")).toBeVisible();
+  await expect(page.locator("main div.group.grid").first().getByText("🎯")).toBeVisible();
   // gallery tab lists the image icon
   await page.locator('button[title="row icon"]').first().click();
   await page.getByRole("button", { name: "Icons", exact: true }).click();

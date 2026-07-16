@@ -1,0 +1,40 @@
+---
+name: trame-track
+description: Log, update, pause, block, complete, or list coding-agent work sessions in Trame. Use when the user invokes $trame-track, asks to track the current Claude Code or Codex session, save a next step, update its Trame status, or list open Trame sessions.
+---
+
+# Track in Trame
+
+Use the shared writer at
+`__TRACK_WRITER__`. It posts to the running
+Trame app or queues locally when the app is closed. In Codex, the writer reads
+`CODEX_THREAD_ID` automatically so the card can resume this exact session.
+
+Interpret an optional first argument as the action:
+
+- Empty or `log`: status `active`.
+- `paused`, `blocked`, or `done`: use that status; treat the remaining text as a note.
+- `list`: read the port from `~/.local/share/session-tracker/port.json`, GET
+  `/api/board`, and print open sessions grouped by story. Do not write.
+
+For tracking actions:
+
+1. Read the current working directory and Git branch.
+2. Map the client from the path: `/Obitrain/` → `Obitrain`,
+   `/Polarsen/` → `Polarsen`, otherwise `Side-projects`.
+3. Infer these fields from the current conversation without asking:
+   - `title`: `<repo-basename> — <short topic>`.
+   - `next_step`: one imperative line for the next resume; incorporate the user's note.
+   - `objective`: the larger goal, omitted only when genuinely unclear.
+   - `summary`: one to three lines describing what happened.
+   - `pr_url`: only when evident.
+4. Pipe one JSON object containing `title`, `status`, `client`,
+   `objective`, `repo_path`, `branch`, `next_step`, `pr_url`, and
+   `summary` to:
+
+   ```bash
+   deno run -A __TRACK_WRITER__
+   ```
+
+5. Report whether the writer tracked or queued the session, plus its title,
+   status, and next step.

@@ -3,6 +3,9 @@ set positional-arguments
 set dotenv-filename := ".env"
 set dotenv-required := false
 
+# Pinned sqlfluff (rule sets change between versions; keep local == CI)
+sqlfluff := "sqlfluff@4.2.2"
+
 # List available recipes
 default:
     @just --list
@@ -59,9 +62,10 @@ dev:
 serve:
     cd app && deno task serve
 
-# Build a distributable desktop app (Linux .AppImage; .app/.dmg on macOS)
+# Build a distributable desktop app (Linux .AppImage; .app/.dmg on macOS).
+# Depends on web-build: a stale embed.ts would silently ship an old UI.
 [group('dev')]
-bundle:
+bundle: web-build
     cd app && deno task bundle
 
 # Build the React frontend into app/web/dist
@@ -90,20 +94,40 @@ hack:
 sync:
     cd app && deno task sync
 
+# Run the Deno unit tests (isolated PGlite in a temp dir)
+[group('dev')]
+test *args:
+    cd app && deno test -A {{ args }}
+
 # Run Playwright e2e tests (isolated backend in /tmp/trame-e2e)
 [group('dev')]
 e2e *args:
     cd app/web && npx playwright test {{ args }}
 
-# Lint
+# Lint (TS + SQL schema)
 [group('dev')]
-lint:
+lint: lint-sql
     cd app && deno lint
 
-# Format
+# Lint the SQL schema (sqlfluff, via uvx — no install needed)
 [group('dev')]
-fmt:
+lint-sql:
+    uvx {{ sqlfluff }} lint db/schema.sql
+
+# Format (TS + SQL schema, in place)
+[group('dev')]
+fmt: fmt-sql
     cd app && deno fmt
+
+# Format the SQL schema in place (sqlfluff)
+[group('dev')]
+fmt-sql:
+    uvx {{ sqlfluff }} format db/schema.sql
+
+# Verify the SQL schema is already formatted (non-mutating; fails on drift)
+[group('dev')]
+fmt-check-sql:
+    uvx {{ sqlfluff }} format - < db/schema.sql | diff -u db/schema.sql - && echo "schema.sql formatted ✓"
 
 # Type check the entry graphs
 [group('dev')]
@@ -115,9 +139,9 @@ check:
 mcp:
     deno run -A mcp/server.ts
 
-# Lint + type check
+# Lint + format-check + type check + unit tests
 [group('dev')]
-ci: lint check
+ci: lint fmt-check-sql check test
 
 # Run the session writer (JSON as arg or on stdin)
 [group('track')]
@@ -127,9 +151,32 @@ track *args:
 # Install the /trame:track slash command into ~/.claude
 [group('setup')]
 install-cmd:
-    mkdir -p ~/.claude/commands/trame
-    cp commands/trame/track.md ~/.claude/commands/trame/track.md
-    echo "installed → ~/.claude/commands/trame/track.md"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dest="$HOME/.claude/commands/trame"
+    mkdir -p "$dest"
+    cp commands/trame/track.md "$dest/track.md"
+    # the installed copy must point at THIS checkout's writer (-i.bak: BSD sed too)
+    sed -i.bak "s|__TRACK_WRITER__|{{ justfile_directory() }}/track/track.ts|g" "$dest/track.md"
+    rm -f "$dest/track.md.bak"
+    echo "installed → $dest/track.md"
+
+# Install the native Trame skill for Codex (available from every repository)
+[group('setup')]
+install-skill:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dest="$HOME/.agents/skills/trame-track"
+    mkdir -p "$dest"
+    cp -R skills/trame-track/. "$dest/"
+    sed -i.bak "s|__TRACK_WRITER__|{{ justfile_directory() }}/track/track.ts|g" "$dest/SKILL.md"
+    rm -f "$dest/SKILL.md.bak"
+    echo "installed → $dest (invoke with \$trame-track)"
+
+# Choose Claude Code, Codex, or both interactively
+[group('setup')]
+install-track:
+    deno run --config app/deno.json -A scripts/install-track.ts
 
 # Wipe the local PGlite data + outbox (fresh local db)
 [group('setup')]
@@ -142,3 +189,39 @@ reset-local:
 hooks:
     git config core.hooksPath .githooks
     @echo "pre-commit hook enabled (.githooks). Bypass a commit with --no-verify."
+
+# Seed + serve an isolated demo instance on :8799 (fictional data — the README screenshots)
+[group('docs')]
+demo:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dir=/tmp/trame-demo
+    rm -rf "$dir"; mkdir -p "$dir/claude-projects"
+    # blank REMOTE_PG explicitly: just loads .env, and demo data must never reach a real hub
+    export TRACKER_REMOTE_PG= TRACKER_NODE_ID=demo TRACKER_UPDATE_CHECK=0
+    export TRACKER_PORT=8799 TRACKER_HOST=127.0.0.1
+    export TRACKER_DATA_DIR="$dir/pglite" TRACKER_PORT_FILE="$dir/port.json"
+    export TRACKER_SETTINGS_FILE="$dir/settings.json" TRACKER_OUTBOX="$dir/outbox.jsonl"
+    export TRACKER_CLAUDE_DIR="$dir/claude-projects"
+    trap 'kill 0' EXIT
+    (cd app && deno run -A main.ts) &
+    until curl -sf http://127.0.0.1:8799/api/status >/dev/null 2>&1; do sleep 1; done
+    DEMO_CLAUDE_DIR="$dir/claude-projects" TRAME_URL=http://127.0.0.1:8799 \
+      deno run --config app/deno.json -A scripts/demo-seed.ts
+    echo "demo → http://127.0.0.1:8799  (ctrl-c to stop)"
+    wait
+
+# Read the design docs in the terminal with glow. No arg = browse docs/; `just docs hub-api` opens one
+[group('docs')]
+docs doc='':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v glow >/dev/null || { echo "glow not installed — see https://github.com/charmbracelet/glow (or open docs/ in your editor)" >&2; exit 1; }
+    doc="{{ doc }}"
+    if [ -z "$doc" ]; then
+        glow docs
+    else
+        f="docs/${doc%.md}.md"
+        [ -f "$f" ] || { echo "no such doc: $f" >&2; exit 1; }
+        glow -p "$f"
+    fi

@@ -13,9 +13,11 @@ description: Log or update the current Claude Code session in Trame (the local s
 
 ## What this does
 
-Records the current session as a card in **Trame** (`~/LLMS/projects/session-tracker`). The writer
+Records the current session as a card in **Trame** (`~/Projects/session-tracker`). The writer
 POSTs to the running app (upserts by repo+branch among open sessions, resolves client/objective by
 name, logs the summary as a worklog event); if the app is closed it queues to the offline outbox.
+The writer also attaches the Claude session UUID (recorded per-cwd by the UserPromptSubmit hook
+`track/claude-hook.ts`) so the card gets a working Resume button.
 
 ## Argument grammar
 
@@ -49,6 +51,6 @@ name, logs the summary as a worklog event); if the app is closed it queues to th
    `title, status, client, objective, repo_path (=working dir), branch, next_step, pr_url, summary`
 5. Pipe it to the writer:
    ```bash
-   echo '<json>' | deno run -A /home/julien/LLMS/projects/session-tracker/track/track.ts
+   echo '<json>' | deno run -A __TRACK_WRITER__
    ```
 6. Report one line from the writer output: tracked/queued, title, status, and the `next_step` you wrote.

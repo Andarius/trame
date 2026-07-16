@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { type BoardData, updateObjective } from "./api";
-import { ClientChip, StatusDot } from "./ui";
+import { ClientChip, statusStyle, StatusDot } from "./ui";
 
 function Story({ id, story, onSaved }: { id: string; story: string; onSaved: () => void }) {
   const [editing, setEditing] = useState(false);
@@ -43,8 +43,8 @@ export function Objectives(
         const client = board.clients.find((c) => c.id === o.client_id);
         const threads = board.sessions
           .filter((s) => s.objective_id === o.id)
-          .sort((a, b) => (a.status === "done" ? 1 : 0) - (b.status === "done" ? 1 : 0));
-        const done = threads.filter((s) => s.status === "done").length;
+          .sort((a, b) => (statusStyle(a.status).terminal ? 1 : 0) - (statusStyle(b.status).terminal ? 1 : 0));
+        const done = threads.filter((s) => statusStyle(s.status).terminal).length;
         const pct = threads.length ? (done / threads.length) * 100 : 0;
         return (
           <div key={o.id} className="flex flex-col gap-2.5 rounded-xl border border-line bg-panel px-4.5 py-4">
@@ -68,7 +68,7 @@ export function Objectives(
                   className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-[#14161c]"
                 >
                   <StatusDot status={s.status} size={7} />
-                  <span className={`text-xs font-medium ${s.status === "done" ? "text-ink-muted" : ""}`}>
+                  <span className={`text-xs font-medium ${statusStyle(s.status).terminal ? "text-ink-muted" : ""}`}>
                     {s.title}
                   </span>
                   {s.branch && <span className="text-[10.5px] text-ink-muted">{s.branch}</span>}

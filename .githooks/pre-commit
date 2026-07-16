@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
-# Pre-commit: run the project-wide checks CI runs (deno lint, deno check, tsc),
+# Pre-commit: run the project-wide checks CI runs (deno lint, deno check, tsc, sqlfluff),
 # but only BLOCK when an error touches a file you're committing — so an unrelated
 # work-in-progress file never blocks you. Bypass with `git commit --no-verify`.
 set -uo pipefail
 
 staged=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^app/.*\.(ts|tsx)$' || true)
-[ -z "$staged" ] && exit 0
-# match on basenames so it works whether the tool prints web/src/… (deno, absolute)
-# or src/… (tsc, relative to app/web)
-staged_re=$(echo "$staged" | sed 's|.*/||' | sed 's/\./\\./g' | paste -sd'|' -)
+staged_sql=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.sql$' || true)
+[ -z "$staged" ] && [ -z "$staged_sql" ] && exit 0
 
 fail=0
 gate() {                       # $1 label, $2 tool output
@@ -20,11 +18,30 @@ gate() {                       # $1 label, $2 tool output
   fi
 }
 
-gate "deno lint"  "$( (cd app && deno lint) 2>&1 || true )"
-gate "deno check" "$( (cd app && deno check main.ts) 2>&1 || true )"
-if echo "$staged" | grep -q '^app/web/src/'; then
-  gate "tsc --noEmit" "$( (cd app/web && npx tsc --noEmit) 2>&1 || true )"
+if [ -n "$staged" ]; then
+  # match on basenames so it works whether the tool prints web/src/… (deno, absolute)
+  # or src/… (tsc, relative to app/web)
+  staged_re=$(echo "$staged" | sed 's|.*/||' | sed 's/\./\\./g' | paste -sd'|' -)
+  gate "deno lint"  "$( (cd app && deno lint) 2>&1 || true )"
+  gate "deno check" "$( (cd app && deno check main.ts) 2>&1 || true )"
+  if echo "$staged" | grep -q '^app/web/src/'; then
+    gate "tsc --noEmit" "$( (cd app/web && npx tsc --noEmit) 2>&1 || true )"
+  fi
 fi
+
+# SQL: lint + format-check each staged .sql file (sqlfluff via uvx, no install needed)
+for f in $staged_sql; do
+  [ -f "$f" ] || continue
+  if ! out=$(uvx sqlfluff@4.2.2 lint "$f" 2>&1); then
+    echo "✗ sqlfluff lint — issues in $f:" >&2
+    echo "$out" | grep -iE "^L:|\|" | head -25 >&2
+    fail=1
+  fi
+  if ! uvx sqlfluff@4.2.2 format - < "$f" 2>/dev/null | diff -q "$f" - >/dev/null; then
+    echo "✗ sqlfluff format — $f is not formatted (run: just fmt-sql)" >&2
+    fail=1
+  fi
+done
 
 if [ "$fail" -ne 0 ]; then
   echo "✗ pre-commit failed. Fix the above, or 'git commit --no-verify' to skip." >&2
