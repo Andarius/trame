@@ -21,7 +21,7 @@ scp -q "$HERE/../db/schema.sql" "$HOST:$DIR/schema.sql"
 scp -q "$HERE/pg_hba.conf" "$HOST:$DIR/pg_hba.conf"
 scp -q "$HERE/gen-certs.sh" "$HOST:$DIR/gen-certs.sh"
 ssh "$HOST" "mkdir -p ~/$DIR/api ~/$DIR/protocol"
-scp -q "$HERE/api/"*.ts "$HERE/api/deno.json" "$HOST:$DIR/api/"
+scp -q "$HERE/api/"*.ts "$HERE/api/deno.json" "$HERE/api/deno.lock" "$HOST:$DIR/api/"
 scp -q "$HERE/../protocol/"*.ts "$HOST:$DIR/protocol/"
 ssh "$HOST" "chmod +x ~/$DIR/gen-certs.sh"
 
