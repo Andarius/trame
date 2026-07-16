@@ -312,6 +312,59 @@ create table if not exists sync_state (
 );
 insert into sync_state (id) values (1) on conflict do nothing;
 
+-- Change log (hub-API migration, phase 2). Per-replica, NOT synced. One mechanism,
+-- three jobs: rev is the future pull cursor (server-issued, monotonic — client clocks
+-- never order delivery), the triggers capture every write in the same transaction
+-- (on the hub: coexistence capture of legacy direct-SQL pushes; locally: the durable
+-- outbox source), and NOTIFY 'changes' is the future WS-nudge fan-out signal.
+create table if not exists change_log (
+  rev bigint generated always as identity primary key,
+  entity text not null,               -- table name
+  row_id uuid not null,
+  op text not null,                   -- upsert | delete (soft-deletes log as delete)
+  at timestamptz not null default now(),
+  actor uuid,                         -- users.id; null until the API sets trame.actor (phase 3)
+  source text                         -- 'api' | … ; null = legacy direct SQL / local write
+);
+
+create or replace function trame_log_change() returns trigger
+language plpgsql as $fn$
+begin
+  insert into change_log (entity, row_id, op, actor, source)
+  values (
+    tg_table_name,
+    case when tg_op = 'DELETE' then old.id else new.id end,
+    case
+      when tg_op = 'DELETE' then 'delete'
+      when new.deleted then 'delete'
+      else 'upsert'
+    end,
+    nullif(current_setting('trame.actor', true), '')::uuid,
+    nullif(current_setting('trame.source', true), '')
+  );
+  perform pg_notify('changes', '');
+  return null;
+end;
+$fn$;
+
+do $$
+declare t text;
+begin
+  foreach t in array array['users','devices','clients','pages','page_comments','statuses','sessions',
+                           'session_events','reports','udb_databases','udb_properties','udb_rows','udb_links'] loop
+    execute format(
+      'create or replace trigger %I after insert or update or delete on %I for each row execute function trame_log_change()',
+      t || '_change_log', t
+    );
+  end loop;
+end $$;
+
+-- Compaction: this file re-runs on every local start and every hub deploy, so this
+-- IS the scheduled cleanup. Safe: poll + cursor self-heal; a device offline >30 days
+-- re-syncs from scratch.
+delete from change_log
+where at < now() - interval '30 days';
+
 -- Catalog documentation (COMMENT ON is idempotent — safe to re-run every startup).
 -- Shows up in \d+ / \dt+ so the schema is self-describing from psql on the hub too.
 
@@ -382,6 +435,12 @@ comment on table udb_links is 'Relation instances (m2m). Stored ONLY under the o
 comment on column udb_links.prop_id is 'The OWNER-side relation property (config.owner = true).';
 comment on column udb_links.from_row is 'Row in the owner property''s database.';
 comment on column udb_links.to_row is 'Row in the target database.';
+
+comment on table change_log is 'Per-replica write log (NOT synced), trigger-fed in the mutation''s own txn. rev = the future server pull cursor; hub side captures legacy direct-SQL pushes during coexistence; local side is the durable outbox source. Compacted to 30 days on every schema run.';
+comment on column change_log.rev is 'Monotonic, replica-issued. The ordering authority for the future changeset /sync — never a client clock.';
+comment on column change_log.op is 'upsert | delete. Soft-deletes (deleted=true) log as delete; readers of the log never need the LWW envelope.';
+comment on column change_log.actor is 'users.id of the writer; null until the API stamps trame.actor (phase 3+).';
+comment on column change_log.source is 'Write channel (''api'' once it exists); null = legacy direct SQL or a local PGlite write.';
 
 comment on table sync_state is 'Local-only LWW watermarks (singleton id=1). Stores the max updated_at actually seen, not now() — robust to clock skew.';
 comment on column sync_state.last_pulled_at is 'Remote-clock watermark: pull fetches remote rows newer than this.';
