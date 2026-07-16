@@ -20,6 +20,12 @@
   --color-done: #6b7280;
 }
 
+/* We paint the dark theme ourselves, but anything the browser draws — scrollbars, selects,
+   pickers — is light until we say this. That glare is what the scrollbar rule below was for. */
+:root {
+  color-scheme: dark;
+}
+
 html,
 body,
 #root {
