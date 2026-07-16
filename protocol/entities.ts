@@ -1,0 +1,178 @@
+// The synced entities and their wire columns — the single source of truth shared by
+// the laptop app (app/sync.ts) and the hub API (hub/api). Order matters: referenced
+// tables come before their referrers (no FKs, but pulls apply in this order).
+export const PROTOCOL_VERSION = 1;
+
+export const ENTITIES = [
+  {
+    name: "users",
+    cols: ["id", "name", "avatar", "origin", "updated_at", "deleted"],
+  },
+  {
+    name: "devices",
+    cols: ["id", "node_id", "user_id", "origin", "updated_at", "deleted"],
+  },
+  {
+    name: "clients",
+    cols: ["id", "name", "color", "origin", "updated_at", "deleted"],
+  },
+  {
+    name: "pages",
+    cols: [
+      "id",
+      "parent_id",
+      "kind",
+      "title",
+      "icon",
+      "story",
+      "client_id",
+      "status",
+      "content",
+      "color",
+      "sort_key",
+      "owner_id",
+      "origin",
+      "updated_at",
+      "deleted",
+    ],
+  },
+  {
+    name: "page_comments",
+    cols: [
+      "id",
+      "page_id",
+      "block_id",
+      "anchor",
+      "body",
+      "author",
+      "author_avatar",
+      "author_id",
+      "resolved",
+      "origin",
+      "updated_at",
+      "deleted",
+    ],
+  },
+  {
+    name: "statuses",
+    cols: [
+      "id",
+      "key",
+      "label",
+      "color",
+      "terminal",
+      "sort_key",
+      "origin",
+      "updated_at",
+      "deleted",
+    ],
+  },
+  {
+    name: "sessions",
+    cols: [
+      "id",
+      "title",
+      "status",
+      "client_id",
+      "objective_id",
+      "page_id",
+      "repo_path",
+      "branch",
+      "next_step",
+      "pr_url",
+      "summary",
+      "claude_id",
+      "agent",
+      "last_touched",
+      "origin",
+      "updated_at",
+      "deleted",
+    ],
+  },
+  {
+    name: "session_events",
+    cols: [
+      "id",
+      "session_id",
+      "at",
+      "summary",
+      "kind",
+      "origin",
+      "updated_at",
+      "deleted",
+    ],
+  },
+  {
+    name: "reports",
+    cols: [
+      "id",
+      "title",
+      "html",
+      "client_id",
+      "objective_id",
+      "page_id",
+      "created_at",
+      "origin",
+      "updated_at",
+      "deleted",
+    ],
+  },
+  {
+    name: "udb_databases",
+    cols: [
+      "id",
+      "name",
+      "icon",
+      "page_id",
+      "sort_key",
+      "views",
+      "origin",
+      "updated_at",
+      "deleted",
+    ],
+  },
+  {
+    name: "udb_properties",
+    cols: [
+      "id",
+      "db_id",
+      "name",
+      "type",
+      "config",
+      "sort_key",
+      "width",
+      "origin",
+      "updated_at",
+      "deleted",
+    ],
+  },
+  {
+    name: "udb_rows",
+    cols: [
+      "id",
+      "db_id",
+      "icon",
+      "vals",
+      "sort_key",
+      "origin",
+      "updated_at",
+      "deleted",
+    ],
+  },
+  {
+    name: "udb_links",
+    cols: [
+      "id",
+      "prop_id",
+      "from_row",
+      "to_row",
+      "origin",
+      "updated_at",
+      "deleted",
+    ],
+  },
+] as const;
+
+export type EntityName = (typeof ENTITIES)[number]["name"];
+
+export const entityByName = new Map(ENTITIES.map((e) => [e.name as string, e]));
