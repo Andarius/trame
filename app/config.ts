@@ -42,6 +42,12 @@ export const REPORT_PATHS = (Deno.env.get("TRACKER_REPORT_PATHS") ?? "")
   .map((s) => s.trim())
   .filter(Boolean)
   .map((p) => p.replace(/^~(?=\/|$)/, home));
+// Client names to detect from a working-dir path (`/<Client>/`); anything else →
+// "Side-projects". Kept out of the repo — set per-machine, e.g. TRACKER_CLIENTS="Acme,Globex".
+export const CLIENTS = (Deno.env.get("TRACKER_CLIENTS") ?? "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 export const PORT = Number(Deno.env.get("TRACKER_PORT") ?? "8787");
 // Headless serve binds loopback by default — the API exposes local data (and plugin
 // state); set TRACKER_HOST=0.0.0.0 to deliberately serve over the LAN.
