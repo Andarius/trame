@@ -1,0 +1,4 @@
+interface:
+  display_name: "Create Trame Page"
+  short_description: "Create a Trame page from Markdown"
+  default_prompt: "Use $trame-page to create a new Trame page from this content."

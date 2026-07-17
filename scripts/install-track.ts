@@ -5,10 +5,15 @@ type Target = "claude" | "codex";
 function targetsFromArgs(): Target[] | null {
   const i = Deno.args.indexOf("--target");
   if (i < 0) return null;
-  const values = (Deno.args[i + 1] ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  const values = (Deno.args[i + 1] ?? "").split(",").map((v) => v.trim())
+    .filter(Boolean);
   const invalid = values.filter((v) => v !== "claude" && v !== "codex");
   if (values.length === 0 || invalid.length > 0) {
-    console.error(`invalid --target: ${Deno.args[i + 1]} (expected claude, codex, or claude,codex)`);
+    console.error(
+      `invalid --target: ${
+        Deno.args[i + 1]
+      } (expected claude, codex, or claude,codex)`,
+    );
     Deno.exit(2);
   }
   return [...new Set(values as Target[])];
@@ -22,12 +27,12 @@ async function chooseTargets(): Promise<Target[] | null> {
       {
         value: "claude",
         label: "Claude Code",
-        hint: "Installs the /trame:track slash command",
+        hint: "Installs the /trame:track slash command and the trame-page skill",
       },
       {
         value: "codex",
         label: "Codex",
-        hint: "Installs the $trame-track agent skill",
+        hint: "Installs the $trame-track and $trame-page agent skills",
       },
     ],
     initialValues: ["claude"],
@@ -50,12 +55,16 @@ async function install(recipe: "install-cmd" | "install-skill"): Promise<void> {
     stderr: "inherit",
   });
   const status = await child.spawn().status;
-  if (!status.success) throw new Error(`${recipe} failed with exit code ${status.code}`);
+  if (!status.success) {
+    throw new Error(`${recipe} failed with exit code ${status.code}`);
+  }
 }
 
 const targets = targetsFromArgs() ?? await chooseTargets();
 if (targets) {
   if (targets.includes("claude")) await install("install-cmd");
   if (targets.includes("codex")) await install("install-skill");
-  if (!Deno.args.includes("--target")) p.outro("Trame tracking installed.");
+  if (!Deno.args.includes("--target")) {
+    p.outro("Trame agent integrations installed.");
+  }
 }

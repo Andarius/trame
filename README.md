@@ -64,10 +64,11 @@ app/                       Deno-desktop app
   plugins/                 opt-in in-tree plugins (deployments: GitHub/GitLab approvals)
   settings-store.ts        single writer for the device-local settings JSON (0600, holds tokens)
   web/                     React swimlane board (Vite)
-track/track.ts             the /trame:track writer (hub PG or outbox)
+track/track.ts             the /trame:track session writer (app or outbox)
+track/page.ts              the $trame-page writer (Markdown → atomic page create)
 track/claude-hook.ts       UserPromptSubmit hook: records cwd → Claude session id for track.ts
 commands/trame/track.md    the /trame:track slash command — install with `just install-cmd`
-skills/trame-track/        Codex-native $trame-track skill — install with `just install-skill`
+skills/trame-{track,page}/ agent skills — Codex via `just install-skill`, trame-page also lands in ~/.claude/skills via `just install-cmd`
 ```
 
 ## Setup
@@ -120,12 +121,13 @@ just install-track
 ```
 Use the arrow keys to choose an agent and Enter to confirm.
 
-For non-interactive setup, use `just install-cmd` for Claude Code or
-`just install-skill` for Codex.
+For non-interactive setup, use `just install-cmd` for Claude Code (slash command +
+trame-page skill) or `just install-skill` for Codex.
 
-In Codex, then use `$trame-track`, `$trame-track paused "note"`, or
-`$trame-track list`. Codex exposes `CODEX_THREAD_ID`, so the shared writer
-automatically links the card to the current resumable session; no hook is needed.
+In Codex, use `$trame-track`, `$trame-track paused "note"`, or `$trame-track list`
+for sessions, and `$trame-page` to create a standalone Trame page from Markdown.
+Codex exposes `CODEX_THREAD_ID`, so the session writer automatically links the card
+to the current resumable session; no hook is needed.
 
 For Claude Code, install the slash command:
 
@@ -139,6 +141,8 @@ just install-cmd
 ```
 Then from any repo: `/trame:track` to log the session, or
 `/trame:track paused|blocked|done "note"` to set its status with a note.
+The recipe also installs the `trame-page` skill into `~/.claude/skills/` — Claude Code
+picks it up automatically when you ask to save a document, note, or plan as a Trame page.
 
 For the card's **Resume** button to work, the writer needs the Claude session UUID — slash
 commands can't see their own session id, so a `UserPromptSubmit` hook records it per-cwd into
