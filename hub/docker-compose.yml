@@ -76,7 +76,9 @@ services:
     labels:
       traefik.enable: "true"
       traefik.docker.network: proxy
-      traefik.http.routers.trame-links.rule: Host(`${TRACKER_LINK_HOST:-links.invalid}`)
+      # PathPrefix, not Host: /l/* is unique to this listener, and the front proxy
+      # (DSM) rewrites the Host header on the way in — a Host rule never matches.
+      traefik.http.routers.trame-links.rule: PathPrefix(`/l/`)
       traefik.http.routers.trame-links.entrypoints: web
       traefik.http.services.trame-links.loadbalancer.server.port: "8444"
     networks:
