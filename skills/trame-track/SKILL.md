@@ -20,8 +20,8 @@ Interpret an optional first argument as the action:
 For tracking actions:
 
 1. Read the current working directory and Git branch.
-2. Map the client from the path: `/Obitrain/` → `Obitrain`,
-   `/Polarsen/` → `Polarsen`, otherwise `Side-projects`.
+2. Map the client from the path: if it contains one of the names in the
+   `TRACKER_CLIENTS` env var (as `/<Client>/`), use that name; otherwise `Side-projects`.
 3. Infer these fields from the current conversation without asking:
    - `title`: `<repo-basename> — <short topic>`.
    - `next_step`: one imperative line for the next resume; incorporate the user's note.

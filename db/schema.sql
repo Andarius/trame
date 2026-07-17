@@ -92,8 +92,9 @@ on conflict (id) do nothing;
 
 -- Users: profile only — credentials come with the hub API (Phase 3) and stay hub-only,
 -- so no secrets ever ride the laptop sync. Synced so every node renders authors offline.
--- Julien is seeded with a FIXED id (same reason as the statuses seed): every node
--- inserts the identical row and LWW dedupes it instead of forking one user per node.
+-- The initial user is seeded with a FIXED id (same reason as the statuses seed): every
+-- node inserts the identical row and LWW dedupes it instead of forking one per node.
+-- Name is empty on purpose (display falls back to the node id) — set it via ⚙ Settings.
 create table if not exists users (
   id uuid primary key default uuidv7(),
   name text not null default '',
@@ -102,8 +103,8 @@ create table if not exists users (
   updated_at timestamptz not null default now(),
   deleted boolean not null default false
 );
-insert into users (id, name) values
-('00000000-0000-4000-8000-000000000101', 'Julien')
+insert into users (id) values
+('00000000-0000-4000-8000-000000000101')
 on conflict (id) do nothing;
 
 -- Devices: NODE_ID -> user mapping ("which user am I" for a node). Rows are claimed
@@ -372,7 +373,7 @@ where at < now() - interval '30 days';
 -- Catalog documentation (COMMENT ON is idempotent — safe to re-run every startup).
 -- Shows up in \d+ / \dt+ so the schema is self-describing from psql on the hub too.
 
-comment on table clients is 'Who the work is for (Obitrain, Polarsen, …). Referenced by sessions, pages, reports.';
+comment on table clients is 'Who the work is for (one per client/company). Referenced by sessions, pages, reports.';
 comment on column clients.name is 'Display name; find-or-create key used by the CLI/MCP (resolveClient).';
 comment on column clients.color is 'Chip color (hex); null = deterministic hash pick from the app palette.';
 
@@ -391,7 +392,7 @@ comment on column pages.owner_id is 'users.id of the creator (no FK: LWW pull or
 comment on table page_comments is 'Inline block-level page comments (Notion-style). Anchored by block_id to a block in pages.content; one row = one note + resolve toggle. No FK (LWW pull ordering); anchor keeps the block''s text so a removed block''s note still renders.';
 comment on column page_comments.author_id is 'users.id of the writer (no FK: LWW pull order). author/author_avatar stay as the write-time display snapshot.';
 
-comment on table users is 'User profiles (identity for authors/owners). Profile only — credentials are hub-side (phase 3), never synced. Julien seeded with a fixed id so LWW dedupes across nodes.';
+comment on table users is 'User profiles (identity for authors/owners). Profile only — credentials are hub-side (phase 3), never synced. The initial user is seeded with a fixed id so LWW dedupes across nodes.';
 comment on column users.name is 'Display name shown on comments; empty = fall back to the device''s node id.';
 comment on column users.avatar is 'Image URL or (downscaled) data URI.';
 
