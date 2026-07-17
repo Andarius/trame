@@ -273,7 +273,8 @@ export async function createComment(
       p.body,
       author || me.name,
       agent?.avatar ?? (author ? (p.author_avatar ?? "") : me.avatar),
-      author ? AGENT_AUTHOR_ID : me.userId,
+      // sentinel only for real agent threads; a custom display author stays the local user
+      agent ? AGENT_AUTHOR_ID : me.userId,
       p.meta ? JSON.stringify(p.meta) : null,
       NODE_ID,
     ],
@@ -322,7 +323,7 @@ export async function deleteComment(id: string): Promise<void> {
 
 // Comment watcher: an agent sees a human reply and answers it.
 
-export type AgentStatus = "seen" | "answering" | "failed";
+export type AgentStatus = "seen" | "answering" | "failed" | "answered";
 
 // Set (or clear) the watcher status on a human reply. body_hash pins the current
 // reply text so an edit re-triggers the watcher but a resolve toggle does not.
@@ -337,34 +338,26 @@ export async function setCommentAgentStatus(
   )).rows[0] as { page_id: string; body: string } | undefined;
   if (!c) throw new Error(`comment "${commentId}" was not found`);
 
+  // id=comment_id is deliberate: at most one status row per comment (dedup) and
+  // LWW-mergeable — concurrent watchers converge on the same row via ON CONFLICT (id).
   if (patch.status === "clear") {
     await pg.query(
       `update comment_agent_status set deleted=true, origin=$2, updated_at=now()
-        where comment_id=$1 and not deleted`,
+        where id=$1`,
       [commentId, NODE_ID],
     );
     return;
   }
 
-  const existing = (await pg.query(
-    `select id from comment_agent_status where comment_id=$1 and not deleted
-      order by updated_at desc limit 1`,
-    [commentId],
-  )).rows[0] as { id: string } | undefined;
-
-  if (existing) {
-    await pg.query(
-      `update comment_agent_status set status=$2, agent=coalesce($3, agent),
-              body_hash=md5($4), origin=$5, updated_at=now() where id=$1`,
-      [existing.id, patch.status, patch.agent ?? null, c.body, NODE_ID],
-    );
-  } else {
-    await pg.query(
-      `insert into comment_agent_status (comment_id, page_id, status, agent, body_hash, origin)
-       values ($1,$2,$3,$4,md5($5),$6)`,
-      [commentId, c.page_id, patch.status, patch.agent ?? "", c.body, NODE_ID],
-    );
-  }
+  await pg.query(
+    `insert into comment_agent_status (id, comment_id, page_id, status, agent, body_hash, origin)
+     values ($1,$1,$2,$3,coalesce($4,''),md5($5),$6)
+     on conflict (id) do update set
+       page_id=excluded.page_id, status=excluded.status,
+       agent=coalesce($4, comment_agent_status.agent),
+       body_hash=excluded.body_hash, deleted=false, origin=excluded.origin, updated_at=now()`,
+    [commentId, c.page_id, patch.status, patch.agent ?? null, c.body, NODE_ID],
+  );
 }
 
 export type InboxItem = {
@@ -375,26 +368,21 @@ export type InboxItem = {
   agent: AgentKind; // which CLI answers (the thread's latest agent author)
 };
 
-// Human replies on agent threads that still need an answer. A candidate is an
-// unresolved, human-authored comment on a block that has an OLDER agent comment
-// (so it's a reply to the agent) and no NEWER one (not yet answered), whose status
-// is absent, hash-stale (the human edited it), or stuck ≥ staleSecs (watcher crash).
+// Human replies on agent threads that still need an answer. A candidate is the
+// NEWEST non-deleted comment on its block (no newer comment of any author), and is
+// unresolved, human-authored, and has an OLDER agent comment (a reply to the agent) —
+// exactly one per block, only when the newest comment is a human reply. Its status must
+// be absent, hash-stale (the human edited it), or stuck ≥ staleSecs (watcher crash).
 export async function listCommentInbox(staleSecs = 600): Promise<InboxItem[]> {
   const pg = await db();
-  // self-heal: drop status rows whose comment is gone or already answered (a newer
-  // agent comment exists), so answered replies leave the inbox and the UI never shows
-  // a stuck "answering…". Resolve is deliberately NOT a trigger — it's reversible, and
-  // keeping the row lets a reopen keep its matching hash instead of re-answering.
+  // self-heal: only drop status rows whose comment is hard-gone or deleted. "answered"
+  // rows are kept — they're the terminal hash tombstone that stops re-answering. The
+  // candidate logic below (not this cleanup) keeps answered replies out of the inbox.
   await pg.query(
     `update comment_agent_status s set deleted=true, origin=$1, updated_at=now()
       where not s.deleted and not exists (
-        select 1 from page_comments c
-         where c.id = s.comment_id and not c.deleted
-           and not exists (
-             select 1 from page_comments a
-              where a.page_id=c.page_id and a.block_id=c.block_id and not a.deleted
-                and a.author_id=$2 and a.updated_at > c.updated_at))`,
-    [NODE_ID, AGENT_AUTHOR_ID],
+        select 1 from page_comments c where c.id = s.comment_id and not c.deleted)`,
+    [NODE_ID],
   );
 
   const candidates = (await pg.query(
@@ -413,11 +401,13 @@ export async function listCommentInbox(staleSecs = 600): Promise<InboxItem[]> {
                 and a.author_id=$1 and a.updated_at < c.updated_at)
         and not exists (select 1 from page_comments a
               where a.page_id=c.page_id and a.block_id=c.block_id and not a.deleted
-                and a.author_id=$1 and a.updated_at > c.updated_at)
+                and a.id <> c.id and a.updated_at > c.updated_at)
         and (s.comment_id is null
              or s.body_hash is distinct from md5(c.body)
              or (s.status in ('seen','answering')
                  and s.updated_at < now() - make_interval(secs => $2)))
+      -- updated_at is the app's LWW wall-clock; cross-device clock skew can affect
+      -- ordering here (known limitation, same as the rest of the app)
       order by c.updated_at`,
     [AGENT_AUTHOR_ID, staleSecs],
   )).rows as Record<string, unknown>[];

@@ -110,6 +110,77 @@ Deno.test("an answered reply (newer agent comment) leaves the inbox", async () =
   assertEquals(await inboxFor(replyId), undefined, "answered → gone");
 });
 
+Deno.test("two consecutive human replies yield only the newest as a candidate", async () => {
+  const { pageId, blockId, replyId: h1 } = await seedThread();
+  await new Promise((r) => setTimeout(r, 5));
+  const h2 = await createComment({
+    page_id: pageId,
+    block_id: blockId,
+    body: "a second question",
+  });
+  const inbox = await listCommentInbox();
+  const onBlock = inbox.filter((i) =>
+    (i.comment.block_id as string) === blockId
+  );
+  assertEquals(onBlock.length, 1, "exactly one candidate per block");
+  assertEquals(
+    onBlock[0].comment.id,
+    h2,
+    "the newest reply, not the earlier one",
+  );
+  assertEquals(
+    await inboxFor(h1),
+    undefined,
+    "the older reply is not answered twice",
+  );
+});
+
+Deno.test("a custom author without agent is not stamped as an agent", async () => {
+  const pageId = await createPage({ title: "custom-author" });
+  const pg = await db();
+  const id = await createComment({
+    page_id: pageId,
+    block_id: "b",
+    body: "hi",
+    author: "Some Bot",
+  });
+  const row = (await pg.query(
+    `select author, author_id from page_comments where id=$1`,
+    [id],
+  )).rows[0] as { author: string; author_id: string | null };
+  assertEquals(row.author, "Some Bot", "display name is kept");
+  assert(
+    row.author_id !== AGENT_AUTHOR_ID,
+    "a non-agent custom author must not get the agent sentinel",
+  );
+});
+
+Deno.test("reopening an answered reply with unchanged text does not requeue it", async () => {
+  const { pageId, blockId, replyId } = await seedThread();
+  // agent answers, watcher marks the reply answered (keeps its body hash)
+  await new Promise((r) => setTimeout(r, 5));
+  await createComment({
+    page_id: pageId,
+    block_id: blockId,
+    body: "agent answer",
+    agent: "codex",
+  });
+  await setCommentAgentStatus(replyId, { status: "answered", agent: "codex" });
+  assertEquals(
+    await inboxFor(replyId),
+    undefined,
+    "answered → not a candidate",
+  );
+  // resolve then reopen bumps updated_at past the answer, but the text is unchanged
+  await updateComment(replyId, { resolved: true });
+  await updateComment(replyId, { resolved: false });
+  assertEquals(
+    await inboxFor(replyId),
+    undefined,
+    "reopen with unchanged text stays answered (hash matches)",
+  );
+});
+
 Deno.test("status lifecycle: seen (fresh) drops out, body edit re-triggers, stale re-surfaces", async () => {
   const { replyId } = await seedThread();
   await setCommentAgentStatus(replyId, { status: "seen", agent: "codex" });
