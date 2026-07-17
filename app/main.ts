@@ -69,7 +69,11 @@ import {
   getPage,
   listComments,
   listPages,
+  listShares,
+  listUsers,
   movePage,
+  revokeShare,
+  setShare,
   updateComment,
   updatePage,
 } from "./pages.ts";
@@ -851,6 +855,21 @@ async function handler(req: Request): Promise<Response> {
   if (cmt && req.method === "POST") {
     if (cmt[2]) await deleteComment(cmt[1]);
     else await updateComment(cmt[1], await req.json());
+    return json({ ok: true });
+  }
+
+  // sharing (phase 7): grants live in page_shares and ride the normal sync
+  if (pathname === "/api/users") return json(await listUsers());
+  if (pathname === "/api/shares" && req.method === "POST") {
+    return json({ id: await setShare(await req.json()) });
+  }
+  if (pathname === "/api/shares") {
+    const pageId = url.searchParams.get("page");
+    return json(pageId ? await listShares(pageId) : []);
+  }
+  const shr = pathname.match(/^\/api\/shares\/([^/]+)\/delete$/);
+  if (shr && req.method === "POST") {
+    await revokeShare(shr[1]);
     return json({ ok: true });
   }
 
