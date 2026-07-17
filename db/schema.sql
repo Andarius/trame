@@ -127,6 +127,21 @@ create table if not exists page_shares (
 create index if not exists page_shares_page on page_shares (page_id);
 create index if not exists page_shares_user on page_shares (user_id);
 
+-- Public share links: a capability URL for a read-only browser view of a page's
+-- subtree, served by the hub's separate public listener (no account, no app).
+-- Only the sha-256 of the token is stored (and synced); the raw link is shown once
+-- at creation. Soft-delete revokes it. Comments are never rendered on link views.
+create table if not exists page_links (
+  id uuid primary key default uuidv7(),
+  page_id uuid not null,   -- no FK: LWW pull order
+  token_hash text not null,
+  origin text not null default 'seed',
+  updated_at timestamptz not null default now(),
+  deleted boolean not null default false
+);
+create index if not exists page_links_page on page_links (page_id);
+create index if not exists page_links_token on page_links (token_hash);
+
 -- Devices: NODE_ID -> user mapping ("which user am I" for a node). Rows are claimed
 -- at app startup with id = uuidv5(node_id) so concurrent claims converge on one row
 -- (see app/identity.ts). No unique(node_id): LWW upserts by id — deterministic ids
@@ -375,7 +390,7 @@ $fn$;
 do $$
 declare t text;
 begin
-  foreach t in array array['users','devices','clients','pages','page_shares','page_comments','statuses','sessions',
+  foreach t in array array['users','devices','clients','pages','page_shares','page_links','page_comments','statuses','sessions',
                            'session_events','reports','udb_databases','udb_properties','udb_rows','udb_links'] loop
     execute format(
       'create or replace trigger %I after insert or update or delete on %I for each row execute function trame_log_change()',
@@ -417,6 +432,8 @@ comment on column users.role is 'member (whole workspace, the original behavior)
 
 comment on table page_shares is 'Per-page access grants (phase 7): user × page × role, covering the page''s subtree + attached databases. viewer = read; editor = also write. Enforced by the hub API; soft-delete revokes via tombstones on the guest''s next pull.';
 comment on column page_shares.role is 'viewer | editor.';
+
+comment on table page_links is 'Public share links: capability URLs for a read-only browser view of a page''s subtree, served by the hub''s public listener. Stores only the sha-256 of the token; soft-delete revokes.';
 comment on column users.name is 'Display name shown on comments; empty = fall back to the device''s node id.';
 comment on column users.avatar is 'Image URL or (downscaled) data URI.';
 
@@ -480,7 +497,7 @@ do $$
 declare t text;
 begin
   foreach t in array array['clients','objectives','pages','page_comments','statuses','sessions','session_events','reports',
-                           'udb_databases','udb_properties','udb_rows','udb_links','users','devices','page_shares'] loop
+                           'udb_databases','udb_properties','udb_rows','udb_links','users','devices','page_shares','page_links'] loop
     execute format('comment on column %I.id is %L', t, 'PK. uuidv7() on newer tables (time-ordered), gen_random_uuid() v4 on the originals — minted per node, no sequence (offline multi-writer).');
     execute format('comment on column %I.origin is %L', t, 'NODE_ID that wrote the row — push only sends own-origin rows (not ones just pulled).');
     execute format('comment on column %I.updated_at is %L', t, 'LWW clock: on conflict the newer updated_at wins, on both ends of the sync.');
