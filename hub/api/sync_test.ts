@@ -6,6 +6,7 @@ import type { DB, Q } from "./db.ts";
 import { ensureAuthSchema, mintToken } from "./auth.ts";
 import { createApp } from "./app.ts";
 import type { SyncResponse } from "../../protocol/types.ts";
+import { PROTOCOL_VERSION } from "../../protocol/entities.ts";
 
 const SEED_USER = "00000000-0000-4000-8000-000000000101";
 
@@ -47,7 +48,7 @@ const sync = async (
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-trame-protocol": opts.protocol ?? "1",
+      "x-trame-protocol": opts.protocol ?? String(PROTOCOL_VERSION),
       authorization: `Bearer ${opts.token ?? token}`,
     },
     body: JSON.stringify(body),
