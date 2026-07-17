@@ -116,7 +116,7 @@ server.tool(
 
 server.tool(
   "trame_add_comment",
-  "Add an inline agent review comment to a Trame page block. Identify the page by id or exact title and the block by id or a unique text quote. `agent` is the id of the model actually writing (e.g. codex, claude, glm, gemini) — attribute the real model, not the harness seat; codex/claude get a branded avatar, any other id gets a generated one.",
+  "Add an inline agent review comment to a Trame page block. Identify the page by id or exact title and the block by id or a unique text quote. `agent` is the id of the model actually writing (e.g. codex, claude, glm, gemini) — attribute the real model, not the harness seat; codex/claude get a branded avatar, any other id gets a generated one. Optional `meta` records honest generation stats {model, in, out, ms} shown as a footer — only pass numbers you actually know; omit tokens/time you can't measure.",
   {
     page_id: z.string().optional(),
     page_title: z.string().optional(),
@@ -124,6 +124,12 @@ server.tool(
     block_text: z.string().optional(),
     body: z.string(),
     agent: z.string(),
+    meta: z.object({
+      model: z.string().optional(),
+      in: z.number().optional(),
+      out: z.number().optional(),
+      ms: z.number().optional(),
+    }).optional(),
   },
   async (
     args: {
@@ -133,6 +139,7 @@ server.tool(
       block_text?: string;
       body: string;
       agent: string;
+      meta?: { model?: string; in?: number; out?: number; ms?: number };
     },
   ) => {
     if (Boolean(args.page_id) === Boolean(args.page_title)) {
@@ -166,6 +173,7 @@ server.tool(
         anchor: target.text,
         body: args.body,
         agent: args.agent,
+        meta: args.meta,
       }),
     );
   },

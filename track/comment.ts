@@ -15,6 +15,8 @@ type Input = {
   block_text?: string;
   body: string;
   agent?: AgentKind;
+  // optional, honest generation stats → footer; only pass numbers you actually know
+  meta?: { model?: string; in?: number; out?: number; ms?: number };
 };
 
 type PageMeta = { id: string; title: string };
@@ -94,6 +96,7 @@ async function main() {
       anchor: target.text,
       body: input.body,
       agent,
+      meta: input.meta,
     }),
   }) as { id: string };
 
