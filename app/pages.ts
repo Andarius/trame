@@ -435,14 +435,13 @@ export async function listCommentInbox(staleSecs = 600): Promise<InboxItem[]> {
       [pageId, blockId],
     )).rows as Record<string, unknown>[];
 
-    // the thread's newest agent comment decides which CLI answers
+    // the thread's newest agent comment decides which agent answers — its display
+    // name lower-cased is the agent id (Codex→codex, Claude→claude, GLM→glm)
     const lastAgent = [...thread].reverse().find((t) =>
       t.author_id === AGENT_AUTHOR_ID
     );
-    const agent: AgentKind =
-      String(lastAgent?.author ?? "").toLowerCase() === "codex"
-        ? "codex"
-        : "claude";
+    const agent: AgentKind = String(lastAgent?.author ?? "claude")
+      .toLowerCase();
 
     items.push({
       comment: c,

@@ -1,4 +1,5 @@
-// Comment watcher: drives codex/claude to answer human replies on agent threads.
+// Comment watcher: answers human replies on agent threads by running each thread's
+// agent (the model that authored it).
 //
 // Polls the running Trame app for human replies sitting on a comment thread an agent
 // started, marks each seen, runs the matching CLI to compose an answer, posts it, and
@@ -10,16 +11,17 @@
 // read-only; still, do not point --cwd at a repo holding secrets on shared/multi-user
 // pages — a crafted reply could coax the agent into leaking file contents into an answer.
 //
-//   deno run -A track/watch.ts [--agents codex,claude] [--force-agent codex|claude]
+//   deno run -A track/watch.ts [--agents codex,claude,glm] [--force-agent <id>]
 //                              [--interval 5] [--stale 600] [--once] [--dry-run]
 //                              [--cwd DIR]
 //
-// The agent CLIs are env-overridable (tests / custom wrappers): TRAME_WATCH_CODEX_CMD,
-// TRAME_WATCH_CLAUDE_CMD — a space-split command where an `{}` arg is replaced by the
-// prompt; with no `{}` the prompt is piped on stdin. TRAME_WATCH_TIMEOUT (secs) caps a
+// --agents restricts which agents this run answers (default: all it can run). codex and
+// claude are built in; any other model id (glm, gemini, …) needs its own runner command:
+// TRAME_WATCH_<AGENT>_CMD, e.g. TRAME_WATCH_GLM_CMD — a command where an `{}` arg is
+// replaced by the prompt (no `{}` → prompt on stdin). TRAME_WATCH_TIMEOUT (secs) caps a
 // run (default 300).
 import { PORT_FILE } from "../app/config.ts";
-import type { AgentKind } from "../app/agent-comments.ts";
+import { agentIdentity, type AgentKind } from "../app/agent-comments.ts";
 
 const AGENT_AUTHOR_ID = "00000000-0000-4000-8000-0000000000aa";
 
@@ -39,7 +41,7 @@ type InboxItem = {
 };
 
 type Flags = {
-  agents: Set<AgentKind>;
+  agents: Set<AgentKind> | null; // null = any agent that has a runnable command
   forceAgent?: AgentKind;
   interval: number;
   stale: number;
@@ -50,7 +52,7 @@ type Flags = {
 
 function parseFlags(argv: string[]): Flags {
   const f: Flags = {
-    agents: new Set<AgentKind>(["codex", "claude"]),
+    agents: null,
     interval: 5,
     stale: 600,
     once: false,
@@ -61,16 +63,11 @@ function parseFlags(argv: string[]): Flags {
     const val = () => argv[++i];
     if (a === "--agents") {
       f.agents = new Set(
-        val().split(",").map((s) => s.trim()).filter((s): s is AgentKind =>
-          s === "codex" || s === "claude"
-        ),
+        val().split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
       );
     } else if (a === "--force-agent") {
-      const v = val();
-      if (v !== "codex" && v !== "claude") {
-        throw new Error('--force-agent must be "codex" or "claude"');
-      }
-      f.forceAgent = v;
+      f.forceAgent = val().trim().toLowerCase();
+      if (!f.forceAgent) throw new Error("--force-agent needs an agent id");
     } else if (a === "--interval") f.interval = Number(val());
     else if (a === "--stale") f.stale = Number(val());
     else if (a === "--once") f.once = true;
@@ -119,7 +116,7 @@ const setStatus = (
 
 // The prompt handed to the agent CLI. Exported for tests — pure, no I/O.
 export function buildPrompt(item: InboxItem): string {
-  const who = item.agent === "codex" ? "Codex" : "Claude";
+  const who = agentIdentity(item.agent).name;
   const thread = item.thread.map((c) => {
     const mine = c.author_id === AGENT_AUTHOR_ID;
     return `[${c.author}${mine ? " (you)" : ""}] ${c.body}`;
@@ -165,15 +162,23 @@ function tokenize(s: string): string[] {
   return tokens;
 }
 
+// Per-agent CLI override, e.g. TRAME_WATCH_GLM_CMD for agent "glm".
+const overrideFor = (agent: AgentKind) =>
+  Deno.env.get(`TRAME_WATCH_${agent.toUpperCase()}_CMD`);
+
+// Can the watcher answer as this agent? codex/claude are built in; any other model
+// needs its own TRAME_WATCH_<AGENT>_CMD (no standard CLI to guess).
+export function hasCommand(agent: AgentKind): boolean {
+  return agent === "codex" || agent === "claude" || Boolean(overrideFor(agent));
+}
+
 // program + args for an agent, with a `{}` placeholder for the prompt. When no env
 // override and no `{}`, the prompt is passed on stdin.
 function agentCommand(
   agent: AgentKind,
   prompt: string,
 ): { cmd: string; args: string[]; stdin: string | null } {
-  const override = Deno.env.get(
-    agent === "codex" ? "TRAME_WATCH_CODEX_CMD" : "TRAME_WATCH_CLAUDE_CMD",
-  );
+  const override = overrideFor(agent);
   if (override) {
     const parts = tokenize(override).filter((p) => p.length > 0);
     const hasSlot = parts.includes("{}");
@@ -187,12 +192,17 @@ function agentCommand(
       stdin: null,
     };
   }
-  // --output-format json so we can report model + token usage; runAgent parses it
-  return {
-    cmd: "claude",
-    args: ["-p", prompt, "--output-format", "json"],
-    stdin: null,
-  };
+  if (agent === "claude") {
+    // --output-format json so we can report model + token usage; runAgent parses it
+    return {
+      cmd: "claude",
+      args: ["-p", prompt, "--output-format", "json"],
+      stdin: null,
+    };
+  }
+  throw new Error(
+    `no command for agent "${agent}" — set TRAME_WATCH_${agent.toUpperCase()}_CMD`,
+  );
 }
 
 export type AgentMeta = {
@@ -362,6 +372,25 @@ async function handle(
   console.error(`gave up on ${id}: ${(lastErr as Error)?.message}`);
 }
 
+// codex/claude plus every agent given its own TRAME_WATCH_<AGENT>_CMD.
+function configuredAgents(): string[] {
+  const out = new Set(["codex", "claude"]);
+  for (const k of Object.keys(Deno.env.toObject())) {
+    const m = k.match(/^TRAME_WATCH_(.+)_CMD$/);
+    if (m) out.add(m[1].toLowerCase());
+  }
+  return [...out];
+}
+
+// Agents this run covers (for the presence heartbeat): the --agents set, else every
+// configured agent; only those the watcher can actually run.
+function watchedAgents(flags: Flags): string[] {
+  if (flags.forceAgent) return [flags.forceAgent].filter(hasCommand);
+  return (flags.agents ? [...flags.agents] : configuredAgents()).filter(
+    hasCommand,
+  );
+}
+
 async function pass(flags: Flags): Promise<boolean> {
   const base = readBase();
   if (!base) {
@@ -369,8 +398,7 @@ async function pass(flags: Flags): Promise<boolean> {
     return false;
   }
   // presence heartbeat: show which agents are being watched, in every page's UI
-  const watched = flags.forceAgent ? [flags.forceAgent] : [...flags.agents];
-  for (const a of watched) {
+  for (const a of watchedAgents(flags)) {
     await api(base, "/api/presence", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -387,9 +415,23 @@ async function pass(flags: Flags): Promise<boolean> {
     console.warn(`inbox unreachable: ${(e as Error).message}`);
     return false;
   }
-  const mine = inbox.filter((i) =>
-    flags.agents.has(flags.forceAgent ?? i.agent)
-  );
+  const skipped = new Set<string>();
+  const mine = inbox.filter((i) => {
+    const target = flags.forceAgent ?? i.agent;
+    if (flags.agents && !flags.agents.has(target)) return false;
+    if (!hasCommand(target)) {
+      skipped.add(target);
+      return false;
+    }
+    return true;
+  });
+  if (skipped.size) {
+    console.warn(
+      `no command for agent(s): ${
+        [...skipped].join(", ")
+      } — set TRAME_WATCH_<AGENT>_CMD`,
+    );
+  }
   for (const item of mine) await handle(base, item, flags);
   return true;
 }
@@ -402,7 +444,7 @@ async function main() {
   }
   console.log(
     `watching Trame comments (agents: ${
-      [...flags.agents].join(",")
+      watchedAgents(flags).join(",") || "none — set TRAME_WATCH_<AGENT>_CMD"
     }, every ${flags.interval}s)…`,
   );
   let backoff = flags.interval;

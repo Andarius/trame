@@ -1,4 +1,7 @@
-export type AgentKind = "codex" | "claude";
+// An agent id is free-form: any model can attribute itself honestly (the running
+// model, e.g. "glm", not just the harness seat). "codex"/"claude" get a branded
+// avatar; anything else gets a generated initial avatar.
+export type AgentKind = string;
 
 // Reserved author_id for agent/external comments. Null means "legacy pre-identity
 // row" and gets claimed by the schema.sql single-user backfill — agents must not.
@@ -18,7 +21,7 @@ function avatar(title: string, path: string, background: string): string {
   return `data:image/svg+xml;base64,${btoa(svg)}`;
 }
 
-const AGENTS = {
+const AGENTS: Record<string, { name: string; avatar: string }> = {
   codex: {
     name: "Codex",
     avatar: avatar("OpenAI", OPENAI_PATH, "#111827"),
@@ -27,19 +30,42 @@ const AGENTS = {
     name: "Claude",
     avatar: avatar("Anthropic", ANTHROPIC_PATH, "#D97757"),
   },
-} satisfies Record<AgentKind, { name: string; avatar: string }>;
+};
 
+// For an unbranded model: a colored circle with its initial, dependency-free.
+const GEN_PALETTE = [
+  "#7a9ee7",
+  "#b590e7",
+  "#c98a63",
+  "#7bd88f",
+  "#e3c567",
+  "#e06c75",
+  "#56b6c2",
+  "#8b93a3",
+];
+function generatedIdentity(key: string): { name: string; avatar: string } {
+  // short ids read better upper-cased (GLM), longer ones title-cased (Gemini)
+  const name = key.length <= 4
+    ? key.toUpperCase()
+    : key[0].toUpperCase() + key.slice(1);
+  const bg = GEN_PALETTE[
+    [...key].reduce((a, c) => a + c.charCodeAt(0), 0) % GEN_PALETTE.length
+  ];
+  const initial = key[0].toUpperCase();
+  const svg =
+    `<svg role="img" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><title>${name}</title><circle cx="16" cy="16" r="16" fill="${bg}"/><text x="16" y="22" font-family="sans-serif" font-size="17" font-weight="600" fill="white" text-anchor="middle">${initial}</text></svg>`;
+  return { name, avatar: `data:image/svg+xml;base64,${btoa(svg)}` };
+}
+
+// Any model may attribute itself. Known brands get their icon; every other model id
+// gets a generated initial avatar so the author is honest, not forced to a seat name.
 export function agentIdentity(agent: AgentKind): {
   name: string;
   avatar: string;
 } {
-  // raw HTTP callers bypass the zod/writer validation — fail instead of
-  // silently attributing the comment to the local user
-  const hit = AGENTS[agent];
-  if (!hit) {
-    throw new Error(`unknown agent "${agent}" (use "codex" or "claude")`);
-  }
-  return hit;
+  const key = agent.trim().toLowerCase();
+  if (!key) throw new Error("agent is required");
+  return AGENTS[key] ?? generatedIdentity(key);
 }
 
 type Block = { type?: unknown; text?: unknown; id?: unknown };
