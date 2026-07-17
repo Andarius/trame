@@ -5,25 +5,38 @@ import { McpServer } from "npm:@modelcontextprotocol/sdk@^1.12/server/mcp.js";
 import { StdioServerTransport } from "npm:@modelcontextprotocol/sdk@^1.12/server/stdio.js";
 import { z } from "npm:zod@^3.24";
 import { PORT_FILE } from "../app/config.ts";
+import { markdownToPageBlocks } from "../app/page-markdown.ts";
 
 async function api(path: string, init?: RequestInit): Promise<unknown> {
   let port: number;
   try {
     port = JSON.parse(await Deno.readTextFile(PORT_FILE)).port;
   } catch {
-    throw new Error("Trame app is not running (no port file). Start it with `just dev` or `just serve`.");
+    throw new Error(
+      "Trame app is not running (no port file). Start it with `just dev` or `just serve`.",
+    );
   }
   const res = await fetch(`http://127.0.0.1:${port}${path}`, init).catch(() => {
-    throw new Error("Trame app is not reachable (stale port file?). Start it with `just dev` or `just serve`.");
+    throw new Error(
+      "Trame app is not reachable (stale port file?). Start it with `just dev` or `just serve`.",
+    );
   });
-  if (!res.ok) throw new Error(`${path} → HTTP ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    throw new Error(`${path} → HTTP ${res.status}: ${await res.text()}`);
+  }
   return res.json();
 }
 
 const post = (path: string, body: unknown) =>
-  api(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  api(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
 
-const text = (data: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(data, null, 1) }] });
+const text = (data: unknown) => ({
+  content: [{ type: "text" as const, text: JSON.stringify(data, null, 1) }],
+});
 
 const server = new McpServer({ name: "trame", version: "0.1.0" });
 
@@ -48,21 +61,56 @@ server.tool(
     pr_url: z.string().optional(),
     summary: z.string().optional(),
   },
-  async (args: Record<string, unknown>) => text(await post("/api/sessions", args)),
+  async (args: Record<string, unknown>) =>
+    text(await post("/api/sessions", args)),
 );
 
 server.tool(
   "trame_set_status",
   "Move a session card to another column.",
   { id: z.string(), status: z.enum(["active", "paused", "blocked", "done"]) },
-  async ({ id, status }: { id: string; status: string }) => text(await post(`/api/sessions/${id}/status`, { status })),
+  async ({ id, status }: { id: string; status: string }) =>
+    text(await post(`/api/sessions/${id}/status`, { status })),
 );
 
 server.tool(
   "trame_new_objective",
   "Create an objective (the story/epic sessions ladder up to). Include the story: what are we trying to achieve, and 'done when'.",
-  { title: z.string(), story: z.string().optional(), client: z.string().optional() },
-  async (args: Record<string, unknown>) => text(await post("/api/objectives", args)),
+  {
+    title: z.string(),
+    story: z.string().optional(),
+    client: z.string().optional(),
+  },
+  async (args: Record<string, unknown>) =>
+    text(await post("/api/objectives", args)),
+);
+
+server.tool(
+  "trame_create_page",
+  "Create a new standalone or nested Trame page/document from Markdown. Use this instead of putting a document into a session card.",
+  {
+    title: z.string(),
+    markdown: z.string().optional(),
+    parent_id: z.string().optional(),
+    icon: z.string().optional(),
+  },
+  async (
+    { title, markdown, parent_id, icon }: {
+      title: string;
+      markdown?: string;
+      parent_id?: string;
+      icon?: string;
+    },
+  ) =>
+    text(
+      await post("/api/pages", {
+        title,
+        kind: "page",
+        parent_id: parent_id ?? null,
+        icon: icon ?? null,
+        content: markdownToPageBlocks(markdown ?? "", title),
+      }),
+    ),
 );
 
 server.tool(
@@ -74,7 +122,8 @@ server.tool(
     client: z.string().optional(),
     objective: z.string().optional(),
   },
-  async (args: Record<string, unknown>) => text(await post("/api/reports", args)),
+  async (args: Record<string, unknown>) =>
+    text(await post("/api/reports", args)),
 );
 
 server.tool(

@@ -124,7 +124,7 @@ fmt-check-sql:
 # Type check the entry graphs
 [group('dev')]
 check:
-    cd app && deno check main.ts ../track/track.ts ../mcp/server.ts
+    cd app && deno check main.ts ../track/track.ts ../track/page.ts ../mcp/server.ts
 
 # Run the Trame MCP server on stdio (for `claude mcp add trame -- deno run -A .../mcp/server.ts`)
 [group('dev')]
@@ -140,7 +140,12 @@ ci: lint fmt-check-sql check test
 track *args:
     deno run --allow-all track/track.ts "$@"
 
-# Install the /trame:track slash command into ~/.claude
+# Create a Trame page (JSON as arg or on stdin)
+[group('track')]
+page *args:
+    deno run --allow-all track/page.ts "$@"
+
+# Install the /trame:track slash command + trame-page skill into ~/.claude
 [group('setup')]
 install-cmd:
     #!/usr/bin/env bash
@@ -152,18 +157,26 @@ install-cmd:
     sed -i.bak "s|__TRACK_WRITER__|{{ justfile_directory() }}/track/track.ts|g" "$dest/track.md"
     rm -f "$dest/track.md.bak"
     echo "installed → $dest/track.md"
+    skill="$HOME/.claude/skills/trame-page"
+    mkdir -p "$skill"
+    cp skills/trame-page/SKILL.md "$skill/SKILL.md"
+    sed -i.bak "s|__PAGE_WRITER__|{{ justfile_directory() }}/track/page.ts|g" "$skill/SKILL.md"
+    rm -f "$skill/SKILL.md.bak"
+    echo "installed → $skill (auto-triggers on page/document requests)"
 
-# Install the native Trame skill for Codex (available from every repository)
+# Install the native Trame skills for Codex (available from every repository)
 [group('setup')]
 install-skill:
     #!/usr/bin/env bash
     set -euo pipefail
-    dest="$HOME/.agents/skills/trame-track"
-    mkdir -p "$dest"
-    cp -R skills/trame-track/. "$dest/"
-    sed -i.bak "s|__TRACK_WRITER__|{{ justfile_directory() }}/track/track.ts|g" "$dest/SKILL.md"
-    rm -f "$dest/SKILL.md.bak"
-    echo "installed → $dest (invoke with \$trame-track)"
+    for skill in trame-track trame-page; do
+      dest="$HOME/.agents/skills/$skill"
+      mkdir -p "$dest"
+      cp -R "skills/$skill/." "$dest/"
+      sed -i.bak "s|__TRACK_WRITER__|{{ justfile_directory() }}/track/track.ts|g; s|__PAGE_WRITER__|{{ justfile_directory() }}/track/page.ts|g" "$dest/SKILL.md"
+      rm -f "$dest/SKILL.md.bak"
+      echo "installed → $dest (invoke with \$$skill)"
+    done
 
 # Choose Claude Code, Codex, or both interactively
 [group('setup')]

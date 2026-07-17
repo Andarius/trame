@@ -104,9 +104,13 @@ Deno.serve({ port: PORT, hostname: "0.0.0.0", ...tls }, app.fetch);
 
 // Public link viewer on its OWN port: only /l/* exists here, so a reverse proxy /
 // port-forward can expose it to the internet without ever exposing /sync or /ws.
+// TRACKER_LINK_TLS=0 serves it as plain HTTP for a proxy that terminates TLS
+// itself and speaks HTTP to backends (the Traefik/DSM pattern); the sync API on
+// its own port always keeps TLS.
 const PUBLIC_PORT = Number(Deno.env.get("TRACKER_API_PUBLIC_PORT") ?? "8444");
+const publicTls = Deno.env.get("TRACKER_LINK_TLS") === "0" ? undefined : tls;
 const { createLinkApp } = await import("./links.ts");
 Deno.serve(
-  { port: PUBLIC_PORT, hostname: "0.0.0.0", ...tls },
+  { port: PUBLIC_PORT, hostname: "0.0.0.0", ...publicTls },
   createLinkApp(db).fetch,
 );
