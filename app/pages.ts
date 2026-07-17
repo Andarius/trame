@@ -328,3 +328,42 @@ export async function revokeShare(id: string): Promise<void> {
     [id, NODE_ID],
   );
 }
+
+// Public share links: token minted here (shown once), only its hash is stored/synced.
+export async function createLink(
+  pageId: string,
+): Promise<{ id: string; token: string }> {
+  const raw = new Uint8Array(32);
+  crypto.getRandomValues(raw);
+  const token = btoa(String.fromCharCode(...raw)).replaceAll("+", "-")
+    .replaceAll("/", "_").replaceAll("=", "");
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(token),
+  );
+  const hash = Array.from(new Uint8Array(digest)).map((b) =>
+    b.toString(16).padStart(2, "0")
+  ).join("");
+  const pg = await db();
+  const row = (await pg.query(
+    `insert into page_links (page_id, token_hash, origin) values ($1,$2,$3) returning id`,
+    [pageId, hash, NODE_ID],
+  )).rows[0] as { id: string };
+  return { id: row.id, token };
+}
+
+export async function listLinks(pageId: string) {
+  const pg = await db();
+  return (await pg.query(
+    `select id, updated_at from page_links where page_id=$1 and not deleted order by updated_at`,
+    [pageId],
+  )).rows;
+}
+
+export async function revokeLink(id: string): Promise<void> {
+  const pg = await db();
+  await pg.query(
+    `update page_links set deleted=true, origin=$2, updated_at=now() where id=$1`,
+    [id, NODE_ID],
+  );
+}
