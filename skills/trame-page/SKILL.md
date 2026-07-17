@@ -1,6 +1,6 @@
 ---
 name: trame-page
-description: Create standalone or nested Trame pages from Markdown and add inline Codex or Claude review comments to page blocks. Use when the user asks to create, save, or publish a Trame page, document, note, plan, or write-up, or asks an agent to review, annotate, or comment on an existing Trame page.
+description: Create standalone or nested Trame pages from Markdown and add inline agent review comments (attributed to the real model — codex, claude, or any other) to page blocks. Use when the user asks to create, save, or publish a Trame page, document, note, plan, or write-up, or asks an agent to review, annotate, or comment on an existing Trame page.
 ---
 
 # Work with Trame pages
