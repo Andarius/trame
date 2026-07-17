@@ -31,9 +31,8 @@ async function readInput(): Promise<Input> {
   if (input.block_id && input.block_text) {
     throw new Error("use block_id or block_text, not both");
   }
-  if (input.agent && !["codex", "claude"].includes(input.agent)) {
-    throw new Error('agent must be "codex" or "claude"');
-  }
+  // agent is the id of the model actually writing — any id is allowed (codex/claude
+  // are branded, others get a generated avatar). Attribute the real model.
   return { ...input, body: input.body.trim() };
 }
 

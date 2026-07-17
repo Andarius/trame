@@ -36,8 +36,9 @@ Never use session-card fields as a substitute for a requested document or page r
 2. Identify the page by `page_id` or exact `page_title`. Identify the target block by
    `block_id` or a unique `block_text` quote from the page. Prefer a concise exact quote.
 3. Prefer the `trame_add_comment` MCP tool when available. Pass the page reference,
-   block reference, comment `body`, and `agent` set to the calling agent: `codex` or
-   `claude`.
+   block reference, comment `body`, and `agent` set to the id of the model actually
+   writing — attribute the real model, not the harness seat. `codex` and `claude` get a
+   branded avatar; any other id (e.g. `glm`, `gemini`) gets a generated one.
 4. Otherwise pipe one JSON object to `__COMMENT_WRITER__`:
 
    ```json
@@ -53,8 +54,8 @@ Never use session-card fields as a substitute for a requested document or page r
    deno run -A __COMMENT_WRITER__
    ```
 
-5. Do not pass `author` or `author_avatar`. Trame injects the canonical agent name and
-   self-contained avatar. Repeat the call for additional target blocks, then report the
+5. Do not pass `author` or `author_avatar`. Trame injects the agent name and a
+   self-contained avatar from `agent`. Repeat the call for additional target blocks, then report the
    comment IDs and page URL.
 
 Do not search the Trame source tree or reconstruct its HTTP routes. The writers own

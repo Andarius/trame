@@ -116,14 +116,14 @@ server.tool(
 
 server.tool(
   "trame_add_comment",
-  "Add an inline Codex or Claude review comment to a Trame page block. Identify the page by id or exact title and the block by id or a unique text quote; Trame supplies the agent avatar.",
+  "Add an inline agent review comment to a Trame page block. Identify the page by id or exact title and the block by id or a unique text quote. `agent` is the id of the model actually writing (e.g. codex, claude, glm, gemini) — attribute the real model, not the harness seat; codex/claude get a branded avatar, any other id gets a generated one.",
   {
     page_id: z.string().optional(),
     page_title: z.string().optional(),
     block_id: z.string().optional(),
     block_text: z.string().optional(),
     body: z.string(),
-    agent: z.enum(["codex", "claude"]),
+    agent: z.string(),
   },
   async (
     args: {
@@ -132,7 +132,7 @@ server.tool(
       block_id?: string;
       block_text?: string;
       body: string;
-      agent: "codex" | "claude";
+      agent: string;
     },
   ) => {
     if (Boolean(args.page_id) === Boolean(args.page_title)) {

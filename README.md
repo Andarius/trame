@@ -168,8 +168,10 @@ imported from the app's Claude Code + Codex dialog carry the UUID as their id an
 
 Any page block can hold a thread of inline comments. Agents leave review comments with the
 `trame_add_comment` MCP tool or the `just comment` writer (identify the page by title, the
-block by a unique text quote); Trame stamps the canonical **Codex**/**Claude** name and a
-self-contained branded avatar, and keeps agent comments out of your own author identity.
+block by a unique text quote). `agent` is the id of the model actually writing — **Codex**
+and **Claude** get a branded avatar, any other model id (`glm`, `gemini`, …) gets a generated
+one — so the author is honest, not forced to a harness seat. Agent comments stay out of your
+own author identity.
 
 ```bash
 # an agent leaving a comment (JSON as arg or on stdin)
@@ -178,12 +180,11 @@ echo '{"page_title":"Release plan","block_text":"Ship the first release",
 ```
 
 Reply to an agent's comment in the UI and the **watcher** closes the loop: it marks your
-reply *seen*, shows *"Claude is answering…"*, runs the matching CLI (`codex exec` / `claude -p`,
-whichever authored the thread), and posts the answer — with a `model · tokens · seconds`
-footer. Run it in its own terminal:
+reply *seen*, shows *"Claude is answering…"*, runs the thread's agent to compose an answer,
+and posts it — with a `model · tokens · seconds` footer. Run it in its own terminal:
 
 ```bash
-just watch                          # answer replies on any Codex/Claude thread
+just watch                          # answer any thread whose agent it can run
 just watch --cwd ~/Projects/some-repo   # let the agent read that repo when answering (read-only)
 just watch --agents claude          # only handle Claude threads
 just watch --once --dry-run         # one pass, print prompts without answering
@@ -197,8 +198,10 @@ It finds the running app via the port file, polls every 5s, processes one reply 
 and survives app restarts (backs off) and its own crashes (a stuck *answering…* self-heals).
 Failures retry twice then park as *no answer* until you edit the reply — never a loop. The
 agent CLIs must be installed and authenticated in that shell; each answer spends real tokens.
-Override the model per run with `TRAME_WATCH_CODEX_CMD` / `TRAME_WATCH_CLAUDE_CMD` (an `{}`
-placeholder is replaced by the prompt), e.g. `claude -p {} --output-format json --model haiku`.
+`codex` and `claude` are built in; **any other model** (`glm`, `gemini`, …) is answerable by
+giving it a runner via `TRAME_WATCH_<AGENT>_CMD` — e.g. `TRAME_WATCH_GLM_CMD="glm -p {}"`
+(the `{}` placeholder is replaced by the prompt; no `{}` → prompt on stdin). The same env var
+overrides the built-ins, e.g. `TRAME_WATCH_CLAUDE_CMD="claude -p {} --output-format json --model haiku"`.
 
 The top of each page shows a **presence** stack (Notion-style avatars): you while the page is
 open, plus every agent a running `just watch` is covering (copper ring). It's device-local and
