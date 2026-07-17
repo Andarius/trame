@@ -6,7 +6,7 @@ export const PROTOCOL_VERSION = 1;
 export const ENTITIES = [
   {
     name: "users",
-    cols: ["id", "name", "avatar", "origin", "updated_at", "deleted"],
+    cols: ["id", "name", "avatar", "role", "origin", "updated_at", "deleted"],
   },
   {
     name: "devices",
@@ -35,6 +35,10 @@ export const ENTITIES = [
       "updated_at",
       "deleted",
     ],
+  },
+  {
+    name: "page_shares",
+    cols: ["id", "page_id", "user_id", "role", "origin", "updated_at", "deleted"],
   },
   {
     name: "page_comments",

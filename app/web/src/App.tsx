@@ -42,6 +42,7 @@ import {
   SettingsModal,
 } from "./modals";
 import { Palette } from "./Palette";
+import { ShareModal } from "./ShareModal";
 import { confirmDeletePage, Page } from "./Page";
 import { ClientView } from "./ClientView";
 import {
@@ -778,7 +779,8 @@ export function App() {
   );
   const [updateDismissed, setUpdateDismissed] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [shareFlash, setShareFlash] = useState<string | null>(null); // transient Share-button label
+  const [shareFlash, setShareFlash] = useState<string | null>(null); // transient Export-button label
+  const [sharePageId, setSharePageId] = useState<string | null>(null); // ShareModal target
   const shareFlashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Ctrl/Cmd+P — Notion-style quick find (preventDefault beats the print dialog)
@@ -1253,11 +1255,21 @@ export function App() {
             {view === "page" && currentPage && (
               <button
                 type="button"
+                onClick={() => setSharePageId(currentPage.id)}
+                title="Share this page's subtree with a guest user (live sync, viewer or editor)"
+                className="shrink-0 whitespace-nowrap rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
+              >
+                Share
+              </button>
+            )}
+            {view === "page" && currentPage && (
+              <button
+                type="button"
                 onClick={() => sharePage(currentPage.id)}
                 title="Export this page — with its sub-pages and databases — to a file another Trame user can import"
                 className="shrink-0 whitespace-nowrap rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
               >
-                {shareFlash ?? "Share"}
+                {shareFlash ?? "Export"}
               </button>
             )}
             {view === "page" && currentPage && (
@@ -1470,6 +1482,12 @@ export function App() {
           onClose={() => setModal(null)}
           onSaved={() => setExploreEpoch((e) => e + 1)}
           onOpenPlugins={() => setModal("plugins")}
+        />
+      )}
+      {sharePageId && (
+        <ShareModal
+          pageId={sharePageId}
+          onClose={() => setSharePageId(null)}
         />
       )}
       {modal === "plugins" && <PluginsModal onClose={() => setModal(null)} />}

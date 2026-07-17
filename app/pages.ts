@@ -231,7 +231,16 @@ export async function createComment(
   const row = (await pg.query(
     `insert into page_comments (page_id, block_id, anchor, body, author, author_avatar, author_id, origin)
      values ($1,$2,$3,$4,$5,$6,$7,$8) returning id`,
-    [p.page_id, p.block_id, p.anchor ?? "", p.body, me.name, me.avatar, me.userId, NODE_ID],
+    [
+      p.page_id,
+      p.block_id,
+      p.anchor ?? "",
+      p.body,
+      me.name,
+      me.avatar,
+      me.userId,
+      NODE_ID,
+    ],
   )).rows[0] as { id: string };
   return row.id;
 }
@@ -267,5 +276,55 @@ export async function attachUdbToPage(
   await pg.query(
     `update udb_databases set page_id=$2, origin=$3, updated_at=now() where id=$1`,
     [dbId, pageId, NODE_ID],
+  );
+}
+
+// Sharing (phase 7): page_shares rows are normal synced data — created here on the
+// member's replica, enforced by the hub API on /sync.
+export async function listUsers() {
+  const pg = await db();
+  return (await pg.query(
+    `select id, name, role from users where not deleted order by name, id`,
+  )).rows;
+}
+
+export async function listShares(pageId: string) {
+  const pg = await db();
+  return (await pg.query(
+    `select s.id, s.user_id, s.role, coalesce(nullif(u.name, ''), s.user_id::text) as name
+       from page_shares s left join users u on u.id = s.user_id
+      where s.page_id=$1 and not s.deleted order by name`,
+    [pageId],
+  )).rows;
+}
+
+export async function setShare(
+  p: { page_id: string; user_id: string; role: string },
+): Promise<string> {
+  const role = p.role === "viewer" ? "viewer" : "editor";
+  const pg = await db();
+  const hit = (await pg.query(
+    `select id from page_shares where page_id=$1 and user_id=$2 and not deleted limit 1`,
+    [p.page_id, p.user_id],
+  )).rows[0] as { id: string } | undefined;
+  if (hit) {
+    await pg.query(
+      `update page_shares set role=$2, origin=$3, updated_at=now() where id=$1`,
+      [hit.id, role, NODE_ID],
+    );
+    return hit.id;
+  }
+  const row = (await pg.query(
+    `insert into page_shares (page_id, user_id, role, origin) values ($1,$2,$3,$4) returning id`,
+    [p.page_id, p.user_id, role, NODE_ID],
+  )).rows[0] as { id: string };
+  return row.id;
+}
+
+export async function revokeShare(id: string): Promise<void> {
+  const pg = await db();
+  await pg.query(
+    `update page_shares set deleted=true, origin=$2, updated_at=now() where id=$1`,
+    [id, NODE_ID],
   );
 }

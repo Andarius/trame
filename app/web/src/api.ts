@@ -588,3 +588,22 @@ export const savePluginSettings = (
   post(`/api/plugins/${id}/settings`, patch).then((r) =>
     r.json() as Promise<Record<string, unknown>>
   );
+
+// Sharing (phase 7): per-page grants for guest users, enforced by the hub API.
+export type UserInfo = { id: string; name: string; role: "member" | "guest" };
+export type PageShare = {
+  id: string;
+  user_id: string;
+  role: "viewer" | "editor";
+  name: string;
+};
+export const listUsers = () =>
+  fetch("/api/users").then((r) => r.json() as Promise<UserInfo[]>);
+export const listShares = (pageId: string) =>
+  fetch(`/api/shares?page=${pageId}`).then((r) =>
+    r.json() as Promise<PageShare[]>
+  );
+export const setShare = (
+  s: { page_id: string; user_id: string; role: "viewer" | "editor" },
+) => post("/api/shares", s).then((r) => r.json() as Promise<{ id: string }>);
+export const revokeShare = (id: string) => post(`/api/shares/${id}/delete`, {});

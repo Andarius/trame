@@ -4,6 +4,7 @@ import { v5 } from "@std/uuid";
 import type { PGlite } from "@electric-sql/pglite";
 import { db } from "./db.ts";
 import { NODE_ID, SETTINGS_FILE } from "./config.ts";
+import { getHubApi } from "./files.ts";
 
 // Deterministic device ids: two racing claims of the same NODE_ID converge on one
 // row instead of forking (same reason statusId derives from the status key).
@@ -14,7 +15,11 @@ export const deviceId = (nodeId: string) =>
 // Claim this NODE_ID for the sole user. With several users we can't guess — the
 // device stays unclaimed until the hub API's claim flow (phase 3). Runs inside db()
 // init (handle passed in), so PGlite stays lazy — nothing forces it open at startup.
+// When API sync is configured the claim is SKIPPED entirely: the hub binds devices
+// at mint/invite time and the row syncs down — a fresh replica claiming locally
+// would bind to the seeded user before the first pull brings the real user set.
 export async function claimDevice(handle?: PGlite): Promise<void> {
+  if (await getHubApi().catch(() => null)) return;
   const pg = handle ?? await db();
   const claimed = (await pg.query(
     `select 1 from devices where node_id=$1 and not deleted limit 1`,
