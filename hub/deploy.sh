@@ -57,9 +57,8 @@ echo "schema.sql applied"
 # Deno keeps its old in-memory modules; restart to load the freshly copied source
 docker restart tracker-api > /dev/null
 echo "tracker-api restarted"
-echo "tracker-db healthy — laptops use:"
-echo "  export TRACKER_REMOTE_PG=\"postgres://tracker:$POSTGRES_PASSWORD@$TRACKER_BIND:5433/tracker\""
-echo "then fetch this laptop's client cert:  just db-cert"
-echo "hub API: https://$TRACKER_BIND:8443  (mint a device token:"
-echo "  docker exec tracker-api deno run -A --config /srv/hub/api/deno.json /srv/hub/api/main.ts mint <node-id>)"
+echo "hub ready — laptops sync through the API: https://$TRACKER_BIND:8443"
+echo "per laptop: fetch the CA once (just db-cert), mint a device token:"
+echo "  docker exec tracker-api deno run -A --config /srv/hub/api/deno.json /srv/hub/api/main.ts mint <node-id>"
+echo "then set syncViaApi/hubApi/hubApiToken in the laptop's settings.json"
 REMOTE
