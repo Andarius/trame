@@ -39,18 +39,10 @@ db-down:
 db-logs:
     docker compose -f hub/docker-compose.yml logs -f
 
-# psql into the hub (uses TRACKER_REMOTE_PG + the mTLS certs when present)
+# psql into the hub over ssh (Postgres has no host port since the API cutover)
 [group('infra')]
-psql:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    url="${TRACKER_REMOTE_PG:?set TRACKER_REMOTE_PG in .env}"
-    certs="${TRACKER_TLS_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/session-tracker/certs}"
-    if [ -f "$certs/client.key" ]; then
-        psql "$url?sslmode=verify-full&sslrootcert=$certs/ca.crt&sslcert=$certs/client.crt&sslkey=$certs/client.key"
-    else
-        psql "$url"
-    fi
+psql host=env_var_or_default('TRACKER_HUB_HOST', 'hub'):
+    ssh -t {{ host }} docker exec -it tracker-db psql -U tracker -d tracker
 
 # Run the desktop app (Deno 2.9+)
 [group('dev')]
