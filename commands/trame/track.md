@@ -9,6 +9,7 @@ description: Log or update the current Claude Code session in Trame (the local s
 - Git branch: !`git branch --show-current 2>/dev/null || echo ""`
 - Git remote: !`git remote get-url origin 2>/dev/null || echo ""`
 - Trame instance: !`cat ~/.local/share/session-tracker/port.json 2>/dev/null || echo "(app not running — writes will queue to the outbox)"`
+- Known clients: !`echo "${TRACKER_CLIENTS:-}"`
 - Argument: `$ARGUMENTS`
 
 ## What this does
@@ -28,9 +29,9 @@ The writer also attaches the Claude session UUID (recorded per-cwd by the UserPr
 
 ## Client mapping (from working dir)
 
-- path contains `/Obitrain/` → **Obitrain**
-- path contains `/Polarsen/` → **Polarsen**
-- else → **Side-projects**
+If the working-dir path contains one of the **Known clients** listed above (as `/<Client>/`),
+use that name as the client; otherwise **Side-projects**. (Configure the list via the
+`TRACKER_CLIENTS` env var, e.g. `TRACKER_CLIENTS="Acme,Globex"`.)
 
 ## Steps for `list`
 

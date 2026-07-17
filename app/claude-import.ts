@@ -4,7 +4,7 @@
 // Transcripts can be tens of MB: only a head chunk (first cwd) and a tail chunk
 // (LAST ai-title / last-prompt / gitBranch) are read.
 import { addEvent, db, upsertSession } from "./db.ts";
-import { CLAUDE_DIR, CODEX_DIR, NODE_ID, SETTINGS_FILE } from "./config.ts";
+import { CLAUDE_DIR, CLIENTS, CODEX_DIR, NODE_ID, SETTINGS_FILE } from "./config.ts";
 import { updateSettings } from "./settings-store.ts";
 
 export type AgentSource = "claude" | "codex";
@@ -241,11 +241,11 @@ async function scanCodexSessions(cutoff: number, ignoredIds: Set<string>): Promi
   return found;
 }
 
-// mirrors commands/trame/track.md's working-dir → client mapping
+// working-dir → client: first configured client name (TRACKER_CLIENTS) present in the path
 const clientFor = (path: string): string =>
-  path.includes("/Obitrain/") ? "Obitrain" : path.includes("/Polarsen/") ? "Polarsen" : "Side-projects";
+  CLIENTS.find((c) => path.includes(`/${c}/`)) ?? "Side-projects";
 
-// "-home-julien-Projects-x" → "/home/julien/Projects/x" (lossy: dashes in real names)
+// "-home-user-Projects-x" → "/home/user/Projects/x" (lossy: dashes in real names)
 const decodeDirName = (name: string): string => name.replace(/-/g, "/");
 
 const truncate = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);

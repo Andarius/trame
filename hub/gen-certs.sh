@@ -8,7 +8,7 @@
 # USAGE: gen-certs.sh init <lan-ip> [dns-name...]   CA + server cert if missing
 #        gen-certs.sh client <node-id>              issue a laptop client cert
 # EXAMPLES:
-#   ./gen-certs.sh init 192.168.1.152 "$(hostname)"
+#   ./gen-certs.sh init 192.168.1.x "$(hostname)"
 #   ./gen-certs.sh client mbp-14
 set -euo pipefail
 
