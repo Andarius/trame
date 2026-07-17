@@ -40,6 +40,8 @@ if [ ! -f .env ]; then
 fi
 # deployed layout is flat (protocol/ beside api/), unlike the repo — pin the mounts
 grep -q TRACKER_PROTOCOL_SRC .env || echo "TRACKER_PROTOCOL_SRC=./protocol" >> .env
+# public hostname for share links, routed by the host's Traefik (set your own)
+grep -q TRACKER_LINK_HOST .env || echo "TRACKER_LINK_HOST=links.example.com  # ← set me" >> .env
 . ./.env
 ./gen-certs.sh init "$TRACKER_BIND" "$(hostname)"
 docker compose up -d

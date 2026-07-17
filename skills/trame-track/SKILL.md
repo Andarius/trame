@@ -5,6 +5,9 @@ description: Log, update, pause, block, complete, or list coding-agent work sess
 
 # Track in Trame
 
+If the user asks for a page, document, note, plan, or write-up rather than a
+session card, use `$trame-page` instead.
+
 Use the shared writer at
 `__TRACK_WRITER__`. It posts to the running
 Trame app or queues locally when the app is closed. In Codex, the writer reads

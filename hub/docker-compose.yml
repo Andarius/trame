@@ -53,6 +53,9 @@ services:
     environment:
       DATABASE_URL: postgres://tracker:${POSTGRES_PASSWORD}@tracker-db:5432/tracker
       DENO_DIR: /deno-cache
+      # the public link listener speaks plain HTTP: the front proxy (Traefik/DSM)
+      # terminates TLS and talks HTTP to backends, like every other service here
+      TRACKER_LINK_TLS: "0"
     # --frozen: the mount is read-only — validate the shipped lockfile, never write it
     command: ["run", "-A", "--frozen", "--config", "/srv/hub/api/deno.json", "/srv/hub/api/main.ts"]
     volumes:
@@ -64,9 +67,21 @@ services:
       - tracker-deno-cache:/deno-cache
     ports:
       - "${TRACKER_BIND:-127.0.0.1}:${TRACKER_API_PORT:-8443}:8443"
-      # public link viewer — the ONLY port a reverse proxy should expose to the
-      # internet (serves /l/* read-only views, nothing else)
+      # public link viewer (plain HTTP; see TRACKER_LINK_TLS). Reached via Traefik
+      # on the proxy network — the host mapping is only a LAN debugging convenience.
       - "${TRACKER_BIND:-127.0.0.1}:${TRACKER_API_PUBLIC_PORT:-8444}:8444"
+    # Route ONLY the link listener through the host's Traefik (docker provider,
+    # exposedbydefault=false): Host <TRACKER_LINK_HOST> → :8444, which serves /l/*
+    # and nothing else — /sync and /ws stay unreachable through the proxy.
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: proxy
+      traefik.http.routers.trame-links.rule: Host(`${TRACKER_LINK_HOST:-links.invalid}`)
+      traefik.http.routers.trame-links.entrypoints: web
+      traefik.http.services.trame-links.loadbalancer.server.port: "8444"
+    networks:
+      - default
+      - proxy
 
 networks:
   # Fixed subnet so the pg_hba rule for tracker-api can be scoped tightly.
@@ -74,6 +89,10 @@ networks:
     ipam:
       config:
         - subnet: 172.28.94.0/24
+  # The host's existing Traefik network (created outside this stack). Traefik joins
+  # tracker-api here for the link routing; the db stays on the default network only.
+  proxy:
+    external: true
 
 volumes:
   tracker-db-data:
