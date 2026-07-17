@@ -6,6 +6,7 @@ import type { DB, Q } from "./db.ts";
 import { ensureAuthSchema, mintToken } from "./auth.ts";
 import { createApp } from "./app.ts";
 import type { SyncResponse } from "../../protocol/types.ts";
+import { PROTOCOL_VERSION } from "../../protocol/entities.ts";
 
 const MEMBER = "00000000-0000-4000-8000-000000000101"; // the seeded user
 
@@ -54,7 +55,7 @@ const sync = async (token: string, body: unknown) => {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-trame-protocol": "1",
+      "x-trame-protocol": String(PROTOCOL_VERSION),
       authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(body),

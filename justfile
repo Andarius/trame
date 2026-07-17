@@ -126,14 +126,19 @@ fmt-check-sql:
 check:
     cd app && deno check main.ts ../track/track.ts ../track/page.ts ../track/comment.ts ../track/watch.ts ../mcp/server.ts
 
+# The hub API is its own Deno project (own deps) — check/test/lint it too (matches CI)
+[group('dev')]
+check-hub:
+    cd hub/api && deno check main.ts && deno test -A && deno lint
+
 # Run the Trame MCP server on stdio (for `claude mcp add trame -- deno run -A .../mcp/server.ts`)
 [group('dev')]
 mcp:
     deno run -A mcp/server.ts
 
-# Lint + format-check + type check + unit tests
+# Lint + format-check + type check + unit tests (app + hub)
 [group('dev')]
-ci: lint fmt-check-sql check test
+ci: lint fmt-check-sql check test check-hub
 
 # Run the session writer (JSON as arg or on stdin)
 [group('track')]
