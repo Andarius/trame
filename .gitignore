@@ -27,3 +27,7 @@ hub/ca/
 
 # playwright MCP page snapshots
 .playwright-mcp/
+
+# root-level debug/demo screenshots (real docs images live in docs/)
+/*.jpeg
+/*.png
