@@ -53,6 +53,10 @@ done
 # (the initdb mount only runs on an empty data volume)
 docker exec -i tracker-db psql -q -U tracker -d tracker -v ON_ERROR_STOP=1 < schema.sql
 echo "schema.sql applied"
+# api/ + protocol/ are bind mounts — compose sees no config change, so the running
+# Deno keeps its old in-memory modules; restart to load the freshly copied source
+docker restart tracker-api > /dev/null
+echo "tracker-api restarted"
 echo "tracker-db healthy — laptops use:"
 echo "  export TRACKER_REMOTE_PG=\"postgres://tracker:$POSTGRES_PASSWORD@$TRACKER_BIND:5433/tracker\""
 echo "then fetch this laptop's client cert:  just db-cert"
