@@ -21,9 +21,9 @@ services:
       - ssl_ca_file=/etc/tracker-tls/ca.crt
       - -c
       - hba_file=/etc/tracker-hba.conf
-    ports:
-      # TRACKER_BIND: the hub's LAN IP (set in .env by deploy.sh). Never 0.0.0.0.
-      - "${TRACKER_BIND:-127.0.0.1}:${TRACKER_PORT:-5433}:5432"
+    # No host port: laptops sync through tracker-api (the auth boundary); Postgres is
+    # reachable only on the docker network. Legacy direct-PG topology: add back
+    #   ports: ["${TRACKER_BIND:-127.0.0.1}:${TRACKER_PORT:-5433}:5432"]
     volumes:
       # postgres:18 moved PGDATA to a version subdir — mount the parent, not .../data
       - tracker-db-data:/var/lib/postgresql

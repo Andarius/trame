@@ -9,16 +9,18 @@ Code or Codex. Opt-in **plugins** add side panels — the first one lists GitHub
 **deployments waiting for approval**.
 
 Stack: **Deno-desktop** app → **local PGlite** (embedded Postgres, offline read+write) →
-custom **push/pull LWW sync** → **Postgres on a home server** (the hub). No PowerSync, no Electric.
-Everything is Postgres, so the SQL is identical on the laptop and the hub.
+custom **changeset LWW sync over HTTPS** → a small **Deno API in front of Postgres** on a home
+server (the hub), with **WebSocket nudges** so edits propagate between machines in seconds.
+No PowerSync, no Electric. Everything is Postgres, so the SQL is identical on the laptop and
+the hub. (Design + migration story: `docs/hub-api.md`.)
 
 ```
  laptop A (Deno app)                          laptop B (Deno app)
    ├─ local PGlite  ◀── read/write offline ──▶  local PGlite
-   └─ sync.ts  ─┐                            ┌─ sync.ts
-               push/pull (LWW by updated_at) │
-                └────────▶  Postgres @ hub  ◀┘   (source of truth, Docker, home LAN)
- /trame:track ─▶ hub Postgres if online, else local outbox.jsonl (app drains on launch)
+   └─ sync ─┐  POST /sync (mutations ⇅ changes)  ┌─ sync
+            ├──────────▶  Deno API @ hub  ◀──────┤   (auth boundary; Docker, home LAN)
+            └── WSS ◀──  "changed, pull now"  ──▶┘        └─▶ Postgres (source of truth)
+ /trame:track ─▶ local app if running, else local outbox.jsonl (app drains on launch)
 ```
 
 ## Demo
@@ -72,27 +74,34 @@ skills/trame-track/        Codex-native $trame-track skill — install with `jus
 
 ### 1. The hub
 ```bash
-just db-deploy       # ssh: copies compose+schema+hba to ~/Apps/tracker, creates .env+certs, starts it
-just db-cert         # per laptop: issue + fetch this machine's client cert (mTLS)
+just db-deploy       # ssh: copies compose+schema+hba+api to ~/Apps/tracker, creates .env+certs, starts it
+just db-cert         # per laptop: fetch ca.crt (trusts the API's TLS)
 ```
-First run generates the password, the CA/server certs, and binds to the hub's LAN IP
-(never 0.0.0.0); the script prints the `TRACKER_REMOTE_PG` URL to use on laptops.
-Idempotent — rerun to redeploy. `just db-cert` installs `ca.crt`/`client.crt`/`client.key`
-into `~/.local/share/session-tracker/certs/`, where sync and `just psql` pick them up.
+First run generates the password and the CA/server certs, and binds to the hub's LAN IP
+(never 0.0.0.0). Postgres itself has **no host port** — laptops talk to the Deno API on
+`:8443`, which terminates TLS with the same private-CA cert. Idempotent — rerun to redeploy
+(re-applies the schema and restarts the API).
 
-### 2. Each laptop — env (add to your shell profile, or the project `.env` for `just`)
+### 2. Each laptop
+Mint a device token on the hub, then point the app at the API:
+```bash
+ssh <hub> "docker exec tracker-api deno run -A --config /srv/hub/api/deno.json /srv/hub/api/main.ts mint <node-id>"
+```
+Add to `~/.local/share/session-tracker/settings.json` (chmod 600):
+```json
+{ "syncViaApi": true, "hubApi": "https://192.168.1.x:8443", "hubApiToken": "<minted token>" }
+```
+Env (shell profile, or the project `.env` for `just`):
 ```bash
 export TRACKER_NODE_ID="mbp-14"                                   # unique per machine
-export TRACKER_REMOTE_PG="postgres://tracker:PASSWORD@192.168.1.x:5433/tracker"  # printed by db-deploy
 # folders scanned (depth 4) for *.html reports + *.excalidraw drawings, shown+searchable in Explore
 export TRACKER_REPORT_PATHS="$HOME/Projects:$HOME/code"
 # optional: client names detected from a repo path (/<Client>/); anything else → "Side-projects"
 export TRACKER_CLIENTS="Acme,Globex"
 ```
-The hub URL can also be set **from the app**: ⚙ Settings → Sync hub — URL and password are
-separate fields (paste the full printed URL and the password auto-moves to the masked field).
-Stored per-machine in `settings.json` (chmod 600), overrides the env var, applies on the next
-sync pass — no restart. The password is never sent back to the UI.
+Legacy direct-Postgres sync (`TRACKER_REMOTE_PG` + mTLS client certs) still works if you
+re-add the `5433` port mapping in `hub/docker-compose.yml` and the `hostssl` rule in
+`pg_hba.conf` — the app falls back to it whenever `syncViaApi` is off.
 
 ### 3. Run the app
 ```bash
