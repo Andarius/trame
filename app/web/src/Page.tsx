@@ -153,16 +153,17 @@ function AddNote({ onAdd, autoFocus }: { onAdd: (body: string) => void; autoFocu
 // The margin affordance next to a block: a bubble when the block has comments,
 // otherwise a hover-only "add" button. Opens the block's thread as a popover.
 function CommentGutter(
-  { blockId, anchor, comments, showResolved, ops }: {
+  { blockId, anchor, comments, showResolved, showAll, ops }: {
     blockId: string;
     anchor: string;
     comments: PageComment[]; // already filtered to this block
     showResolved: boolean;
+    showAll: boolean;
     ops: CommentOps;
   },
 ) {
   const [open, setOpen] = useState(false);
-  // auto-opened threads (via "Show resolved") shouldn't grab focus/scroll like a click does
+  // auto-opened threads (via "Show resolved" / "Open all") shouldn't grab focus/scroll like a click does
   const [autoOpened, setAutoOpened] = useState(false);
   // "Show resolved" reveals AND opens the threads that have resolved notes, so they're
   // readable inline without a second click; toggling off closes them again.
@@ -172,6 +173,13 @@ function CommentGutter(
       setAutoOpened(showResolved);
     }
   }, [showResolved]);
+  // "Open all" opens every thread that has something to show under the current filter.
+  useEffect(() => {
+    if (showResolved ? comments.length > 0 : comments.some((c) => !c.resolved)) {
+      setOpen(showAll);
+      setAutoOpened(showAll);
+    }
+  }, [showAll]);
   const unresolved = comments.filter((c) => !c.resolved);
   const visible = showResolved ? comments : unresolved;
   const marker = unresolved.length > 0 || (showResolved && comments.length > 0);
@@ -211,7 +219,7 @@ function CommentGutter(
 }
 
 function BlockEditor(
-  { blocks, onChange, onSlashInsert, onOpenReport, comments, commentOps, showResolved }: {
+  { blocks, onChange, onSlashInsert, onOpenReport, comments, commentOps, showResolved, showAll }: {
     blocks: Block[];
     onChange: (blocks: Block[]) => void;
     // subpage/database creation is async and owned by the page
@@ -220,6 +228,7 @@ function BlockEditor(
     comments: PageComment[];
     commentOps: CommentOps;
     showResolved: boolean;
+    showAll: boolean;
   },
 ) {
   const refs = useRef<(HTMLTextAreaElement | null)[]>([]);
@@ -386,6 +395,7 @@ function BlockEditor(
                 anchor={b.text}
                 comments={blockComments}
                 showResolved={showResolved}
+                showAll={showAll}
                 ops={commentOps}
               />
             </div>
@@ -412,6 +422,7 @@ export function Page(
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [comments, setComments] = useState<PageComment[]>([]);
   const [showResolved, setShowResolved] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   const [iconOpen, setIconOpen] = useState(false);
   const [colorOpen, setColorOpen] = useState(false);
   const saveTimer = useRef<number | undefined>(undefined);
@@ -427,6 +438,7 @@ export function Page(
   };
   useEffect(() => {
     setShowResolved(false);
+    setShowAll(false);
     getPage(pageId).then((p) => {
       setPage(p);
       setComments(p.comments ?? []);
@@ -488,6 +500,7 @@ export function Page(
   const blockIds = new Set(blocks.filter(isText).map((b) => b.id).filter(Boolean) as string[]);
   const orphans = comments.filter((c) => !blockIds.has(c.block_id));
   const resolvedCount = comments.filter((c) => c.resolved && blockIds.has(c.block_id)).length;
+  const openCount = comments.filter((c) => !c.resolved && blockIds.has(c.block_id)).length;
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -576,14 +589,27 @@ export function Page(
           />
         )}
 
-        {resolvedCount > 0 && (
-          <button
-            type="button"
-            className="-mb-2 self-start text-[11px] text-ink-muted/70 transition-colors hover:text-ink-soft"
-            onClick={() => setShowResolved((v) => !v)}
-          >
-            {showResolved ? "Hide" : "Show"} {resolvedCount} resolved comment{resolvedCount > 1 ? "s" : ""}
-          </button>
+        {(openCount > 0 || resolvedCount > 0) && (
+          <div className="-mb-2 flex items-center gap-3 self-start">
+            {openCount > 0 && (
+              <button
+                type="button"
+                className="text-[11px] text-ink-muted/70 transition-colors hover:text-ink-soft"
+                onClick={() => setShowAll((v) => !v)}
+              >
+                {showAll ? "Close" : "Open"} all {openCount} comment{openCount > 1 ? "s" : ""}
+              </button>
+            )}
+            {resolvedCount > 0 && (
+              <button
+                type="button"
+                className="text-[11px] text-ink-muted/70 transition-colors hover:text-ink-soft"
+                onClick={() => setShowResolved((v) => !v)}
+              >
+                {showResolved ? "Hide" : "Show"} {resolvedCount} resolved comment{resolvedCount > 1 ? "s" : ""}
+              </button>
+            )}
+          </div>
         )}
 
         <BlockEditor
@@ -594,6 +620,7 @@ export function Page(
           comments={comments}
           commentOps={commentOps}
           showResolved={showResolved}
+          showAll={showAll}
         />
 
         {orphans.length > 0 && (

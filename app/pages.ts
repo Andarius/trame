@@ -64,13 +64,16 @@ export async function createPage(
     kind?: string;
     icon?: string | null;
     client_id?: string | null;
+    story?: string;
+    content?: unknown[];
   },
 ): Promise<string> {
   const pg = await db();
   const parentId = p.parent_id ?? null;
   const row = (await pg.query(
-    `insert into pages (kind, title, icon, client_id, parent_id, sort_key, owner_id, origin)
-     values ($1,$2,$3,$4,$5,$6,$7,$8) returning id`,
+    `insert into pages
+       (kind, title, icon, client_id, parent_id, sort_key, story, content, owner_id, origin)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id`,
     [
       ["project", "story"].includes(p.kind ?? "") ? p.kind : "page",
       p.title ?? "",
@@ -78,6 +81,8 @@ export async function createPage(
       p.client_id ?? null,
       parentId,
       await endKey(pg, parentId),
+      p.story ?? "",
+      JSON.stringify(p.content ?? []),
       (await getIdentity()).userId,
       NODE_ID,
     ],
@@ -224,10 +229,13 @@ export async function listComments(pageId: string) {
 }
 
 export async function createComment(
-  p: { page_id: string; block_id: string; anchor?: string; body: string },
+  p: { page_id: string; block_id: string; anchor?: string; body: string; author?: string; author_avatar?: string },
 ): Promise<string> {
   const pg = await db();
   const me = await getIdentity();
+  // agents (Codex, Claude, …) pass their own author; author_id stays null so the
+  // comment isn't tied to the local synced user
+  const author = p.author?.trim();
   const row = (await pg.query(
     `insert into page_comments (page_id, block_id, anchor, body, author, author_avatar, author_id, origin)
      values ($1,$2,$3,$4,$5,$6,$7,$8) returning id`,
@@ -236,9 +244,9 @@ export async function createComment(
       p.block_id,
       p.anchor ?? "",
       p.body,
-      me.name,
-      me.avatar,
-      me.userId,
+      author || me.name,
+      author ? (p.author_avatar ?? "") : me.avatar,
+      author ? null : me.userId,
       NODE_ID,
     ],
   )).rows[0] as { id: string };
@@ -247,16 +255,20 @@ export async function createComment(
 
 export async function updateComment(
   id: string,
-  patch: { body?: string; resolved?: boolean },
+  patch: { body?: string; resolved?: boolean; author?: string; author_avatar?: string },
 ): Promise<void> {
   const pg = await db();
+  // re-attributing to an agent name detaches the comment from the synced user
   await pg.query(
     `update page_comments set
        body     = coalesce($2, body),
        resolved = coalesce($3, resolved),
-       origin=$4, updated_at=now()
+       author   = coalesce($4, author),
+       author_avatar = case when $4::text is null then author_avatar else coalesce($5, '') end,
+       author_id     = case when $4::text is null then author_id else null end,
+       origin=$6, updated_at=now()
      where id=$1`,
-    [id, patch.body ?? null, patch.resolved ?? null, NODE_ID],
+    [id, patch.body ?? null, patch.resolved ?? null, patch.author?.trim() || null, patch.author_avatar ?? null, NODE_ID],
   );
 }
 
