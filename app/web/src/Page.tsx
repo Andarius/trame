@@ -1,4 +1,10 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  type KeyboardEvent as ReactKeyboardEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   attachUdbToPage,
   type Block,
@@ -88,6 +94,20 @@ type CommentOps = {
   update: (id: string, patch: { body?: string; resolved?: boolean }) => void;
   remove: (id: string) => void;
 };
+
+// Serialize the page (title + text blocks) to Markdown for "select all → copy".
+// Structural blocks (database/subpage/folder) have no text and are skipped.
+function blocksToMarkdown(title: string, blocks: Block[]): string {
+  const lines: string[] = [];
+  if (title.trim()) lines.push(`# ${title.trim()}`, "");
+  for (const b of blocks) {
+    if (b.type === "heading") lines.push(`## ${b.text}`);
+    else if (b.type === "todo") {
+      lines.push(`- [${b.done ? "x" : " "}] ${b.text}`);
+    } else if (b.type === "text") lines.push(b.text);
+  }
+  return `${lines.join("\n").replace(/\n{3,}/g, "\n\n").trim()}\n`;
+}
 
 // "inline": threads expand under their block (GitHub-PR style).
 // "panel": threads live in a right-side panel; bubbles open a quick popover.
@@ -796,6 +816,41 @@ export function Page(
     const t = setInterval(beat, 8000);
     return () => clearInterval(t);
   }, [pageId]);
+  // "select all → copy" the whole page as Markdown. Blocks are separate textareas, so
+  // a second Ctrl/⌘+A (or one with nothing focused) selects the page instead of a block;
+  // a copy while page-selected writes Markdown to the clipboard.
+  const [pageSelected, setPageSelected] = useState(false);
+  useEffect(() => {
+    if (!pageSelected) return;
+    const onCopy = (e: ClipboardEvent) => {
+      e.preventDefault();
+      e.clipboardData?.setData(
+        "text/plain",
+        blocksToMarkdown(page?.title ?? "", blocksRef.current),
+      );
+    };
+    document.addEventListener("copy", onCopy);
+    return () => document.removeEventListener("copy", onCopy);
+  }, [pageSelected, page?.title]);
+  const onPageKeyDown = (e: ReactKeyboardEvent) => {
+    const mod = e.metaKey || e.ctrlKey;
+    if (mod && (e.key === "a" || e.key === "A")) {
+      const el = document.activeElement as HTMLTextAreaElement | null;
+      const inTextarea = el?.tagName === "TEXTAREA";
+      const fullySelected = inTextarea &&
+        el!.selectionStart === 0 && el!.selectionEnd === el!.value.length &&
+        el!.value.length > 0;
+      // first Ctrl+A selects the focused block (native); a second one selects the page
+      if (!inTextarea || fullySelected) {
+        e.preventDefault();
+        el?.blur();
+        document.getSelection()?.removeAllRanges();
+        setPageSelected(true);
+      }
+    } else if (e.key !== "Meta" && e.key !== "Control") {
+      setPageSelected(false); // any other key drops the whole-page selection
+    }
+  };
   // live-refresh comments so watcher status (seen/answering) and agent replies appear
   // without a reload; only swap state when the payload actually changed (keeps
   // in-progress edits and avoids re-render churn), and pause when the tab is hidden.
@@ -973,9 +1028,19 @@ export function Page(
   });
 
   return (
-    <div className="flex min-h-0 flex-1">
+    <div
+      className="flex min-h-0 flex-1"
+      onKeyDown={onPageKeyDown}
+      onMouseDown={() => setPageSelected(false)}
+    >
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-[820px] flex-col gap-4 px-8 py-7">
+        <div
+          className={`mx-auto flex max-w-[820px] flex-col gap-4 px-8 py-7 ${
+            pageSelected
+              ? "rounded-lg bg-copper/[0.07] ring-1 ring-copper/25"
+              : ""
+          }`}
+        >
           <div className="flex items-center gap-2">
             <div className="relative">
               <button
