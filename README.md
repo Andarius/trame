@@ -83,9 +83,11 @@ into `~/.local/share/session-tracker/certs/`, where sync and `just psql` pick th
 ### 2. Each laptop — env (add to your shell profile, or the project `.env` for `just`)
 ```bash
 export TRACKER_NODE_ID="mbp-14"                                   # unique per machine
-export TRACKER_REMOTE_PG="postgres://tracker:PASSWORD@192.168.1.152:5433/tracker"  # printed by db-deploy
+export TRACKER_REMOTE_PG="postgres://tracker:PASSWORD@192.168.1.x:5433/tracker"  # printed by db-deploy
 # folders scanned (depth 4) for *.html reports + *.excalidraw drawings, shown+searchable in Explore
-export TRACKER_REPORT_PATHS="$HOME/Projects:$HOME/LLMS"
+export TRACKER_REPORT_PATHS="$HOME/Projects:$HOME/code"
+# optional: client names detected from a repo path (/<Client>/); anything else → "Side-projects"
+export TRACKER_CLIENTS="Acme,Globex"
 ```
 The hub URL can also be set **from the app**: ⚙ Settings → Sync hub — URL and password are
 separate fields (paste the full printed URL and the password auto-moves to the masked field).

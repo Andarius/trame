@@ -107,9 +107,9 @@ const { id: prioId } = await api(`/api/udb/${dbId}/props`, { name: "Priority", t
 const { id: ownerId } = await api(`/api/udb/${dbId}/props`, { name: "Owner", type: "text" });
 
 const ROWS: [string, string, string, string][] = [
-  ["Bump version to 0.4.1", "done", "high", "julien"],
-  ["Cut GitHub release + tag", "in-progress", "high", "julien"],
-  ["Update README screenshots", "in-progress", "med", "julien"],
+  ["Bump version to 0.4.1", "done", "high", "alex"],
+  ["Cut GitHub release + tag", "in-progress", "high", "alex"],
+  ["Update README screenshots", "in-progress", "med", "alex"],
   ["Test resume on the Mac", "todo", "med", "sam"],
   ["Verify color sync to hub", "done", "low", "sam"],
 ];
