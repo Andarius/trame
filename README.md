@@ -189,6 +189,10 @@ just watch --agents claude          # only handle Claude threads
 just watch --once --dry-run         # one pass, print prompts without answering
 ```
 
+The CLI runs read-only, but the thread text is attacker-controllable on a shared page and is
+fed to a tool-capable agent: don't point `--cwd` at a repo holding secrets on shared/multi-user
+pages — a crafted reply could coax the agent into leaking file contents into its answer.
+
 It finds the running app via the port file, polls every 5s, processes one reply at a time,
 and survives app restarts (backs off) and its own crashes (a stuck *answering…* self-heals).
 Failures retry twice then park as *no answer* until you edit the reply — never a loop. The

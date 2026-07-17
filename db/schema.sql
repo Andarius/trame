@@ -195,6 +195,10 @@ alter table page_comments add column if not exists meta text;
 -- Guarded to the single-user era (same rule as the startup device claim) so a second
 -- user's not-yet-attributed rows are never misassigned by a later re-run.
 -- (pages backfill sits after the legacy pages migrations below, to catch their copies.)
+-- Legacy agent comments predate the sentinel: they carry author_id null and the display
+-- name is the only signal, so claim the canonical agent names to the sentinel first.
+update page_comments set author_id = '00000000-0000-4000-8000-0000000000aa'
+where author_id is null and author in ('Codex', 'Claude');
 update page_comments set author_id = '00000000-0000-4000-8000-000000000101'
 where author_id is null and (
   select count(*) from users

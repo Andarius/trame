@@ -876,7 +876,13 @@ async function handler(req: Request): Promise<Response> {
   }
   const cmtStatus = pathname.match(/^\/api\/comments\/([^/]+)\/agent-status$/);
   if (cmtStatus && req.method === "POST") {
-    await setCommentAgentStatus(cmtStatus[1], await req.json());
+    const body = await req.json();
+    // enum-indexed badge in the UI crashes on an unknown status — reject up front
+    const STATUSES = ["seen", "answering", "failed", "answered", "clear"];
+    if (!STATUSES.includes(body.status)) {
+      return json({ error: "invalid status" }, 400);
+    }
+    await setCommentAgentStatus(cmtStatus[1], body);
     return json({ ok: true });
   }
   const cmt = pathname.match(/^\/api\/comments\/([^/]+)(\/delete)?$/);
@@ -903,12 +909,15 @@ async function handler(req: Request): Promise<Response> {
       });
     } else {
       const me = await getIdentity();
+      const page = String(b.page_id ?? "");
       touchPresence({
-        id: me.userId ?? `dev:${NODE_ID}`,
+        // key by user AND page so the same user in two tabs on different pages
+        // gets one entry each instead of flapping over a single user-keyed row
+        id: `${me.userId ?? `dev:${NODE_ID}`}:${page}`,
         kind: "viewer",
         name: me.name,
         avatar: me.avatar,
-        page_id: String(b.page_id ?? ""),
+        page_id: page,
       });
     }
     return json({ ok: true });
@@ -1100,13 +1109,15 @@ startRealtime(() => runSync().catch(console.error));
 startPlugins();
 
 // Every successful mutating /api call schedules a debounced push (excluding /api/sync
-// itself — it IS the sync). GETs and failures don't.
+// itself — it IS the sync — and /api/presence, which writes only ephemeral in-memory
+// state and would otherwise sync on every heartbeat). GETs and failures don't.
 async function serveHandler(req: Request): Promise<Response> {
   const res = await handler(req);
+  const p = new URL(req.url).pathname;
   if (
     req.method !== "GET" && res.ok &&
-    new URL(req.url).pathname.startsWith("/api/") &&
-    !new URL(req.url).pathname.startsWith("/api/sync")
+    p.startsWith("/api/") &&
+    !p.startsWith("/api/sync") && !p.startsWith("/api/presence")
   ) {
     syncSoon();
   }

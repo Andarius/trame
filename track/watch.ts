@@ -2,8 +2,13 @@
 //
 // Polls the running Trame app for human replies sitting on a comment thread an agent
 // started, marks each seen, runs the matching CLI to compose an answer, posts it, and
-// clears the status. One item at a time. Survives app restarts (re-reads the port each
+// marks it "answered". One item at a time. Survives app restarts (re-reads the port each
 // pass) and its own crashes (the app re-surfaces a stuck "answering…" after --stale).
+//
+// SECURITY: thread text is attacker-controllable on a shared page and is fed to a
+// tool-capable CLI, so a malicious comment can attempt prompt injection. The CLI runs
+// read-only; still, do not point --cwd at a repo holding secrets on shared/multi-user
+// pages — a crafted reply could coax the agent into leaking file contents into an answer.
 //
 //   deno run -A track/watch.ts [--agents codex,claude] [--force-agent codex|claude]
 //                              [--interval 5] [--stale 600] [--once] [--dry-run]
@@ -103,7 +108,7 @@ async function api(
 const setStatus = (
   base: string,
   id: string,
-  status: "seen" | "answering" | "failed" | "clear",
+  status: "seen" | "answering" | "answered" | "failed",
   agent?: string,
 ) =>
   api(base, `/api/comments/${id}/agent-status`, {
@@ -134,6 +139,32 @@ export function buildPrompt(item: InboxItem): string {
   ].join("\n");
 }
 
+// Shell-like split honouring single/double quotes so command paths and args may hold
+// spaces. Quotes are stripped; a bare `{}` token survives for placeholder substitution.
+function tokenize(s: string): string[] {
+  const tokens: string[] = [];
+  let cur = "";
+  let open = false; // true once a token has started (incl. empty quotes "")
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === '"' || ch === "'") {
+      const end = s.indexOf(ch, i + 1);
+      const stop = end === -1 ? s.length : end;
+      cur += s.slice(i + 1, stop);
+      i = stop;
+      open = true; // adjacent runs join: "a"b'c' → abc
+    } else if (/\s/.test(ch)) {
+      if (open || cur) tokens.push(cur);
+      cur = "";
+      open = false;
+    } else {
+      cur += ch;
+    }
+  }
+  if (open || cur) tokens.push(cur);
+  return tokens;
+}
+
 // program + args for an agent, with a `{}` placeholder for the prompt. When no env
 // override and no `{}`, the prompt is passed on stdin.
 function agentCommand(
@@ -144,7 +175,7 @@ function agentCommand(
     agent === "codex" ? "TRAME_WATCH_CODEX_CMD" : "TRAME_WATCH_CLAUDE_CMD",
   );
   if (override) {
-    const parts = override.split(/\s+/).filter(Boolean);
+    const parts = tokenize(override).filter((p) => p.length > 0);
     const hasSlot = parts.includes("{}");
     const args = parts.slice(1).map((p) => (p === "{}" ? prompt : p));
     return { cmd: parts[0], args, stdin: hasSlot ? null : prompt };
@@ -241,6 +272,23 @@ async function runAgent(
   return res;
 }
 
+// Re-read the reply's current body; null if it vanished or the fetch failed.
+async function refetchBody(
+  base: string,
+  pageId: string,
+  id: string,
+): Promise<string | null> {
+  try {
+    const comments = await api(
+      base,
+      `/api/comments?page=${encodeURIComponent(pageId)}`,
+    ) as Comment[];
+    return comments.find((c) => c.id === id)?.body ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function handle(
   base: string,
   item: InboxItem,
@@ -252,15 +300,37 @@ async function handle(
   const prompt = buildPrompt({ ...item, agent });
   if (flags.dryRun) {
     console.log(`[dry-run] would answer ${id} as ${agent}:\n${prompt}\n`);
-    await setStatus(base, id, "clear");
     return;
   }
 
   await setStatus(base, id, "answering", agent);
+
+  // Retry generation only; the answer is POSTed at most once per successful run.
   let lastErr: unknown;
   for (let attempt = 1; attempt <= 3; attempt++) {
+    let body: string, meta: AgentMeta;
     try {
-      const { body, meta } = await runAgent(agent, prompt, flags.cwd);
+      ({ body, meta } = await runAgent(agent, prompt, flags.cwd));
+    } catch (e) {
+      lastErr = e;
+      console.error(
+        `attempt ${attempt} for ${id} failed: ${(e as Error).message}`,
+      );
+      continue;
+    }
+
+    // Stale-reply guard: if the human edited their comment while we generated, skip
+    // posting and leave it for the next pass to answer the new text.
+    const current = await refetchBody(base, item.page.id, id);
+    if (current !== item.comment.body) {
+      console.log(`skipped ${id}: reply changed during generation`);
+      return;
+    }
+
+    // POST exactly once. A failure here retries generation+POST (never a double POST
+    // for one generation); success then marks "answered", and a failing status call is
+    // only logged so we don't re-POST.
+    try {
       await api(base, "/api/comments", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -273,16 +343,19 @@ async function handle(
           meta,
         }),
       });
-      await setStatus(base, id, "clear");
-      const t = meta.ms ? ` (${(meta.ms / 1000).toFixed(1)}s)` : "";
-      console.log(`answered ${id} on "${item.page.title}" as ${agent}${t}`);
-      return;
     } catch (e) {
       lastErr = e;
       console.error(
         `attempt ${attempt} for ${id} failed: ${(e as Error).message}`,
       );
+      continue;
     }
+    await setStatus(base, id, "answered", agent).catch((e) =>
+      console.error(`answered ${id} but status set failed: ${e.message}`)
+    );
+    const t = meta.ms ? ` (${(meta.ms / 1000).toFixed(1)}s)` : "";
+    console.log(`answered ${id} on "${item.page.title}" as ${agent}${t}`);
+    return;
   }
   // give up: park it as failed so it won't loop; a human edit re-triggers it
   await setStatus(base, id, "failed", agent).catch(() => {});
