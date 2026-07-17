@@ -54,7 +54,10 @@ Never use session-card fields as a substitute for a requested document or page r
    deno run -A __COMMENT_WRITER__
    ```
 
-5. Do not pass `author` or `author_avatar`. Trame injects the agent name and a
+5. Optionally pass `meta` — honest generation stats `{model, in, out, ms}` (input/output
+   tokens, milliseconds) shown as a footer. Only include numbers you actually know; omit
+   any you can't measure rather than guessing. A visible footer must mean real data.
+6. Do not pass `author` or `author_avatar`. Trame injects the agent name and a
    self-contained avatar from `agent`. Repeat the call for additional target blocks, then report the
    comment IDs and page URL.
 
