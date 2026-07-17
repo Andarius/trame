@@ -106,6 +106,26 @@ create table if not exists users (
 insert into users (id) values
 ('00000000-0000-4000-8000-000000000101')
 on conflict (id) do nothing;
+-- member sees the whole workspace (the original single-user behavior); guest sees
+-- only subtrees shared to them — enforced by the hub API, not the schema.
+alter table users add column if not exists role text not null default 'member';
+
+-- Per-page shares (hub-API migration, phase 7): grants a user access to a page's
+-- whole subtree incl. attached databases. role: viewer (pull only) | editor (can
+-- write pages/comments/db rows in the subtree). Normal synced rows — created from
+-- the app UI, enforced by the hub API on /sync. Soft-deleting revokes: the API
+-- sends tombstones so the guest's replica masks the subtree on next sync.
+create table if not exists page_shares (
+  id uuid primary key default uuidv7(),
+  page_id uuid not null,   -- no FK: LWW pull order
+  user_id uuid not null,   -- no FK: LWW pull order
+  role text not null default 'editor',   -- viewer | editor
+  origin text not null default 'seed',
+  updated_at timestamptz not null default now(),
+  deleted boolean not null default false
+);
+create index if not exists page_shares_page on page_shares (page_id);
+create index if not exists page_shares_user on page_shares (user_id);
 
 -- Devices: NODE_ID -> user mapping ("which user am I" for a node). Rows are claimed
 -- at app startup with id = uuidv5(node_id) so concurrent claims converge on one row
@@ -355,7 +375,7 @@ $fn$;
 do $$
 declare t text;
 begin
-  foreach t in array array['users','devices','clients','pages','page_comments','statuses','sessions',
+  foreach t in array array['users','devices','clients','pages','page_shares','page_comments','statuses','sessions',
                            'session_events','reports','udb_databases','udb_properties','udb_rows','udb_links'] loop
     execute format(
       'create or replace trigger %I after insert or update or delete on %I for each row execute function trame_log_change()',
@@ -393,6 +413,10 @@ comment on table page_comments is 'Inline block-level page comments (Notion-styl
 comment on column page_comments.author_id is 'users.id of the writer (no FK: LWW pull order). author/author_avatar stay as the write-time display snapshot.';
 
 comment on table users is 'User profiles (identity for authors/owners). Profile only — credentials are hub-side (phase 3), never synced. The initial user is seeded with a fixed id so LWW dedupes across nodes.';
+comment on column users.role is 'member (whole workspace, the original behavior) | guest (only shared subtrees). Enforced by the hub API on /sync.';
+
+comment on table page_shares is 'Per-page access grants (phase 7): user × page × role, covering the page''s subtree + attached databases. viewer = read; editor = also write. Enforced by the hub API; soft-delete revokes via tombstones on the guest''s next pull.';
+comment on column page_shares.role is 'viewer | editor.';
 comment on column users.name is 'Display name shown on comments; empty = fall back to the device''s node id.';
 comment on column users.avatar is 'Image URL or (downscaled) data URI.';
 
@@ -456,7 +480,7 @@ do $$
 declare t text;
 begin
   foreach t in array array['clients','objectives','pages','page_comments','statuses','sessions','session_events','reports',
-                           'udb_databases','udb_properties','udb_rows','udb_links','users','devices'] loop
+                           'udb_databases','udb_properties','udb_rows','udb_links','users','devices','page_shares'] loop
     execute format('comment on column %I.id is %L', t, 'PK. uuidv7() on newer tables (time-ordered), gen_random_uuid() v4 on the originals — minted per node, no sequence (offline multi-writer).');
     execute format('comment on column %I.origin is %L', t, 'NODE_ID that wrote the row — push only sends own-origin rows (not ones just pulled).');
     execute format('comment on column %I.updated_at is %L', t, 'LWW clock: on conflict the newer updated_at wins, on both ends of the sync.');

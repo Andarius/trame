@@ -12,6 +12,14 @@ import type {
 } from "../../protocol/types.ts";
 import type { DB, Q } from "./db.ts";
 import type { Caller } from "./auth.ts";
+import {
+  type Access,
+  loadAccess,
+  mayWrite,
+  rowVisible,
+  stillVisible,
+  subtreeIds,
+} from "./acl.ts";
 
 const DEFAULT_LIMIT = 500;
 
@@ -19,6 +27,7 @@ async function applyMutations(
   db: DB,
   mutations: Mutation[],
   caller: Caller,
+  access: Access,
 ): Promise<Pick<SyncResponse, "acknowledgements" | "rejectedMutations">> {
   const acknowledgements: string[] = [];
   const rejectedMutations: { mutationId: string; reason: string }[] = [];
@@ -30,6 +39,13 @@ async function applyMutations(
       caller.userId ?? "",
     ]);
     for (const m of mutations) {
+      if (!mayWrite(access, m.entity, m.value ?? { id: m.id })) {
+        rejectedMutations.push({
+          mutationId: m.mutationId,
+          reason: "forbidden",
+        });
+        continue;
+      }
       // savepoint per mutation: an error must reject only THIS one, not abort the
       // batch txn ("ack the good, reject the bad, never stall the queue")
       await tx.query(`savepoint m`);
@@ -76,9 +92,8 @@ async function hydrate(
 // so anything written during the snapshot is re-delivered incrementally (idempotent).
 async function snapshot(
   db: Q,
-  limitIgnored: number,
+  access: Access,
 ): Promise<Pick<SyncResponse, "changes" | "nextCursor" | "hasMore">> {
-  void limitIgnored; // a snapshot is always complete — partial snapshots can't resume
   const head = await db.query(
     `select coalesce(max(rev), 0)::bigint as rev from change_log`,
   );
@@ -87,6 +102,7 @@ async function snapshot(
   for (const e of ENTITIES) {
     const rows = await db.query(`select ${e.cols.join(",")} from ${e.name}`);
     for (const r of rows) {
+      if (!rowVisible(access, e.name, r)) continue;
       changes.push({
         rev: nextCursor,
         entity: e.name,
@@ -102,6 +118,7 @@ async function pullSince(
   db: Q,
   cursor: number,
   limit: number,
+  access: Access,
 ): Promise<Pick<SyncResponse, "changes" | "nextCursor" | "hasMore">> {
   // coalesce repeats within the window to the latest rev per row
   const log = await db.query(
@@ -124,20 +141,49 @@ async function pullSince(
     hydrated.set(entity, await hydrate(db, entity, ids));
   }
   const changes: Change[] = [];
+  const nextCursor = Number(log[log.length - 1].rev);
   for (const l of log) {
     if (!entityByName.has(l.entity)) continue;
+    const value = hydrated.get(l.entity)?.get(l.row_id) ?? null;
+    // guests: skip rows outside their grants; hard-delete tombstones pass (ids only)
+    if (value !== null && !rowVisible(access, l.entity, value)) continue;
     changes.push({
       rev: Number(l.rev),
       entity: l.entity as Change["entity"],
       id: l.row_id,
-      value: hydrated.get(l.entity)?.get(l.row_id) ?? null, // null = hard-deleted → tombstone
+      value,
     });
   }
-  return {
-    changes,
-    nextCursor: Number(log[log.length - 1].rev),
-    hasMore: log.length === limit,
-  };
+  // Grant/revoke transitions for THIS guest inside the window: a new grant must
+  // back-fill rows older than the cursor; a revoke must tombstone the subtree so
+  // the replica masks it ("can't make an offline laptop forget" — but reconnect purges).
+  if (access !== null) {
+    const shareChanges = (hydrated.get("page_shares") ?? new Map()).values();
+    let granted = false;
+    const revokedRoots: string[] = [];
+    for (const s of shareChanges) {
+      if (s.user_id !== access.userId) continue;
+      if (s.deleted) revokedRoots.push(String(s.page_id));
+      else granted = true;
+    }
+    if (granted) {
+      // idempotent back-fill: every currently visible row (LWW no-ops on the rest)
+      const full = await snapshot(db, access);
+      changes.push(...full.changes.map((c) => ({ ...c, rev: nextCursor })));
+    }
+    for (const root of revokedRoots) {
+      for (const t of await subtreeIds(db, root)) {
+        if (stillVisible(access, t)) continue; // an overlapping share still grants it
+        changes.push({
+          rev: nextCursor,
+          entity: t.entity as Change["entity"],
+          id: t.id,
+          value: null,
+        });
+      }
+    }
+  }
+  return { changes, nextCursor, hasMore: log.length === limit };
 }
 
 export async function handleSync(
@@ -145,10 +191,15 @@ export async function handleSync(
   req: SyncRequest,
   caller: Caller,
 ): Promise<SyncResponse> {
-  const pushed = await applyMutations(db, req.mutations, caller);
+  let access = await loadAccess(db, caller);
+  const pushed = await applyMutations(db, req.mutations, caller, access);
+  // a member may have pushed shares just now — recompute so the pull reflects them
+  if (access !== null && req.mutations.length) {
+    access = await loadAccess(db, caller);
+  }
   const limit = Math.min(req.limit ?? DEFAULT_LIMIT, 2000);
   const pulled = req.cursor === null
-    ? await snapshot(db, limit)
-    : await pullSince(db, req.cursor, limit);
+    ? await snapshot(db, access)
+    : await pullSince(db, req.cursor, limit, access);
   return { ...pushed, ...pulled };
 }
