@@ -174,7 +174,7 @@ export function hasCommand(agent: AgentKind): boolean {
 
 // program + args for an agent, with a `{}` placeholder for the prompt. When no env
 // override and no `{}`, the prompt is passed on stdin.
-function agentCommand(
+export function agentCommand(
   agent: AgentKind,
   prompt: string,
 ): { cmd: string; args: string[]; stdin: string | null } {
@@ -188,7 +188,9 @@ function agentCommand(
   if (agent === "codex") {
     return {
       cmd: "codex",
-      args: ["exec", "--sandbox", "read-only", prompt],
+      // JSONL carries the final agent message and token usage. Keep the sandbox
+      // explicit: comment text is untrusted and may attempt prompt injection.
+      args: ["exec", "--json", "--sandbox", "read-only", prompt],
       stdin: null,
     };
   }
@@ -211,15 +213,163 @@ export type AgentMeta = {
   out?: number;
   ms: number;
 };
-type AgentResult = { body: string; meta: AgentMeta };
+export type AgentResult = { body: string; meta: AgentMeta };
 
-// Extract the answer + stats from a claude `--output-format json` blob; falls back to
-// treating the whole output as the answer (codex text / custom wrappers).
-function parseAgentOutput(
+type JsonObject = Record<string, unknown>;
+
+const asObject = (value: unknown): JsonObject | undefined =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as JsonObject
+    : undefined;
+
+const asNumber = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) ? value : undefined;
+
+const asNonEmptyString = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim() ? value.trim() : undefined;
+
+function modelFromEvent(event: JsonObject): string | undefined {
+  const item = asObject(event.item);
+  const metadata = asObject(event.metadata);
+  for (
+    const candidate of [
+      event.model,
+      event.model_id,
+      event.model_name,
+      item?.model,
+      metadata?.model,
+    ]
+  ) {
+    const model = asNonEmptyString(candidate);
+    if (model) return model;
+  }
+  return undefined;
+}
+
+function parseCodexJsonl(
+  out: string,
+  ms: number,
+  fallbackModel?: string,
+): AgentResult | null {
+  let sawCodexEvent = false;
+  let body: string | undefined;
+  let model: string | undefined;
+  let usage: JsonObject | undefined;
+
+  for (const line of out.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    let event: JsonObject | undefined;
+    try {
+      event = asObject(JSON.parse(line));
+    } catch {
+      // Be tolerant of a wrapper writing a warning alongside the JSONL stream.
+      continue;
+    }
+    if (!event) continue;
+    const type = asNonEmptyString(event.type);
+    const isCodexEvent = type === "thread.started" ||
+      type === "turn.started" || type === "turn.completed" ||
+      type === "turn.failed" || type === "error" ||
+      Boolean(type?.startsWith("item."));
+    if (!isCodexEvent) {
+      continue;
+    }
+    sawCodexEvent = true;
+    model = modelFromEvent(event) ?? model;
+
+    if (type === "item.completed") {
+      const item = asObject(event.item);
+      if (item?.type === "agent_message") {
+        body = asNonEmptyString(item.text) ?? body;
+      }
+    } else if (type === "turn.completed") {
+      usage = asObject(event.usage) ?? usage;
+    }
+  }
+
+  if (!sawCodexEvent) return null;
+  return {
+    // A recognized stream with no completed agent message is a failed answer,
+    // not text to post verbatim. runAgent rejects the empty body below.
+    body: body ?? "",
+    meta: {
+      model: model ?? fallbackModel ?? "codex",
+      // Codex input_tokens already includes cached input; cached_input_tokens is
+      // the cached subset, so adding both would double-count the prompt.
+      in: asNumber(usage?.input_tokens),
+      out: asNumber(usage?.output_tokens),
+      ms,
+    },
+  };
+}
+
+export function parseCodexDoctorModel(out: string): string | undefined {
+  try {
+    const root = asObject(JSON.parse(out));
+    const checks = asObject(root?.checks);
+    const config = asObject(checks?.["config.load"]);
+    const details = asObject(config?.details);
+    return asNonEmptyString(details?.model);
+  } catch {
+    return undefined;
+  }
+}
+
+const codexModelLookups = new Map<string, Promise<string | undefined>>();
+
+// The documented exec JSONL contract does not currently include the selected model.
+// Codex's redacted doctor report does, so resolve it once per working directory and
+// degrade to the agent id when an older CLI has no doctor command.
+function resolveCodexModel(
+  cwd: string | undefined,
+): Promise<string | undefined> {
+  const key = cwd ?? Deno.cwd();
+  const previous = codexModelLookups.get(key);
+  if (previous) return previous;
+  const lookup = (async () => {
+    try {
+      const result = await new Deno.Command("codex", {
+        args: ["doctor", "--json", "--summary"],
+        cwd,
+        stdin: "null",
+        stdout: "piped",
+        stderr: "null",
+        signal: AbortSignal.timeout(15_000),
+      }).output();
+      if (!result.success) return undefined;
+      return parseCodexDoctorModel(new TextDecoder().decode(result.stdout));
+    } catch {
+      return undefined;
+    }
+  })();
+  codexModelLookups.set(key, lookup);
+  return lookup;
+}
+
+function modelFromArgs(args: string[]): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--model" || args[i] === "-m") {
+      return asNonEmptyString(args[i + 1]);
+    }
+    if (args[i].startsWith("--model=")) {
+      return asNonEmptyString(args[i].slice("--model=".length));
+    }
+  }
+  return undefined;
+}
+
+// Extract the answer + stats from Claude's single JSON object or Codex's JSONL event
+// stream; custom wrappers may still return plain text.
+export function parseAgentOutput(
   agent: AgentKind,
   out: string,
   ms: number,
+  fallbackModel?: string,
 ): AgentResult {
+  if (agent === "codex") {
+    const parsed = parseCodexJsonl(out, ms, fallbackModel);
+    if (parsed) return parsed;
+  }
   try {
     const j = JSON.parse(out) as Record<string, unknown>;
     const result = j.result;
@@ -243,7 +393,7 @@ function parseAgentOutput(
   } catch {
     // not JSON — plain text output
   }
-  return { body: out, meta: { model: agent, ms } };
+  return { body: out, meta: { model: fallbackModel ?? agent, ms } };
 }
 
 async function runAgent(
@@ -252,6 +402,7 @@ async function runAgent(
   cwd: string | undefined,
 ): Promise<AgentResult> {
   const { cmd, args, stdin } = agentCommand(agent, prompt);
+  const explicitModel = modelFromArgs(args);
   const timeoutMs = Number(Deno.env.get("TRAME_WATCH_TIMEOUT") ?? "300") * 1000;
   const started = Date.now();
   const proc = new Deno.Command(cmd, {
@@ -277,8 +428,19 @@ async function runAgent(
   }
   const out = new TextDecoder().decode(stdout).trim();
   if (!out) throw new Error(`${cmd} produced no output`);
-  const res = parseAgentOutput(agent, out, Date.now() - started);
+  const res = parseAgentOutput(
+    agent,
+    out,
+    Date.now() - started,
+    explicitModel,
+  );
   if (!res.body.trim()) throw new Error(`${cmd} produced no answer text`);
+  if (
+    agent === "codex" && res.meta.model === "codex" &&
+    cmd.split("/").at(-1) === "codex"
+  ) {
+    res.meta.model = await resolveCodexModel(cwd) ?? "codex";
+  }
   return res;
 }
 
