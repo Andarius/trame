@@ -1,6 +1,6 @@
 // An agent id is free-form: any model can attribute itself honestly (the running
-// model, e.g. "glm", not just the harness seat). "codex"/"claude" get a branded
-// avatar; anything else gets a generated initial avatar.
+// model, e.g. "glm", not just the harness seat). "codex"/"claude"/"glm" get a
+// branded avatar; anything else gets a generated initial avatar.
 export type AgentKind = string;
 
 // Reserved author_id for agent/external comments. Null means "legacy pre-identity
@@ -15,9 +15,22 @@ const OPENAI_PATH =
 const ANTHROPIC_PATH =
   "M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z";
 
-function avatar(title: string, path: string, background: string): string {
+// Z.ai "Z" mark (white glyph on a #2D2D2D container). Pinned from the Z.ai
+// company logo, Wikimedia Commons public domain, viewBox 0 0 30 30 — three
+// subpaths (top bar, diagonal, bottom bar) merged into one.
+const ZAI_PATH =
+  "M15.47,7.1l-1.3,1.85c-0.2,0.29-0.54,0.47-0.9,0.47h-7.1V7.09C6.16,7.1,15.47,7.1,15.47,7.1z M24.3,7.1 L13.14,22.91 L5.7,22.91 L16.86,7.1 Z M14.53,22.91l1.31-1.86c0.2-0.29,0.54-0.47,0.9-0.47h7.09v2.33H14.53z";
+
+function avatar(
+  title: string,
+  path: string,
+  background: string,
+  // codex/claude paths are full-bleed 24-unit Simple Icons marks; the Z.ai Z
+  // is inset in a 30-unit canvas, so it passes its own transform.
+  transform = "translate(5 5) scale(.9166667)",
+): string {
   const svg =
-    `<svg role="img" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><title>${title}</title><circle cx="16" cy="16" r="16" fill="${background}"/><g transform="translate(5 5) scale(.9166667)" fill="white"><path d="${path}"/></g></svg>`;
+    `<svg role="img" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><title>${title}</title><circle cx="16" cy="16" r="16" fill="${background}"/><g transform="${transform}" fill="white"><path d="${path}"/></g></svg>`;
   return `data:image/svg+xml;base64,${btoa(svg)}`;
 }
 
@@ -29,6 +42,15 @@ const AGENTS: Record<string, { name: string; avatar: string }> = {
   claude: {
     name: "Claude",
     avatar: avatar("Anthropic", ANTHROPIC_PATH, "#D97757"),
+  },
+  glm: {
+    name: "GLM",
+    avatar: avatar(
+      "Z.ai",
+      ZAI_PATH,
+      "#2D2D2D",
+      "translate(-1.4 -1.4) scale(1.16)",
+    ),
   },
 };
 
@@ -44,7 +66,7 @@ const GEN_PALETTE = [
   "#8b93a3",
 ];
 function generatedIdentity(key: string): { name: string; avatar: string } {
-  // short ids read better upper-cased (GLM), longer ones title-cased (Gemini)
+  // short ids read better upper-cased (QWEN), longer ones title-cased (Gemini)
   const name = key.length <= 4
     ? key.toUpperCase()
     : key[0].toUpperCase() + key.slice(1);

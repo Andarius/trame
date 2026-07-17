@@ -43,13 +43,14 @@ Deno.test("ambiguous or missing comment targets fail instead of guessing", () =>
 
 Deno.test("agent identities contain self-contained branded SVG avatars", () => {
   for (
-    const [agent, title] of [["codex", "OpenAI"], [
-      "claude",
-      "Anthropic",
-    ]] as const
+    const [agent, title, name] of [
+      ["codex", "OpenAI", "Codex"],
+      ["claude", "Anthropic", "Claude"],
+      ["glm", "Z.ai", "GLM"],
+    ] as const
   ) {
     const identity = agentIdentity(agent);
-    assertEquals(identity.name, agent === "codex" ? "Codex" : "Claude");
+    assertEquals(identity.name, name);
     const prefix = "data:image/svg+xml;base64,";
     assertStringIncludes(identity.avatar, prefix);
     const svg = atob(identity.avatar.slice(prefix.length));
@@ -59,15 +60,15 @@ Deno.test("agent identities contain self-contained branded SVG avatars", () => {
   }
 });
 
-Deno.test("any model attributes itself with a generated initial avatar", () => {
-  const glm = agentIdentity("glm");
-  assertEquals(glm.name, "GLM", "short ids upper-case");
+Deno.test("unbranded models attribute themselves with a generated initial avatar", () => {
+  const qwen = agentIdentity("qwen");
+  assertEquals(qwen.name, "QWEN", "short ids upper-case");
   assertEquals(agentIdentity("gemini").name, "Gemini", "longer ids title-case");
-  const svg = atob(glm.avatar.slice("data:image/svg+xml;base64,".length));
+  const svg = atob(qwen.avatar.slice("data:image/svg+xml;base64,".length));
   assertStringIncludes(svg, "<circle");
-  assertStringIncludes(svg, ">G</text>", "initial in the circle");
+  assertStringIncludes(svg, ">Q</text>", "initial in the circle");
   // case-insensitive and independent of the seat
-  assertEquals(agentIdentity("GLM").name, "GLM");
+  assertEquals(agentIdentity("QWEN").name, "QWEN");
 });
 
 Deno.test("watcher can run codex/claude built in; other models need a command", async () => {

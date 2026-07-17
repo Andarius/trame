@@ -244,7 +244,12 @@ Deno.test("setCommentAgentStatus rejects an unknown comment", async () => {
 });
 
 // Watcher pure parts (no DB).
-const { buildPrompt } = await import("../track/watch.ts");
+const {
+  agentCommand,
+  buildPrompt,
+  parseAgentOutput,
+  parseCodexDoctorModel,
+} = await import("../track/watch.ts");
 
 Deno.test("buildPrompt frames the thread with the agent identity and instructions", () => {
   const prompt = buildPrompt({
@@ -281,4 +286,130 @@ Deno.test("buildPrompt frames the thread with the agent identity and instruction
   assertStringIncludes(prompt, "[Codex (you)] clarify rollback");
   assertStringIncludes(prompt, "[Julien] why?");
   assertStringIncludes(prompt, "Output ONLY the comment body");
+});
+
+Deno.test("the built-in Codex runner requests a JSONL event stream", () => {
+  const previous = Deno.env.get("TRAME_WATCH_CODEX_CMD");
+  Deno.env.delete("TRAME_WATCH_CODEX_CMD");
+  try {
+    assertEquals(agentCommand("codex", "answer this"), {
+      cmd: "codex",
+      args: [
+        "exec",
+        "--json",
+        "--sandbox",
+        "read-only",
+        "answer this",
+      ],
+      stdin: null,
+    });
+  } finally {
+    if (previous === undefined) Deno.env.delete("TRAME_WATCH_CODEX_CMD");
+    else Deno.env.set("TRAME_WATCH_CODEX_CMD", previous);
+  }
+});
+
+Deno.test("Codex JSONL yields its final message and non-duplicated token usage", () => {
+  const stream = [
+    { type: "thread.started", thread_id: "thread-1" },
+    { type: "turn.started" },
+    {
+      type: "item.completed",
+      item: { id: "item-1", type: "reasoning", text: "private" },
+    },
+    {
+      type: "item.completed",
+      item: {
+        id: "item-2",
+        type: "agent_message",
+        text: "The rollback criterion is now explicit. ",
+      },
+    },
+    {
+      type: "turn.completed",
+      usage: {
+        input_tokens: 24_763,
+        cached_input_tokens: 24_448,
+        output_tokens: 122,
+        reasoning_output_tokens: 0,
+      },
+    },
+  ].map((event) => JSON.stringify(event)).join("\n");
+
+  assertEquals(parseAgentOutput("codex", stream, 4_200, "gpt-5.6-sol"), {
+    body: "The rollback criterion is now explicit.",
+    meta: { model: "gpt-5.6-sol", in: 24_763, out: 122, ms: 4_200 },
+  });
+});
+
+Deno.test("Codex JSONL prefers a model emitted by the stream", () => {
+  const stream = [
+    JSON.stringify({ type: "turn.started", model: "gpt-5.7-codex" }),
+    "not json, but harmless",
+    JSON.stringify({
+      type: "item.completed",
+      item: { type: "agent_message", text: "Final answer" },
+    }),
+    JSON.stringify({
+      type: "turn.completed",
+      usage: { input_tokens: 100, output_tokens: 20 },
+    }),
+  ].join("\n");
+
+  assertEquals(parseAgentOutput("codex", stream, 900, "older-model"), {
+    body: "Final answer",
+    meta: { model: "gpt-5.7-codex", in: 100, out: 20, ms: 900 },
+  });
+});
+
+Deno.test("an incomplete Codex stream is not posted as raw JSON", () => {
+  const stream = [
+    JSON.stringify({ type: "thread.started", thread_id: "thread-1" }),
+    JSON.stringify({ type: "turn.failed", error: { message: "boom" } }),
+  ].join("\n");
+  assertEquals(parseAgentOutput("codex", stream, 700), {
+    body: "",
+    meta: { model: "codex", in: undefined, out: undefined, ms: 700 },
+  });
+});
+
+Deno.test("Claude single-object telemetry remains unchanged", () => {
+  assertEquals(
+    parseAgentOutput(
+      "claude",
+      JSON.stringify({
+        result: "Use the previous release tag.",
+        duration_ms: 3_800,
+        usage: {
+          input_tokens: 1_000,
+          cache_read_input_tokens: 2_000,
+          cache_creation_input_tokens: 300,
+          output_tokens: 42,
+        },
+        modelUsage: { "claude-haiku-4-5-20251001": {} },
+      }),
+      4_000,
+    ),
+    {
+      body: "Use the previous release tag.",
+      meta: {
+        model: "claude-haiku-4-5-20251001",
+        in: 3_300,
+        out: 42,
+        ms: 3_800,
+      },
+    },
+  );
+});
+
+Deno.test("Codex model is read from its redacted doctor report", () => {
+  assertEquals(
+    parseCodexDoctorModel(JSON.stringify({
+      checks: {
+        "config.load": { details: { model: "gpt-5.6-sol" } },
+      },
+    })),
+    "gpt-5.6-sol",
+  );
+  assertEquals(parseCodexDoctorModel("not json"), undefined);
 });
