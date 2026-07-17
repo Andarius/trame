@@ -57,7 +57,7 @@ import {
 } from "./db.ts";
 import { syncOnce, testRemote } from "./sync.ts";
 import { startRealtime } from "./realtime.ts";
-import { updateUserProfile } from "./identity.ts";
+import { getIdentity, updateUserProfile } from "./identity.ts";
 import {
   importClaudeSessions,
   scanClaudeSessions,
@@ -73,6 +73,7 @@ import {
   deleteComment,
   deletePage,
   getPage,
+  listCommentInbox,
   listComments,
   listLinks,
   listPages,
@@ -81,11 +82,14 @@ import {
   movePage,
   revokeLink,
   revokeShare,
+  setCommentAgentStatus,
   setShare,
   updateComment,
   updatePage,
 } from "./pages.ts";
 import { exportPage, importPage } from "./share.ts";
+import { agentIdentity } from "./agent-comments.ts";
+import { listPresence, touchPresence } from "./presence.ts";
 import {
   createProperty,
   createRow,
@@ -862,15 +866,55 @@ async function handler(req: Request): Promise<Response> {
   if (pathname === "/api/comments" && req.method === "POST") {
     return json({ id: await createComment(await req.json()) });
   }
+  if (pathname === "/api/comments/inbox") {
+    const stale = Number(url.searchParams.get("stale") ?? "600");
+    return json(await listCommentInbox(Number.isFinite(stale) ? stale : 600));
+  }
   if (pathname === "/api/comments") {
     const pageId = url.searchParams.get("page");
     return json(pageId ? await listComments(pageId) : []);
+  }
+  const cmtStatus = pathname.match(/^\/api\/comments\/([^/]+)\/agent-status$/);
+  if (cmtStatus && req.method === "POST") {
+    await setCommentAgentStatus(cmtStatus[1], await req.json());
+    return json({ ok: true });
   }
   const cmt = pathname.match(/^\/api\/comments\/([^/]+)(\/delete)?$/);
   if (cmt && req.method === "POST") {
     if (cmt[2]) await deleteComment(cmt[1]);
     else await updateComment(cmt[1], await req.json());
     return json({ ok: true });
+  }
+
+  // who am I — lets the UI gate comment editing to the local author
+  if (pathname === "/api/identity") return json(await getIdentity());
+
+  // ephemeral presence (device-local, not synced): who's on a page + active watchers
+  if (pathname === "/api/presence" && req.method === "POST") {
+    const b = await req.json();
+    if (b.watcher === "codex" || b.watcher === "claude") {
+      const a = agentIdentity(b.watcher);
+      touchPresence({
+        id: `watcher:${b.watcher}`,
+        kind: "watcher",
+        name: a.name,
+        avatar: a.avatar,
+        page_id: "*",
+      });
+    } else {
+      const me = await getIdentity();
+      touchPresence({
+        id: me.userId ?? `dev:${NODE_ID}`,
+        kind: "viewer",
+        name: me.name,
+        avatar: me.avatar,
+        page_id: String(b.page_id ?? ""),
+      });
+    }
+    return json({ ok: true });
+  }
+  if (pathname === "/api/presence") {
+    return json(listPresence(url.searchParams.get("page") ?? ""));
   }
 
   // sharing (phase 7): grants live in page_shares and ride the normal sync

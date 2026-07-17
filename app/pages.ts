@@ -6,11 +6,35 @@ import { db } from "./db.ts";
 import { NODE_ID } from "./config.ts";
 import { getIdentity } from "./identity.ts";
 import { midKey } from "./udb.ts";
+import {
+  AGENT_AUTHOR_ID,
+  agentIdentity,
+  type AgentKind,
+  resolveCommentBlock,
+} from "./agent-comments.ts";
 
 const LIST_COLS =
   "id, parent_id, kind, title, icon, status, client_id, color, sort_key";
 const COMMENT_COLS =
-  "id, page_id, block_id, anchor, body, author, author_avatar, author_id, resolved, updated_at";
+  "id, page_id, block_id, anchor, body, author, author_avatar, author_id, resolved, meta, updated_at";
+
+// Comments for a page, each carrying the newest watcher status (seen/answering/failed)
+// from comment_agent_status. Shared by listComments and getPage.
+async function commentsForPage(pageId: string) {
+  const pg = await db();
+  return (await pg.query(
+    `select ${COMMENT_COLS.split(", ").map((c) => `c.${c}`).join(", ")},
+            s.status as agent_status, s.agent as agent_status_agent
+       from page_comments c
+       left join lateral (
+         select status, agent from comment_agent_status
+          where comment_id = c.id and not deleted
+          order by updated_at desc limit 1
+       ) s on true
+      where c.page_id=$1 and not c.deleted order by c.updated_at`,
+    [pageId],
+  )).rows;
+}
 
 export async function listPages() {
   const pg = await db();
@@ -39,10 +63,7 @@ export async function getPage(id: string) {
     `select * from sessions where page_id=$1 and not deleted order by last_touched desc`,
     [id],
   )).rows;
-  const comments = (await pg.query(
-    `select ${COMMENT_COLS} from page_comments where page_id=$1 and not deleted order by updated_at`,
-    [id],
-  )).rows;
+  const comments = await commentsForPage(id);
   return { ...page, children, databases, sessions, comments };
 }
 
@@ -221,32 +242,39 @@ export async function deletePage(id: string): Promise<void> {
 // Inline page comments — block-level notes anchored by Block.id inside pages.content.
 
 export async function listComments(pageId: string) {
-  const pg = await db();
-  return (await pg.query(
-    `select ${COMMENT_COLS} from page_comments where page_id=$1 and not deleted order by updated_at`,
-    [pageId],
-  )).rows;
+  return await commentsForPage(pageId);
 }
 
 export async function createComment(
-  p: { page_id: string; block_id: string; anchor?: string; body: string; author?: string; author_avatar?: string },
+  p: {
+    page_id: string;
+    block_id: string;
+    anchor?: string;
+    body: string;
+    agent?: AgentKind;
+    author?: string;
+    author_avatar?: string;
+    meta?: Record<string, unknown>; // agent generation stats {model, in, out, ms}
+  },
 ): Promise<string> {
   const pg = await db();
   const me = await getIdentity();
-  // agents (Codex, Claude, …) pass their own author; author_id stays null so the
-  // comment isn't tied to the local synced user
-  const author = p.author?.trim();
+  // agents (Codex, Claude, …) get the reserved AGENT_AUTHOR_ID so the schema
+  // backfill never re-claims their comments for the local user
+  const agent = p.agent ? agentIdentity(p.agent) : null;
+  const author = agent?.name ?? p.author?.trim();
   const row = (await pg.query(
-    `insert into page_comments (page_id, block_id, anchor, body, author, author_avatar, author_id, origin)
-     values ($1,$2,$3,$4,$5,$6,$7,$8) returning id`,
+    `insert into page_comments (page_id, block_id, anchor, body, author, author_avatar, author_id, meta, origin)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`,
     [
       p.page_id,
       p.block_id,
       p.anchor ?? "",
       p.body,
       author || me.name,
-      author ? (p.author_avatar ?? "") : me.avatar,
-      author ? null : me.userId,
+      agent?.avatar ?? (author ? (p.author_avatar ?? "") : me.avatar),
+      author ? AGENT_AUTHOR_ID : me.userId,
+      p.meta ? JSON.stringify(p.meta) : null,
       NODE_ID,
     ],
   )).rows[0] as { id: string };
@@ -255,7 +283,12 @@ export async function createComment(
 
 export async function updateComment(
   id: string,
-  patch: { body?: string; resolved?: boolean; author?: string; author_avatar?: string },
+  patch: {
+    body?: string;
+    resolved?: boolean;
+    author?: string;
+    author_avatar?: string;
+  },
 ): Promise<void> {
   const pg = await db();
   // re-attributing to an agent name detaches the comment from the synced user
@@ -265,10 +298,17 @@ export async function updateComment(
        resolved = coalesce($3, resolved),
        author   = coalesce($4, author),
        author_avatar = case when $4::text is null then author_avatar else coalesce($5, '') end,
-       author_id     = case when $4::text is null then author_id else null end,
+       author_id     = case when $4::text is null then author_id else '${AGENT_AUTHOR_ID}'::uuid end,
        origin=$6, updated_at=now()
      where id=$1`,
-    [id, patch.body ?? null, patch.resolved ?? null, patch.author?.trim() || null, patch.author_avatar ?? null, NODE_ID],
+    [
+      id,
+      patch.body ?? null,
+      patch.resolved ?? null,
+      patch.author?.trim() || null,
+      patch.author_avatar ?? null,
+      NODE_ID,
+    ],
   );
 }
 
@@ -278,6 +318,151 @@ export async function deleteComment(id: string): Promise<void> {
     `update page_comments set deleted=true, origin=$2, updated_at=now() where id=$1`,
     [id, NODE_ID],
   );
+}
+
+// Comment watcher: an agent sees a human reply and answers it.
+
+export type AgentStatus = "seen" | "answering" | "failed";
+
+// Set (or clear) the watcher status on a human reply. body_hash pins the current
+// reply text so an edit re-triggers the watcher but a resolve toggle does not.
+export async function setCommentAgentStatus(
+  commentId: string,
+  patch: { status: AgentStatus | "clear"; agent?: string },
+): Promise<void> {
+  const pg = await db();
+  const c = (await pg.query(
+    `select page_id, body from page_comments where id=$1 and not deleted`,
+    [commentId],
+  )).rows[0] as { page_id: string; body: string } | undefined;
+  if (!c) throw new Error(`comment "${commentId}" was not found`);
+
+  if (patch.status === "clear") {
+    await pg.query(
+      `update comment_agent_status set deleted=true, origin=$2, updated_at=now()
+        where comment_id=$1 and not deleted`,
+      [commentId, NODE_ID],
+    );
+    return;
+  }
+
+  const existing = (await pg.query(
+    `select id from comment_agent_status where comment_id=$1 and not deleted
+      order by updated_at desc limit 1`,
+    [commentId],
+  )).rows[0] as { id: string } | undefined;
+
+  if (existing) {
+    await pg.query(
+      `update comment_agent_status set status=$2, agent=coalesce($3, agent),
+              body_hash=md5($4), origin=$5, updated_at=now() where id=$1`,
+      [existing.id, patch.status, patch.agent ?? null, c.body, NODE_ID],
+    );
+  } else {
+    await pg.query(
+      `insert into comment_agent_status (comment_id, page_id, status, agent, body_hash, origin)
+       values ($1,$2,$3,$4,md5($5),$6)`,
+      [commentId, c.page_id, patch.status, patch.agent ?? "", c.body, NODE_ID],
+    );
+  }
+}
+
+export type InboxItem = {
+  comment: Record<string, unknown>; // the human reply awaiting an answer
+  page: { id: string; title: string };
+  block: { id: string; text: string };
+  thread: Record<string, unknown>[]; // all comments on the block, oldest first
+  agent: AgentKind; // which CLI answers (the thread's latest agent author)
+};
+
+// Human replies on agent threads that still need an answer. A candidate is an
+// unresolved, human-authored comment on a block that has an OLDER agent comment
+// (so it's a reply to the agent) and no NEWER one (not yet answered), whose status
+// is absent, hash-stale (the human edited it), or stuck ≥ staleSecs (watcher crash).
+export async function listCommentInbox(staleSecs = 600): Promise<InboxItem[]> {
+  const pg = await db();
+  // self-heal: drop status rows whose comment is gone or already answered (a newer
+  // agent comment exists), so answered replies leave the inbox and the UI never shows
+  // a stuck "answering…". Resolve is deliberately NOT a trigger — it's reversible, and
+  // keeping the row lets a reopen keep its matching hash instead of re-answering.
+  await pg.query(
+    `update comment_agent_status s set deleted=true, origin=$1, updated_at=now()
+      where not s.deleted and not exists (
+        select 1 from page_comments c
+         where c.id = s.comment_id and not c.deleted
+           and not exists (
+             select 1 from page_comments a
+              where a.page_id=c.page_id and a.block_id=c.block_id and not a.deleted
+                and a.author_id=$2 and a.updated_at > c.updated_at))`,
+    [NODE_ID, AGENT_AUTHOR_ID],
+  );
+
+  const candidates = (await pg.query(
+    `with latest as (
+       select distinct on (comment_id) comment_id, status, body_hash, updated_at
+         from comment_agent_status where not deleted
+        order by comment_id, updated_at desc
+     )
+     select ${COMMENT_COLS.split(", ").map((c) => `c.${c}`).join(", ")}
+       from page_comments c
+       left join latest s on s.comment_id = c.id
+      where not c.deleted and not c.resolved
+        and c.author_id is distinct from $1::uuid
+        and exists (select 1 from page_comments a
+              where a.page_id=c.page_id and a.block_id=c.block_id and not a.deleted
+                and a.author_id=$1 and a.updated_at < c.updated_at)
+        and not exists (select 1 from page_comments a
+              where a.page_id=c.page_id and a.block_id=c.block_id and not a.deleted
+                and a.author_id=$1 and a.updated_at > c.updated_at)
+        and (s.comment_id is null
+             or s.body_hash is distinct from md5(c.body)
+             or (s.status in ('seen','answering')
+                 and s.updated_at < now() - make_interval(secs => $2)))
+      order by c.updated_at`,
+    [AGENT_AUTHOR_ID, staleSecs],
+  )).rows as Record<string, unknown>[];
+
+  const items: InboxItem[] = [];
+  for (const c of candidates) {
+    const pageId = String(c.page_id);
+    const blockId = String(c.block_id);
+    const page = (await pg.query(
+      `select id, title, content from pages where id=$1 and not deleted`,
+      [pageId],
+    )).rows[0] as { id: string; title: string; content: unknown } | undefined;
+    if (!page) continue; // page vanished under LWW — skip this pass
+
+    let blockText = String(c.anchor ?? "");
+    try {
+      blockText = resolveCommentBlock(page.content, { block_id: blockId }).text;
+    } catch {
+      // block removed from content — keep the anchor snapshot
+    }
+
+    const thread = (await pg.query(
+      `select ${COMMENT_COLS} from page_comments
+        where page_id=$1 and block_id=$2 and not deleted order by updated_at`,
+      [pageId, blockId],
+    )).rows as Record<string, unknown>[];
+
+    // the thread's newest agent comment decides which CLI answers
+    const lastAgent = [...thread].reverse().find((t) =>
+      t.author_id === AGENT_AUTHOR_ID
+    );
+    const agent: AgentKind =
+      String(lastAgent?.author ?? "").toLowerCase() === "codex"
+        ? "codex"
+        : "claude";
+
+    items.push({
+      comment: c,
+      page: { id: page.id, title: page.title },
+      block: { id: blockId, text: blockText },
+      thread,
+      agent,
+    });
+  }
+  return items;
 }
 
 export async function attachUdbToPage(

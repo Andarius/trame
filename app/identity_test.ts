@@ -58,6 +58,37 @@ Deno.test("createComment stamps author_id and a display author", async () => {
   assert(c.author.length > 0, "display author is never empty");
 });
 
+Deno.test("agent comments use canonical attribution without a user id", async () => {
+  const { db } = await import("./db.ts");
+  const { createComment, createPage } = await import("./pages.ts");
+  const pg = await db();
+
+  const pageId = await createPage({ title: "agent comment page" });
+  const commentId = await createComment({
+    page_id: pageId,
+    block_id: "b-agent",
+    body: "review note",
+    agent: "codex",
+  });
+  const c = (await pg.query(
+    `select author, author_avatar, author_id from page_comments where id=$1`,
+    [commentId],
+  )).rows[0] as {
+    author: string;
+    author_avatar: string;
+    author_id: string | null;
+  };
+  assertEquals(c.author, "Codex");
+  // reserved sentinel, not null — the schema backfill claims null rows for the
+  // local user on every start and must never re-claim agent comments
+  const { AGENT_AUTHOR_ID } = await import("./agent-comments.ts");
+  assertEquals(c.author_id, AGENT_AUTHOR_ID);
+  assert(
+    c.author_avatar.startsWith("data:image/svg+xml;base64,"),
+    "agent avatar is self-contained",
+  );
+});
+
 Deno.test("page creators stamp owner_id", async () => {
   const { db, resolveClient } = await import("./db.ts");
   const { createPage } = await import("./pages.ts");

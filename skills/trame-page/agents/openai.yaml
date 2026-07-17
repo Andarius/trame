@@ -1,4 +1,4 @@
 interface:
-  display_name: "Create Trame Page"
-  short_description: "Create a Trame page from Markdown"
-  default_prompt: "Use $trame-page to create a new Trame page from this content."
+  display_name: "Trame Pages and Comments"
+  short_description: "Create pages and add review comments"
+  default_prompt: "Use $trame-page to create or comment on a Trame page."

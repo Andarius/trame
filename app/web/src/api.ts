@@ -423,9 +423,32 @@ export type PageComment = {
   body: string;
   author: string;
   author_avatar: string;
+  author_id: string | null;
   resolved: boolean;
   updated_at: string;
+  meta: string | null; // JSON string of agent generation stats, or null
+  agent_status: "seen" | "answering" | "failed" | null;
+  agent_status_agent: string;
 };
+
+export type Identity = { userId: string | null; name: string; avatar: string };
+export const getIdentity = () => fetch("/api/identity").then((r) => r.json() as Promise<Identity>);
+
+export type Presence = {
+  id: string;
+  kind: "viewer" | "watcher";
+  name: string;
+  avatar: string;
+  page_id: string;
+};
+export const pingPresence = (pageId: string) =>
+  fetch("/api/presence", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ page_id: pageId }),
+  }).catch(() => {});
+export const getPresence = (pageId: string) =>
+  fetch(`/api/presence?page=${pageId}`).then((r) => r.json() as Promise<Presence[]>);
 export type PageMeta = {
   id: string;
   parent_id: string | null;

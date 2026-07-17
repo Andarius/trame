@@ -81,6 +81,7 @@ export function rowVisible(access: Access, entity: string, row: Row): boolean {
       return access.pages.has(String(row.id));
     case "page_shares":
     case "page_comments":
+    case "comment_agent_status":
       return access.pages.has(String(row.page_id));
     case "udb_databases":
       return access.dbs.has(String(row.id));
@@ -162,6 +163,7 @@ export async function subtreeIds(db: Q, pageId: string): Promise<SubtreeRow[]> {
   for (
     const [entity, col] of [
       ["page_comments", "page_id"],
+      ["comment_agent_status", "page_id"],
       ["page_shares", "page_id"],
       ["udb_databases", "page_id"],
     ] as const

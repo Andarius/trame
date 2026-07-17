@@ -63,9 +63,13 @@ app/                       Deno-desktop app
   csrf.ts                  same-origin guard for /api (it spawns terminals, opens files…)
   plugins/                 opt-in in-tree plugins (deployments: GitHub/GitLab approvals)
   settings-store.ts        single writer for the device-local settings JSON (0600, holds tokens)
+  agent-comments.ts        canonical Codex/Claude identities (branded SVG avatars) + block resolution
+  presence.ts              ephemeral "who's here" registry (viewers + active watchers; not synced)
   web/                     React swimlane board (Vite)
 track/track.ts             the /trame:track session writer (app or outbox)
 track/page.ts              the $trame-page writer (Markdown → atomic page create)
+track/comment.ts           agent page comments (title/quote resolution + attribution)
+track/watch.ts             the comment watcher — agents auto-answer human replies (`just watch`)
 track/claude-hook.ts       UserPromptSubmit hook: records cwd → Claude session id for track.ts
 commands/trame/track.md    the /trame:track slash command — install with `just install-cmd`
 skills/trame-{track,page}/ agent skills — Codex via `just install-skill`, trame-page also lands in ~/.claude/skills via `just install-cmd`
@@ -125,7 +129,7 @@ For non-interactive setup, use `just install-cmd` for Claude Code (slash command
 trame-page skill) or `just install-skill` for Codex.
 
 In Codex, use `$trame-track`, `$trame-track paused "note"`, or `$trame-track list`
-for sessions, and `$trame-page` to create a standalone Trame page from Markdown.
+for sessions, and `$trame-page` to create or comment on standalone Trame pages.
 Codex exposes `CODEX_THREAD_ID`, so the session writer automatically links the card
 to the current resumable session; no hook is needed.
 
@@ -160,7 +164,43 @@ commands can't see their own session id, so a `UserPromptSubmit` hook records it
 Without the hook `/trame:track` still works — the card just has no transcript link. Cards
 imported from the app's Claude Code + Codex dialog carry the UUID as their id and never need it.
 
-### 5. Plugins (optional)
+### 5. Page comments & the agent watcher
+
+Any page block can hold a thread of inline comments. Agents leave review comments with the
+`trame_add_comment` MCP tool or the `just comment` writer (identify the page by title, the
+block by a unique text quote); Trame stamps the canonical **Codex**/**Claude** name and a
+self-contained branded avatar, and keeps agent comments out of your own author identity.
+
+```bash
+# an agent leaving a comment (JSON as arg or on stdin)
+echo '{"page_title":"Release plan","block_text":"Ship the first release",
+       "body":"Clarify the rollback criterion.","agent":"codex"}' | just comment
+```
+
+Reply to an agent's comment in the UI and the **watcher** closes the loop: it marks your
+reply *seen*, shows *"Claude is answering…"*, runs the matching CLI (`codex exec` / `claude -p`,
+whichever authored the thread), and posts the answer — with a `model · tokens · seconds`
+footer. Run it in its own terminal:
+
+```bash
+just watch                          # answer replies on any Codex/Claude thread
+just watch --cwd ~/Projects/some-repo   # let the agent read that repo when answering (read-only)
+just watch --agents claude          # only handle Claude threads
+just watch --once --dry-run         # one pass, print prompts without answering
+```
+
+It finds the running app via the port file, polls every 5s, processes one reply at a time,
+and survives app restarts (backs off) and its own crashes (a stuck *answering…* self-heals).
+Failures retry twice then park as *no answer* until you edit the reply — never a loop. The
+agent CLIs must be installed and authenticated in that shell; each answer spends real tokens.
+Override the model per run with `TRAME_WATCH_CODEX_CMD` / `TRAME_WATCH_CLAUDE_CMD` (an `{}`
+placeholder is replaced by the prompt), e.g. `claude -p {} --output-format json --model haiku`.
+
+The top of each page shows a **presence** stack (Notion-style avatars): you while the page is
+open, plus every agent a running `just watch` is covering (copper ring). It's device-local and
+ephemeral — never synced — so avatars fade ~20s after a tab closes or the watcher stops.
+
+### 6. Plugins (optional)
 
 ⚙ Settings → **Manage plugins**. Everything ships disabled — a networked plugin never reaches
 out until you switch it on.

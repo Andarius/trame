@@ -124,7 +124,7 @@ fmt-check-sql:
 # Type check the entry graphs
 [group('dev')]
 check:
-    cd app && deno check main.ts ../track/track.ts ../track/page.ts ../mcp/server.ts
+    cd app && deno check main.ts ../track/track.ts ../track/page.ts ../track/comment.ts ../track/watch.ts ../mcp/server.ts
 
 # Run the Trame MCP server on stdio (for `claude mcp add trame -- deno run -A .../mcp/server.ts`)
 [group('dev')]
@@ -145,6 +145,16 @@ track *args:
 page *args:
     deno run --allow-all track/page.ts "$@"
 
+# Add an agent comment to a Trame page (JSON as arg or on stdin)
+[group('track')]
+comment *args:
+    deno run --allow-all track/comment.ts "$@"
+
+# Watch agent threads and auto-answer human replies (codex/claude)
+[group('track')]
+watch *args:
+    deno run --allow-all track/watch.ts "$@"
+
 # Install the /trame:track slash command + trame-page skill into ~/.claude
 [group('setup')]
 install-cmd:
@@ -160,7 +170,7 @@ install-cmd:
     skill="$HOME/.claude/skills/trame-page"
     mkdir -p "$skill"
     cp skills/trame-page/SKILL.md "$skill/SKILL.md"
-    sed -i.bak "s|__PAGE_WRITER__|{{ justfile_directory() }}/track/page.ts|g" "$skill/SKILL.md"
+    sed -i.bak "s|__PAGE_WRITER__|{{ justfile_directory() }}/track/page.ts|g; s|__COMMENT_WRITER__|{{ justfile_directory() }}/track/comment.ts|g" "$skill/SKILL.md"
     rm -f "$skill/SKILL.md.bak"
     echo "installed → $skill (auto-triggers on page/document requests)"
 
@@ -173,7 +183,7 @@ install-skill:
       dest="$HOME/.agents/skills/$skill"
       mkdir -p "$dest"
       cp -R "skills/$skill/." "$dest/"
-      sed -i.bak "s|__TRACK_WRITER__|{{ justfile_directory() }}/track/track.ts|g; s|__PAGE_WRITER__|{{ justfile_directory() }}/track/page.ts|g" "$dest/SKILL.md"
+      sed -i.bak "s|__TRACK_WRITER__|{{ justfile_directory() }}/track/track.ts|g; s|__PAGE_WRITER__|{{ justfile_directory() }}/track/page.ts|g; s|__COMMENT_WRITER__|{{ justfile_directory() }}/track/comment.ts|g" "$dest/SKILL.md"
       rm -f "$dest/SKILL.md.bak"
       echo "installed → $dest (invoke with \$$skill)"
     done
