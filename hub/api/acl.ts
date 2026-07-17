@@ -81,6 +81,7 @@ export function rowVisible(access: Access, entity: string, row: Row): boolean {
       return access.pages.has(String(row.id));
     case "page_shares":
     case "page_comments":
+    case "comment_agent_status":
       return access.pages.has(String(row.page_id));
     case "udb_databases":
       return access.dbs.has(String(row.id));
@@ -110,9 +111,14 @@ export function mayWrite(access: Access, entity: string, row: Row): boolean {
         editor(access.pages, row.parent_id) ||
         row.owner_id === access.userId;
     case "page_comments":
-      // author pinned to the caller — a guest must not write as someone else
+      // author pinned to the caller — a guest must not write as someone else;
+      // agent-authored comments (AGENT sentinel) from the guest's local agents are also allowed
       return editor(access.pages, row.page_id) &&
-        row.author_id === access.userId;
+        (row.author_id === access.userId ||
+          row.author_id === "00000000-0000-4000-8000-0000000000aa");
+    case "comment_agent_status":
+      // an editor's local comment watcher may push its status rows
+      return editor(access.pages, row.page_id);
     case "udb_databases":
       return editor(access.dbs, row.id) || editor(access.pages, row.page_id);
     case "udb_properties":
@@ -162,6 +168,7 @@ export async function subtreeIds(db: Q, pageId: string): Promise<SubtreeRow[]> {
   for (
     const [entity, col] of [
       ["page_comments", "page_id"],
+      ["comment_agent_status", "page_id"],
       ["page_shares", "page_id"],
       ["udb_databases", "page_id"],
     ] as const
