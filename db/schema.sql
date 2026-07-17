@@ -183,17 +183,47 @@ alter table page_comments add column if not exists author_avatar text not null d
 alter table page_comments add column if not exists author_id uuid;   -- no FK: LWW pull order
 alter table pages add column if not exists owner_id uuid;            -- creating user; no FK
 
--- Backfill to the seeded user (sole user today). Fills nulls only and deliberately
+-- Optional generation stats on an agent answer (comment watcher): JSON string
+-- {model, in, out, ms}. Null on human comments. Rendered as a dim footer.
+alter table page_comments add column if not exists meta text;
+
+-- Backfill to the seeded user (sole user today). Agent comments are exempt: they
+-- carry the reserved sentinel 00000000-0000-4000-8000-0000000000aa, never null.
+-- Fills nulls only and deliberately
 -- leaves updated_at/origin untouched: every replica runs this same deterministic
 -- backfill locally, so nothing rides the sync and no node claims the rows as its own.
 -- Guarded to the single-user era (same rule as the startup device claim) so a second
 -- user's not-yet-attributed rows are never misassigned by a later re-run.
 -- (pages backfill sits after the legacy pages migrations below, to catch their copies.)
+-- Legacy agent comments predate the sentinel: they carry author_id null and the display
+-- name is the only signal, so claim the canonical agent names to the sentinel first.
+update page_comments set author_id = '00000000-0000-4000-8000-0000000000aa'
+where author_id is null and author in ('Codex', 'Claude');
 update page_comments set author_id = '00000000-0000-4000-8000-000000000101'
 where author_id is null and (
   select count(*) from users
   where not deleted
 ) = 1;
+
+-- Watcher status for human replies on agent threads (comment watcher). One row per
+-- watched reply, written ONLY by the watcher daemon — deliberately not columns on
+-- page_comments: sync is whole-row LWW, so a status write on the reply row could
+-- clobber a concurrent body edit from another node. page_id is denormalized so the
+-- hub ACL gates it like page_comments. body_hash pins the reply text the status
+-- refers to: an edited reply re-triggers the watcher, a resolve toggle does not.
+create table if not exists comment_agent_status (
+  id uuid primary key default uuidv7(),
+  comment_id uuid not null,             -- page_comments.id; no FK: LWW pull order
+  page_id uuid not null,                -- denormalized for ACL/pruning; no FK
+  status text not null default 'seen',  -- seen | answering | failed
+  agent text not null default '',       -- codex | claude (who is handling it)
+  body_hash text not null default '',   -- md5(reply body) when the status was set
+  origin text not null default 'seed',
+  updated_at timestamptz not null default now(),
+  deleted boolean not null default false
+);
+create index if not exists comment_agent_status_comment on comment_agent_status (comment_id);
+create index if not exists comment_agent_status_page on comment_agent_status (page_id);
 
 create table if not exists session_events (
   id uuid primary key default gen_random_uuid(),
@@ -390,7 +420,7 @@ $fn$;
 do $$
 declare t text;
 begin
-  foreach t in array array['users','devices','clients','pages','page_shares','page_links','page_comments','statuses','sessions',
+  foreach t in array array['users','devices','clients','pages','page_shares','page_links','page_comments','comment_agent_status','statuses','sessions',
                            'session_events','reports','udb_databases','udb_properties','udb_rows','udb_links'] loop
     execute format(
       'create or replace trigger %I after insert or update or delete on %I for each row execute function trame_log_change()',
@@ -496,7 +526,7 @@ comment on column sync_state.last_pushed_at is 'Local-clock watermark: push send
 do $$
 declare t text;
 begin
-  foreach t in array array['clients','objectives','pages','page_comments','statuses','sessions','session_events','reports',
+  foreach t in array array['clients','objectives','pages','page_comments','comment_agent_status','statuses','sessions','session_events','reports',
                            'udb_databases','udb_properties','udb_rows','udb_links','users','devices','page_shares','page_links'] loop
     execute format('comment on column %I.id is %L', t, 'PK. uuidv7() on newer tables (time-ordered), gen_random_uuid() v4 on the originals — minted per node, no sequence (offline multi-writer).');
     execute format('comment on column %I.origin is %L', t, 'NODE_ID that wrote the row — push only sends own-origin rows (not ones just pulled).');

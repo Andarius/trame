@@ -6,6 +6,7 @@ import { StdioServerTransport } from "npm:@modelcontextprotocol/sdk@^1.12/server
 import { z } from "npm:zod@^3.24";
 import { PORT_FILE } from "../app/config.ts";
 import { markdownToPageBlocks } from "../app/page-markdown.ts";
+import { resolveCommentBlock } from "../app/agent-comments.ts";
 
 async function api(path: string, init?: RequestInit): Promise<unknown> {
   let port: number;
@@ -39,6 +40,49 @@ const text = (data: unknown) => ({
 });
 
 const server = new McpServer({ name: "trame", version: "0.1.0" });
+
+// One-call, self-describing map of what an agent can do with Trame — so discovery
+// doesn't depend on happening to read the right tool description. Keep it current
+// when tools or their semantics change.
+const CAPABILITIES = `# Trame — capabilities for agents
+
+Trame is a local-first tracker (sessions, pages, databases) that syncs to a shared hub.
+As an agent you can:
+
+## Review comments (conversational)
+- Leave inline comments on a page block with **trame_add_comment** (page by id/title,
+  block by id or a unique text quote).
+- **Attribution**: set \`agent\` to the id of the model ACTUALLY writing (codex, claude,
+  glm, gemini, …) — not the harness seat. codex/claude get a branded avatar; any other
+  id gets a generated one. Never post as a human.
+- **Optional \`meta\`** {model, in, out, ms} shows a "model · tokens · seconds" footer.
+  Only pass numbers you truly know; omit what you can't measure (a footer must be real).
+- **The watcher loop**: a human may reply to your comment. If the human runs \`just watch\`,
+  YOUR agent is invoked to answer that reply — so a thread is a back-and-forth, not a
+  one-shot. Your answer posts as the next comment; the watcher fills its meta for you.
+
+## Pages & reports
+- **trame_create_page** — create/nest a standalone page from Markdown (not a session card).
+- **trame_report** — publish a self-contained HTML report to the Explore view.
+
+## Sessions (the board)
+- **trame_track** — create/update a work session (upsert by repo_path+branch).
+- **trame_set_status** — move a card between columns.
+- **trame_new_objective** — create the story/epic sessions ladder up to.
+
+## Read / sync
+- **trame_board** — read sessions, objectives, clients. **trame_reports** — list reports.
+- **trame_sync** — push/pull with the hub now.
+
+The app must be running (it writes its port for these tools). All writes ride the normal
+LWW sync to the hub.`;
+
+server.tool(
+  "trame_capabilities",
+  "What an agent can do with Trame — a one-call overview of the comment/watcher loop, model attribution, pages, sessions, and reports. Call this first to discover Trame's features instead of guessing from individual tool descriptions.",
+  {},
+  () => ({ content: [{ type: "text" as const, text: CAPABILITIES }] }),
+);
 
 server.tool(
   "trame_board",
@@ -111,6 +155,71 @@ server.tool(
         content: markdownToPageBlocks(markdown ?? "", title),
       }),
     ),
+);
+
+server.tool(
+  "trame_add_comment",
+  "Add an inline agent review comment to a Trame page block. Identify the page by id or exact title and the block by id or a unique text quote. `agent` is the id of the model actually writing (e.g. codex, claude, glm, gemini) — attribute the real model, not the harness seat; codex/claude get a branded avatar, any other id gets a generated one. Optional `meta` records honest generation stats {model, in, out, ms} shown as a footer — only pass numbers you actually know; omit tokens/time you can't measure.",
+  {
+    page_id: z.string().optional(),
+    page_title: z.string().optional(),
+    block_id: z.string().optional(),
+    block_text: z.string().optional(),
+    body: z.string(),
+    agent: z.string(),
+    meta: z.object({
+      model: z.string().optional(),
+      in: z.number().optional(),
+      out: z.number().optional(),
+      ms: z.number().optional(),
+    }).optional(),
+  },
+  async (
+    args: {
+      page_id?: string;
+      page_title?: string;
+      block_id?: string;
+      block_text?: string;
+      body: string;
+      agent: string;
+      meta?: { model?: string; in?: number; out?: number; ms?: number };
+    },
+  ) => {
+    if (Boolean(args.page_id) === Boolean(args.page_title)) {
+      throw new Error("use exactly one of page_id or page_title");
+    }
+    if (args.block_id && args.block_text) {
+      throw new Error("use block_id or block_text, not both");
+    }
+    let pageId = args.page_id;
+    if (args.page_title) {
+      const pages = await api("/api/pages") as { id: string; title: string }[];
+      const matches = pages.filter((p) => p.title === args.page_title);
+      if (matches.length !== 1) {
+        throw new Error(
+          matches.length
+            ? `page_title "${args.page_title}" is ambiguous; use page_id`
+            : `page "${args.page_title}" was not found`,
+        );
+      }
+      pageId = matches[0].id;
+    }
+    const page = await api(`/api/pages/${pageId}`) as {
+      id: string;
+      content: unknown[];
+    };
+    const target = resolveCommentBlock(page.content, args);
+    return text(
+      await post("/api/comments", {
+        page_id: page.id,
+        block_id: target.id,
+        anchor: target.text,
+        body: args.body,
+        agent: args.agent,
+        meta: args.meta,
+      }),
+    );
+  },
 );
 
 server.tool(
