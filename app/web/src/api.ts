@@ -607,3 +607,16 @@ export const setShare = (
   s: { page_id: string; user_id: string; role: "viewer" | "editor" },
 ) => post("/api/shares", s).then((r) => r.json() as Promise<{ id: string }>);
 export const revokeShare = (id: string) => post(`/api/shares/${id}/delete`, {});
+
+// Public share links (read-only browser view; token shown once at creation).
+export type PageLink = { id: string; updated_at: string };
+export const createShareLink = (pageId: string) =>
+  post("/api/links", { page_id: pageId }).then((r) =>
+    r.json() as Promise<{ id: string; url: string | null; token: string }>
+  );
+export const listShareLinks = (pageId: string) =>
+  fetch(`/api/links?page=${pageId}`).then((r) =>
+    r.json() as Promise<{ base: string | null; links: PageLink[] }>
+  );
+export const revokeShareLink = (id: string) =>
+  post(`/api/links/${id}/delete`, {});

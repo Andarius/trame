@@ -2,12 +2,7 @@
 // *.excalidraw drawings so the Explore view can search files on disk alongside
 // published reports. Paths come from the UI-editable settings file, falling back
 // to the TRACKER_REPORT_PATHS env var.
-import {
-  HOME_DIR,
-  REMOTE_PG,
-  REPORT_PATHS,
-  SETTINGS_FILE,
-} from "./config.ts";
+import { HOME_DIR, REMOTE_PG, REPORT_PATHS, SETTINGS_FILE } from "./config.ts";
 import { updateSettings } from "./settings-store.ts";
 
 export type FileHit = { path: string; name: string; mtime: string };
@@ -91,12 +86,15 @@ export async function getRemotePg(): Promise<string | null> {
 
 // Hub API sync (phase 3, feature-flagged): used instead of direct Postgres when
 // enabled AND fully configured. settings.json wins over env; re-read every pass.
-export async function getHubApi(): Promise<{ url: string; token: string } | null> {
+export async function getHubApi(): Promise<
+  { url: string; token: string } | null
+> {
   let s: Record<string, unknown> = {};
   try {
     s = JSON.parse(await Deno.readTextFile(SETTINGS_FILE));
   } catch { /* no settings file yet */ }
-  const enabled = s.syncViaApi === true || Deno.env.get("TRACKER_SYNC_VIA_API") === "1";
+  const enabled = s.syncViaApi === true ||
+    Deno.env.get("TRACKER_SYNC_VIA_API") === "1";
   if (!enabled) return null;
   const url = (typeof s.hubApi === "string" && s.hubApi.trim()) ||
     Deno.env.get("TRACKER_HUB_API") || "";
@@ -393,7 +391,13 @@ export async function readReportFile(path: string): Promise<string | null> {
 
 // Non-recursive listing of a directory, gated to the same scanned roots as reports.
 // Powers the "folder" page block. Returns null when the path is outside allowed roots.
-export type FolderEntry = { name: string; path: string; kind: "file" | "dir"; ext: string; isHtml: boolean };
+export type FolderEntry = {
+  name: string;
+  path: string;
+  kind: "file" | "dir";
+  ext: string;
+  isHtml: boolean;
+};
 export async function listFolder(path: string): Promise<FolderEntry[] | null> {
   const real = await allowedPath(path);
   if (real === null) return null;
@@ -407,7 +411,9 @@ export async function listFolder(path: string): Promise<FolderEntry[] | null> {
   const out: FolderEntry[] = [];
   for await (const e of Deno.readDir(real)) {
     if (e.name.startsWith(".")) continue;
-    const ext = e.isFile ? (e.name.match(/\.([^.]+)$/)?.[1]?.toLowerCase() ?? "") : "";
+    const ext = e.isFile
+      ? (e.name.match(/\.([^.]+)$/)?.[1]?.toLowerCase() ?? "")
+      : "";
     out.push({
       name: e.name,
       path: `${real}/${e.name}`,
@@ -416,7 +422,9 @@ export async function listFolder(path: string): Promise<FolderEntry[] | null> {
       isHtml: ext === "html" || ext === "htm",
     });
   }
-  out.sort((a, b) => a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === "dir" ? -1 : 1);
+  out.sort((a, b) =>
+    a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === "dir" ? -1 : 1
+  );
   return out;
 }
 
@@ -457,4 +465,25 @@ export async function deleteReportFile(
   await Deno.remove(real);
   cache = null;
   return { ok: true, trashed: false };
+}
+
+// Base URL for public share links: explicit setting/env, else the hub API host on
+// the public listener's port (works on the LAN; set linkBase for the pretty domain).
+export async function getLinkBase(): Promise<string | null> {
+  let s: Record<string, unknown> = {};
+  try {
+    s = JSON.parse(await Deno.readTextFile(SETTINGS_FILE));
+  } catch { /* no settings file yet */ }
+  const explicit = (typeof s.linkBase === "string" && s.linkBase.trim()) ||
+    Deno.env.get("TRACKER_LINK_BASE") || "";
+  if (explicit) return explicit.replace(/\/$/, "");
+  const hub = await getHubApi();
+  if (!hub) return null;
+  try {
+    const u = new URL(hub.url);
+    u.port = "8444";
+    return u.origin;
+  } catch {
+    return null;
+  }
 }

@@ -38,7 +38,19 @@ export const ENTITIES = [
   },
   {
     name: "page_shares",
-    cols: ["id", "page_id", "user_id", "role", "origin", "updated_at", "deleted"],
+    cols: [
+      "id",
+      "page_id",
+      "user_id",
+      "role",
+      "origin",
+      "updated_at",
+      "deleted",
+    ],
+  },
+  {
+    name: "page_links",
+    cols: ["id", "page_id", "token_hash", "origin", "updated_at", "deleted"],
   },
   {
     name: "page_comments",

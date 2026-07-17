@@ -1,12 +1,16 @@
 // Minimal per-page sharing modal (phase 7): grant a guest viewer/editor access to
 // this page's subtree, change the role, revoke. Grants are normal synced rows; the
 // hub API enforces them — this UI only edits data.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  createShareLink,
+  listShareLinks,
   listShares,
   listUsers,
+  type PageLink,
   type PageShare,
   revokeShare,
+  revokeShareLink,
   setShare,
   type UserInfo,
 } from "./api";
@@ -16,14 +20,39 @@ export function ShareModal(
 ) {
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [shares, setShares] = useState<PageShare[]>([]);
+  const [links, setLinks] = useState<PageLink[]>([]);
   const [picked, setPicked] = useState("");
   const [role, setRole] = useState<"viewer" | "editor">("editor");
+  const [linkFlash, setLinkFlash] = useState<string | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const reload = () => listShares(pageId).then(setShares);
+  const reload = () => {
+    listShares(pageId).then(setShares);
+    listShareLinks(pageId).then((r) => setLinks(r.links));
+  };
   useEffect(() => {
     listUsers().then(setUsers);
     reload();
+    return () => clearTimeout(flashTimer.current);
   }, [pageId]);
+
+  const flash = (msg: string) => {
+    clearTimeout(flashTimer.current);
+    setLinkFlash(msg);
+    flashTimer.current = setTimeout(() => setLinkFlash(null), 2600);
+  };
+  const copyLink = () =>
+    createShareLink(pageId).then((r) => {
+      if (!r.url) {
+        flash("set linkBase in settings.json first");
+        return;
+      }
+      navigator.clipboard.writeText(r.url).then(
+        () => flash("Link copied ✓"),
+        () => flash(r.url!), // clipboard blocked — at least show it
+      );
+      reload();
+    });
 
   const guests = users.filter((u) =>
     u.role === "guest" && !shares.some((s) => s.user_id === u.id)
@@ -127,6 +156,41 @@ export function ShareModal(
               </code>
             </div>
           )}
+
+        <div className="mt-4 border-t border-line pt-3">
+          <div className="mb-2 text-[12px] font-medium text-ink-soft">
+            Public link
+          </div>
+          <div className="mb-2 text-[11px] text-ink-muted">
+            Anyone with the link gets a read-only web view of this subtree — no
+            account needed. Comments are never shown.
+          </div>
+          {links.map((l) => (
+            <div
+              key={l.id}
+              className="mb-1.5 flex items-center gap-2 text-[12px]"
+            >
+              <span className="flex-1 truncate text-ink-muted">
+                link · created {new Date(l.updated_at).toLocaleDateString()}
+              </span>
+              <button
+                type="button"
+                title="Revoke — the URL stops working immediately"
+                onClick={() => revokeShareLink(l.id).then(reload)}
+                className="rounded-md border border-line px-1.5 py-0.5 text-[11.5px] text-ink-muted hover:text-blocked"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={copyLink}
+            className="rounded-md border border-line px-2.5 py-1 text-[12px] text-ink-muted hover:text-ink-soft"
+          >
+            {linkFlash ?? "Create + copy link"}
+          </button>
+        </div>
 
         <div className="mt-4 text-right">
           <button
