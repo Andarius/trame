@@ -228,6 +228,15 @@ async function runSync() {
   return r;
 }
 
+// Push local writes soon after they happen instead of waiting out the poll — the
+// receiving side is already realtime (WS nudges), this closes the sending side.
+// Debounced so a burst of edits rides one pass.
+let syncSoonTimer: ReturnType<typeof setTimeout> | undefined;
+function syncSoon() {
+  clearTimeout(syncSoonTimer);
+  syncSoonTimer = setTimeout(() => runSync().catch(console.error), 1_500);
+}
+
 const WEB_DIST = `${APP_ROOT}/web/dist`;
 
 const UUID_RE =
@@ -994,16 +1003,30 @@ setInterval(() => runSync().catch(console.error), SYNC_INTERVAL_MS);
 startRealtime(() => runSync().catch(console.error));
 startPlugins();
 
+// Every successful mutating /api call schedules a debounced push (excluding /api/sync
+// itself — it IS the sync). GETs and failures don't.
+async function serveHandler(req: Request): Promise<Response> {
+  const res = await handler(req);
+  if (
+    req.method !== "GET" && res.ok &&
+    new URL(req.url).pathname.startsWith("/api/") &&
+    !new URL(req.url).pathname.startsWith("/api/sync")
+  ) {
+    syncSoon();
+  }
+  return res;
+}
+
 // Under `deno desktop` (TRACKER_DESKTOP=1) don't pin a port — the framework binds the
 // address the webview navigates to. Headless `serve` uses a fixed port so the browser
 // and the vite dev proxy know where to reach the API.
 let server: Deno.HttpServer<Deno.NetAddr>;
 if (Deno.env.get("TRACKER_DESKTOP") === "1") {
   console.log(`🧵 Trame (desktop)  local db: ${DATA_DIR}`);
-  server = Deno.serve(handler);
+  server = Deno.serve(serveHandler);
 } else {
   console.log(`🧵 Trame → http://localhost:${PORT}  (local db: ${DATA_DIR})`);
-  server = Deno.serve({ port: PORT, hostname: HOST }, handler);
+  server = Deno.serve({ port: PORT, hostname: HOST }, serveHandler);
 }
 
 boundPort = server.addr.port;
