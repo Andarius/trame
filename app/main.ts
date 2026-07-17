@@ -14,11 +14,16 @@ import {
   SYNC_INTERVAL_MS,
   WINDOW_FILE,
 } from "./config.ts";
-import { handlePluginRoute, listPluginManifests, startPlugins } from "./plugins/index.ts";
+import {
+  handlePluginRoute,
+  listPluginManifests,
+  startPlugins,
+} from "./plugins/index.ts";
 import { isCrossSite } from "./csrf.ts";
 import { type LaunchMode, shq, spawnTerminal } from "./terminal.ts";
 import {
   deleteReportFile,
+  getLinkBase,
   getRemotePg,
   getReportPaths,
   listFolder,
@@ -63,15 +68,18 @@ import { applyUpdate, checkUpdate, VERSION } from "./update.ts";
 import {
   attachUdbToPage,
   createComment,
+  createLink,
   createPage,
   deleteComment,
   deletePage,
   getPage,
   listComments,
+  listLinks,
   listPages,
   listShares,
   listUsers,
   movePage,
+  revokeLink,
   revokeShare,
   setShare,
   updateComment,
@@ -563,7 +571,9 @@ async function handler(req: Request): Promise<Response> {
     // Imported cards carry the transcript UUID as id; skill-tracked cards store it
     // in the legacy-named claude_id column. cid flows into a shell command, so it
     // must be a UUID like id — guard against a poisoned/synced claude_id value.
-    const cid = row?.claude_id && UUID_RE.test(row.claude_id) ? row.claude_id : id;
+    const cid = row?.claude_id && UUID_RE.test(row.claude_id)
+      ? row.claude_id
+      : id;
     // Home device = the node that imported it (its transcript lives there).
     const ev = (await pg.query(
       `select summary from session_events where session_id=$1 and kind='import' and not deleted order by at limit 1`,
@@ -771,7 +781,9 @@ async function handler(req: Request): Promise<Response> {
     // stale local names on two machines would ping-pong the users row)
     await updateUserProfile({
       name: typeof body.authorName === "string" ? body.authorName : undefined,
-      avatar: typeof body.authorAvatar === "string" ? body.authorAvatar : undefined,
+      avatar: typeof body.authorAvatar === "string"
+        ? body.authorAvatar
+        : undefined,
     }).catch(console.error);
     return json(await getReportPaths());
   }
@@ -802,10 +814,13 @@ async function handler(req: Request): Promise<Response> {
   }
   if (pathname === "/api/open-path" && req.method === "POST") {
     const { path } = await req.json().catch(() => ({}));
-    const real = typeof path === "string" ? await resolveAllowedPath(path) : null;
+    const real = typeof path === "string"
+      ? await resolveAllowedPath(path)
+      : null;
     if (real === null) return json({ error: "not allowed or not found" }, 404);
     const cmd = Deno.build.os === "darwin" ? "open" : "xdg-open";
-    new Deno.Command(cmd, { args: [real], stdout: "null", stderr: "null" }).spawn();
+    new Deno.Command(cmd, { args: [real], stdout: "null", stderr: "null" })
+      .spawn();
     return json({ ok: true });
   }
   const rm = pathname.match(/^\/api\/reports\/([^/]+)$/);
@@ -870,6 +885,24 @@ async function handler(req: Request): Promise<Response> {
   const shr = pathname.match(/^\/api\/shares\/([^/]+)\/delete$/);
   if (shr && req.method === "POST") {
     await revokeShare(shr[1]);
+    return json({ ok: true });
+  }
+  if (pathname === "/api/links" && req.method === "POST") {
+    const body = await req.json();
+    const { id, token } = await createLink(String(body.page_id));
+    const base = await getLinkBase();
+    return json({ id, url: base ? `${base}/l/${token}` : null, token });
+  }
+  if (pathname === "/api/links") {
+    const pageId = url.searchParams.get("page");
+    return json({
+      base: await getLinkBase(),
+      links: pageId ? await listLinks(pageId) : [],
+    });
+  }
+  const lnk = pathname.match(/^\/api\/links\/([^/]+)\/delete$/);
+  if (lnk && req.method === "POST") {
+    await revokeLink(lnk[1]);
     return json({ ok: true });
   }
 

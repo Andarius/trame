@@ -101,3 +101,12 @@ try {
 }
 
 Deno.serve({ port: PORT, hostname: "0.0.0.0", ...tls }, app.fetch);
+
+// Public link viewer on its OWN port: only /l/* exists here, so a reverse proxy /
+// port-forward can expose it to the internet without ever exposing /sync or /ws.
+const PUBLIC_PORT = Number(Deno.env.get("TRACKER_API_PUBLIC_PORT") ?? "8444");
+const { createLinkApp } = await import("./links.ts");
+Deno.serve(
+  { port: PUBLIC_PORT, hostname: "0.0.0.0", ...tls },
+  createLinkApp(db).fetch,
+);

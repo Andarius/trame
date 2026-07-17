@@ -64,6 +64,9 @@ services:
       - tracker-deno-cache:/deno-cache
     ports:
       - "${TRACKER_BIND:-127.0.0.1}:${TRACKER_API_PORT:-8443}:8443"
+      # public link viewer — the ONLY port a reverse proxy should expose to the
+      # internet (serves /l/* read-only views, nothing else)
+      - "${TRACKER_BIND:-127.0.0.1}:${TRACKER_API_PUBLIC_PORT:-8444}:8444"
 
 networks:
   # Fixed subnet so the pg_hba rule for tracker-api can be scoped tightly.
