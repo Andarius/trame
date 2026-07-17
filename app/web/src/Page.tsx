@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import {
   attachUdbToPage,
   type Block,
@@ -8,8 +8,12 @@ import {
   createUdb,
   deleteComment,
   deletePage,
+  getIdentity,
   getPage,
+  getPresence,
   listComments,
+  type Presence,
+  pingPresence,
   type PageComment,
   type PageDetail,
   type UdbMeta,
@@ -64,17 +68,80 @@ type CommentOps = {
   remove: (id: string) => void;
 };
 
+// "inline": threads expand under their block (GitHub-PR style).
+// "panel": threads live in a right-side panel; bubbles open a quick popover.
+type CommentMode = "inline" | "panel";
+const COMMENT_MODE_KEY = "trame-comment-mode";
+const PANEL_OPEN_KEY = "trame-comments-panel-open";
+// which inline threads are expanded — persisted per page so a refresh keeps them open
+const openKey = (pageId: string) => `trame-open-threads:${pageId}`;
+const loadOpenThreads = (pageId: string): Set<string> => {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(openKey(pageId)) || "[]"));
+  } catch {
+    return new Set();
+  }
+};
+
+// Stable per-author tint so replies from different people read apart at a glance.
+const authorColor = (name: string) =>
+  PROJECT_COLORS[[...name].reduce((a, ch) => a + ch.charCodeAt(0), 0) % PROJECT_COLORS.length];
+
+// mirrors AGENT_AUTHOR_ID in app/agent-comments.ts — agent-authored comments
+const AGENT_AUTHOR_ID = "00000000-0000-4000-8000-0000000000aa";
+const isAgent = (c: PageComment) => c.author_id === AGENT_AUTHOR_ID;
+// a reply is answered once a newer agent comment sits on the same block
+const answeredIn = (c: PageComment, blockComments: PageComment[]) =>
+  blockComments.some((o) => isAgent(o) && o.updated_at > c.updated_at);
+
+// Badges describe what the AGENT is doing about this human reply — the agent's name
+// is in the label so it never reads as if the human author is the one acting.
+const AGENT_BADGE = {
+  seen: { verb: (a: string) => `${a} saw this`, cls: "text-ink-muted", pulse: false },
+  answering: { verb: (a: string) => `${a} is answering…`, cls: "text-copper", pulse: true },
+  failed: { verb: (a: string) => `${a} couldn't answer`, cls: "text-blocked/80", pulse: false },
+} as const;
+const cap = (s: string) => s ? s[0].toUpperCase() + s.slice(1) : "An agent";
+
+// A dim one-line footer for an agent answer: "haiku · 1.2k→340 tok · 4.3s".
+function formatMeta(raw: string | null): string | null {
+  if (!raw) return null;
+  try {
+    const m = JSON.parse(raw) as { model?: string; in?: number; out?: number; ms?: number };
+    const model = (m.model ?? "").replace(/^claude-/, "").replace(/(-[\d.]+)+$/, "");
+    const tok = (n?: number) => n == null ? "?" : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
+    const parts = [];
+    if (model) parts.push(model);
+    if (m.in != null || m.out != null) parts.push(`${tok(m.in)}→${tok(m.out)} tok`);
+    if (m.ms != null) parts.push(`${(m.ms / 1000).toFixed(1)}s`);
+    return parts.join(" · ") || null;
+  } catch {
+    return null;
+  }
+}
+
 function CommentItem(
-  { c, onUpdate, onDelete }: {
+  { c, canEdit, answered, onUpdate, onDelete }: {
     c: PageComment;
+    canEdit: boolean; // body editing is the author's alone; resolve/delete stay open
+    answered?: boolean; // a newer agent comment exists — hide any stale watcher badge
     onUpdate: (patch: { body?: string; resolved?: boolean }) => void;
     onDelete: () => void;
   },
 ) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(c.body);
+  const tint = authorColor(c.author || "?");
+  const grow = (el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = "0";
+    el.style.height = `${el.scrollHeight}px`;
+  };
   return (
-    <div className={`rounded-md border border-line-soft bg-panel/50 p-2 ${c.resolved ? "opacity-55" : ""}`}>
+    <div
+      className={`rounded-md border border-line-soft bg-panel/50 p-2 ${c.resolved ? "opacity-55" : ""}`}
+      style={{ borderLeft: `2px solid ${tint}66` }}
+    >
       <div className="mb-1 flex items-center gap-1.5">
         {c.author_avatar && (
           <img
@@ -83,9 +150,19 @@ function CommentItem(
             className="h-4 w-4 shrink-0 rounded-full object-cover"
           />
         )}
-        {c.author && <span className="text-[10.5px] font-medium text-ink-soft">{c.author}</span>}
+        {c.author && <span className="text-[10.5px] font-medium" style={{ color: tint }}>{c.author}</span>}
         <span className="text-[10px] text-ink-muted">{timeAgo(c.updated_at)}</span>
         {c.resolved && <span className="text-[9px] uppercase tracking-[0.5px] text-active">resolved</span>}
+        {c.agent_status && !answered && !c.resolved && !isAgent(c) && (
+          <span
+            className={`flex items-center gap-0.5 rounded-full bg-panel px-1.5 py-px text-[9px] ${
+              AGENT_BADGE[c.agent_status].cls
+            } ${AGENT_BADGE[c.agent_status].pulse ? "animate-pulse" : ""}`}
+          >
+            {c.agent_status === "answering" ? "⟳" : c.agent_status === "seen" ? "✓" : "⚠"}
+            {AGENT_BADGE[c.agent_status].verb(cap(c.agent_status_agent))}
+          </span>
+        )}
         <span className="flex-1" />
         <button type="button" title={c.resolved ? "reopen" : "resolve"} onClick={() => onUpdate({ resolved: !c.resolved })}
           className="text-[12px] text-ink-muted transition-colors hover:text-active"
@@ -102,10 +179,14 @@ function CommentItem(
         ? (
           <textarea
             autoFocus
-            rows={2}
+            rows={1}
+            ref={grow}
             value={draft}
-            className="w-full resize-none rounded bg-[#101219] p-1.5 text-[12px] leading-snug text-ink outline-none"
-            onChange={(e) => setDraft(e.target.value)}
+            className="w-full resize-none overflow-hidden rounded bg-[#101219] p-1.5 text-[12px] leading-snug text-ink outline-none"
+            onChange={(e) => {
+              setDraft(e.target.value);
+              grow(e.target);
+            }}
             onBlur={() => {
               setEditing(false);
               const v = draft.trim();
@@ -116,13 +197,53 @@ function CommentItem(
         )
         : (
           <div
-            className="cursor-text whitespace-pre-wrap text-[12px] leading-snug text-ink-soft"
-            title="click to edit"
-            onClick={() => setEditing(true)}
+            className={`whitespace-pre-wrap text-[12px] leading-snug text-ink-soft ${canEdit ? "cursor-text" : ""}`}
+            title={canEdit ? "click to edit" : undefined}
+            onClick={() => canEdit && setEditing(true)}
           >
             {c.body}
           </div>
         )}
+      {formatMeta(c.meta) && (
+        <div className="mt-1 text-[9px] tracking-[0.3px] text-ink-muted/50">{formatMeta(c.meta)}</div>
+      )}
+    </div>
+  );
+}
+
+// Notion-style avatar stack: who's on the page + which agents are watching.
+function PresenceBar({ people }: { people: Presence[] }) {
+  if (people.length === 0) return null;
+  // viewers first, then watchers; dedup already handled server-side by id
+  const sorted = [...people].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "viewer" ? -1 : 1));
+  return (
+    <div className="flex items-center">
+      {sorted.map((p) => (
+        <div
+          key={p.id}
+          className="relative -ml-1.5 first:ml-0"
+          title={p.kind === "watcher" ? `${p.name} is watching` : p.name}
+        >
+          {p.avatar
+            ? (
+              <img
+                src={p.avatar}
+                alt={p.name}
+                className={`h-6 w-6 rounded-full object-cover ring-2 ring-canvas ${
+                  p.kind === "watcher" ? "ring-copper/60" : ""
+                }`}
+              />
+            )
+            : (
+              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-chipline text-[10px] font-medium text-ink ring-2 ring-canvas">
+                {p.name.slice(0, 1).toUpperCase()}
+              </div>
+            )}
+          {p.kind === "watcher" && (
+            <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-copper ring-2 ring-canvas" />
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -151,66 +272,53 @@ function AddNote({ onAdd, autoFocus }: { onAdd: (body: string) => void; autoFocu
 }
 
 // The margin affordance next to a block: a bubble when the block has comments,
-// otherwise a hover-only "add" button. Opens the block's thread as a popover.
+// otherwise a hover-only "add" button. Inline mode toggles the thread under the
+// block; panel mode opens a quick popover.
 function CommentGutter(
-  { blockId, anchor, comments, showResolved, showAll, ops }: {
+  { blockId, anchor, comments, showResolved, mode, inlineOpen, onToggleInline, meId, ops }: {
     blockId: string;
     anchor: string;
     comments: PageComment[]; // already filtered to this block
     showResolved: boolean;
-    showAll: boolean;
+    mode: CommentMode;
+    inlineOpen: boolean;
+    onToggleInline: () => void;
+    meId: string | null;
     ops: CommentOps;
   },
 ) {
   const [open, setOpen] = useState(false);
-  // auto-opened threads (via "Show resolved" / "Open all") shouldn't grab focus/scroll like a click does
-  const [autoOpened, setAutoOpened] = useState(false);
-  // "Show resolved" reveals AND opens the threads that have resolved notes, so they're
-  // readable inline without a second click; toggling off closes them again.
-  useEffect(() => {
-    if (comments.some((c) => c.resolved)) {
-      setOpen(showResolved);
-      setAutoOpened(showResolved);
-    }
-  }, [showResolved]);
-  // "Open all" opens every thread that has something to show under the current filter.
-  useEffect(() => {
-    if (showResolved ? comments.length > 0 : comments.some((c) => !c.resolved)) {
-      setOpen(showAll);
-      setAutoOpened(showAll);
-    }
-  }, [showAll]);
   const unresolved = comments.filter((c) => !c.resolved);
   const visible = showResolved ? comments : unresolved;
   const marker = unresolved.length > 0 || (showResolved && comments.length > 0);
+  const active = mode === "inline" ? inlineOpen : open;
   return (
     <div className="relative">
       <button
         type="button"
         title={unresolved.length ? `${unresolved.length} comment${unresolved.length > 1 ? "s" : ""}` : "comment"}
-        onClick={() => {
-          setOpen((v) => !v);
-          setAutoOpened(false);
-        }}
+        onClick={() => (mode === "inline" ? onToggleInline() : setOpen((v) => !v))}
         className={`flex items-center gap-0.5 rounded-md px-1 py-0.5 text-[11px] transition-opacity ${
-          marker ? "opacity-100" : "opacity-0 group-hover:opacity-60 hover:!opacity-100"
+          marker || active ? "opacity-100" : "opacity-0 group-hover:opacity-60 hover:!opacity-100"
         } ${unresolved.length ? "text-copper hover:bg-copper/10" : "text-ink-muted hover:bg-panel"}`}
       >
         💬{unresolved.length > 0 && <span className="text-[10px] font-medium">{unresolved.length}</span>}
       </button>
-      {open && (
+      {mode === "panel" && open && (
         <Popover onClose={() => setOpen(false)} className="left-auto right-0 max-h-[60vh] w-[300px] overflow-y-auto p-2">
           <div className="flex flex-col gap-2">
             {visible.map((c) => (
               <CommentItem
                 key={c.id}
                 c={c}
+                canEdit={Boolean(meId) && c.author_id === meId}
+                answered={answeredIn(c, comments)}
                 onUpdate={(patch) => ops.update(c.id, patch)}
                 onDelete={() => ops.remove(c.id)}
               />
             ))}
             {visible.length === 0 && <span className="px-1 text-[11px] text-ink-muted/60">No comments yet</span>}
-            <AddNote autoFocus={!autoOpened} onAdd={(body) => ops.add(blockId, anchor, body)} />
+            <AddNote autoFocus onAdd={(body) => ops.add(blockId, anchor, body)} />
           </div>
         </Popover>
       )}
@@ -219,7 +327,7 @@ function CommentGutter(
 }
 
 function BlockEditor(
-  { blocks, onChange, onSlashInsert, onOpenReport, comments, commentOps, showResolved, showAll }: {
+  { blocks, onChange, onSlashInsert, onOpenReport, comments, commentOps, showResolved, mode, openThreads, focusThread, flash, meId, onToggleThread }: {
     blocks: Block[];
     onChange: (blocks: Block[]) => void;
     // subpage/database creation is async and owned by the page
@@ -228,7 +336,12 @@ function BlockEditor(
     comments: PageComment[];
     commentOps: CommentOps;
     showResolved: boolean;
-    showAll: boolean;
+    mode: CommentMode;
+    openThreads: Set<string>; // block ids with their inline thread expanded
+    focusThread: string | null; // thread just opened by a click — its composer grabs focus
+    flash: string | null; // block briefly highlighted after a panel jump
+    meId: string | null;
+    onToggleThread: (blockId: string) => void;
   },
 ) {
   const refs = useRef<(HTMLTextAreaElement | null)[]>([]);
@@ -304,12 +417,15 @@ function BlockEditor(
         const items = filter === null ? [] : SLASH.filter((s) => s.label.toLowerCase().includes(filter));
         const blockComments = b.id ? comments.filter((c) => c.block_id === b.id) : [];
         const hasOpen = blockComments.some((c) => !c.resolved);
+        const visibleComments = showResolved ? blockComments : blockComments.filter((c) => !c.resolved);
+        const inlineOpen = mode === "inline" && Boolean(b.id) && openThreads.has(b.id as string);
         return (
+          <Fragment key={b.id ?? i}>
           <div
-            key={b.id ?? i}
+            data-block-id={b.id || undefined}
             className={`group relative -mx-1 flex items-start gap-2 px-1 ${
               hasOpen ? "rounded-md bg-copper/[0.05]" : ""
-            }`}
+            } ${flash === b.id ? "rounded-md ring-1 ring-copper/50" : ""}`}
           >
             {b.type === "todo" && (
               <input
@@ -395,11 +511,33 @@ function BlockEditor(
                 anchor={b.text}
                 comments={blockComments}
                 showResolved={showResolved}
-                showAll={showAll}
+                mode={mode}
+                inlineOpen={inlineOpen}
+                onToggleInline={() => b.id && onToggleThread(b.id)}
+                meId={meId}
                 ops={commentOps}
               />
             </div>
           </div>
+          {inlineOpen && (
+            <div className="my-1 ml-6 flex max-w-[480px] flex-col gap-1.5 border-l-2 border-copper/40 pl-3">
+              {visibleComments.map((c) => (
+                <CommentItem
+                  key={c.id}
+                  c={c}
+                  canEdit={Boolean(meId) && c.author_id === meId}
+                  answered={answeredIn(c, blockComments)}
+                  onUpdate={(patch) => commentOps.update(c.id, patch)}
+                  onDelete={() => commentOps.remove(c.id)}
+                />
+              ))}
+              <AddNote
+                autoFocus={focusThread === b.id}
+                onAdd={(body) => commentOps.add(b.id as string, b.text, body)}
+              />
+            </div>
+          )}
+          </Fragment>
         );
       })}
     </div>
@@ -422,7 +560,56 @@ export function Page(
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [comments, setComments] = useState<PageComment[]>([]);
   const [showResolved, setShowResolved] = useState(false);
-  const [showAll, setShowAll] = useState(false);
+  const [commentMode, setCommentMode] = useState<CommentMode>(
+    () => (localStorage.getItem(COMMENT_MODE_KEY) === "panel" ? "panel" : "inline"),
+  );
+  const [openThreads, setOpenThreads] = useState<Set<string>>(() => loadOpenThreads(pageId));
+  const [focusThread, setFocusThread] = useState<string | null>(null);
+  const [panelOpen, setPanelOpenState] = useState(() => localStorage.getItem(PANEL_OPEN_KEY) === "1");
+  const setPanelOpen = (v: boolean | ((p: boolean) => boolean)) =>
+    setPanelOpenState((p) => {
+      const next = typeof v === "function" ? v(p) : v;
+      localStorage.setItem(PANEL_OPEN_KEY, next ? "1" : "0");
+      return next;
+    });
+  // set + persist open threads together, keyed by the current page (no cross-page race)
+  const putOpenThreads = (v: Set<string> | ((p: Set<string>) => Set<string>)) =>
+    setOpenThreads((p) => {
+      const next = typeof v === "function" ? v(p) : v;
+      localStorage.setItem(openKey(pageId), JSON.stringify([...next]));
+      return next;
+    });
+  const [flash, setFlash] = useState<string | null>(null);
+  const flashTimer = useRef<number | undefined>(undefined);
+  const [meId, setMeId] = useState<string | null>(null);
+  useEffect(() => {
+    getIdentity().then((i) => setMeId(i.userId)).catch(() => {});
+  }, []);
+  // presence: heartbeat that I'm here + poll who else / which agents are watching
+  const [presence, setPresence] = useState<Presence[]>([]);
+  useEffect(() => {
+    const beat = () => {
+      if (document.hidden) return;
+      pingPresence(pageId);
+      getPresence(pageId).then(setPresence).catch(() => {});
+    };
+    beat();
+    const t = setInterval(beat, 8000);
+    return () => clearInterval(t);
+  }, [pageId]);
+  // live-refresh comments so watcher status (seen/answering) and agent replies appear
+  // without a reload; only swap state when the payload actually changed (keeps
+  // in-progress edits and avoids re-render churn), and pause when the tab is hidden.
+  useEffect(() => {
+    const tick = () => {
+      if (document.hidden) return;
+      listComments(pageId).then((next) =>
+        setComments((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next))
+      ).catch(() => {});
+    };
+    const t = setInterval(tick, 5000);
+    return () => clearInterval(t);
+  }, [pageId]);
   const [iconOpen, setIconOpen] = useState(false);
   const [colorOpen, setColorOpen] = useState(false);
   const saveTimer = useRef<number | undefined>(undefined);
@@ -436,9 +623,43 @@ export function Page(
     update: (id, patch) => updateComment(id, patch).then(reloadComments),
     remove: (id) => deleteComment(id).then(reloadComments),
   };
+  const setMode = (m: CommentMode) => {
+    if (m === commentMode) return;
+    setCommentMode(m);
+    localStorage.setItem(COMMENT_MODE_KEY, m);
+    setFocusThread(null);
+    // carry the open state across so switching doesn't hide what you were reading
+    if (m === "panel") {
+      if (openThreads.size > 0) setPanelOpen(true);
+      putOpenThreads(new Set());
+    } else {
+      if (panelOpen) {
+        putOpenThreads(new Set(comments.filter((c) => showResolved || !c.resolved).map((c) => c.block_id)));
+      }
+      setPanelOpen(false);
+    }
+  };
+  const toggleThread = (blockId: string) => {
+    const opening = !openThreads.has(blockId);
+    setFocusThread(opening ? blockId : null);
+    putOpenThreads((prev) => {
+      const next = new Set(prev);
+      if (opening) next.add(blockId);
+      else next.delete(blockId);
+      return next;
+    });
+  };
+  const flashBlock = (blockId: string) => {
+    document.querySelector(`[data-block-id="${CSS.escape(blockId)}"]`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setFlash(blockId);
+    clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlash(null), 1400);
+  };
   useEffect(() => {
     setShowResolved(false);
-    setShowAll(false);
+    setOpenThreads(loadOpenThreads(pageId)); // restore this page's expanded threads
+    setFocusThread(null);
     getPage(pageId).then((p) => {
       setPage(p);
       setComments(p.comments ?? []);
@@ -501,8 +722,21 @@ export function Page(
   const orphans = comments.filter((c) => !blockIds.has(c.block_id));
   const resolvedCount = comments.filter((c) => c.resolved && blockIds.has(c.block_id)).length;
   const openCount = comments.filter((c) => !c.resolved && blockIds.has(c.block_id)).length;
+  const commentedIds = [
+    ...new Set(
+      comments.filter((c) => blockIds.has(c.block_id) && (showResolved || !c.resolved)).map((c) => c.block_id),
+    ),
+  ];
+  const allOpen = commentedIds.length > 0 && commentedIds.every((id) => openThreads.has(id));
+  // panel threads follow block order so the list reads like the page
+  const panelThreads = blocks.filter(isText).flatMap((b) => {
+    if (!b.id) return [];
+    const list = comments.filter((c) => c.block_id === b.id && (showResolved || !c.resolved));
+    return list.length ? [{ block: b, list }] : [];
+  });
 
   return (
+    <div className="flex min-h-0 flex-1">
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto flex max-w-[820px] flex-col gap-4 px-8 py-7">
         <div className="flex items-center gap-2">
@@ -554,6 +788,9 @@ export function Page(
               )}
             </div>
           )}
+          <div className="shrink-0 pl-1">
+            <PresenceBar people={presence} />
+          </div>
         </div>
 
         {isStory && (
@@ -591,24 +828,63 @@ export function Page(
 
         {(openCount > 0 || resolvedCount > 0) && (
           <div className="-mb-2 flex items-center gap-3 self-start">
-            {openCount > 0 && (
-              <button
-                type="button"
-                className="text-[11px] text-ink-muted/70 transition-colors hover:text-ink-soft"
-                onClick={() => setShowAll((v) => !v)}
-              >
-                {showAll ? "Close" : "Open"} all {openCount} comment{openCount > 1 ? "s" : ""}
-              </button>
-            )}
+            {commentMode === "inline"
+              ? (
+                <button
+                  type="button"
+                  className="text-[11px] text-ink-muted/70 transition-colors hover:text-ink-soft"
+                  onClick={() => {
+                    setFocusThread(null);
+                    putOpenThreads(allOpen ? new Set() : new Set(commentedIds));
+                  }}
+                >
+                  {allOpen ? "Close" : "Open"} all {openCount} comment{openCount > 1 ? "s" : ""}
+                </button>
+              )
+              : (
+                <button
+                  type="button"
+                  className="text-[11px] text-ink-muted/70 transition-colors hover:text-ink-soft"
+                  onClick={() => setPanelOpen((v) => !v)}
+                >
+                  {panelOpen ? "Hide" : "Show"} comments panel ({openCount})
+                </button>
+              )}
             {resolvedCount > 0 && (
               <button
                 type="button"
                 className="text-[11px] text-ink-muted/70 transition-colors hover:text-ink-soft"
-                onClick={() => setShowResolved((v) => !v)}
+                onClick={() => {
+                  const next = !showResolved;
+                  setShowResolved(next);
+                  // inline mode: reveal AND expand the threads holding resolved notes
+                  if (next && commentMode === "inline") {
+                    setFocusThread(null);
+                    putOpenThreads((prev) => {
+                      const n = new Set(prev);
+                      for (const c of comments) if (c.resolved && blockIds.has(c.block_id)) n.add(c.block_id);
+                      return n;
+                    });
+                  }
+                }}
               >
                 {showResolved ? "Hide" : "Show"} {resolvedCount} resolved comment{resolvedCount > 1 ? "s" : ""}
               </button>
             )}
+            <div className="flex overflow-hidden rounded-md border border-line-soft text-[10.5px]">
+              {(["inline", "panel"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  className={`px-2 py-0.5 capitalize transition-colors ${
+                    commentMode === m ? "bg-panel text-ink-soft" : "text-ink-muted/60 hover:text-ink-soft"
+                  }`}
+                  onClick={() => setMode(m)}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -620,7 +896,12 @@ export function Page(
           comments={comments}
           commentOps={commentOps}
           showResolved={showResolved}
-          showAll={showAll}
+          mode={commentMode}
+          openThreads={openThreads}
+          focusThread={focusThread}
+          flash={flash}
+          meId={meId}
+          onToggleThread={toggleThread}
         />
 
         {orphans.length > 0 && (
@@ -637,6 +918,7 @@ export function Page(
                 )}
                 <CommentItem
                   c={c}
+                  canEdit={Boolean(meId) && c.author_id === meId}
                   onUpdate={(patch) => commentOps.update(c.id, patch)}
                   onDelete={() => commentOps.remove(c.id)}
                 />
@@ -695,6 +977,59 @@ export function Page(
           </div>
         )}
       </div>
+    </div>
+    {commentMode === "panel" && panelOpen && (
+      <aside className="flex w-[320px] shrink-0 flex-col border-l border-line bg-sidebar">
+        <div className="flex items-center gap-2 border-b border-line-soft px-3.5 py-2.5">
+          <span className="text-[12px] font-semibold text-ink">Comments</span>
+          <span className="text-[10.5px] text-ink-muted">{openCount} open</span>
+          <span className="flex-1" />
+          {resolvedCount > 0 && (
+            <button
+              type="button"
+              className="text-[10.5px] text-ink-muted/70 transition-colors hover:text-ink-soft"
+              onClick={() => setShowResolved((v) => !v)}
+            >
+              {showResolved ? "hide" : "show"} resolved
+            </button>
+          )}
+          <button
+            type="button"
+            title="close"
+            className="text-[11px] text-ink-muted transition-colors hover:text-ink-soft"
+            onClick={() => setPanelOpen(false)}
+          >
+            ✕
+          </button>
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+          {panelThreads.map(({ block, list }) => (
+            <div key={block.id} className="flex flex-col gap-1.5">
+              <button
+                type="button"
+                title="jump to text"
+                className="truncate border-l-2 border-chipline pl-2 text-left text-[11px] italic text-ink-muted/70 transition-colors hover:text-ink-soft"
+                onClick={() => flashBlock(block.id as string)}
+              >
+                “{block.text || "…"}”
+              </button>
+              {list.map((c) => (
+                <CommentItem
+                  key={c.id}
+                  c={c}
+                  canEdit={Boolean(meId) && c.author_id === meId}
+                  answered={answeredIn(c, list)}
+                  onUpdate={(patch) => commentOps.update(c.id, patch)}
+                  onDelete={() => commentOps.remove(c.id)}
+                />
+              ))}
+              <AddNote onAdd={(body) => commentOps.add(block.id as string, block.text, body)} />
+            </div>
+          ))}
+          {panelThreads.length === 0 && <span className="px-1 text-[11px] text-ink-muted/60">No comments</span>}
+        </div>
+      </aside>
+    )}
     </div>
   );
 }

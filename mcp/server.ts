@@ -6,6 +6,7 @@ import { StdioServerTransport } from "npm:@modelcontextprotocol/sdk@^1.12/server
 import { z } from "npm:zod@^3.24";
 import { PORT_FILE } from "../app/config.ts";
 import { markdownToPageBlocks } from "../app/page-markdown.ts";
+import { resolveCommentBlock } from "../app/agent-comments.ts";
 
 async function api(path: string, init?: RequestInit): Promise<unknown> {
   let port: number;
@@ -111,6 +112,63 @@ server.tool(
         content: markdownToPageBlocks(markdown ?? "", title),
       }),
     ),
+);
+
+server.tool(
+  "trame_add_comment",
+  "Add an inline Codex or Claude review comment to a Trame page block. Identify the page by id or exact title and the block by id or a unique text quote; Trame supplies the agent avatar.",
+  {
+    page_id: z.string().optional(),
+    page_title: z.string().optional(),
+    block_id: z.string().optional(),
+    block_text: z.string().optional(),
+    body: z.string(),
+    agent: z.enum(["codex", "claude"]),
+  },
+  async (
+    args: {
+      page_id?: string;
+      page_title?: string;
+      block_id?: string;
+      block_text?: string;
+      body: string;
+      agent: "codex" | "claude";
+    },
+  ) => {
+    if (Boolean(args.page_id) === Boolean(args.page_title)) {
+      throw new Error("use exactly one of page_id or page_title");
+    }
+    if (args.block_id && args.block_text) {
+      throw new Error("use block_id or block_text, not both");
+    }
+    let pageId = args.page_id;
+    if (args.page_title) {
+      const pages = await api("/api/pages") as { id: string; title: string }[];
+      const matches = pages.filter((p) => p.title === args.page_title);
+      if (matches.length !== 1) {
+        throw new Error(
+          matches.length
+            ? `page_title "${args.page_title}" is ambiguous; use page_id`
+            : `page "${args.page_title}" was not found`,
+        );
+      }
+      pageId = matches[0].id;
+    }
+    const page = await api(`/api/pages/${pageId}`) as {
+      id: string;
+      content: unknown[];
+    };
+    const target = resolveCommentBlock(page.content, args);
+    return text(
+      await post("/api/comments", {
+        page_id: page.id,
+        block_id: target.id,
+        anchor: target.text,
+        body: args.body,
+        agent: args.agent,
+      }),
+    );
+  },
 );
 
 server.tool(

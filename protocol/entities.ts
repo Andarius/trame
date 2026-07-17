@@ -1,7 +1,7 @@
 // The synced entities and their wire columns — the single source of truth shared by
 // the laptop app (app/sync.ts) and the hub API (hub/api). Order matters: referenced
 // tables come before their referrers (no FKs, but pulls apply in this order).
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 export const ENTITIES = [
   {
@@ -64,6 +64,21 @@ export const ENTITIES = [
       "author_avatar",
       "author_id",
       "resolved",
+      "meta",
+      "origin",
+      "updated_at",
+      "deleted",
+    ],
+  },
+  {
+    name: "comment_agent_status",
+    cols: [
+      "id",
+      "comment_id",
+      "page_id",
+      "status",
+      "agent",
+      "body_hash",
       "origin",
       "updated_at",
       "deleted",
