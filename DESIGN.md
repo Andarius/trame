@@ -73,9 +73,26 @@ faint at 12px.
 | `Modal` shell (modals.tsx) | `ModalShell` | panel `#171923`, `#323649` border, r12, footer w/ divider |
 | Sidebar (App.tsx) | `Sidebar` | composed of the above; screens embed instances |
 
+### Comments & agents (v0.8.0, Page.tsx)
+
+| Code | Figma component | Notes |
+|---|---|---|
+| `AgentAvatar` (agent-comments.ts) | `AgentAvatar` (variants: codex/claude/glm/generated) | 24px circle. codex `#111827`+OpenAI, claude `#D97757`+Anthropic, glm `#2D2D2D`+Z.ai; generated = initial on a hashed `PROJECT_COLORS` bg |
+| `CommentItem` | `Comment` | `panel/50` card, r6, 1px `line-soft`, 2px left border = author tint (from `PROJECT_COLORS`); avatar + tinted name + `timeAgo` + resolve `✓`/reopen `↺` + delete `✕`; body renders Markdown |
+| agent status badge | `AgentBadge` (variants: seen/answering/failed) | 9px pill on `panel`. seen `✓ <a> saw this` (ink-muted), answering `⟳ <a> is answering…` (copper, pulse), failed `⚠ <a> couldn't answer` (`blocked/80`). Hidden once answered/resolved |
+| meta footer | `MetaFooter` | 9px `ink-muted/50`: `model · in→out tok · Xs`. Only on measured answers |
+| `CommentGutter` bubble | `CommentBubble` (variants: none/unresolved/resolved) | margin `💬` + count; copper when unresolved, hover-reveal when empty |
+| inline thread | `CommentThread` | expands under a block, 2px `copper/40` left border, gap of `Comment`s + `AddNote` |
+| comments panel | `CommentsPanel` | 320px right rail, `sidebar` bg, `line` left border; header (title + open count + show-resolved + `✕`) then per-block quoted anchor (`chipline` left border, italic, click-to-jump) + threads |
+| `AddNote` composer | `CommentComposer` | textarea, `chipline` border, "Add a comment… ⏎" placeholder, focus `copper/50` |
+| `PresenceBar` | `PresenceStack` | overlapping 24px `AgentAvatar`/user avatars (`-ml-1.5`, `ring-canvas`); watcher variant adds a `copper` ring + a `copper` dot (bottom-right) |
+| fenced code (md.tsx) | `CodeBlock` | `panel` bg, r6, lang label top-right; highlight: keywords `copper`, strings `active`, numbers `paused`, comments `ink-muted`, plain `ink-soft` |
+| whole-page selection | (state, not a component) | copy-as-Markdown: content column gets `copper/[0.07]` bg + `copper/25` ring when page-selected |
+
 Figma color variables live in the **Trame** collection, named exactly like the CSS
 tokens. When adding UI: pick from these tokens/components first — a new color or
-one-off style needs a reason.
+one-off style needs a reason. Agent-brand backgrounds (`#111827`, `#D97757`, `#2D2D2D`)
+are avatar-only and intentionally outside the token set.
 
 ## Hard-won rules
 
