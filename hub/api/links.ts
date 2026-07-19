@@ -3,6 +3,7 @@
 // The token is the capability: sha-256 looked up in page_links, revocable. Scope is
 // the linked page's subtree + attached databases. Comments are NEVER rendered here.
 import { type Context, Hono } from "hono";
+import { withBridge } from "../../protocol/html.ts";
 import type { Q } from "./db.ts";
 
 type Row = Record<string, unknown>;
@@ -89,7 +90,8 @@ async function renderDatabase(db: Q, dbId: string): Promise<string> {
 }
 
 // The block model is small (see app Block type): text/heading/todo render as text,
-// database blocks inline their table, subpage blocks link within the token's scope.
+// database blocks inline their table, subpage blocks link within the token's scope,
+// html blocks render in the same sandboxed iframe as the app (data-back is off here).
 // Folder blocks are local-filesystem views — meaningless (and private) here: skipped.
 async function renderBlocks(
   db: Q,
@@ -103,6 +105,8 @@ async function renderBlocks(
     done?: boolean;
     db_id?: string;
     page_id?: string;
+    html?: string;
+    height?: unknown;
   }[] = [];
   try {
     content = typeof page.content === "string"
@@ -116,6 +120,15 @@ async function renderBlocks(
       parts.push(`<p class="todo">${b.done ? "☑" : "☐"} ${esc(b.text)}</p>`);
     } else if (b.type === "text") {
       parts.push(`<p>${esc(b.text).replaceAll("\n", "<br>")}</p>`);
+    } else if (b.type === "html" && typeof b.html === "string" && b.html) {
+      const pin = typeof b.height === "number";
+      parts.push(
+        `<iframe class="hb" sandbox="allow-scripts" allow="clipboard-write"${
+          pin ? ` data-pinned="1"` : ""
+        } style="height:${pin ? Number(b.height) : 300}px" srcdoc="${
+          esc(withBridge(b.html))
+        }"></iframe>`,
+      );
     } else if (b.type === "database" && b.db_id) {
       parts.push(await renderDatabase(db, b.db_id));
     } else if (b.type === "subpage" && b.page_id && pages.has(b.page_id)) {
@@ -176,7 +189,11 @@ async function renderPage(
   th, td { border: 1px solid #d8dbe4; padding: 4px 8px; text-align: left; }
   .todo { margin: .2rem 0; } .muted { opacity: .6; font-size: 12.5px; }
   a { color: #3b62c4; text-decoration: none; }
-</style></head><body>
+  iframe.hb { width: 100%; border: 1px solid #d8dbe4; border-radius: 8px; background: #fff; }
+  @media (prefers-color-scheme: dark) { iframe.hb { border-color: #323649; background: #12141c; } }
+</style>
+<script>addEventListener("message",function(e){document.querySelectorAll("iframe.hb").forEach(function(f){if(f.contentWindow===e.source&&e.data&&e.data.trame==="height"&&!f.dataset.pinned)f.style.height=Math.min(Math.ceil(e.data.height)+2,4000)+"px"})})</script>
+</head><body>
 ${crumb}
 <h1>${esc(page.icon ?? "")} ${esc(page.title) || "Untitled"}</h1>
 ${page.story ? `<p class="muted">${esc(page.story)}</p>` : ""}

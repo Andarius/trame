@@ -33,7 +33,7 @@ const PRIVATE = "00000000-0000-4000-8000-0000000000f3";
 const DB_ID = "00000000-0000-4000-8000-0000000000f4";
 await pg.query(
   `insert into pages (id, title, story, content, origin) values
-   ($1, 'Roadmap', 'the plan', '[{"type":"heading","text":"Q3"},{"type":"todo","text":"ship links","done":true},{"type":"text","text":"hello <world>"}]', 't'),
+   ($1, 'Roadmap', 'the plan', '[{"type":"heading","text":"Q3"},{"type":"todo","text":"ship links","done":true},{"type":"text","text":"hello <world>"},{"type":"html","html":"<h1>Widget</h1><script>alert(1)</script>","height":222,"data":{"secret":"PICKED"}}]', 't'),
    ($2, 'Sub Plan', '', '[]', 't'),
    ($3, 'Secret Page', '', '[]', 't')`,
   [ROOT, SUB, PRIVATE],
@@ -73,6 +73,20 @@ Deno.test("a valid link renders the page, its blocks, database and sub-page link
   assert(html.includes("hello &lt;world&gt;"), "content is escaped");
   assert(html.includes("first task"), "attached database rendered");
   assert(html.includes(`/l/${TOKEN}/p/${SUB}`), "sub-page navigable");
+});
+
+Deno.test("html blocks render as sandboxed iframes, never raw in the page DOM", async () => {
+  const html = await (await app.request(`/l/${TOKEN}`)).text();
+  assert(html.includes('sandbox="allow-scripts"'));
+  assert(
+    html.includes("&lt;h1&gt;Widget&lt;/h1&gt;"),
+    "doc escaped into srcdoc",
+  );
+  assert(!html.includes("<h1>Widget</h1>"), "doc never injected raw");
+  assert(html.includes("height:222px"), "pinned height honored");
+  assert(html.includes("data-pinned"), "pinned blocks opt out of auto-height");
+  assert(html.includes("window.trame"), "bridge injected");
+  assert(!html.includes("PICKED"), "persisted block data never rendered");
 });
 
 Deno.test("comments and out-of-scope pages never appear", async () => {
