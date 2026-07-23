@@ -2,8 +2,9 @@
 
 A **local-first** Claude Code and Codex session tracker. Each session ladders up to a **story** (grouped
 under a **project**); the board is **status columns × swimlanes** — the view no off-the-shelf
-tool gave us, and the columns are **yours to define**. It also holds free-form **pages** (with inline
-comments and one-file sharing) and **Notion-style databases** (sortable / filterable / groupable views).
+tool gave us, and the columns are **yours to define**. It also holds free-form **pages** — inline
+comments (with agent reply threads), **sandboxed interactive HTML blocks**, per-page guest sharing,
+**public read-only share links** — and **Notion-style databases** (sortable / filterable / groupable views).
 `⌘P` jumps to any session, page, or database; a card's **Resume** button reopens the session in Claude
 Code or Codex. Opt-in **plugins** add side panels — the first one lists GitHub/GitLab
 **deployments waiting for approval**.
@@ -42,23 +43,27 @@ the hub. (Design + migration story: `docs/hub-api.md`.)
 ## Requirements
 - **Deno 2.9+** on each laptop (for `deno desktop`). Install: `curl -fsSL https://deno.land/install.sh | sh`.
 - **Docker + openssl** on the hub machine (certs are generated there; the CA key never leaves it).
-- Laptops reach the hub's Postgres over the **home LAN** (no Tailscale required;
+- Laptops reach the hub's API over the **home LAN** (no Tailscale required;
   the hub binds to its LAN IP — install Tailscale there if you want sync away from home).
 - Node/npm is pulled in only to build the Vite frontend (via `deno task web:build`).
 
 ## Layout
 ```
-db/schema.sql              shared schema (hub Postgres AND local PGlite)
-hub/docker-compose.yml     Postgres hub (TLS-only, mTLS + scram)
+db/schema.sql              shared schema (hub Postgres AND local PGlite) — idempotent; re-applying it IS the migration
+protocol/                  versioned sync protocol shared by app and hub (entities, LWW rule, html-block bridge)
+hub/docker-compose.yml     the hub: Postgres (docker-network only) + the Deno API in front of it
+hub/api/                   the API: device tokens, changeset /sync, per-page ACLs, WSS nudges, public /l/* pages
 hub/deploy.sh              deploy the hub over ssh (~/Apps/tracker) — `just db-deploy`
-hub/gen-certs.sh           CA + server/client certs, runs on the hub (called by deploy)
-hub/issue-cert.sh          fetch this laptop's client cert — `just db-cert`
-hub/pg_hba.conf            hub auth rules: TLS + client cert + password, or reject
+hub/gen-certs.sh           private CA + server certs, runs on the hub (called by deploy)
+hub/issue-cert.sh          fetch the hub's ca.crt so this laptop trusts the API's TLS — `just db-cert`
+hub/pg_hba.conf            Postgres auth rules: local + docker network only, anything else rejected
 app/                       Deno-desktop app
   main.ts                  window + in-process HTTP (serves UI + /api), startup sync loop
   db.ts                    local PGlite + queries + outbox drain
-  sync.ts                  custom LWW push/pull to the hub
-  config.ts                env config (NODE_ID, REMOTE_PG, data dir…)
+  sync-api.ts              changeset push/pull against the hub API (cursor in sync_state)
+  realtime.ts              WSS client — hub nudges turn into a pull within seconds
+  identity.ts              users/devices — which user this laptop writes as
+  config.ts                env config (NODE_ID, data dir…)
   share.ts                 export/import a page subtree as a portable *.trame.json bundle
   csrf.ts                  same-origin guard for /api (it spawns terminals, opens files…)
   plugins/                 opt-in in-tree plugins (deployments: GitHub/GitLab approvals)
@@ -66,6 +71,7 @@ app/                       Deno-desktop app
   agent-comments.ts        canonical Codex/Claude identities (branded SVG avatars) + block resolution
   presence.ts              ephemeral "who's here" registry (viewers + active watchers; not synced)
   web/                     React swimlane board (Vite)
+mcp/server.ts              Trame MCP server (stdio): board, pages, comments, html blocks, reports, sync
 track/track.ts             the /trame:track session writer (app or outbox)
 track/page.ts              the $trame-page writer (Markdown → atomic page create)
 track/comment.ts           agent page comments (title/quote resolution + attribution)
@@ -104,10 +110,6 @@ export TRACKER_REPORT_PATHS="$HOME/Projects:$HOME/code"
 # optional: client names detected from a repo path (/<Client>/); anything else → "Side-projects"
 export TRACKER_CLIENTS="Acme,Globex"
 ```
-Legacy direct-Postgres sync (`TRACKER_REMOTE_PG` + mTLS client certs) still works if you
-re-add the `5433` port mapping in `hub/docker-compose.yml` and the `hostssl` rule in
-`pg_hba.conf` — the app falls back to it whenever `syncViaApi` is off.
-
 ### 3. Run the app
 ```bash
 cd app
@@ -222,28 +224,40 @@ that spawns a terminal).
 > hub and never sent back to the UI, and each is bound to the forge host you configured.
 
 ## How sync works
-- **Transport**: mutual TLS — the hub only accepts connections presenting a client cert
-  signed by its private CA (CN = laptop node-id) *and* the scram password; laptops verify
-  the hub's cert (`tracker-hub` SAN). Plaintext connections are rejected outright.
+- **Transport**: HTTPS to the Deno API on `:8443` (TLS terminated by the API with the hub's
+  private-CA cert — `just db-cert` fetches the CA once per laptop). Every request carries a
+  **per-device bearer token**, minted on the hub and stored sha-256 at rest, revocable.
+  Postgres itself has no host port — the API is the only way in.
+- **Changesets**: `POST /sync` sends local mutations since a cursor and returns
+  `{acknowledgements, rejectedMutations, changes, nextCursor}`. The cursor is a
+  **server-issued monotonic revision** (`change_log.rev`) — client clocks never order
+  delivery. A bad mutation is rejected alone; the rest of the batch lands.
+- **LWW merge**: every row has `updated_at` (value clock), `origin` (writing node), and
+  `deleted` (soft delete). Hub and laptop apply the same rule from the shared `protocol/`
+  package: `on conflict … do update … where excluded.updated_at >` the stored row's.
+- **Authorization**: the hub checks every mutation against the caller's access — members see
+  the whole workspace, guests only shared subtrees (grants back-fill history, revocations
+  send tombstones). Comment authorship is pinned server-side.
+- **Realtime**: triggers append to `change_log` and `pg_notify`; the API debounces and nudges
+  connected laptops over WSS ("changed, pull now"), and local writes debounce a push — edits
+  propagate device-to-device in a couple of seconds. The 15s poll stays as fallback.
 
 ```mermaid
 flowchart LR
     subgraph laptop [Laptop — each machine]
         app[Deno desktop app] --> pgl[(local PGlite<br/>offline read/write)]
-        pgl <--> sync[sync.ts<br/>LWW push/pull]
-        certs[certs dir — just db-cert<br/>client.crt CN=node-id<br/>client.key + ca.crt]
+        pgl <--> sync[sync-api.ts<br/>changeset push/pull]
+        rt[realtime.ts<br/>WSS client]
     end
     subgraph hub [Hub — home server, Docker]
-        hba[pg_hba: hostssl + scram<br/>+ clientcert=verify-ca<br/>anything else: reject] --> pg[(Postgres 18<br/>LAN IP only)]
-        ca[private CA<br/>key never leaves the hub]
+        api[Deno API :8443<br/>device tokens + ACLs] --> pg[(Postgres 18<br/>docker-network only)]
+        links[:8444 — public /l/* pages<br/>behind any reverse proxy]
+        pg -. LISTEN/NOTIFY .-> api
+        pg --> links
     end
-    sync <==>|TLS 1.3 — laptop checks the tracker-hub SAN,<br/>hub checks the CA-signed client cert,<br/>scram password inside the tunnel| pg
-    ca -. issues client certs<br/>ssh, once per laptop .-> certs
+    sync <==>|HTTPS, private-CA TLS,<br/>bearer device token| api
+    rt <-.->|WSS — nudges only,<br/>data rides /sync| api
 ```
-- Every row has `updated_at` (LWW clock), `origin` (which node wrote it), `deleted` (soft delete).
-- **Pull**: remote rows with `updated_at >` last-pull → upsert locally *if newer*.
-- **Push**: local rows where `origin = this node` and `updated_at >` last-push → upsert to the hub *if newer*.
-- Single user ⇒ conflicts are near-impossible and last-write-wins is correct.
 
 ## Packaging & releases
 
