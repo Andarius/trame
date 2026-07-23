@@ -57,6 +57,7 @@ function ensureIds(blocks: Block[]): { blocks: Block[]; changed: boolean } {
 import { IconPicker } from "./udb/cells";
 import { DatabaseView } from "./udb/DatabaseTable";
 import { FolderBlock } from "./FolderBlock";
+import { HtmlBlock } from "./HtmlBlock";
 
 // project chip palette (matches the client palette + a few extras)
 const PROJECT_COLORS = [
@@ -87,6 +88,7 @@ const SLASH: { key: string; label: string; hint: string }[] = [
   { key: "subpage", label: "Sub-page", hint: "nest a page here" },
   { key: "database", label: "Database", hint: "table on this page" },
   { key: "folder", label: "Folder", hint: "live files from a directory" },
+  { key: "html", label: "HTML", hint: "embedded interactive doc" },
 ];
 
 type CommentOps = {
@@ -96,7 +98,7 @@ type CommentOps = {
 };
 
 // Serialize the page (title + text blocks) to Markdown for "select all → copy".
-// Structural blocks (database/subpage/folder) have no text and are skipped.
+// Structural blocks (database/subpage/folder/html) have no text and are skipped.
 function blocksToMarkdown(title: string, blocks: Block[]): string {
   const lines: string[] = [];
   if (title.trim()) lines.push(`# ${title.trim()}`, "");
@@ -545,6 +547,19 @@ function BlockEditor(
         ),
       );
     }
+    if (key === "html") {
+      return onChange(
+        blocks.map((b, j) =>
+          j === i
+            ? {
+              type: "html",
+              html: "",
+              id: (isText(b) && b.id) || genId(),
+            } as Block
+            : b
+        ),
+      );
+    }
     onChange(
       blocks.map((b, j) =>
         j === i
@@ -575,6 +590,16 @@ function BlockEditor(
               onPatch={(patch) => setBlock(i, patch)}
               onRemove={() => remove(i)}
               onOpenReport={onOpenReport}
+            />
+          );
+        }
+        if (b.type === "html") {
+          return (
+            <HtmlBlock
+              key={b.id ?? i}
+              block={b}
+              onPatch={(patch) => setBlock(i, patch)}
+              onRemove={() => remove(i)}
             />
           );
         }

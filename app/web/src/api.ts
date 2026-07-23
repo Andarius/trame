@@ -407,7 +407,14 @@ export type Block =
   }
   | { type: "database"; db_id: string }
   | { type: "subpage"; page_id: string }
-  | { type: "folder"; path: string; view?: "list" | "gallery"; id?: string };
+  | { type: "folder"; path: string; view?: "list" | "gallery"; id?: string }
+  | {
+    type: "html";
+    html: string;
+    data?: unknown;
+    height?: number;
+    id?: string;
+  };
 export type FolderEntry = {
   name: string;
   path: string;
