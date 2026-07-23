@@ -7,6 +7,7 @@ import { z } from "npm:zod@^3.24";
 import { PORT_FILE } from "../app/config.ts";
 import { markdownToPageBlocks } from "../app/page-markdown.ts";
 import { resolveCommentBlock } from "../app/agent-comments.ts";
+import { HTML_BLOCK_MAX_BYTES } from "../protocol/html.ts";
 
 async function api(path: string, init?: RequestInit): Promise<unknown> {
   let port: number;
@@ -39,6 +40,25 @@ const text = (data: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(data, null, 1) }],
 });
 
+async function resolvePageId(
+  args: { page_id?: string; page_title?: string },
+): Promise<string> {
+  if (Boolean(args.page_id) === Boolean(args.page_title)) {
+    throw new Error("use exactly one of page_id or page_title");
+  }
+  if (args.page_id) return args.page_id;
+  const pages = await api("/api/pages") as { id: string; title: string }[];
+  const matches = pages.filter((p) => p.title === args.page_title);
+  if (matches.length !== 1) {
+    throw new Error(
+      matches.length
+        ? `page_title "${args.page_title}" is ambiguous; use page_id`
+        : `page "${args.page_title}" was not found`,
+    );
+  }
+  return matches[0].id;
+}
+
 const server = new McpServer({ name: "trame", version: "0.1.0" });
 
 // One-call, self-describing map of what an agent can do with Trame — so discovery
@@ -63,6 +83,11 @@ As an agent you can:
 
 ## Pages & reports
 - **trame_create_page** — create/nest a standalone page from Markdown (not a session card).
+- **trame_html** — embed an interactive HTML doc on a page (sandboxed iframe, scripts run).
+  The doc calls \`window.trame.send(data)\` to persist structured results on the block;
+  **trame_html_data** reads them back. Use this to ASK the user something visual
+  (option pickers, forms) — they click in Trame, you read the answer. Prefer it over
+  trame_report when you want an answer back.
 - **trame_report** — publish a self-contained HTML report to the Explore view.
 
 ## Sessions (the board)
@@ -185,25 +210,10 @@ server.tool(
       meta?: { model?: string; in?: number; out?: number; ms?: number };
     },
   ) => {
-    if (Boolean(args.page_id) === Boolean(args.page_title)) {
-      throw new Error("use exactly one of page_id or page_title");
-    }
     if (args.block_id && args.block_text) {
       throw new Error("use block_id or block_text, not both");
     }
-    let pageId = args.page_id;
-    if (args.page_title) {
-      const pages = await api("/api/pages") as { id: string; title: string }[];
-      const matches = pages.filter((p) => p.title === args.page_title);
-      if (matches.length !== 1) {
-        throw new Error(
-          matches.length
-            ? `page_title "${args.page_title}" is ambiguous; use page_id`
-            : `page "${args.page_title}" was not found`,
-        );
-      }
-      pageId = matches[0].id;
-    }
+    const pageId = await resolvePageId(args);
     const page = await api(`/api/pages/${pageId}`) as {
       id: string;
       content: unknown[];
@@ -219,6 +229,93 @@ server.tool(
         meta: args.meta,
       }),
     );
+  },
+);
+
+server.tool(
+  "trame_html",
+  "Embed a self-contained interactive HTML document on a Trame page as a sandboxed block (scripts run, no network/origin). The doc can persist structured results — picks, form answers — by calling window.trame.send(data); read them back with trame_html_data. On reload the block replays saved data to the doc: listen for the 'trame:init' event and read window.trame.data to restore UI state. Target a page with page_id or page_title (appends a block), pass block_id to replace an existing html block, or new_page_title to create a fresh page around the doc. Prefer this over trame_report when you want an answer back from the user.",
+  {
+    html: z.string(),
+    page_id: z.string().optional(),
+    page_title: z.string().optional(),
+    block_id: z.string().optional(),
+    new_page_title: z.string().optional(),
+    parent_id: z.string().optional(),
+  },
+  async (
+    args: {
+      html: string;
+      page_id?: string;
+      page_title?: string;
+      block_id?: string;
+      new_page_title?: string;
+      parent_id?: string;
+    },
+  ) => {
+    if (new TextEncoder().encode(args.html).length > HTML_BLOCK_MAX_BYTES) {
+      throw new Error(`html is over ${HTML_BLOCK_MAX_BYTES / 1024} KB`);
+    }
+    if (args.new_page_title) {
+      const blockId = crypto.randomUUID().slice(0, 8);
+      const r = await post("/api/pages", {
+        title: args.new_page_title,
+        kind: "page",
+        parent_id: args.parent_id ?? null,
+        content: [{ type: "html", html: args.html, id: blockId }],
+      }) as { id: string };
+      return text({ page_id: r.id, block_id: blockId });
+    }
+    const pageId = await resolvePageId(args);
+    const page = await api(`/api/pages/${pageId}`) as {
+      content: { type?: string; id?: string; html?: string }[];
+    };
+    const content = [...(page.content ?? [])];
+    let blockId = args.block_id;
+    if (blockId) {
+      const idx = content.findIndex((b) =>
+        b.id === blockId && b.type === "html"
+      );
+      if (idx < 0) throw new Error(`no html block "${blockId}" on that page`);
+      content[idx] = { ...content[idx], html: args.html };
+    } else {
+      blockId = crypto.randomUUID().slice(0, 8);
+      content.push({ type: "html", html: args.html, id: blockId });
+    }
+    await post(`/api/pages/${pageId}`, { content });
+    return text({ page_id: pageId, block_id: blockId });
+  },
+);
+
+server.tool(
+  "trame_html_data",
+  "Read back the data an embedded HTML block persisted (what the user picked or submitted in the doc via window.trame.send). block_id is optional when the page has exactly one html block.",
+  {
+    page_id: z.string().optional(),
+    page_title: z.string().optional(),
+    block_id: z.string().optional(),
+  },
+  async (
+    args: { page_id?: string; page_title?: string; block_id?: string },
+  ) => {
+    const pageId = await resolvePageId(args);
+    const page = await api(`/api/pages/${pageId}`) as {
+      content: { type?: string; id?: string; data?: unknown }[];
+    };
+    const htmlBlocks = (page.content ?? []).filter((b) => b.type === "html");
+    const target = args.block_id
+      ? htmlBlocks.find((b) => b.id === args.block_id)
+      : htmlBlocks.length === 1
+      ? htmlBlocks[0]
+      : undefined;
+    if (!target) {
+      throw new Error(
+        args.block_id
+          ? `no html block "${args.block_id}" on that page`
+          : `page has ${htmlBlocks.length} html blocks — pass block_id`,
+      );
+    }
+    return text({ block_id: target.id, data: target.data ?? null });
   },
 );
 
