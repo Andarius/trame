@@ -4,6 +4,7 @@
 # EXAMPLES:
 #   curl -fsSL .../quickstart.sh | TRAME_DIR=~/code/trame bash        # custom checkout dir
 #   curl -fsSL .../quickstart.sh | TRAME_TARGETS=claude bash          # wire only Claude Code
+#   curl -fsSL .../quickstart.sh | TRAME_SKILL_DIRS=~/.gemini/skills bash   # any other agent's skills dir
 #   curl -fsSL .../quickstart.sh | TRAME_APP=source bash              # build from source instead of a release
 #   curl -fsSL .../quickstart.sh | TRAME_APP=appimage bash            # force the AppImage (no sudo)
 
@@ -120,8 +121,11 @@ main() {
         *) install_release "$flavor" ;;
     esac
 
-    if [[ "$targets" != "none" ]]; then
-        (cd "$dir" && deno run --config app/deno.json -A scripts/install-track.ts --target "$targets")
+    local install_args=()
+    [[ "$targets" != "none" ]] && install_args+=(--target "$targets")
+    [[ -n "${TRAME_SKILL_DIRS:-}" ]] && install_args+=(--skills-dir "$TRAME_SKILL_DIRS")
+    if [[ ${#install_args[@]} -gt 0 ]]; then
+        (cd "$dir" && deno run --config app/deno.json -A scripts/install-track.ts "${install_args[@]}")
     fi
 
     cat <<EOF
