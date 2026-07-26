@@ -163,35 +163,12 @@ watch *args:
 # Install the /trame:track slash command + trame-page skill into ~/.claude
 [group('setup')]
 install-cmd:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    dest="$HOME/.claude/commands/trame"
-    mkdir -p "$dest"
-    cp commands/trame/track.md "$dest/track.md"
-    # the installed copy must point at THIS checkout's writer (-i.bak: BSD sed too)
-    sed -i.bak "s|__TRACK_WRITER__|{{ justfile_directory() }}/track/track.ts|g" "$dest/track.md"
-    rm -f "$dest/track.md.bak"
-    echo "installed → $dest/track.md"
-    skill="$HOME/.claude/skills/trame-page"
-    mkdir -p "$skill"
-    cp skills/trame-page/SKILL.md "$skill/SKILL.md"
-    sed -i.bak "s|__PAGE_WRITER__|{{ justfile_directory() }}/track/page.ts|g; s|__COMMENT_WRITER__|{{ justfile_directory() }}/track/comment.ts|g" "$skill/SKILL.md"
-    rm -f "$skill/SKILL.md.bak"
-    echo "installed → $skill (auto-triggers on page/document requests)"
+    deno run --config app/deno.json -A scripts/install-track.ts --target claude
 
 # Install the native Trame skills for Codex (available from every repository)
 [group('setup')]
 install-skill:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    for skill in trame-track trame-page; do
-      dest="$HOME/.agents/skills/$skill"
-      mkdir -p "$dest"
-      cp -R "skills/$skill/." "$dest/"
-      sed -i.bak "s|__TRACK_WRITER__|{{ justfile_directory() }}/track/track.ts|g; s|__PAGE_WRITER__|{{ justfile_directory() }}/track/page.ts|g; s|__COMMENT_WRITER__|{{ justfile_directory() }}/track/comment.ts|g" "$dest/SKILL.md"
-      rm -f "$dest/SKILL.md.bak"
-      echo "installed → $dest (invoke with \$$skill)"
-    done
+    deno run --config app/deno.json -A scripts/install-track.ts --target codex
 
 # Choose Claude Code, Codex, or both interactively
 [group('setup')]
