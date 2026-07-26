@@ -77,11 +77,24 @@ track/page.ts              the $trame-page writer (Markdown → atomic page crea
 track/comment.ts           agent page comments (title/quote resolution + attribution)
 track/watch.ts             the comment watcher — agents auto-answer human replies (`just watch`)
 track/claude-hook.ts       UserPromptSubmit hook: records cwd → Claude session id for track.ts
+bin/quickstart.sh          curl-able laptop setup: clone + packaged app + agent integrations
 commands/trame/track.md    the /trame:track slash command — install with `just install-cmd`
 skills/trame-{track,page}/ agent skills — Codex via `just install-skill`, trame-page also lands in ~/.claude/skills via `just install-cmd`
 ```
 
 ## Setup
+
+### Quickstart (laptop)
+```bash
+curl -fsSL https://raw.githubusercontent.com/Andarius/trame/master/bin/quickstart.sh | bash
+```
+Clones to `~/trame` (override with `TRAME_DIR`), installs Deno if missing, installs the
+latest packaged app for the platform (snap or AppImage on Linux x64, dmg on Apple
+Silicon; `TRAME_APP=source` builds from the checkout instead, `TRAME_VERSION=v0.9.0`
+pins a release), and wires Claude Code and Codex (`TRAME_TARGETS=claude` or `codex`
+to pick one, `none` to skip; any other agent CLI that reads an Agent Skills directory
+→ `TRAME_SKILL_DIRS=~/.gemini/skills`). The hub (step 1), device token (step 2), and
+Claude session hook (step 4) still need the manual steps below.
 
 ### 1. The hub
 ```bash
@@ -128,7 +141,11 @@ just install-track
 Use the arrow keys to choose an agent and Enter to confirm.
 
 For non-interactive setup, use `just install-cmd` for Claude Code (slash command +
-trame-page skill) or `just install-skill` for Codex.
+trame-page skill) or `just install-skill` for Codex. Any other agent CLI that reads
+an Agent Skills directory works too:
+```bash
+deno run --config app/deno.json -A scripts/install-track.ts --skills-dir ~/.gemini/skills
+```
 
 In Codex, use `$trame-track`, `$trame-track paused "note"`, or `$trame-track list`
 for sessions, and `$trame-page` to create or comment on standalone Trame pages.

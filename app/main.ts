@@ -1175,17 +1175,13 @@ if (Deno.env.get("TRACKER_DESKTOP") === "1" && BW) {
   else win.setSize(1360, 880);
   if (geo.x != null && geo.y != null) win.setPosition(geo.x, geo.y);
   win.setTitle("Trame");
-  // macOS resets the title to the binary name ("Trame.dylib") after webview init — re-apply
-  for (const ms of [300, 1200, 4000]) {
-    setTimeout(() => {
-      try {
-        win.setTitle("Trame");
-      } catch { /* window gone */ }
-    }, ms);
-  }
-  try {
-    win.addEventListener("focus", () => win.setTitle("Trame"));
-  } catch { /* focus events unsupported on this backend */ }
+  // macOS/GTK reset the title to the binary name (Trame.dylib / trame.so) at
+  // unpredictable points after webview init — keep re-applying, it's cheap
+  setInterval(() => {
+    try {
+      win.setTitle("Trame");
+    } catch { /* window gone */ }
+  }, 1500);
   let t: ReturnType<typeof setTimeout> | undefined;
   const persist = () => {
     clearTimeout(t);
