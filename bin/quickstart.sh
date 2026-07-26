@@ -3,7 +3,7 @@
 # USAGE: curl -fsSL https://raw.githubusercontent.com/Andarius/trame/master/bin/quickstart.sh | bash
 # EXAMPLES:
 #   curl -fsSL .../quickstart.sh | TRAME_DIR=~/code/trame bash        # custom checkout dir
-#   curl -fsSL .../quickstart.sh | TRAME_TARGETS=claude,codex bash    # wire both agents
+#   curl -fsSL .../quickstart.sh | TRAME_TARGETS=claude bash          # wire only Claude Code
 #   curl -fsSL .../quickstart.sh | TRAME_APP=source bash              # build from source instead of a release
 #   curl -fsSL .../quickstart.sh | TRAME_APP=appimage bash            # force the AppImage (no sudo)
 
@@ -93,7 +93,7 @@ build_source() { # dir
 main() {
     local repo="${TRAME_REPO:-https://github.com/$REPO_SLUG.git}"
     local dir="${TRAME_DIR:-$HOME/trame}"
-    local targets="${TRAME_TARGETS:-claude}"
+    local targets="${TRAME_TARGETS:-claude,codex}"
     local flavor
     flavor="$(detect_flavor)"
 
