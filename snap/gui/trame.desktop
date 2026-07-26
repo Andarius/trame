@@ -6,3 +6,5 @@ Exec=trame
 Icon=${SNAP}/opt/trame/AppIcon.png
 Terminal=false
 Categories=Development;Utility;
+# the window's real WM_CLASS/app_id is "trame" (argv0), not deno desktop's sh.trame.app
+StartupWMClass=trame
