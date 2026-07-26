@@ -77,7 +77,7 @@ track/page.ts              the $trame-page writer (Markdown → atomic page crea
 track/comment.ts           agent page comments (title/quote resolution + attribution)
 track/watch.ts             the comment watcher — agents auto-answer human replies (`just watch`)
 track/claude-hook.ts       UserPromptSubmit hook: records cwd → Claude session id for track.ts
-bin/quickstart.sh          curl-able laptop setup: clone + build + agent integrations
+bin/quickstart.sh          curl-able laptop setup: clone + packaged app + agent integrations
 commands/trame/track.md    the /trame:track slash command — install with `just install-cmd`
 skills/trame-{track,page}/ agent skills — Codex via `just install-skill`, trame-page also lands in ~/.claude/skills via `just install-cmd`
 ```
@@ -88,10 +88,12 @@ skills/trame-{track,page}/ agent skills — Codex via `just install-skill`, tram
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Andarius/trame/master/bin/quickstart.sh | bash
 ```
-Clones to `~/trame` (override with `TRAME_DIR`), installs Deno if missing, builds the
-frontend, and wires Claude Code (`TRAME_TARGETS=claude,codex` for both agents, `none` to
-skip). The hub (step 1), device token (step 2), and Claude session hook (step 4) still
-need the manual steps below.
+Clones to `~/trame` (override with `TRAME_DIR`), installs Deno if missing, installs the
+latest packaged app for the platform (snap or AppImage on Linux x64, dmg on Apple
+Silicon; `TRAME_APP=source` builds from the checkout instead, `TRAME_VERSION=v0.9.0`
+pins a release), and wires Claude Code (`TRAME_TARGETS=claude,codex` for both agents,
+`none` to skip). The hub (step 1), device token (step 2), and Claude session hook
+(step 4) still need the manual steps below.
 
 ### 1. The hub
 ```bash
