@@ -91,9 +91,9 @@ curl -fsSL https://raw.githubusercontent.com/Andarius/trame/master/bin/quickstar
 Clones to `~/trame` (override with `TRAME_DIR`), installs Deno if missing, installs the
 latest packaged app for the platform (snap or AppImage on Linux x64, dmg on Apple
 Silicon; `TRAME_APP=source` builds from the checkout instead, `TRAME_VERSION=v0.9.0`
-pins a release), and wires Claude Code (`TRAME_TARGETS=claude,codex` for both agents,
-`none` to skip). The hub (step 1), device token (step 2), and Claude session hook
-(step 4) still need the manual steps below.
+pins a release), and wires Claude Code and Codex (`TRAME_TARGETS=claude` or `codex`
+to pick one, `none` to skip). The hub (step 1), device token (step 2), and Claude
+session hook (step 4) still need the manual steps below.
 
 ### 1. The hub
 ```bash
