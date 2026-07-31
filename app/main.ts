@@ -244,13 +244,26 @@ async function runSync() {
   return r;
 }
 
+// Background sync passes shouldn't dump a stack trace every time the hub is
+// simply off-LAN — that's routine, not a bug. Anything else still logs in full.
+const HUB_UNREACHABLE =
+  /no route to host|ehostunreach|enetunreach|econnrefused|etimedout|client error \(connect\)/i;
+function logSyncFailure(e: unknown) {
+  const msg = String((e as Error)?.message ?? e);
+  if (HUB_UNREACHABLE.test(msg)) {
+    console.warn(`sync: hub unreachable (${msg.split("\n")[0]})`);
+  } else {
+    console.error(e);
+  }
+}
+
 // Push local writes soon after they happen instead of waiting out the poll — the
 // receiving side is already realtime (WS nudges), this closes the sending side.
 // Debounced so a burst of edits rides one pass.
 let syncSoonTimer: ReturnType<typeof setTimeout> | undefined;
 function syncSoon() {
   clearTimeout(syncSoonTimer);
-  syncSoonTimer = setTimeout(() => runSync().catch(console.error), 1_500);
+  syncSoonTimer = setTimeout(() => runSync().catch(logSyncFailure), 1_500);
 }
 
 const WEB_DIST = `${APP_ROOT}/web/dist`;
@@ -1101,11 +1114,11 @@ try {
 // Startup: pick up any offline CLI writes, sync once, then poll. The device→user
 // claim happens inside db() init (kept lazy — e2e wipes the data dir post-listen).
 await drainOutbox();
-runSync().catch(console.error);
-setInterval(() => runSync().catch(console.error), SYNC_INTERVAL_MS);
+runSync().catch(logSyncFailure);
+setInterval(() => runSync().catch(logSyncFailure), SYNC_INTERVAL_MS);
 // hub WS nudges (when syncViaApi is on): a nudge just runs the same sync early —
 // the poll above stays as the fallback when the socket is down
-startRealtime(() => runSync().catch(console.error));
+startRealtime(() => runSync().catch(logSyncFailure));
 startPlugins();
 
 // Every successful mutating /api call schedules a debounced push (excluding /api/sync
