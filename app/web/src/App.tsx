@@ -220,7 +220,7 @@ function PageNode(
       <div
         className={`group flex items-center gap-1 rounded-md py-[5px] pr-1 text-left text-[13px] ${
           active
-            ? "bg-[#1a1d26] font-medium text-ink"
+            ? "bg-active-row font-medium text-ink"
             : "text-ink-muted hover:text-ink-soft"
         }`}
         style={{ paddingLeft: 8 + depth * 14 }}
@@ -274,7 +274,7 @@ function PageNode(
             onClick={() => onOpenDb(d.id)}
             className={`flex items-center gap-1.5 rounded-md py-[5px] pr-2 text-left text-[13px] ${
               dbActive
-                ? "bg-[#1a1d26] font-medium text-ink"
+                ? "bg-active-row font-medium text-ink"
                 : "text-ink-muted hover:text-ink-soft"
             }`}
             style={{ paddingLeft: 8 + (depth + 1) * 14 + 14 }}
@@ -428,7 +428,7 @@ function Sidebar(
             onClick={() => onNav(item.view)}
             className={`flex items-center gap-2.5 rounded-md px-2 py-[7px] text-left text-[13.5px] ${
               active
-                ? "bg-[#1a1d26] font-medium text-ink"
+                ? "bg-active-row font-medium text-ink"
                 : "text-ink-muted hover:text-ink-soft"
             }`}
           >
@@ -448,7 +448,7 @@ function Sidebar(
             onClick={() => onOpenPlugin(p.id)}
             className={`flex items-center gap-2.5 rounded-md px-2 py-[7px] text-left text-[13.5px] ${
               active
-                ? "bg-[#1a1d26] font-medium text-ink"
+                ? "bg-active-row font-medium text-ink"
                 : "text-ink-muted hover:text-ink-soft"
             }`}
           >
@@ -525,7 +525,7 @@ function Sidebar(
             // pl-[26px]: align the ⌗ with the ◎/□ glyph column of the tree sections above
             className={`flex items-center gap-1.5 rounded-md py-[7px] pl-[26px] pr-2 text-left text-[13.5px] ${
               active
-                ? "bg-[#1a1d26] font-medium text-ink"
+                ? "bg-active-row font-medium text-ink"
                 : "text-ink-muted hover:text-ink-soft"
             }`}
           >
@@ -1125,7 +1125,7 @@ export function App() {
                     onClick={() => setView(v)}
                     className={`rounded-[5px] px-2.5 py-[3px] text-xs capitalize ${
                       view === v
-                        ? "bg-[#272b37] font-medium text-ink"
+                        ? "bg-tab-active font-medium text-ink"
                         : "text-ink-muted hover:text-ink-soft"
                     }`}
                   >
@@ -1498,7 +1498,7 @@ export function App() {
         />
       )}
       {update && (update.available || update.applied) && !updateDismissed && (
-        <div className="fixed bottom-4 right-4 z-[60] flex w-[320px] flex-col gap-2.5 rounded-xl border border-[#323649] bg-[#171923] p-3.5 shadow-2xl shadow-black/50">
+        <div className="fixed bottom-4 right-4 z-[60] flex w-[320px] flex-col gap-2.5 rounded-xl border border-overlay-border bg-panel-modal p-3.5 shadow-2xl shadow-black/50">
           {updateState === "done"
             ? (
               <>

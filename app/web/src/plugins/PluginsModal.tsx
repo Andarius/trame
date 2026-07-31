@@ -58,7 +58,7 @@ export function PluginsModal({ onClose }: { onClose: () => void }) {
       onClick={onClose}
     >
       <div
-        className="flex max-h-[76vh] w-[760px] flex-col overflow-hidden rounded-xl border border-[#323649] bg-[#171923] shadow-2xl shadow-black/50"
+        className="flex max-h-[76vh] w-[760px] flex-col overflow-hidden rounded-xl border border-overlay-border bg-panel-modal shadow-2xl shadow-black/50"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex min-h-0 flex-1">
@@ -73,7 +73,7 @@ export function PluginsModal({ onClose }: { onClose: () => void }) {
                 onClick={() => setSel(p.id)}
                 className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[12.5px] ${
                   p.id === sel
-                    ? "bg-[#1a1d26] font-medium text-ink"
+                    ? "bg-active-row font-medium text-ink"
                     : "text-ink-muted hover:text-ink-soft"
                 }`}
               >

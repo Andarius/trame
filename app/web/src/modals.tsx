@@ -22,6 +22,7 @@ import {
   type UpdateInfo,
 } from "./api";
 import { applyScale, getScale, SCALES } from "./scale";
+import { applyTheme, getTheme, type Theme } from "./theme";
 import { pageOptions, Popover, Select, StatusDot, timeAgo } from "./ui";
 import { dataUriToIcon } from "./udb/cells";
 
@@ -44,7 +45,7 @@ function Modal(
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/45 pt-[16vh]" onClick={onClose}>
       <div
-        className="flex max-h-[76vh] flex-col gap-3 overflow-y-auto rounded-xl border border-[#323649] bg-[#171923] p-5 shadow-2xl shadow-black/50"
+        className="flex max-h-[76vh] flex-col gap-3 overflow-y-auto rounded-xl border border-overlay-border bg-panel-modal p-5 shadow-2xl shadow-black/50"
         style={{ width }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -343,6 +344,7 @@ export function SettingsModal(
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [updState, setUpdState] = useState<"idle" | "busy" | "done">("idle");
   const [scale, setScale] = useState(getScale);
+  const [theme, setTheme] = useState(getTheme);
   const [authorName, setAuthorName] = useState("");
   const [authorAvatar, setAuthorAvatar] = useState("");
   const [pluginList, setPluginList] = useState<PluginManifest[]>([]);
@@ -480,6 +482,26 @@ export function SettingsModal(
           ))}
         </div>
         <span className="text-[10.5px] text-ink-muted/70">applies instantly</span>
+      </div>
+
+      <div className="h-px bg-line" />
+      <div className="text-[12.5px] font-semibold">Theme</div>
+      <div className="flex gap-1 rounded-md bg-panel/60 p-0.5 w-fit">
+        {(["system", "light", "dark"] as Theme[]).map((t) => (
+          <button
+            key={t}
+            type="button"
+            className={`rounded px-2.5 py-1 text-[11.5px] font-medium capitalize ${
+              t === theme ? "bg-copper text-copper-ink" : "text-ink-muted hover:text-ink-soft"
+            }`}
+            onClick={() => {
+              setTheme(t);
+              applyTheme(t);
+            }}
+          >
+            {t}
+          </button>
+        ))}
       </div>
 
       <div className="h-px bg-line" />
@@ -703,7 +725,7 @@ export function NewObjectiveModal(
           onChange={setClient}
         />
       </div>
-      <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-[#101219] p-3">
+      <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-well p-3">
         <textarea
           className={`${input} min-h-[190px] resize-none text-[13px] leading-relaxed`}
           placeholder={STORY_PLACEHOLDER}
@@ -968,7 +990,7 @@ export function ImportClaudeModal(
           const clientPages = (board.pages ?? [])
             .filter((p) => p.kind !== "project" && (!p.client_id || p.client_id === clientId));
           return (
-            <div key={g.repoPath} className="flex flex-col gap-1 rounded-lg border border-line bg-[#101219] p-2.5">
+            <div key={g.repoPath} className="flex flex-col gap-1 rounded-lg border border-line bg-well p-2.5">
               <div className="flex items-center gap-2">
                 <Check
                   on={allOn}
