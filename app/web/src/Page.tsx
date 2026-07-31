@@ -22,6 +22,7 @@ import {
   type PageDetail,
   pingPresence,
   type Presence,
+  type Session,
   type UdbMeta,
   updateComment,
   updatePage,
@@ -277,7 +278,7 @@ function CommentItem(
             rows={1}
             ref={grow}
             value={draft}
-            className="w-full resize-none overflow-hidden rounded bg-[#101219] p-1.5 text-[12px] leading-snug text-ink outline-none"
+            className="w-full resize-none overflow-hidden rounded bg-well p-1.5 text-[12px] leading-snug text-ink outline-none"
             onChange={(e) => {
               setDraft(e.target.value);
               grow(e.target);
@@ -1018,14 +1019,58 @@ export function Page(
   const client = board.clients.find((c) => c.id === page.client_id);
   const isProject = page.kind === "project";
   const isStory = page.kind === "story";
-  // sessions come from the polled board (not the fetch-once getPage) so they stay live
+  // sessions come from the polled board (not the fetch-once getPage) so they stay live.
+  // a project's sessions live on its child stories, so roll those up too.
+  const childStoryIds = new Set(
+    page.children.filter((c) => c.kind === "story").map((c) => c.id),
+  );
   const sessions = board.sessions
-    .filter((s) => s.page_id === pageId || s.objective_id === pageId)
+    .filter((s) =>
+      s.page_id === pageId || s.objective_id === pageId ||
+      (s.objective_id && childStoryIds.has(s.objective_id))
+    )
     .sort((a, b) =>
       (statusStyle(a.status).terminal ? 1 : 0) -
       (statusStyle(b.status).terminal ? 1 : 0)
     );
   const done = sessions.filter((s) => statusStyle(s.status).terminal).length;
+  // a project's sessions come from several stories — group them under their story
+  // (like Objectives.tsx) instead of one flat list; a story only ever shows its own.
+  const sessionsByStory = isProject
+    ? page.children
+      .filter((c) => c.kind === "story")
+      .map((story) => ({
+        story,
+        list: sessions.filter((s) => s.objective_id === story.id),
+      }))
+      .filter((g) => g.list.length > 0)
+    : [];
+  const ungroupedSessions = isProject
+    ? sessions.filter((s) => !s.objective_id || !childStoryIds.has(s.objective_id))
+    : sessions;
+  const sessionRow = (s: Session) => (
+    <div
+      key={s.id}
+      onClick={() => onOpenSession(s.id)}
+      className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-hover"
+    >
+      <StatusDot status={s.status} size={7} />
+      <span
+        className={`text-xs font-medium ${
+          statusStyle(s.status).terminal ? "text-ink-muted" : ""
+        }`}
+      >
+        {s.title}
+      </span>
+      {s.branch && (
+        <span className="text-[10.5px] text-ink-muted">{s.branch}</span>
+      )}
+      <span className="flex-1" />
+      <span className="text-[10px] text-ink-muted/70">
+        {statusStyle(s.status).label}
+      </span>
+    </div>
+  );
   const blockIds = new Set(
     blocks.filter(isText).map((b) => b.id).filter(Boolean) as string[],
   );
@@ -1106,7 +1151,7 @@ export function Page(
                   type="button"
                   title="project color"
                   className="h-5 w-5 rounded-md border border-chipline"
-                  style={{ background: page.color ?? "#2f3542" }}
+                  style={{ background: page.color ?? "var(--color-chipline)" }}
                   onClick={() => setColorOpen((o) => !o)}
                 />
                 {colorOpen && (
@@ -1120,7 +1165,7 @@ export function Page(
                         key={c}
                         className={`h-5 w-5 rounded-md ${
                           page.color === c
-                            ? "ring-2 ring-ink ring-offset-1 ring-offset-[#171923]"
+                            ? "ring-2 ring-ink ring-offset-1 ring-offset-panel-modal"
                             : ""
                         }`}
                         style={{ background: c }}
@@ -1175,7 +1220,7 @@ export function Page(
             <textarea
               key={page.id + page.story}
               rows={2}
-              className="resize-none rounded-md border border-transparent bg-transparent px-2 py-1.5 text-xs leading-relaxed text-ink-soft outline-none transition-colors placeholder:italic placeholder:text-ink-muted/50 hover:bg-[#101219] focus:border-chipline focus:bg-[#101219]"
+              className="resize-none rounded-md border border-transparent bg-transparent px-2 py-1.5 text-xs leading-relaxed text-ink-soft outline-none transition-colors placeholder:italic placeholder:text-ink-muted/50 hover:bg-well focus:border-chipline focus:bg-well"
               defaultValue={page.story}
               placeholder="add the story — what are we trying to achieve? (click to edit)"
               onBlur={(e) => {
@@ -1351,31 +1396,37 @@ export function Page(
               <span className="text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
                 SESSIONS
               </span>
-              {sessions.map((s) => (
-                <div
-                  key={s.id}
-                  onClick={() => onOpenSession(s.id)}
-                  className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-[#14161c]"
-                >
-                  <StatusDot status={s.status} size={7} />
-                  <span
-                    className={`text-xs font-medium ${
-                      statusStyle(s.status).terminal ? "text-ink-muted" : ""
-                    }`}
-                  >
-                    {s.title}
-                  </span>
-                  {s.branch && (
-                    <span className="text-[10.5px] text-ink-muted">
-                      {s.branch}
-                    </span>
-                  )}
-                  <span className="flex-1" />
-                  <span className="text-[10px] text-ink-muted/70">
-                    {statusStyle(s.status).label}
-                  </span>
-                </div>
-              ))}
+              {sessionsByStory.map(({ story, list }) => {
+                const doneInStory =
+                  list.filter((s) => statusStyle(s.status).terminal).length;
+                return (
+                  <div key={story.id} className="flex flex-col gap-0.5 pt-2 first:pt-0">
+                    <div className="flex items-center gap-2 px-1">
+                      <EntityIcon
+                        icon={story.icon}
+                        fallback="◇"
+                        className="text-[11px] text-ink-muted"
+                      />
+                      <span className="text-[12px] font-semibold text-ink-soft">
+                        {story.title || "Untitled"}
+                      </span>
+                      <div className="h-1 w-[60px] overflow-hidden rounded-full bg-line">
+                        <div
+                          className="h-full rounded-full bg-copper"
+                          style={{ width: `${(doneInStory / list.length) * 100}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-ink-muted">
+                        {doneInStory} / {list.length}
+                      </span>
+                    </div>
+                    <div className="flex flex-col pl-1">
+                      {list.map(sessionRow)}
+                    </div>
+                  </div>
+                );
+              })}
+              {ungroupedSessions.map(sessionRow)}
               {sessions.length === 0 && (
                 <span className="py-1 text-[11.5px] text-ink-muted">
                   no sessions yet
