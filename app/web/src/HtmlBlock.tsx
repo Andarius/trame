@@ -111,7 +111,7 @@ export function HtmlBlock(
   };
 
   return (
-    <div className="group/html my-1 overflow-hidden rounded-lg border border-line bg-[#0e1014]">
+    <div className="group/html my-1 overflow-hidden rounded-lg border border-line bg-block">
       <div className="flex items-center gap-2 border-b border-line-soft px-3 py-2">
         <span className="shrink-0 font-mono text-[11px] font-semibold text-copper">
           {"</>"}
@@ -130,7 +130,7 @@ export function HtmlBlock(
               setCopied(true);
               setTimeout(() => setCopied(false), 1200);
             }}
-            className="shrink-0 rounded-full border border-[#1d4531] bg-[#12291d] px-2 py-[1px] text-[10px] font-semibold text-active"
+            className="shrink-0 rounded-full border border-chip-active-border bg-chip-active-bg px-2 py-[1px] text-[10px] font-semibold text-active"
           >
             {copied ? "copied ✓" : "data"}
           </button>
@@ -197,7 +197,7 @@ export function HtmlBlock(
                   setErr(null);
                 }
               }}
-              className="h-[260px] w-full resize-y rounded-md border border-line-soft bg-[#101219] p-2 font-mono text-[11.5px] leading-relaxed text-ink-soft outline-none placeholder:text-ink-muted/40 focus:border-copper/50"
+              className="h-[260px] w-full resize-y rounded-md border border-line-soft bg-well p-2 font-mono text-[11.5px] leading-relaxed text-ink-soft outline-none placeholder:text-ink-muted/40 focus:border-copper/50"
             />
             {err && <span className="text-[11.5px] text-blocked">⚠ {err}</span>}
             <div className="flex items-center gap-2">
@@ -224,7 +224,7 @@ export function HtmlBlock(
               srcDoc={srcDoc}
               onLoad={sendInit}
               title={docTitle(block.html)}
-              className="block w-full border-0 bg-[#0f1115]"
+              className="block w-full border-0 bg-block"
               style={{ height }}
             />
             <div

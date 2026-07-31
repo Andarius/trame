@@ -119,7 +119,7 @@ export function Popover(
   return (
     <div
       ref={ref}
-      className={`absolute left-0 top-full z-40 mt-1 min-w-[210px] rounded-lg border border-chipline bg-[#171923] p-1.5 shadow-2xl shadow-black/60 ${className ?? ""}`}
+      className={`absolute left-0 top-full z-40 mt-1 min-w-[210px] rounded-lg border border-chipline bg-panel-modal p-1.5 shadow-2xl shadow-black/60 ${className ?? ""}`}
       style={style}
     >
       {children}
@@ -219,7 +219,7 @@ export function ConfirmHost() {
   return (
     <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/45 pt-[24vh]" onClick={() => done(false)}>
       <div
-        className="flex w-[420px] flex-col gap-4 rounded-xl border border-[#323649] bg-[#171923] p-5 shadow-2xl shadow-black/50"
+        className="flex w-[420px] flex-col gap-4 rounded-xl border border-overlay-border bg-panel-modal p-5 shadow-2xl shadow-black/50"
         onClick={(e) => e.stopPropagation()}
       >
         <p className="m-0 whitespace-pre-line text-[13px] leading-relaxed text-ink">{req.message}</p>

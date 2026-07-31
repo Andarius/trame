@@ -2,8 +2,10 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { applyScale, getScale } from "./scale";
+import { applyTheme, getTheme } from "./theme";
 
 applyScale(getScale());
+applyTheme(getTheme());
 
 // A rebuild invalidates the hashed chunks a running client references; reload once to pick it up.
 globalThis.addEventListener("vite:preloadError", (e) => {

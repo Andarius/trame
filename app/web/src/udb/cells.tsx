@@ -238,12 +238,14 @@ export function IconPicker(
     }
   }, [tab, used, lib]);
 
-  // A Lucide icon (stroke=currentColor) → a light-stroked SVG data-uri, so it
-  // renders as an image via EntityIcon (offline, theme-independent).
+  // A Lucide icon (stroke=currentColor) → a neutral-stroked SVG data-uri, so it
+  // renders as an image via EntityIcon (offline, theme-independent — the stroke
+  // is a fixed mid-grey rather than a theme token since a stored data-uri can't
+  // react to a later theme change; picked to stay legible on both light and dark).
   const pickSvg = (svg: SVGSVGElement | null) => {
     if (!svg) return;
     const c = svg.cloneNode(true) as SVGSVGElement;
-    c.setAttribute("stroke", "#e6e9ef");
+    c.setAttribute("stroke", "#8b93a3");
     c.removeAttribute("width");
     c.removeAttribute("height");
     const s = new XMLSerializer().serializeToString(c);

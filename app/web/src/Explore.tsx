@@ -382,10 +382,10 @@ export function Explore(
               data-key={`db:${r.id}`}
               onClick={() => selectDb(r)}
               className={`flex flex-col items-start gap-1 rounded-lg px-2.5 py-2 text-left ${
-                active ? "bg-[#1a1d26]" : "hover:bg-[#14161c]"
+                active ? "bg-active-row" : "hover:bg-hover"
               }`}
             >
-              <span className={`text-[12.5px] font-medium leading-snug ${active ? "" : "text-[#c7cbd4]"}`}>
+              <span className={`text-[12.5px] font-medium leading-snug ${active ? "" : "text-ink-soft"}`}>
                 {r.title}
               </span>
               <span className="flex items-center gap-1.5">
@@ -431,7 +431,7 @@ export function Explore(
           ? (
             <>
               <div className="flex items-center gap-2.5 border-b border-line px-5 py-2.5">
-                <span className="text-[12.5px] font-medium text-[#d9dde5]">{selected.title}</span>
+                <span className="text-[12.5px] font-medium text-ink">{selected.title}</span>
                 {selected.path && (
                   <span className="max-w-[380px] truncate text-[10.5px] text-ink-muted" title={selected.path}>
                     {selected.path.replace(HOME_RE, "~/")}
@@ -539,13 +539,13 @@ function FolderRow(
             data-key={`file:${f.path}`}
             onClick={() => onSelect(f)}
             className={`flex items-center gap-2 rounded-lg py-1.5 pr-2.5 text-left ${
-              active ? "bg-[#1a1d26]" : "hover:bg-[#14161c]"
+              active ? "bg-active-row" : "hover:bg-hover"
             }`}
             style={{ paddingLeft: 16 + depth * 12 }}
           >
             <span
               className={`min-w-0 flex-1 truncate text-[12.5px] font-medium leading-snug ${
-                active ? "" : "text-[#c7cbd4]"
+                active ? "" : "text-ink-soft"
               }`}
             >
               {f.name}

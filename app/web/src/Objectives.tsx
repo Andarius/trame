@@ -22,7 +22,7 @@ function Story({ id, story, onSaved }: { id: string; story: string; onSaved: () 
   return (
     <textarea
       autoFocus
-      className="min-h-[90px] resize-y rounded-md border border-chipline bg-[#101219] p-2 text-xs leading-relaxed text-ink outline-none"
+      className="min-h-[90px] resize-y rounded-md border border-chipline bg-well p-2 text-xs leading-relaxed text-ink outline-none"
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => {
@@ -65,7 +65,7 @@ export function Objectives(
                 <div
                   key={s.id}
                   onClick={() => onOpen(s.id)}
-                  className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-[#14161c]"
+                  className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-hover"
                 >
                   <StatusDot status={s.status} size={7} />
                   <span className={`text-xs font-medium ${statusStyle(s.status).terminal ? "text-ink-muted" : ""}`}>
