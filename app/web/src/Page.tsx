@@ -501,6 +501,8 @@ function BlockEditor(
   const [focusIdx, setFocusIdx] = useState<number | null>(null);
   const [menuIdx, setMenuIdx] = useState<number | null>(null); // block showing the slash menu
   const [menuSel, setMenuSel] = useState(0); // highlighted item in the slash menu
+  // block currently in raw-textarea edit mode (Notion-style: click to edit, blur to render)
+  const [activeId, setActiveId] = useState<string | null>(null);
 
   useEffect(() => {
     if (focusIdx === null) return;
@@ -623,6 +625,30 @@ function BlockEditor(
           : blockComments.filter((c) => !c.resolved);
         const inlineOpen = mode === "inline" && Boolean(b.id) &&
           openThreads.has(b.id as string);
+        const bid = b.id ?? String(i);
+        // empty/new/mid-navigation blocks always stay in raw-text edit mode
+        const editing = activeId === bid || !b.text.trim() || focusIdx === i;
+        // session-report lists: the nearest heading above decides how bullets render
+        // (Completed → green checks, Open/Next → copper rings; see md.tsx ListVariant)
+        let listVariant: "done" | "open" | undefined;
+        for (let j = i - 1; j >= 0; j--) {
+          const pb = blocks[j];
+          if (pb.type !== "heading") continue;
+          listVariant = /^\s*(completed|done|shipped)\b/i.test(pb.text)
+            ? "done"
+            : /^\s*(open|todo|next|pending|remaining|in progress|blocked)\b/i
+                .test(pb.text)
+            ? "open"
+            : undefined;
+          break;
+        }
+        const textCls = b.type === "heading"
+          ? "text-[16px] font-semibold text-ink"
+          : `text-[13px] leading-relaxed ${
+            b.type === "todo" && b.done
+              ? "text-ink-muted line-through"
+              : "text-ink-soft"
+          }`;
         return (
           <Fragment key={b.id ?? i}>
             <div
@@ -639,6 +665,15 @@ function BlockEditor(
                   className="mt-[7px] h-3.5 w-3.5 accent-[#c98a63]"
                 />
               )}
+              <div
+                // kept mounted (not conditionally excluded) so the sibling textarea below
+                // never shifts position and gets remounted, which would drop its ref/focus
+                style={editing ? { display: "none" } : undefined}
+                className={`w-full cursor-text py-1 ${textCls}`}
+                onClick={() => setFocusIdx(i)}
+              >
+                <Markdown text={b.text} listVariant={listVariant} />
+              </div>
               <textarea
                 ref={(el) => {
                   refs.current[i] = el;
@@ -649,15 +684,17 @@ function BlockEditor(
                 placeholder={i === 0 && blocks.length === 1
                   ? "Write something, or type / for blocks…"
                   : ""}
-                className={`w-full resize-none overflow-hidden border-none bg-transparent py-1 outline-none placeholder:text-ink-muted/40 ${
-                  b.type === "heading"
-                    ? "text-[16px] font-semibold text-ink"
-                    : `text-[13px] leading-relaxed ${
-                      b.type === "todo" && b.done
-                        ? "text-ink-muted line-through"
-                        : "text-ink-soft"
-                    }`
-                }`}
+                style={editing ? undefined : {
+                  position: "absolute",
+                  width: 1,
+                  height: 1,
+                  overflow: "hidden",
+                  opacity: 0,
+                  pointerEvents: "none",
+                }}
+                className={`w-full resize-none overflow-hidden border-none bg-transparent py-1 outline-none placeholder:text-ink-muted/40 ${textCls}`}
+                onFocus={() => setActiveId(bid)}
+                onBlur={() => setActiveId((cur) => (cur === bid ? null : cur))}
                 onChange={(e) => {
                   set(i, { text: e.target.value });
                   grow(e.target);
@@ -1046,7 +1083,9 @@ export function Page(
       .filter((g) => g.list.length > 0)
     : [];
   const ungroupedSessions = isProject
-    ? sessions.filter((s) => !s.objective_id || !childStoryIds.has(s.objective_id))
+    ? sessions.filter((s) =>
+      !s.objective_id || !childStoryIds.has(s.objective_id)
+    )
     : sessions;
   const sessionRow = (s: Session) => (
     <div
@@ -1397,10 +1436,14 @@ export function Page(
                 SESSIONS
               </span>
               {sessionsByStory.map(({ story, list }) => {
-                const doneInStory =
-                  list.filter((s) => statusStyle(s.status).terminal).length;
+                const doneInStory = list.filter((s) =>
+                  statusStyle(s.status).terminal
+                ).length;
                 return (
-                  <div key={story.id} className="flex flex-col gap-0.5 pt-2 first:pt-0">
+                  <div
+                    key={story.id}
+                    className="flex flex-col gap-0.5 pt-2 first:pt-0"
+                  >
                     <div className="flex items-center gap-2 px-1">
                       <EntityIcon
                         icon={story.icon}
@@ -1413,7 +1456,9 @@ export function Page(
                       <div className="h-1 w-[60px] overflow-hidden rounded-full bg-line">
                         <div
                           className="h-full rounded-full bg-copper"
-                          style={{ width: `${(doneInStory / list.length) * 100}%` }}
+                          style={{
+                            width: `${(doneInStory / list.length) * 100}%`,
+                          }}
                         />
                       </div>
                       <span className="text-[10px] text-ink-muted">
