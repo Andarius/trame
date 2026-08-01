@@ -567,48 +567,66 @@ async function handler(req: Request): Promise<Response> {
   }
   // Resume a Claude Code or Codex session on the machine holding its transcript.
   if (pathname === "/api/resume" && req.method === "POST") {
-    const { id, probe, mode } = await req.json();
+    const { id, probe, mode, repoPath: rawRepoPath, agent: rawAgent } =
+      await req
+        .json();
     if (typeof id !== "string" || !UUID_RE.test(id)) {
       return json({ error: "invalid id" }, 400);
     }
     const launchMode: LaunchMode = mode === "tab" || mode === "existing"
       ? mode
       : "window";
-    const pg = await db();
-    const row = (await pg.query(
-      `select repo_path, claude_id, agent from sessions where id=$1 and not deleted`,
-      [id],
-    ))
-      .rows[0] as {
-        repo_path: string | null;
-        claude_id: string | null;
-        agent: string | null;
-      } | undefined;
-    const repo = row?.repo_path;
-    // Imported cards carry the transcript UUID as id; skill-tracked cards store it
-    // in the legacy-named claude_id column. cid flows into a shell command, so it
-    // must be a UUID like id — guard against a poisoned/synced claude_id value.
-    const cid = row?.claude_id && UUID_RE.test(row.claude_id)
-      ? row.claude_id
-      : id;
-    // Home device = the node that imported it (its transcript lives there).
-    const ev = (await pg.query(
-      `select summary from session_events where session_id=$1 and kind='import' and not deleted order by at limit 1`,
-      [id],
-    )).rows[0] as { summary: string | null } | undefined;
-    const agent =
-      row?.agent === "codex" || ev?.summary?.startsWith("Imported from Codex")
-        ? "codex"
-        : "claude";
-    // "Imported from <agent> · <node>" — only trust a node after the separator
-    // (older imports had no "· <node>" suffix; splitting would echo the whole label)
-    const parts = ev?.summary?.split("·") ?? [];
-    const homeNode = parts.length > 1
-      ? parts[parts.length - 1].trim() || null
-      : null;
-    const local = agent === "codex"
-      ? await codexTranscriptIsLocal(cid)
-      : await claudeTranscriptIsLocal(cid);
+
+    let repo: string | null | undefined;
+    let cid: string;
+    let agent: string;
+    let local: boolean;
+    let homeNode: string | null = null;
+
+    if (typeof rawRepoPath === "string" && rawRepoPath) {
+      // Sessions view: caller just scanned this transcript on this machine's own
+      // ~/.claude (or ~/.codex) dir — no sessions-table row needed, and it's local by
+      // construction. Not looked up in the DB, so this never doubles as a track action.
+      repo = rawRepoPath;
+      cid = id;
+      agent = rawAgent === "codex" ? "codex" : "claude";
+      local = true;
+    } else {
+      const pg = await db();
+      const row = (await pg.query(
+        `select repo_path, claude_id, agent from sessions where id=$1 and not deleted`,
+        [id],
+      ))
+        .rows[0] as {
+          repo_path: string | null;
+          claude_id: string | null;
+          agent: string | null;
+        } | undefined;
+      repo = row?.repo_path;
+      // Imported cards carry the transcript UUID as id; skill-tracked cards store it
+      // in the legacy-named claude_id column. cid flows into a shell command, so it
+      // must be a UUID like id — guard against a poisoned/synced claude_id value.
+      cid = row?.claude_id && UUID_RE.test(row.claude_id) ? row.claude_id : id;
+      // Home device = the node that imported it (its transcript lives there).
+      const ev = (await pg.query(
+        `select summary from session_events where session_id=$1 and kind='import' and not deleted order by at limit 1`,
+        [id],
+      )).rows[0] as { summary: string | null } | undefined;
+      agent =
+        row?.agent === "codex" || ev?.summary?.startsWith("Imported from Codex")
+          ? "codex"
+          : "claude";
+      // "Imported from <agent> · <node>" — only trust a node after the separator
+      // (older imports had no "· <node>" suffix; splitting would echo the whole label)
+      const parts = ev?.summary?.split("·") ?? [];
+      homeNode = parts.length > 1
+        ? parts[parts.length - 1].trim() || null
+        : null;
+      local = agent === "codex"
+        ? await codexTranscriptIsLocal(cid)
+        : await claudeTranscriptIsLocal(cid);
+    }
+
     const cmd = agent === "codex"
       ? `codex resume ${cid}`
       : `claude --resume ${cid}`;
