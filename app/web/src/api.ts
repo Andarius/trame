@@ -22,6 +22,8 @@ export type Session = {
   pr_url: string | null;
   summary: string;
   last_touched: string;
+  claude_id: string | null;
+  agent: string | null;
 };
 export type Objective = {
   id: string;
@@ -200,14 +202,30 @@ export type ResumeInfo = {
   reason?: "no-konsole" | "api-disabled";
   agent?: "claude" | "codex";
 };
-export const resumeSession = (id: string, mode?: ResumeMode) =>
-  post("/api/resume", { id, mode }).then((r) =>
-    r.json() as Promise<ResumeInfo>
-  );
-export const probeResume = (id: string) =>
-  post("/api/resume", { id, probe: true }).then((r) =>
-    r.json() as Promise<ResumeInfo>
-  );
+// `local` carries {repoPath, agent} for a transcript found by scanning this machine's
+// own ~/.claude/~.codex (the Sessions view) — skips the sessions-table lookup entirely,
+// so it works whether or not the session has ever been tracked as a Trame card.
+export const resumeSession = (
+  id: string,
+  mode?: ResumeMode,
+  local?: { repoPath: string; agent: "claude" | "codex" },
+) =>
+  post("/api/resume", {
+    id,
+    mode,
+    repoPath: local?.repoPath,
+    agent: local?.agent,
+  }).then((r) => r.json() as Promise<ResumeInfo>);
+export const probeResume = (
+  id: string,
+  local?: { repoPath: string; agent: "claude" | "codex" },
+) =>
+  post("/api/resume", {
+    id,
+    probe: true,
+    repoPath: local?.repoPath,
+    agent: local?.agent,
+  }).then((r) => r.json() as Promise<ResumeInfo>);
 
 export const setStatus = (id: string, status: Status) =>
   fetch(`/api/sessions/${id}/status`, {
