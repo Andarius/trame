@@ -346,6 +346,32 @@ async function resumeInExisting(
   return { ok: false, reason: disabled ? "api-disabled" : "no-konsole" };
 }
 
+// Open a new tab in the active konsole window (D-Bus) and run `command` in it.
+// `konsole --new-tab` can't attach when instances run per-process (org.kde.konsole-<pid>
+// services), so a plain spawn opens a fresh window — this is the path that actually tabs.
+async function tabInExisting(
+  cwd: string,
+  command: string,
+): Promise<ExistingResult> {
+  const svc = await activeKonsoleService();
+  if (!svc) return { ok: false, reason: "no-konsole" };
+  const sid = await qdbus(
+    svc,
+    "/Windows/1",
+    "org.kde.konsole.Window.newSession",
+  );
+  if (!sid) return { ok: false, reason: "no-konsole" };
+  const r = await qdbusRaw([
+    svc,
+    `/Sessions/${sid}`,
+    "org.kde.konsole.Session.sendText",
+    `cd ${shq(cwd)} && ${command}\n`,
+  ]);
+  if (r.ok) return { ok: true };
+  const disabled = /disabled in the settings|AccessDenied/i.test(r.err);
+  return { ok: false, reason: disabled ? "api-disabled" : "no-konsole" };
+}
+
 // Is this session's transcript on THIS machine? `claude --resume` only finds a session
 // whose ~/.claude/projects/<dir>/<id>.jsonl lives locally, so resume is device-bound.
 async function claudeTranscriptIsLocal(id: string): Promise<boolean> {
@@ -648,6 +674,23 @@ async function handler(req: Request): Promise<Response> {
         mode: launchMode,
         reason: r.reason,
       });
+    }
+    // tab on Linux: attach via konsole D-Bus first — spawning `konsole --new-tab`
+    // opens a fresh window when instances are per-process. no-konsole falls through
+    // to the spawn path (gnome-terminal --tab etc.); api-disabled reports back so
+    // the UI copies the command instead of opening a stray window.
+    if (launchMode === "tab" && Deno.build.os === "linux") {
+      const r = await tabInExisting(repo, cmd);
+      if (r.ok || r.reason === "api-disabled") {
+        return json({
+          ...base,
+          ok: r.ok,
+          launched: r.ok,
+          local: true,
+          mode: launchMode,
+          reason: r.reason,
+        });
+      }
     }
     const launched = spawnTerminal(repo, cmd, launchMode);
     return json({
