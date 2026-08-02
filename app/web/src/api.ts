@@ -226,6 +226,16 @@ export const probeResume = (
     repoPath: local?.repoPath,
     agent: local?.agent,
   }).then((r) => r.json() as Promise<ResumeInfo>);
+// Bulk resume: konsole → one window with a tab per session; ghostty/others → one
+// window per session.
+export const resumeAllSessions = (
+  sessions: { id: string; repoPath: string; agent: "claude" | "codex" }[],
+) =>
+  post("/api/resume-all", { sessions }).then((r) =>
+    r.json() as Promise<
+      { ok: boolean; launched: number; mode: string; error?: string }
+    >
+  );
 
 export const setStatus = (id: string, status: Status) =>
   fetch(`/api/sessions/${id}/status`, {

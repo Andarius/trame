@@ -3,6 +3,7 @@ import {
   type BoardData,
   type ClaudeScan,
   type ClaudeSession,
+  resumeAllSessions,
   type ResumeMode,
   resumeSession,
   scanClaudeImport,
@@ -189,6 +190,9 @@ export function AgentSessions(
   );
   const [sortBy, setSortBy] = useState<"date" | "repo">("date");
   const [q, setQ] = useState("");
+  const [allMsg, setAllMsg] = useState<string | null>(null);
+  const allTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(allTimer.current), []);
 
   const load = () => {
     setScan(null);
@@ -209,6 +213,34 @@ export function AgentSessions(
     board.sessions.find((row) =>
       row.id === s.claudeId || row.claude_id === s.claudeId
     );
+
+  // everything currently visible and resumable — what "Resume all" launches
+  const visibleAll = (scan?.groups ?? []).flatMap((g) =>
+    g.sessions.filter((s) => isVisible(s, g.repoName) && s.repoPath)
+  );
+  const resumeAll = async () => {
+    if (!visibleAll.length) return;
+    let msg: string;
+    try {
+      const r = await resumeAllSessions(
+        visibleAll.map((s) => ({
+          id: s.claudeId,
+          repoPath: s.repoPath as string,
+          agent: s.source,
+        })),
+      );
+      msg = r.ok
+        ? r.mode === "konsole-tabs"
+          ? `${r.launched} tabs opened`
+          : `${r.launched} windows opened`
+        : r.error ?? "failed";
+    } catch {
+      msg = "failed";
+    }
+    setAllMsg(msg);
+    clearTimeout(allTimer.current);
+    allTimer.current = setTimeout(() => setAllMsg(null), 2500);
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -266,6 +298,15 @@ export function AgentSessions(
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
+        <button
+          type="button"
+          title="Resume every visible session — konsole gets one window with a tab per session, ghostty one window each"
+          onClick={resumeAll}
+          disabled={!visibleAll.length}
+          className="shrink-0 whitespace-nowrap rounded-md border border-chipline px-2 py-1 text-[11.5px] text-ink-muted hover:border-copper/60 hover:text-copper disabled:opacity-50"
+        >
+          {allMsg ?? `⇪ Resume all · ${visibleAll.length}`}
+        </button>
         <button
           type="button"
           title="Rescan"

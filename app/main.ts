@@ -713,6 +713,80 @@ async function handler(req: Request): Promise<Response> {
       mode: launchMode,
     });
   }
+  // Bulk resume (the post-reboot case): every session in one shot. konsole gets a
+  // single window with one tab per session via --tabs-from-file (no D-Bus, commands
+  // allowed); ghostty gets one window per session (tabs aren't remotely scriptable);
+  // anything else loops plain terminal windows.
+  if (pathname === "/api/resume-all" && req.method === "POST") {
+    const { sessions } = await req.json() as {
+      sessions: { id: string; repoPath: string; agent?: string }[];
+    };
+    if (!Array.isArray(sessions) || !sessions.length) {
+      return json({ error: "no sessions" }, 400);
+    }
+    const items = [];
+    for (const s of sessions) {
+      // ids flow into shell commands / the tabs file — validate hard, skip quietly
+      if (typeof s.id !== "string" || !UUID_RE.test(s.id)) continue;
+      if (typeof s.repoPath !== "string" || !s.repoPath.startsWith("/")) {
+        continue;
+      }
+      try {
+        if (!(await Deno.stat(s.repoPath)).isDirectory) continue;
+      } catch {
+        continue;
+      }
+      items.push({
+        id: s.id,
+        repo: s.repoPath,
+        cmd: s.agent === "codex"
+          ? `codex resume ${s.id}`
+          : `claude --resume ${s.id}`,
+      });
+    }
+    if (!items.length) return json({ error: "no resumable sessions" }, 400);
+    const haveKonsole = await new Deno.Command("konsole", {
+      args: ["--version"],
+      stdout: "null",
+      stderr: "null",
+    }).output().then((r) => r.success).catch(() => false);
+    if (Deno.build.os === "linux" && haveKonsole && !ghosttyRunning()) {
+      // one line per tab: title/workdir/command, ";;"-separated, trailing newline
+      // required. Values must not contain ";;" or newlines — repo basename is the
+      // only free-form part, so sanitize it.
+      const lines = items.map((it) => {
+        const name = (it.repo.split("/").filter(Boolean).pop() ?? "session")
+          .replace(/;|\n/g, " ");
+        return `title: ${name};; workdir: ${it.repo};; command: /bin/bash -lc ${
+          shq(`${it.cmd}; exec ${Deno.env.get("SHELL") ?? "bash"}`)
+        }`;
+      });
+      const file = await Deno.makeTempFile({
+        prefix: "trame-tabs-",
+        suffix: ".txt",
+      });
+      await Deno.writeTextFile(file, lines.join("\n") + "\n");
+      try {
+        new Deno.Command("konsole", {
+          args: ["--tabs-from-file", file],
+          stdout: "null",
+          stderr: "null",
+        }).spawn();
+        return json({ ok: true, launched: items.length, mode: "konsole-tabs" });
+      } catch {
+        // konsole vanished between the probe and the spawn — fall through
+      }
+    }
+    let launched = 0;
+    for (const it of items) {
+      if (spawnTerminal(it.repo, it.cmd, "window")) launched++;
+    }
+    return json({
+      ok: launched > 0,
+      launched,
+      mode: ghosttyRunning() ? "ghostty-windows" : "windows",
+    });
+  }
   // Directory autocomplete for the Explore "report folders" field. Lists sub-directories
   // of the typed path's parent whose name prefix-matches; ~ is expanded and re-collapsed.
   if (pathname === "/api/fs/complete") {
