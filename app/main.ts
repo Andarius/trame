@@ -20,7 +20,12 @@ import {
   startPlugins,
 } from "./plugins/index.ts";
 import { isCrossSite } from "./csrf.ts";
-import { type LaunchMode, shq, spawnTerminal } from "./terminal.ts";
+import {
+  ghosttyRunning,
+  type LaunchMode,
+  shq,
+  spawnTerminal,
+} from "./terminal.ts";
 import {
   deleteReportFile,
   getLinkBase,
@@ -368,7 +373,10 @@ async function tabInExisting(
     `cd ${shq(cwd)} && ${command}\n`,
   ]);
   if (r.ok) return { ok: true };
-  const disabled = /disabled in the settings|AccessDenied/i.test(r.err);
+  // qdbus prints the D-Bus error on stdout, not stderr — scan both
+  const disabled = /disabled in the settings|AccessDenied/i.test(
+    `${r.err}\n${r.out}`,
+  );
   return { ok: false, reason: disabled ? "api-disabled" : "no-konsole" };
 }
 
@@ -678,8 +686,12 @@ async function handler(req: Request): Promise<Response> {
     // tab on Linux: attach via konsole D-Bus first — spawning `konsole --new-tab`
     // opens a fresh window when instances are per-process. no-konsole falls through
     // to the spawn path (gnome-terminal --tab etc.); api-disabled reports back so
-    // the UI copies the command instead of opening a stray window.
-    if (launchMode === "tab" && Deno.build.os === "linux") {
+    // the UI copies the command instead of opening a stray window. When a ghostty
+    // daemon is live, konsole windows are Trame's own strays — skip straight to
+    // spawnTerminal, which prefers ghostty.
+    if (
+      launchMode === "tab" && Deno.build.os === "linux" && !ghosttyRunning()
+    ) {
       const r = await tabInExisting(repo, cmd);
       if (r.ok || r.reason === "api-disabled") {
         return json({
