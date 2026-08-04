@@ -1,4 +1,8 @@
-# v0.4.0 — Codex support, editable columns, quick-find, comments, database views, page sharing & a deployments plugin
+---
+title: "v0.4.0 — Codex support, editable columns, quick-find, comments, database views, page sharing & a deployments plugin"
+sidebar:
+  label: "v0.4.0"
+---
 
 Trame now tracks **Codex** sessions alongside Claude Code, the board columns are **yours to
 define**, and pages gain **inline comments** and **sharing**. Databases get real **views**

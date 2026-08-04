@@ -31,3 +31,8 @@ hub/ca/
 # root-level debug/demo screenshots (real docs images live in docs/)
 /*.jpeg
 /*.png
+
+# docs site (Astro + Starlight)
+docs-site/node_modules/
+docs-site/dist/
+docs-site/.astro/
