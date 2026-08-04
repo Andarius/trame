@@ -1,4 +1,8 @@
-# v0.7.0 — public shareable links
+---
+title: "v0.7.0 — public shareable links"
+sidebar:
+  label: "v0.7.0"
+---
 
 Share a page with anyone via a plain URL: a read-only browser view of the page's
 subtree — no account, no app install. Complements v0.6's guest sharing (which stays

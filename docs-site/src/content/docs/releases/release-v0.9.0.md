@@ -1,4 +1,8 @@
-# v0.9.0 — HTML blocks: interactive docs inside pages
+---
+title: "v0.9.0 — HTML blocks: interactive docs inside pages"
+sidebar:
+  label: "v0.9.0"
+---
 
 Pages can now embed self-contained interactive HTML documents — option pickers,
 forms, little tools — rendered live, with a data channel back to the page.
