@@ -29,7 +29,9 @@ For tracking actions:
    - `title`: `<repo-basename> — <short topic>`.
    - `next_step`: one imperative line for the next resume; incorporate the user's note.
    - `objective`: the larger goal, omitted only when genuinely unclear.
-   - `summary`: one to three lines describing what happened.
+   - `summary`: worklog entry, one to three lines, PR-description style — lead with the
+     outcome (what the session delivered or established), not how. Include decisions made
+     and dead-ends worth remembering ("X fails because Y"); no implementation narration.
    - `pr_url`: only when evident.
 4. Pipe one JSON object containing `title`, `status`, `client`,
    `objective`, `repo_path`, `branch`, `next_step`, `pr_url`, and
