@@ -36,12 +36,22 @@ export function StatusDot({ status, size = 8 }: { status: Status; size?: number 
   );
 }
 
-const FALLBACK = ["#7a9ee7", "#b590e7", "#c98a63", "#7bd88f", "#e3c567"];
+// hex (not hsl) — callers append an alpha suffix (`c + "24"`) for tinted chips
+const hslHex = (h: number, s: number, l: number) => {
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    const v = l -
+      s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(v * 255).toString(16).padStart(2, "0");
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+};
+// 24 hue steps instead of a tiny palette, so two projects rarely collide
 export function clientColor(name: string, color?: string | null): string {
   if (color) return color;
   let h = 0;
   for (const c of name) h = (h * 31 + c.charCodeAt(0)) | 0;
-  return FALLBACK[Math.abs(h) % FALLBACK.length];
+  return hslHex((Math.abs(h) % 24) * 15, 0.55, 0.62);
 }
 
 export function ClientChip(
