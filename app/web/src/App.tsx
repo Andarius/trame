@@ -156,7 +156,7 @@ const NAV: {
   view: View;
 }[] = [
   { key: "sessions", glyph: "▦", label: "Sessions", view: "board" },
-  { key: "agents", glyph: "↻", label: "Claude Sessions", view: "agents" },
+  { key: "agents", glyph: "↻", label: "AI Sessions", view: "agents" },
   { key: "explore", glyph: "✦", label: "Explore", view: "explore" },
 ];
 
@@ -1017,7 +1017,7 @@ export function App() {
   const title = isSessions
     ? "Sessions"
     : view === "agents"
-    ? "Claude Sessions"
+    ? "AI Sessions"
     : view === "database"
     ? currentDb?.name ?? "Database"
     : view === "client"
