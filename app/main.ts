@@ -19,6 +19,7 @@ import {
   listPluginManifests,
   startPlugins,
 } from "./plugins/index.ts";
+import { getAsset, putAsset } from "./assets.ts";
 import { isCrossSite } from "./csrf.ts";
 import {
   ghosttyRunning,
@@ -598,6 +599,28 @@ async function handler(req: Request): Promise<Response> {
       return json({ error: "invalid url" }, 400);
     }
     return json({ url, state: await prState(url) });
+  }
+  // Pasted images: POST raw bytes → {id}; GET /api/assets/<id> serves them back.
+  if (pathname === "/api/assets" && req.method === "POST") {
+    const mime = req.headers.get("content-type") ?? "";
+    if (!/^image\//.test(mime)) return json({ error: "images only" }, 400);
+    const bytes = new Uint8Array(await req.arrayBuffer());
+    if (bytes.length > 10 * 1024 * 1024) {
+      return json({ error: "too large (10 MB max)" }, 413);
+    }
+    return json({ id: await putAsset(bytes, mime) });
+  }
+  const assetId = pathname.match(/^\/api\/assets\/([0-9a-f-]{36})$/);
+  if (assetId) {
+    const a = await getAsset(assetId[1]);
+    if (!a) return new Response("not found", { status: 404 });
+    return new Response(a.bytes, {
+      headers: {
+        "content-type": a.mime,
+        "x-content-type-options": "nosniff",
+        "cache-control": "public, max-age=31536000, immutable",
+      },
+    });
   }
   // Resume a Claude Code or Codex session on the machine holding its transcript.
   if (pathname === "/api/resume" && req.method === "POST") {

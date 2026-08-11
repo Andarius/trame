@@ -1,7 +1,11 @@
-# v0.5.0 — realtime sync through a hub API
+---
+title: "v0.5.0 — realtime sync through a hub API"
+sidebar:
+  label: "v0.5.0"
+---
 
 The hub grows from "just Postgres" into an **API server in front of Postgres** — the
-foundation for multi-user collaboration (design: `docs/hub-api.md`). Sync can now ride an
+foundation for multi-user collaboration (design: [Hub API & sync](../../sync-walkthrough/)). Sync can now ride an
 authenticated HTTPS changeset protocol with **realtime push**, while the existing
 direct-Postgres path keeps working unchanged: both transports coexist, per device,
 behind a flag.

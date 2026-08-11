@@ -90,7 +90,7 @@ export function rowVisible(access: Access, entity: string, row: Row): boolean {
       return access.dbs.has(String(row.db_id));
     case "udb_links":
       return access.props.has(String(row.prop_id));
-    default: // clients, statuses, sessions, session_events, reports, …
+    default: // statuses, sessions, session_events, reports, …
       return false;
   }
 }

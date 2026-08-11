@@ -1,7 +1,8 @@
 // The synced entities and their wire columns — the single source of truth shared by
 // the laptop app (app/sync.ts) and the hub API (hub/api). Order matters: referenced
 // tables come before their referrers (no FKs, but pulls apply in this order).
-export const PROTOCOL_VERSION = 2;
+// v3: dropped the frozen `clients` entity and the `objective_id` columns.
+export const PROTOCOL_VERSION = 3;
 
 export const ENTITIES = [
   {
@@ -11,10 +12,6 @@ export const ENTITIES = [
   {
     name: "devices",
     cols: ["id", "node_id", "user_id", "origin", "updated_at", "deleted"],
-  },
-  {
-    name: "clients",
-    cols: ["id", "name", "color", "origin", "updated_at", "deleted"],
   },
   {
     name: "pages",
@@ -105,7 +102,6 @@ export const ENTITIES = [
       "title",
       "status",
       "client_id",
-      "objective_id",
       "page_id",
       "repo_path",
       "branch",
@@ -140,7 +136,6 @@ export const ENTITIES = [
       "title",
       "html",
       "client_id",
-      "objective_id",
       "page_id",
       "created_at",
       "origin",

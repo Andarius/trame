@@ -40,7 +40,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # Hub API (phase 3 of docs/hub-api.md): the auth boundary in front of Postgres.
+  # Hub API (phase 3 of docs-site/src/content/docs/hub-api.md): the auth boundary in front of Postgres.
   # Deno terminates TLS itself with the same gen-certs material as the db. DB access
   # is docker-network-only; pg_hba scopes a scram rule to the fixed subnet below.
   tracker-api:

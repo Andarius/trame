@@ -1,0 +1,31 @@
+/* Trame theme — copper accent, dark palette from DESIGN.md. */
+:root {
+	--sl-color-accent-low: #2e2019;
+	--sl-color-accent: #c98a63;
+	--sl-color-accent-high: #e8c4a8;
+}
+:root[data-theme='light'] {
+	--sl-color-accent-low: #f4e4d8;
+	--sl-color-accent: #a86740;
+	--sl-color-accent-high: #5c3823;
+}
+:root[data-theme='dark'] {
+	--sl-color-bg: #0c0d10;
+	--sl-color-bg-nav: #0a0b0d;
+	--sl-color-bg-sidebar: #0a0b0d;
+	--sl-color-hairline: #232633;
+}
+
+/* Mermaid diagrams (rendered client-side, see astro.config.mjs) */
+pre.mermaid {
+	display: flex;
+	justify-content: center;
+	background: none;
+	border: none;
+	padding: 0.5rem 0;
+	overflow-x: auto;
+}
+pre.mermaid:not([data-processed]) {
+	visibility: hidden;
+	min-height: 8rem;
+}

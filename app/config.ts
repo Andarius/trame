@@ -64,3 +64,12 @@ export const DEPLOYMENTS_POLL_ACTIVE_MS = Number(
   Deno.env.get("TRACKER_DEPLOYMENTS_POLL_ACTIVE_MS") ?? "10000",
 );
 export const DEPLOYMENTS_FIXTURE = Deno.env.get("TRACKER_DEPLOYMENTS_FIXTURE") ?? "";
+// Pasted-image storage: files under ASSETS_DIR by default; an S3-compatible bucket
+// when TRACKER_S3_ENDPOINT + TRACKER_S3_BUCKET (+ keys) are set.
+export const ASSETS_DIR = Deno.env.get("TRACKER_ASSETS_DIR") ?? `${dataHome}/session-tracker/assets`;
+export const S3_ENDPOINT = Deno.env.get("TRACKER_S3_ENDPOINT") ?? ""; // e.g. https://s3.fr-par.scw.cloud
+export const S3_BUCKET = Deno.env.get("TRACKER_S3_BUCKET") ?? "";
+export const S3_REGION = Deno.env.get("TRACKER_S3_REGION") ?? "";
+export const S3_ACCESS_KEY = Deno.env.get("TRACKER_S3_ACCESS_KEY") ?? "";
+export const S3_SECRET_KEY = Deno.env.get("TRACKER_S3_SECRET_KEY") ?? "";
+export const S3_PREFIX = Deno.env.get("TRACKER_S3_PREFIX") ?? "trame-assets/";

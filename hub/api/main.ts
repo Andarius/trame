@@ -1,4 +1,4 @@
-// Hub API server (docs/hub-api.md, phase 3): the auth boundary in front of Postgres.
+// Hub API server (docs-site/src/content/docs/hub-api.md, phase 3): the auth boundary in front of Postgres.
 // Deno terminates TLS itself with the gen-certs.sh server cert — no reverse proxy
 // until it earns its place. Also the token CLI:  main.ts mint <node-id>
 import postgres from "postgres";
