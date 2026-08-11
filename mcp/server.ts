@@ -6,6 +6,7 @@ import { StdioServerTransport } from "npm:@modelcontextprotocol/sdk@^1.12/server
 import { z } from "npm:zod@^3.24";
 import { PORT_FILE } from "../app/config.ts";
 import { markdownToPageBlocks } from "../app/page-markdown.ts";
+import { mergePageBlocks } from "../app/page-merge.ts";
 import { resolveCommentBlock } from "../app/agent-comments.ts";
 import { HTML_BLOCK_MAX_BYTES } from "../protocol/html.ts";
 
@@ -82,7 +83,11 @@ As an agent you can:
   one-shot. Your answer posts as the next comment; the watcher fills its meta for you.
 
 ## Pages & reports
-- **trame_create_page** — create/nest a standalone page from Markdown (not a session card).
+- **trame_create_page** — create a page from Markdown (not a session card). Nest it under
+  the relevant project via parent_id; parentless pages land in the Unfiled inbox.
+- **trame_update_page** — replace a page's content from Markdown IN PLACE; unchanged
+  blocks keep their ids so inline comments stay anchored. Reply to comments before updating.
+- **trame_move_page** — reparent/reorder an existing page (fix a wrong parent, nest under another page).
 - **trame_html** — embed an interactive HTML doc on a page (sandboxed iframe, scripts run).
   The doc calls \`window.trame.send(data)\` to persist structured results on the block;
   **trame_html_data** reads them back. Use this to ASK the user something visual
@@ -96,7 +101,7 @@ As an agent you can:
 - **trame_new_objective** — create the story/epic sessions ladder up to.
 
 ## Read / sync
-- **trame_board** — read sessions, objectives, clients. **trame_reports** — list reports.
+- **trame_board** — read sessions, stories, projects. **trame_reports** — list reports.
 - **trame_sync** — push/pull with the hub now.
 
 The app must be running (it writes its port for these tools). All writes ride the normal
@@ -111,7 +116,7 @@ server.tool(
 
 server.tool(
   "trame_board",
-  "Read the Trame board: all sessions with status/client/objective/branch/next_step, plus objectives and clients.",
+  "Read the Trame board: all sessions with status/client/objective/branch/next_step, plus stories and projects.",
   {},
   async () => text(await api("/api/board")),
 );
@@ -156,7 +161,7 @@ server.tool(
 
 server.tool(
   "trame_create_page",
-  "Create a new standalone or nested Trame page/document from Markdown. Use this instead of putting a document into a session card.",
+  "Create a new Trame page/document from Markdown. Use this instead of putting a document into a session card. Nest it under the relevant project or page: resolve parent_id first (trame_board lists projects; the current session's project usually is the right home). Omit parent_id only for genuinely cross-project documents — parentless pages land in the Unfiled inbox awaiting manual triage.",
   {
     title: z.string(),
     markdown: z.string().optional(),
@@ -170,16 +175,88 @@ server.tool(
       parent_id?: string;
       icon?: string;
     },
-  ) =>
-    text(
-      await post("/api/pages", {
-        title,
-        kind: "page",
-        parent_id: parent_id ?? null,
-        icon: icon ?? null,
-        content: markdownToPageBlocks(markdown ?? "", title),
-      }),
-    ),
+  ) => {
+    const res = await post("/api/pages", {
+      title,
+      kind: "page",
+      parent_id: parent_id ?? null,
+      icon: icon ?? null,
+      content: markdownToPageBlocks(markdown ?? "", title),
+    }) as Record<string, unknown>;
+    return text(
+      parent_id ? res : {
+        ...res,
+        note:
+          "created in Unfiled (no parent) — if a project fits, file it with trame_move_page",
+      },
+    );
+  },
+);
+
+server.tool(
+  "trame_update_page",
+  "Replace a Trame page's content from Markdown IN PLACE (full new content, not a diff). Blocks whose text is unchanged keep their ids, so inline comments stay attached; comments on changed blocks detach to their quoted snapshot. Use for revising a page you authored (e.g. a plan revision) — reply to the comments you are addressing BEFORE updating. Structural blocks (html/database/subpage) are preserved. Optional title renames the page.",
+  {
+    page_id: z.string().optional(),
+    page_title: z.string().optional(),
+    markdown: z.string(),
+    title: z.string().optional(),
+  },
+  async (
+    args: {
+      page_id?: string;
+      page_title?: string;
+      markdown: string;
+      title?: string;
+    },
+  ) => {
+    const pageId = await resolvePageId(args);
+    const page = await api(`/api/pages/${pageId}`) as {
+      title: string;
+      content?: unknown[];
+    };
+    const content = mergePageBlocks(
+      page.content ?? [],
+      markdownToPageBlocks(args.markdown, args.title ?? page.title),
+    );
+    await post(`/api/pages/${pageId}`, {
+      content,
+      ...(args.title ? { title: args.title } : {}),
+    });
+    return text({ page_id: pageId });
+  },
+);
+
+server.tool(
+  "trame_move_page",
+  "Move/reparent a page (or reorder it among siblings). Identify the page by id or exact title. Set parent_id to a page id to nest it, or null to move it to the top level (omit parent_id to keep its current parent and just reorder). Optionally drop it right before/after a sibling with before_id/after_id (sibling ids, not titles). Rejects cycles (can't move a page under itself or a descendant).",
+  {
+    page_id: z.string().optional(),
+    page_title: z.string().optional(),
+    parent_id: z.string().nullable().optional(),
+    before_id: z.string().optional(),
+    after_id: z.string().optional(),
+  },
+  async (
+    args: {
+      page_id?: string;
+      page_title?: string;
+      parent_id?: string | null;
+      before_id?: string;
+      after_id?: string;
+    },
+  ) => {
+    if (args.before_id && args.after_id) {
+      throw new Error("use before_id or after_id, not both");
+    }
+    const pageId = await resolvePageId(args);
+    await post(`/api/pages/${pageId}/move`, {
+      parent_id: args.parent_id,
+      before_id: args.before_id,
+      after_id: args.after_id,
+    });
+    return text({ ok: true });
+  },
 );
 
 server.tool(

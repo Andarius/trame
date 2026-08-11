@@ -84,7 +84,7 @@ export function FolderBlock(
   );
 
   return (
-    <div className="my-1 overflow-hidden rounded-lg border border-line bg-[#0e1014]">
+    <div className="my-1 overflow-hidden rounded-lg border border-line bg-block">
       {/* header */}
       <div className="flex items-center gap-2 border-b border-line-soft px-3 py-2">
         <span className="text-sm">📁</span>
@@ -121,7 +121,7 @@ export function FolderBlock(
           )}
         {entries && (
           <span className="flex shrink-0 items-center gap-2 text-[11px] text-ink-muted">
-            <span className="rounded-full border border-[#1d4531] bg-[#12291d] px-2 py-[1px] text-[10px] font-semibold text-active">
+            <span className="rounded-full border border-chip-active-border bg-chip-active-bg px-2 py-[1px] text-[10px] font-semibold text-active">
               live
             </span>
             {entries.length} fichier{entries.length > 1 ? "s" : ""}
@@ -152,7 +152,7 @@ export function FolderBlock(
           {entries.map((e) => (
             <div
               key={e.path}
-              className="flex items-center gap-2.5 border-t border-line-soft px-3 py-[7px] text-[12.5px] first:border-t-0 hover:bg-[#101319]"
+              className="flex items-center gap-2.5 border-t border-line-soft px-3 py-[7px] text-[12.5px] first:border-t-0 hover:bg-hover"
             >
               <span className="shrink-0 text-[13px]">{iconFor(e)}</span>
               <span className="min-w-0 flex-1 truncate text-ink-soft">{e.name}</span>
@@ -200,7 +200,7 @@ export function FolderBlock(
                     />
                   )
                   : (
-                    <div className="flex h-full items-center justify-center bg-[#0f1116] text-2xl">
+                    <div className="flex h-full items-center justify-center bg-block text-2xl">
                       {iconFor(e)}
                     </div>
                   )}

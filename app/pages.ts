@@ -1,5 +1,4 @@
-// Pages (Notion-style): one nestable tree. kind='project' pages are the former
-// objectives and still serve the board through the objectives facade in db.ts.
+// Pages (Notion-style): one nestable tree — kind: project | story | page.
 // The tree is returned flat (parent_id + sort_key) — the frontend assembles it and
 // tolerates orphans (sync can deliver a child before its parent).
 import { db } from "./db.ts";
@@ -14,7 +13,7 @@ import {
 } from "./agent-comments.ts";
 
 const LIST_COLS =
-  "id, parent_id, kind, title, icon, status, client_id, color, sort_key";
+  "id, parent_id, kind, title, icon, status, client_id, color, sort_key, owner_id";
 const COMMENT_COLS =
   "id, page_id, block_id, anchor, body, author, author_avatar, author_id, resolved, meta, updated_at";
 
@@ -59,8 +58,14 @@ export async function getPage(id: string) {
        from udb_databases d where d.page_id=$1 and not d.deleted order by d.sort_key, d.name`,
     [id],
   )).rows;
+  // a project's own sessions live on its child stories (page_id = story id), so roll
+  // those up too — otherwise opening a project always reads "no sessions yet"
   const sessions = (await pg.query(
-    `select * from sessions where page_id=$1 and not deleted order by last_touched desc`,
+    `select * from sessions
+      where not deleted
+        and (page_id=$1
+             or page_id in (select id from pages where parent_id=$1 and kind='story' and not deleted))
+      order by last_touched desc`,
     [id],
   )).rows;
   const comments = await commentsForPage(id);

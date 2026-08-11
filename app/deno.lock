@@ -1,6 +1,7 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@bradenmacdonald/s3-lite-client@~0.9.6": "0.9.6",
     "jsr:@std/assert@1": "1.0.19",
     "jsr:@std/bytes@^1.0.6": "1.0.6",
     "jsr:@std/crypto@^1.1.0": "1.1.0",
@@ -18,6 +19,9 @@
     "npm:zod@^3.24.0": "3.25.76"
   },
   "jsr": {
+    "@bradenmacdonald/s3-lite-client@0.9.6": {
+      "integrity": "5dac4eb9ce4d8574ce2eb21e1cff1e96b409ca3ba333913a8bbf918710dc50d9"
+    },
     "@std/assert@1.0.19": {
       "integrity": "eaada96ee120cb980bc47e040f82814d786fe8162ecc53c91d8df60b8755991e",
       "dependencies": [
@@ -627,6 +631,7 @@
   },
   "workspace": {
     "dependencies": [
+      "jsr:@bradenmacdonald/s3-lite-client@~0.9.6",
       "jsr:@std/assert@1",
       "jsr:@std/uuid@1",
       "npm:@clack/prompts@^1.6.0",

@@ -13,7 +13,7 @@ Stack: **Deno-desktop** app → **local PGlite** (embedded Postgres, offline rea
 custom **changeset LWW sync over HTTPS** → a small **Deno API in front of Postgres** on a home
 server (the hub), with **WebSocket nudges** so edits propagate between machines in seconds.
 No PowerSync, no Electric. Everything is Postgres, so the SQL is identical on the laptop and
-the hub. (Hub API & sync design: `docs-site/src/content/docs/sync-walkthrough.mdx`.)
+the hub. (Design + migration story: `docs-site/src/content/docs/hub-api.md`.)
 
 ```
  laptop A (Deno app)                          laptop B (Deno app)

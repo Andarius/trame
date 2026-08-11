@@ -5,18 +5,13 @@
 // restores the rows, and rolls back on failure.
 // Old dirs predate newer columns/tables (pages, page_id, icons…): the dump takes
 // whatever exists (`select *`) and the restore writes the intersection with today's
-// schema — schema.sql's idempotent backfills (objectives → pages) do the rest.
+// schema. Dirs predating the pages migration (data still in clients/objectives) must
+// migrate through a pre-v3 release first — those tables are gone from today's schema.
 // deno-lint-ignore no-import-prefix -- the OLD engine, pinned: the only build able to read a PG16 dir
 import { PGlite as PGliteOld } from "npm:@electric-sql/pglite@0.2.17";
 import { PGlite } from "@electric-sql/pglite";
 import { APP_ROOT, DATA_DIR } from "./config.ts";
 import { TABLES } from "./sync.ts";
-
-// Legacy tables that are no longer synced but are the SOURCE of schema.sql's
-// backfills (objectives → pages) — they must ride along or the backfill runs empty.
-const LEGACY = [
-  { name: "objectives", cols: ["id", "title", "story", "client_id", "status", "origin", "updated_at", "deleted"] },
-] as const;
 
 export async function dataDirPgVersion(): Promise<string | null> {
   return await Deno.readTextFile(`${DATA_DIR}/PG_VERSION`).then((s) => s.trim()).catch(() => null);
@@ -31,7 +26,7 @@ export async function migrateDataDir(): Promise<{ rows: number; backup: string }
   //    old dirs may lack columns/tables added since — restore intersects with today's cols.
   const old = new PGliteOld(DATA_DIR);
   await old.waitReady;
-  const migrTables = [TABLES[0], ...LEGACY, ...TABLES.slice(1)]; // clients, objectives, pages, …
+  const migrTables = [...TABLES];
   const dump: Record<string, Record<string, unknown>[]> = {};
   for (const t of migrTables) {
     try {
@@ -78,7 +73,6 @@ export async function migrateDataDir(): Promise<{ rows: number; backup: string }
       console.log(`  ${t.name}: ${rows.length} rows`);
     }
     // re-run the schema so its idempotent backfills see the restored rows
-    // (objectives → pages copy, page_id backfills)
     await pg.exec(schema);
     if (syncState) {
       await pg.query(

@@ -7,40 +7,17 @@
 -- Every synced row carries: id (uuid), updated_at (LWW clock), origin (which node
 -- wrote it), deleted (soft-delete so deletions propagate). The custom sync uses these.
 
-create table if not exists clients (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  color text,
-  origin text not null default 'seed',
-  updated_at timestamptz not null default now(),
-  deleted boolean not null default false
-);
-
--- LEGACY: superseded by pages (kind='project'). Kept as the frozen migration
--- source — nothing reads or writes it anymore. Drop once every machine migrated.
-create table if not exists objectives (
-  id uuid primary key default gen_random_uuid(),
-  title text not null,
-  story text not null default '',
-  client_id uuid references clients (id),
-  status text not null default 'open',      -- open | done | archived
-  origin text not null default 'seed',
-  updated_at timestamptz not null default now(),
-  deleted boolean not null default false
-);
-
--- Pages (Notion-style): one nestable tree for everything. kind='project' pages are
--- the former objectives — migrated with the SAME ids, so session/report links carry
--- over as a value copy. Body = ordered block list in `content`; databases live on a
--- page via udb_databases.page_id (sidebar child) or inline as a {type:'database'} block.
+-- Pages (Notion-style): one nestable tree for everything — kind: project | story | page.
+-- Body = ordered block list in `content`; databases live on a page via
+-- udb_databases.page_id (sidebar child) or inline as a {type:'database'} block.
 create table if not exists pages (
   id uuid primary key default uuidv7(),
   parent_id uuid,                           -- null = top level; no FK: LWW pull is updated_at-ordered, so a child can arrive before its parent — readers tolerate orphans
-  kind text not null default 'page',   -- page | project
+  kind text not null default 'page',   -- project | story | page
   title text not null default '',
   icon text,
   story text not null default '',       -- project blurb, shown as the page description
-  client_id uuid references clients (id),
+  client_id uuid,                        -- denormalized Project page id; the tree is authoritative
   status text not null default 'open',   -- open | done | archived (projects)
   content jsonb not null default '[]',    -- ordered blocks (LWW whole-doc; fine single-user)
   sort_key text not null default 'a0',     -- fractional key: order among siblings
@@ -54,8 +31,7 @@ create table if not exists sessions (
   id uuid primary key default gen_random_uuid(),
   title text not null,
   status text not null default 'active',  -- active | paused | blocked | done
-  client_id uuid references clients (id),
-  objective_id uuid references objectives (id),
+  client_id uuid,                          -- denormalized Project page id; fallback when page_id is null
   repo_path text,
   branch text,
   next_step text,
@@ -236,12 +212,26 @@ create table if not exists session_events (
   deleted boolean not null default false
 );
 
+-- Pasted images; page blocks reference them as ![...](/api/assets/<id>). Metadata
+-- only — bytes live on disk (ASSETS_DIR) or in S3 (TRACKER_S3_*). Not in the sync
+-- table set, so references don't resolve on other nodes unless both point at S3.
+create table if not exists assets (
+  id uuid primary key default uuidv7(),
+  mime text not null,
+  store text not null default 'local',    -- local | s3
+  path text not null default '',           -- filename under ASSETS_DIR, or s3 key
+  created_at timestamptz not null default now(),
+  deleted boolean not null default false
+);
+alter table assets drop column if exists data;  -- short-lived base64 variant
+alter table assets add column if not exists store text not null default 'local';
+alter table assets add column if not exists path text not null default '';
+
 create table if not exists reports (
   id uuid primary key default gen_random_uuid(),
   title text not null,
   html text not null default '',
-  client_id uuid references clients (id),
-  objective_id uuid references objectives (id),
+  client_id uuid,                          -- denormalized Project page id
   created_at timestamptz not null default now(),
   origin text not null default 'seed',
   updated_at timestamptz not null default now(),
@@ -310,57 +300,57 @@ create index if not exists udb_links_to on udb_links (prop_id, to_row);
 alter table sessions add column if not exists claude_id uuid;
 alter table sessions add column if not exists agent text;
 
--- Objectives → pages migration (idempotent: copy is conflict-do-nothing, backfills
--- only fill nulls, and the dual-write in upsertSession keeps both columns equal
--- until the frontend is fully off objective_id).
 alter table sessions add column if not exists page_id uuid references pages (id);
 alter table reports add column if not exists page_id uuid references pages (id);
 alter table udb_databases add column if not exists page_id uuid references pages (id);
--- new project pages exist only in pages, so the objectives FKs must go
-alter table sessions drop constraint if exists sessions_objective_id_fkey;
-alter table reports drop constraint if exists reports_objective_id_fkey;
-insert into pages (id, kind, title, story, client_id, status, origin, updated_at, deleted)
-select
-  id,
-  'project',
-  title,
-  story,
-  client_id,
-  status,
-  origin,
-  updated_at,
-  deleted
-from objectives
-on conflict (id) do nothing;
-update sessions set page_id = objective_id
-where page_id is null and objective_id is not null;
-update reports set page_id = objective_id
-where page_id is null and objective_id is not null;
 
--- Project → Story fold: clients become top-level kind='project' pages (Project),
--- former project pages become kind='story' nested under them. Reusing the client id
--- as the Project page id means every existing client_id reference (sessions, stories)
--- already points at the right Project — no re-pointing needed. Idempotent: the insert
--- is conflict-do-nothing, and the update no-ops once old projects are already stories
--- (a real client id can never match the `id not in (select id from clients)` guard).
+-- Legacy teardown (objectives were folded into pages with the SAME ids by earlier
+-- releases). One last conditional backfill for straggler DBs, then drop the column —
+-- a no-op on fresh installs and on DBs already torn down.
+do $$
+begin
+  if to_regclass('objectives') is not null then
+    alter table sessions drop constraint if exists sessions_objective_id_fkey;
+    alter table reports drop constraint if exists reports_objective_id_fkey;
+    insert into pages (id, kind, title, story, client_id, status, origin, updated_at, deleted)
+    select id, 'project', title, story, client_id, status, origin, updated_at, deleted
+    from objectives
+    on conflict (id) do nothing;
+  end if;
+  if exists (select 1 from information_schema.columns
+             where table_name = 'sessions' and column_name = 'objective_id') then
+    update sessions set page_id = objective_id
+    where page_id is null and objective_id is not null;
+    alter table sessions drop column objective_id;
+  end if;
+  if exists (select 1 from information_schema.columns
+             where table_name = 'reports' and column_name = 'objective_id') then
+    update reports set page_id = objective_id
+    where page_id is null and objective_id is not null;
+    alter table reports drop column objective_id;
+  end if;
+end $$;
+
+-- Project → Story fold (clients became top-level kind='project' pages with the SAME
+-- ids, former project pages became kind='story' under them). Same teardown pattern:
+-- one last conditional fold for stragglers, then drop both frozen tables.
 alter table pages add column if not exists color text;
--- client_id now holds a Project *page* id, not a clients-table id — the old FKs must go
 alter table pages drop constraint if exists pages_client_id_fkey;
 alter table sessions drop constraint if exists sessions_client_id_fkey;
 alter table reports drop constraint if exists reports_client_id_fkey;
-insert into pages (id, kind, title, color, origin, updated_at, deleted)
-select
-  id,
-  'project',
-  name,
-  color,
-  origin,
-  updated_at,
-  deleted
-from clients
-on conflict (id) do nothing;
-update pages set kind = 'story', parent_id = coalesce(parent_id, client_id)
-where kind = 'project' and client_id is not null and id not in (select id from clients);
+do $$
+begin
+  if to_regclass('clients') is not null then
+    insert into pages (id, kind, title, color, origin, updated_at, deleted)
+    select id, 'project', name, color, origin, updated_at, deleted
+    from clients
+    on conflict (id) do nothing;
+    update pages set kind = 'story', parent_id = coalesce(parent_id, client_id)
+    where kind = 'project' and client_id is not null and id not in (select id from clients);
+  end if;
+end $$;
+drop table if exists objectives;  -- before clients: its client_id FK references it
+drop table if exists clients;
 
 -- Identity backfill for pages — after the legacy migrations so their copies are covered
 -- in the same pass. Same rules and single-user guard as the page_comments backfill above.
@@ -420,7 +410,7 @@ $fn$;
 do $$
 declare t text;
 begin
-  foreach t in array array['users','devices','clients','pages','page_shares','page_links','page_comments','comment_agent_status','statuses','sessions',
+  foreach t in array array['users','devices','pages','page_shares','page_links','page_comments','comment_agent_status','statuses','sessions',
                            'session_events','reports','udb_databases','udb_properties','udb_rows','udb_links'] loop
     execute format(
       'create or replace trigger %I after insert or update or delete on %I for each row execute function trame_log_change()',
@@ -438,15 +428,9 @@ where at < now() - interval '30 days';
 -- Catalog documentation (COMMENT ON is idempotent — safe to re-run every startup).
 -- Shows up in \d+ / \dt+ so the schema is self-describing from psql on the hub too.
 
-comment on table clients is 'Who the work is for (one per client/company). Referenced by sessions, pages, reports.';
-comment on column clients.name is 'Display name; find-or-create key used by the CLI/MCP (resolveClient).';
-comment on column clients.color is 'Chip color (hex); null = deterministic hash pick from the app palette.';
-
-comment on table objectives is 'LEGACY — superseded by pages (kind=''project''), same ids. Frozen migration source; drop once every machine has migrated.';
-
-comment on table pages is 'Notion-style page tree: one nestable hierarchy for everything. kind=''project'' pages are the former objectives (migrated with identical ids).';
+comment on table pages is 'Notion-style page tree: one nestable hierarchy for everything. kind: project | story | page.';
 comment on column pages.parent_id is 'Parent page; null = top level. Deliberately NO FK: LWW pull is updated_at-ordered so a child can arrive before its parent — readers tolerate orphans.';
-comment on column pages.kind is 'page | project. Behavioral: a page becomes a project (one-way) when a session attaches. Projects carry story/status and are what sessions ladder up to.';
+comment on column pages.kind is 'project | story | page. Behavioral: a plain page becomes a story (one-way) when a session attaches. Stories carry story/status and are what sessions ladder up to.';
 comment on column pages.icon is 'Emoji glyph, or an image URL / data URI.';
 comment on column pages.story is 'Project blurb, shown as the page description.';
 comment on column pages.status is 'open | done | archived (meaningful for kind=''project'').';
@@ -473,8 +457,7 @@ comment on column devices.user_id is 'users.id this device writes as (no FK: LWW
 
 comment on table sessions is 'Coding-agent work sessions — the kanban cards. Upserted by the Trame tracking skill via transcript id or repo_path+branch.';
 comment on column sessions.status is 'active | paused | blocked | done — the board columns.';
-comment on column sessions.objective_id is 'LEGACY twin of page_id (no FK since the pages migration). Dual-written until the frontend is fully off it.';
-comment on column sessions.page_id is 'The page this session ladders up to. Attaching promotes a plain page to kind=''project''.';
+comment on column sessions.page_id is 'The anchor: the page this session ladders up to. Attaching promotes a plain page to kind=''story''. Story/project are derived by walking the tree up from it.';
 comment on column sessions.next_step is 'One imperative line — what to do next.';
 comment on column sessions.claude_id is 'LEGACY NAME: Claude Code or Codex transcript UUID. Imported cards also carry it as their id.';
 comment on column sessions.agent is 'Transcript provider: claude or codex. Null on older/manual cards; resume detects legacy Claude imports.';
@@ -490,7 +473,7 @@ comment on column session_events.at is 'Event time (updated_at is the sync clock
 comment on column session_events.kind is 'track (from /project:track) | log (manual) | status changes.';
 
 comment on table reports is 'Claude-published HTML reports, browsable in Explore. html is the full self-contained document.';
-comment on column reports.page_id is 'Project page this report belongs to (replaces objective_id).';
+comment on column reports.page_id is 'Page this report belongs to.';
 
 comment on table udb_databases is 'User-defined databases (Notion-style): the definition row. User schemas are DATA in udb_* — fixed physical tables so the sync TABLES list never changes.';
 comment on column udb_databases.icon is 'Emoji glyph, or an image URL / data URI (sidebar + header).';
@@ -526,7 +509,7 @@ comment on column sync_state.last_pushed_at is 'Local-clock watermark: push send
 do $$
 declare t text;
 begin
-  foreach t in array array['clients','objectives','pages','page_comments','comment_agent_status','statuses','sessions','session_events','reports',
+  foreach t in array array['pages','page_comments','comment_agent_status','statuses','sessions','session_events','reports',
                            'udb_databases','udb_properties','udb_rows','udb_links','users','devices','page_shares','page_links'] loop
     execute format('comment on column %I.id is %L', t, 'PK. uuidv7() on newer tables (time-ordered), gen_random_uuid() v4 on the originals — minted per node, no sequence (offline multi-writer).');
     execute format('comment on column %I.origin is %L', t, 'NODE_ID that wrote the row — push only sends own-origin rows (not ones just pulled).');

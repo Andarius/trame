@@ -46,8 +46,14 @@ async function installPatched(src: string, dest: string): Promise<void> {
 async function installClaude(): Promise<void> {
   const cmdDir = `${home}/.claude/commands/trame`;
   await Deno.mkdir(cmdDir, { recursive: true });
-  await installPatched(`${root}commands/trame/track.md`, `${cmdDir}/track.md`);
-  console.log(`installed → ${cmdDir}/track.md`);
+  for await (const entry of Deno.readDir(`${root}commands/trame`)) {
+    if (!entry.isFile || !entry.name.endsWith(".md")) continue;
+    await installPatched(
+      `${root}commands/trame/${entry.name}`,
+      `${cmdDir}/${entry.name}`,
+    );
+    console.log(`installed → ${cmdDir}/${entry.name}`);
+  }
 
   const skillDir = `${home}/.claude/skills/trame-page`;
   await Deno.mkdir(skillDir, { recursive: true });
