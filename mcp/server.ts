@@ -83,6 +83,7 @@ As an agent you can:
 
 ## Pages & reports
 - **trame_create_page** — create/nest a standalone page from Markdown (not a session card).
+- **trame_move_page** — reparent/reorder an existing page (fix a wrong parent, nest under another page).
 - **trame_html** — embed an interactive HTML doc on a page (sandboxed iframe, scripts run).
   The doc calls \`window.trame.send(data)\` to persist structured results on the block;
   **trame_html_data** reads them back. Use this to ASK the user something visual
@@ -180,6 +181,38 @@ server.tool(
         content: markdownToPageBlocks(markdown ?? "", title),
       }),
     ),
+);
+
+server.tool(
+  "trame_move_page",
+  "Move/reparent a page (or reorder it among siblings). Identify the page by id or exact title. Set parent_id to a page id to nest it, or null to move it to the top level (omit parent_id to keep its current parent and just reorder). Optionally drop it right before/after a sibling with before_id/after_id (sibling ids, not titles). Rejects cycles (can't move a page under itself or a descendant).",
+  {
+    page_id: z.string().optional(),
+    page_title: z.string().optional(),
+    parent_id: z.string().nullable().optional(),
+    before_id: z.string().optional(),
+    after_id: z.string().optional(),
+  },
+  async (
+    args: {
+      page_id?: string;
+      page_title?: string;
+      parent_id?: string | null;
+      before_id?: string;
+      after_id?: string;
+    },
+  ) => {
+    if (args.before_id && args.after_id) {
+      throw new Error("use before_id or after_id, not both");
+    }
+    const pageId = await resolvePageId(args);
+    await post(`/api/pages/${pageId}/move`, {
+      parent_id: args.parent_id,
+      before_id: args.before_id,
+      after_id: args.after_id,
+    });
+    return text({ ok: true });
+  },
 );
 
 server.tool(
