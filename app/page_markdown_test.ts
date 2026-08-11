@@ -41,6 +41,20 @@ console.log(answer);
   }
 });
 
+Deno.test("indented todos keep their nesting level", () => {
+  assertEquals(
+    withoutIds(markdownToPageBlocks(
+      "- [ ] parent\n  - [x] child\n\t- [ ] tab child\n      - [ ] deep",
+    )),
+    [
+      { type: "todo", text: "parent", done: false },
+      { type: "todo", text: "child", done: true, indent: 1 },
+      { type: "todo", text: "tab child", done: false, indent: 1 },
+      { type: "todo", text: "deep", done: false, indent: 3 },
+    ],
+  );
+});
+
 Deno.test("a non-matching leading H1 remains content", () => {
   assertEquals(
     withoutIds(markdownToPageBlocks("# Different title\n\nBody", "Page title")),

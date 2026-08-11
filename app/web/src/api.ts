@@ -14,7 +14,6 @@ export type Session = {
   title: string;
   status: Status;
   client_id: string | null;
-  objective_id: string | null;
   page_id: string | null;
   repo_path: string | null;
   branch: string | null;
@@ -25,14 +24,14 @@ export type Session = {
   claude_id: string | null;
   agent: string | null;
 };
-export type Objective = {
+export type Story = {
   id: string;
   title: string;
   story: string;
   client_id: string | null;
   status: string;
 };
-export type Client = { id: string; name: string; color: string | null };
+export type Project = { id: string; name: string; color: string | null };
 export type BoardPage = {
   id: string;
   parent_id: string | null;
@@ -40,10 +39,11 @@ export type BoardPage = {
   title: string;
   icon: string | null;
   client_id: string | null;
+  color: string | null;
 };
 export type BoardData = {
-  clients: Client[];
-  objectives: Objective[];
+  projects: Project[];
+  stories: Story[];
   sessions: Session[];
   pages: BoardPage[];
   statuses: StatusDef[];
@@ -61,7 +61,7 @@ export type ReportMeta = {
   id: string;
   title: string;
   client_id: string | null;
-  objective_id: string | null;
+  page_id: string | null;
   created_at: string;
 };
 export type Report = ReportMeta & { html: string };
@@ -169,6 +169,14 @@ const post = (path: string, body: unknown) =>
     body: JSON.stringify(body),
   });
 
+// Pasted images — raw bytes up, {id} back; referenced as /api/assets/<id>.
+export const uploadAsset = (file: Blob) =>
+  fetch("/api/assets", {
+    method: "POST",
+    headers: { "content-type": file.type },
+    body: file,
+  }).then((r) => r.json() as Promise<{ id?: string; error?: string }>);
+
 export const saveSession = (s: Record<string, unknown>) =>
   post("/api/sessions", s);
 export const deleteSession = (id: string) =>
@@ -226,6 +234,16 @@ export const probeResume = (
     repoPath: local?.repoPath,
     agent: local?.agent,
   }).then((r) => r.json() as Promise<ResumeInfo>);
+// Bulk resume: konsole → one window with a tab per session; ghostty/others → one
+// window per session.
+export const resumeAllSessions = (
+  sessions: { id: string; repoPath: string; agent: "claude" | "codex" }[],
+) =>
+  post("/api/resume-all", { sessions }).then((r) =>
+    r.json() as Promise<
+      { ok: boolean; launched: number; mode: string; error?: string }
+    >
+  );
 
 export const setStatus = (id: string, status: Status) =>
   fetch(`/api/sessions/${id}/status`, {
@@ -413,7 +431,7 @@ export const applyUpdate = () =>
     r.json() as Promise<{ ok: boolean; error?: string }>
   );
 
-// pages — the nestable tree; kind='project' pages are the former objectives
+// pages — the nestable tree: project | story | page
 
 export type PageKind = "page" | "story" | "project";
 export type Block =
@@ -421,6 +439,7 @@ export type Block =
     type: "text" | "heading" | "todo";
     text: string;
     done?: boolean;
+    indent?: number;
     id?: string;
   }
   | { type: "database"; db_id: string }
@@ -487,6 +506,7 @@ export type PageMeta = {
   client_id: string | null;
   color: string | null;
   sort_key: string;
+  owner_id: string | null;
 };
 export type PageDetail = PageMeta & {
   story: string;

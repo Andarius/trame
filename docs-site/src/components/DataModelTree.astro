@@ -1,0 +1,272 @@
+---
+// Guided SVG walkthrough of the pages tree and what hangs off it. Same pattern as SyncFlow.astro.
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+const steps = [
+	{
+		title: 'Tree',
+		text: 'Projects ◎, stories ◇, and pages □ are all rows of one pages table, discriminated by kind — children nest to any depth.',
+	},
+	{
+		title: 'Sessions',
+		text: 'A session pins to any page via sessions.page_id — here the Notes page, three levels down.',
+	},
+	{
+		title: 'Attachments',
+		text: 'Reports and user databases (udb_databases + their rows) anchor by page_id too; comments add a block_id to pin a specific block inside pages.content.',
+	},
+	{
+		title: 'Derived',
+		text: 'Story and project are not columns — walk up from the anchor: story = nearest ◇, project = nearest ◎. No ◇ on the way up → story-less session.',
+	},
+	{
+		title: 'Subtrees',
+		text: 'Filtering by a story is subtree-based: it catches sessions anchored anywhere below it. Views show the anchor as Project › Story › page.',
+	},
+];
+---
+
+<figure class="dmtree" aria-label="Interactive walkthrough of the data model">
+	<svg viewBox="0 0 920 420" role="img" aria-labelledby="dmtree-desc">
+		<desc id="dmtree-desc">
+			A single pages tree — project, stories, nested pages — with sessions, comments, reports and
+			db rows attached by page_id; story and project are derived by walking up from the anchor.
+		</desc>
+		<defs>
+			<marker id="dm-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+				<path d="M 0 0 L 10 5 L 0 10 z" fill="var(--sl-color-gray-4)" />
+			</marker>
+			<marker id="dm-arrow-on" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+				<path d="M 0 0 L 10 5 L 0 10 z" fill="var(--sl-color-accent)" />
+			</marker>
+		</defs>
+
+		<!-- step 5 subtree overlay -->
+		<g class="edge ghost" data-steps="5">
+			<rect x="44" y="118" width="212" height="294" rx="12" class="subtree" />
+			<text x="150" y="410" class="edge-label">story subtree</text>
+		</g>
+
+		<!-- tree nodes: all 180×56 -->
+		<g class="node" data-steps="1 4">
+			<rect x="280" y="28" width="180" height="56" rx="10" />
+			<text x="370" y="52">◎ Soren</text>
+			<text x="370" y="72" class="sub">Project</text>
+		</g>
+		<g class="node" data-steps="1 4 5">
+			<rect x="60" y="132" width="180" height="56" rx="10" />
+			<text x="150" y="156">◇ Soren infra</text>
+			<text x="150" y="176" class="sub">Story</text>
+		</g>
+		<g class="node" data-steps="1">
+			<rect x="280" y="132" width="180" height="56" rx="10" />
+			<text x="370" y="156">◇ Obi charts</text>
+			<text x="370" y="176" class="sub">Story</text>
+		</g>
+		<g class="node" data-steps="1 3">
+			<rect x="500" y="132" width="180" height="56" rx="10" />
+			<text x="590" y="156">□ Roadmap</text>
+			<text x="590" y="176" class="sub">Page</text>
+		</g>
+		<g class="node" data-steps="1 2 4 5">
+			<rect x="60" y="236" width="180" height="56" rx="10" />
+			<text x="150" y="260">□ Notes</text>
+			<text x="150" y="280" class="sub">Page</text>
+		</g>
+		<g class="node" data-steps="1 5">
+			<rect x="60" y="340" width="180" height="56" rx="10" />
+			<text x="150" y="364">□ Sketches</text>
+			<text x="150" y="384" class="sub">Page · any depth</text>
+		</g>
+
+		<!-- attachments -->
+		<g class="node" data-steps="2 4 5">
+			<rect x="720" y="236" width="180" height="56" rx="28" />
+			<text x="810" y="260">⏱ session</text>
+			<text x="810" y="280" class="sub">repo × branch</text>
+		</g>
+		<g class="node" data-steps="3">
+			<rect x="720" y="340" width="180" height="56" rx="28" />
+			<text x="810" y="364">💬 comment</text>
+			<text x="810" y="384" class="sub">on a block</text>
+		</g>
+		<g class="node" data-steps="3">
+			<rect x="720" y="132" width="180" height="56" rx="28" />
+			<text x="810" y="156">▤ report</text>
+			<text x="810" y="176" class="sub">worklog</text>
+		</g>
+		<g class="node" data-steps="3">
+			<path d="M 720 38 a 90 10 0 0 1 180 0 v 36 a 90 10 0 0 1 -180 0 z" class="db" />
+			<ellipse cx="810" cy="38" rx="90" ry="10" class="db-lid" />
+			<text x="810" y="58">user database</text>
+			<text x="810" y="76" class="sub">Notion-style · udb_rows</text>
+		</g>
+
+		<!-- tree edges -->
+		<g class="edge" data-steps="1">
+			<path d="M 370 84 C 370 110, 150 105, 150 132" />
+		</g>
+		<g class="edge" data-steps="1">
+			<path d="M 370 84 V 132" />
+		</g>
+		<g class="edge" data-steps="1">
+			<path d="M 370 84 C 370 110, 590 105, 590 132" />
+		</g>
+		<g class="edge" data-steps="1 5">
+			<path d="M 150 188 V 236" />
+		</g>
+		<g class="edge" data-steps="1 5">
+			<path d="M 150 292 V 340" />
+		</g>
+
+		<!-- attachment edges -->
+		<g class="edge anchor" data-steps="2 4 5">
+			<path d="M 720 264 H 240" />
+			<text x="480" y="252" class="edge-label">anchor · page_id</text>
+		</g>
+		<g class="edge anchor" data-steps="3">
+			<path d="M 720 368 H 240" />
+			<text x="480" y="356" class="edge-label">page_id + block_id</text>
+		</g>
+		<g class="edge anchor" data-steps="3">
+			<path d="M 720 160 H 680" />
+		</g>
+		<g class="edge anchor" data-steps="3">
+			<path d="M 720 56 C 660 60, 645 90, 630 132" />
+		</g>
+
+		<!-- derivation edges (step 4 only) -->
+		<g class="edge ghost" data-steps="4">
+			<path d="M 790 236 C 780 120, 420 70, 240 160" />
+			<text x="520" y="96" class="edge-label">story = nearest ◇</text>
+		</g>
+		<g class="edge ghost" data-steps="4">
+			<path d="M 830 236 C 840 80, 640 26, 460 56" />
+			<text x="656" y="22" class="edge-label">project = nearest ◎</text>
+		</g>
+	</svg>
+
+	<figcaption class="controls">
+		<Tabs>
+			{steps.map((s, i) => (
+				<TabItem label={`${i + 1} · ${s.title}`}>{s.text}</TabItem>
+			))}
+		</Tabs>
+	</figcaption>
+</figure>
+
+<style>
+	.dmtree {
+		margin: 1.5rem 0;
+		border: 1px solid var(--sl-color-hairline);
+		border-radius: 16px;
+		background: var(--sl-color-bg-nav);
+		padding: 1rem 1rem 0.75rem;
+	}
+	svg {
+		width: 100%;
+		height: auto;
+		display: block;
+	}
+
+	.node rect,
+	.node .db,
+	.node .db-lid {
+		fill: var(--sl-color-bg);
+		stroke: var(--sl-color-gray-4);
+		stroke-width: 1.5;
+		transition: opacity 0.3s, stroke 0.3s, fill 0.3s;
+	}
+	.node text {
+		fill: var(--sl-color-white);
+		font: 600 15px var(--sl-font-system, sans-serif);
+		text-anchor: middle;
+	}
+	.node .sub {
+		fill: var(--sl-color-gray-3);
+		font-size: 12px;
+		font-weight: 400;
+	}
+	.node,
+	.edge {
+		opacity: 0.35;
+		transition: opacity 0.3s;
+	}
+	.node.on,
+	.edge.on {
+		opacity: 1;
+	}
+	.node.on rect,
+	.node.on .db,
+	.node.on .db-lid {
+		stroke: var(--sl-color-accent);
+		fill: var(--sl-color-accent-low);
+	}
+
+	.edge path {
+		fill: none;
+		stroke: var(--sl-color-gray-4);
+		stroke-width: 2;
+		marker-end: url(#dm-arrow);
+	}
+	.edge.anchor path {
+		stroke-dasharray: 6 5;
+	}
+	.edge.on path {
+		stroke: var(--sl-color-accent);
+		marker-end: url(#dm-arrow-on);
+		stroke-dasharray: 6 5;
+		animation: dm-march 0.7s linear infinite;
+	}
+	@keyframes dm-march {
+		to { stroke-dashoffset: -11; }
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.edge.on path { animation: none; }
+	}
+	.edge-label {
+		fill: var(--sl-color-gray-2);
+		font: 12px var(--sl-font-system, sans-serif);
+		text-anchor: middle;
+	}
+	.edge.on .edge-label {
+		fill: var(--sl-color-accent-high);
+		font-weight: 600;
+	}
+
+	/* derivation edges + subtree overlay: hidden until their step */
+	.edge.ghost { opacity: 0.08; }
+	.edge.ghost.on { opacity: 1; }
+	.subtree {
+		fill: none;
+		stroke: var(--sl-color-accent);
+		stroke-dasharray: 5 5;
+	}
+	.edge.ghost .subtree {
+		marker-end: none;
+	}
+
+	.controls { margin: 0.25rem 0 0; }
+	.controls :global([role='tabpanel']) {
+		min-height: 3.6rem;
+		font-size: var(--sl-text-sm);
+		color: var(--sl-color-gray-2);
+	}
+</style>
+
+<script>
+	for (const fig of document.querySelectorAll<HTMLElement>('.dmtree')) {
+		const tabs = [...fig.querySelectorAll<HTMLElement>('[role="tab"]')];
+		const sync = () => {
+			const idx = tabs.findIndex((t) => t.getAttribute('aria-selected') === 'true');
+			if (idx < 0) return;
+			const step = String(idx + 1);
+			for (const el of fig.querySelectorAll<HTMLElement>('[data-steps]')) {
+				el.classList.toggle('on', el.dataset.steps!.split(' ').includes(step));
+			}
+		};
+		const mo = new MutationObserver(sync);
+		for (const t of tabs) mo.observe(t, { attributes: true, attributeFilter: ['aria-selected'] });
+		sync();
+	}
+</script>

@@ -1,4 +1,4 @@
-// WS nudge listener (docs/hub-api.md §Realtime, client side). Nudges only trigger
+// WS nudge listener (docs-site/src/content/docs/hub-api.md §Realtime, client side). Nudges only trigger
 // a normal /sync — correctness never depends on the socket, and the 15s poll keeps
 // running underneath as the fallback. npm:ws because the web WebSocket can't trust
 // a private CA; ws passes {ca} straight to tls.connect.

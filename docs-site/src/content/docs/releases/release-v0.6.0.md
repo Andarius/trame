@@ -1,4 +1,8 @@
-# v0.6.0 — share pages with guests
+---
+title: "v0.6.0 — share pages with guests"
+sidebar:
+  label: "v0.6.0"
+---
 
 Trame becomes multi-user: invite a **guest** and share individual pages with them — live,
 not as a file. Guests see exactly what you share (the page, its sub-pages, comments, and

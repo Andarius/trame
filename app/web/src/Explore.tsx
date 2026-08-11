@@ -374,7 +374,7 @@ export function Explore(
         </div>
         {shownReports.length > 0 && <div className={sectionLbl}>PUBLISHED</div>}
         {shownReports.map((r) => {
-          const client = board.clients.find((c) => c.id === r.client_id);
+          const client = board.projects.find((c) => c.id === r.client_id);
           const active = selKey === `db:${r.id}`;
           return (
             <button type="button"
