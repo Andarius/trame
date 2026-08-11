@@ -2,6 +2,7 @@ export type PageTextBlock = {
   type: "text" | "heading" | "todo";
   text: string;
   done?: boolean;
+  indent?: number;
   id: string;
 };
 
@@ -9,10 +10,12 @@ const block = (
   type: PageTextBlock["type"],
   text: string,
   done?: boolean,
+  indent?: number,
 ): PageTextBlock => ({
   type,
   text,
   ...(type === "todo" ? { done: Boolean(done) } : {}),
+  ...(indent ? { indent } : {}),
   id: crypto.randomUUID(),
 });
 
@@ -68,10 +71,15 @@ export function markdownToPageBlocks(
       continue;
     }
 
-    const todo = line.match(/^\s*[-*+]\s+\[([ xX])\]\s+(.*)$/);
+    const todo = line.match(/^(\s*)[-*+]\s+\[([ xX])\]\s+(.*)$/);
     if (todo) {
       flush();
-      out.push(block("todo", todo[2], todo[1].toLowerCase() === "x"));
+      // two spaces (or one tab) of leading whitespace per nesting level
+      const indent = Math.min(
+        4,
+        Math.floor(todo[1].replace(/\t/g, "  ").length / 2),
+      );
+      out.push(block("todo", todo[3], todo[2].toLowerCase() === "x", indent));
       firstContent = false;
       continue;
     }

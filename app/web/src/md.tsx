@@ -1,10 +1,64 @@
 // Tiny dependency-free Markdown → React renderer. Safe by construction: it builds
 // React nodes (never dangerouslySetInnerHTML) and scheme-checks link hrefs. Covers the
 // common subset — headings, fenced code, blockquotes, ordered/unordered lists, rules,
-// paragraphs; inline code, **bold**, *italic*, ~~strike~~, [links](url) and bare URLs.
+// paragraphs; inline code, **bold**, *italic*, ~~strike~~, [links](url), bare URLs and
+// {{pills}} ({{green:text}} · green|yellow|red|copper|gray — handy for table cells).
 // Underscore emphasis is intentionally NOT supported so snake_case survives.
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type ReactNode, useEffect, useState } from "react";
 import { openInBrowser } from "./api";
+
+// ```mermaid fences render as diagrams. The lib (~1.5 MB) is dynamically imported so
+// pages without diagrams never load it. The svg-string injection is the one exception
+// to the no-innerHTML rule above — mermaid runs with securityLevel 'strict'.
+let mermaidReady: Promise<typeof import("mermaid")["default"]> | null = null;
+const getMermaid = () => {
+  mermaidReady ??= import("mermaid").then(({ default: m }) => {
+    m.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      theme: "dark",
+      themeVariables: { fontFamily: "inherit", primaryColor: "#c98a63" },
+    });
+    return m;
+  });
+  return mermaidReady;
+};
+let mermaidSeq = 0;
+
+function MermaidBlock({ text }: { text: string }) {
+  const [svg, setSvg] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    getMermaid()
+      .then((m) => m.render(`mermaid-${mermaidSeq++}`, text))
+      .then(({ svg }) => alive && setSvg(svg))
+      .catch(() => alive && setFailed(true));
+    return () => {
+      alive = false;
+    };
+  }, [text]);
+  if (failed) { // bad syntax → show the source like any code block
+    return (
+      <pre className="my-1.5 overflow-x-auto rounded-md bg-panel p-2 font-mono text-[0.92em] leading-relaxed text-ink-soft">
+        <code>{text}</code>
+      </pre>
+    );
+  }
+  return svg
+    ? (
+      <div
+        className="my-1.5 overflow-x-auto [&_svg]:max-w-full"
+        // deno-lint-ignore react-no-danger
+        dangerouslySetInnerHTML={{ __html: svg }}
+      />
+    )
+    : (
+      <div className="my-1.5">
+        <span className="text-[11px] text-ink-muted">rendering diagram…</span>
+      </div>
+    );
+}
 
 const safeHref = (url: string): string | undefined =>
   /^(https?:|mailto:|\/|#)/i.test(url.trim()) ? url.trim() : undefined;
@@ -24,6 +78,16 @@ function Link({ href, children }: { href: string; children: ReactNode }) {
     </a>
   );
 }
+
+// {{text}} pills — an optional known-color prefix ({{green:done}}) tints them; any
+// other "word:" stays part of the text. Full class strings so Tailwind sees them.
+const PILL_COLORS: Record<string, string> = {
+  green: "bg-active/15 text-active",
+  yellow: "bg-paused/15 text-paused",
+  red: "bg-blocked/15 text-blocked",
+  copper: "bg-copper/15 text-copper",
+  gray: "border border-chipline bg-panel text-ink-soft",
+};
 
 // inline tokens, tried in order at the current position. \S boundaries keep "a * b" and
 // trailing/leading spaces from being read as emphasis.
@@ -55,6 +119,21 @@ const INLINE: [RegExp, (m: RegExpMatchArray, k: number) => ReactNode][] = [
     /^~~(\S[\s\S]*?\S|\S)~~/,
     (m, k) => <del key={k} className="opacity-70">{renderInline(m[1])}</del>,
   ],
+  // images before links — same syntax with a leading !
+  [/^!\[([^\]]*)\]\(([^)\s]+)\)/, (m, k) => {
+    const src = safeHref(m[2]);
+    return src
+      ? (
+        <img
+          key={k}
+          src={src}
+          alt={m[1]}
+          loading="lazy"
+          className="my-1.5 max-h-96 max-w-full rounded-md border border-line"
+        />
+      )
+      : m[0];
+  }],
   [/^\[([^\]]+)\]\(([^)\s]+)\)/, (m, k) => {
     const h = safeHref(m[2]);
     return h ? <Link key={k} href={h}>{renderInline(m[1])}</Link> : m[0];
@@ -62,6 +141,23 @@ const INLINE: [RegExp, (m: RegExpMatchArray, k: number) => ReactNode][] = [
   [
     /^(https?:\/\/[^\s<>)]+)/,
     (m, k) => <Link key={k} href={m[1]}>{m[1]}</Link>,
+  ],
+  [
+    /^\{\{([^{}\n]+?)\}\}/,
+    (m, k) => {
+      const cm = m[1].match(/^([a-z]+):\s*(\S[\s\S]*)$/);
+      const cls = cm && PILL_COLORS[cm[1]];
+      return (
+        <span
+          key={k}
+          className={`inline-block whitespace-nowrap rounded-md px-1.5 py-px font-mono text-[0.82em] ${
+            cls ?? PILL_COLORS.gray
+          }`}
+        >
+          {(cls ? cm[2] : m[1]).trim()}
+        </span>
+      );
+    },
   ],
   // issue/PR refs (#126) — copper mono, like the session drawer's PR chips
   [
@@ -90,7 +186,7 @@ function renderInline(text: string): ReactNode[] {
     }
     if (hit) continue;
     // consume plain text up to the next possible token start (always ≥1 char → no loop)
-    const next = rest.slice(1).search(/[`*~[#]|https?:\/\//);
+    const next = rest.slice(1).search(/[`*~[#!{]|https?:\/\//);
     const take = next === -1 ? rest.length : next + 1;
     out.push(rest.slice(0, take));
     rest = rest.slice(take);
@@ -256,7 +352,290 @@ function highlightCode(code: string, lang: Hl): ReactNode[] {
 // checks with muted text, "open" renders copper rings in a copper-tinted callout.
 export type ListVariant = "done" | "open";
 
-function renderBlocks(src: string, listVariant?: ListVariant): ReactNode[] {
+// per-row table controls (reorder / comment) — only wired by the page editor;
+// read-only contexts (comments, drawers) render plain tables
+type TableOps = {
+  onEdit?: (next: string) => void;
+  onCommentRow?: (anchor: string) => void;
+};
+
+// Card-framed table. When editable: click selects a row (shift = range,
+// ctrl/cmd = toggle), ↑/↓ moves the selection, Delete removes it, Escape clears.
+function MdTable(
+  { header, align, rows, lines, hdrIdx, ops }: {
+    header: string[];
+    align: (string | undefined)[];
+    rows: string[][];
+    lines: string[];
+    hdrIdx: number;
+    ops?: TableOps;
+  },
+) {
+  const editable = Boolean(ops?.onEdit);
+  const [sel, setSel] = useState<Set<number>>(new Set());
+  const [anchor, setAnchor] = useState<number | null>(null);
+  // double-clicked cell being edited in place (raw markdown only via the ✏️ toolbar)
+  const [editing, setEditing] = useState<{ ri: number; ci: number } | null>(
+    null,
+  );
+  const [draft, setDraft] = useState("");
+  const base = hdrIdx + 2;
+
+  const apply = (rowLines: string[], nextSel: Set<number>) => {
+    const next = [...lines];
+    next.splice(base, rows.length, ...rowLines);
+    setSel(nextSel);
+    ops?.onEdit?.(next.join("\n"));
+  };
+  const moveSel = (dir: -1 | 1) => {
+    if (!sel.size) return;
+    const rl = lines.slice(base, base + rows.length);
+    const flags = rl.map((_, idx) => sel.has(idx));
+    const idxs = [...rl.keys()];
+    if (dir === 1) idxs.reverse();
+    for (const idx of idxs) {
+      if (!flags[idx]) continue;
+      const j = idx + dir;
+      if (j < 0 || j >= rl.length || flags[j]) continue;
+      [rl[idx], rl[j]] = [rl[j], rl[idx]];
+      [flags[idx], flags[j]] = [flags[j], flags[idx]];
+    }
+    apply(rl, new Set(flags.flatMap((f, idx) => (f ? [idx] : []))));
+  };
+  const removeSel = () => {
+    if (!sel.size) return;
+    apply(
+      lines.slice(base, base + rows.length).filter((_, idx) => !sel.has(idx)),
+      new Set(),
+    );
+  };
+  // rewrite one cell in its raw line; `then` chains Tab-editing into the next cell
+  const commitCell = (
+    ri: number,
+    ci: number,
+    value: string,
+    then: { ri: number; ci: number } | null,
+  ) => {
+    const cells = parseTableRow(lines[base + ri]);
+    cells[ci] = value.replaceAll("|", "\\|").trim();
+    const next = [...lines];
+    next[base + ri] = `| ${cells.join(" | ")} |`;
+    setEditing(then);
+    if (then) setDraft(parseTableRow(next[base + then.ri])[then.ci] ?? "");
+    ops?.onEdit?.(next.join("\n"));
+  };
+
+  useEffect(() => {
+    if (!sel.size) return;
+    const key = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return; // cell edit owns the keys
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        moveSel(-1);
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        moveSel(1);
+      } else if (e.key === "Escape") {
+        setSel(new Set());
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        removeSel();
+      }
+    };
+    const clear = () => setSel(new Set());
+    document.addEventListener("keydown", key);
+    document.addEventListener("mousedown", clear);
+    return () => {
+      document.removeEventListener("keydown", key);
+      document.removeEventListener("mousedown", clear);
+    };
+  });
+
+  // checkbox column mirrors the List/database selection layout (shiftRange-style)
+  const boxClick = (ri: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSel((cur) => {
+      const next = new Set(cur);
+      if (e.shiftKey && anchor !== null) {
+        const on = !cur.has(ri);
+        const [lo, hi] = [Math.min(anchor, ri), Math.max(anchor, ri)];
+        for (let k = lo; k <= hi; k++) {
+          if (on) next.add(k);
+          else next.delete(k);
+        }
+        return next;
+      }
+      if (next.has(ri)) next.delete(ri);
+      else next.add(ri);
+      return next;
+    });
+    setAnchor(ri);
+  };
+
+  return (
+    <div className="md-table-card my-2 overflow-x-auto rounded-lg border border-line bg-block px-3 py-1">
+      <table className="w-full border-collapse text-[0.92em]">
+        <thead>
+          <tr>
+            {editable && (
+              <th className="w-6 border-b border-line px-1 py-2">
+                <input
+                  type="checkbox"
+                  title="Select all rows"
+                  className={`h-3.5 w-3.5 accent-[#c98a63] ${
+                    sel.size ? "" : "opacity-0 hover:opacity-100"
+                  }`}
+                  checked={rows.length > 0 && sel.size === rows.length}
+                  onChange={(e) =>
+                    setSel(
+                      e.target.checked
+                        ? new Set(rows.map((_, idx) => idx))
+                        : new Set(),
+                    )}
+                  onMouseDown={(e) => e.stopPropagation()}
+                />
+              </th>
+            )}
+            {header.map((h, ci) => (
+              <th
+                key={ci}
+                className={`border-b border-line px-2.5 py-2 text-[0.8em] font-medium uppercase tracking-wider text-ink-muted ${
+                  align[ci] ?? "text-left"
+                }`}
+              >
+                {renderInline(h)}
+              </th>
+            ))}
+            {editable && <th className="w-0 border-b border-line" />}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, ri) => (
+            <tr
+              key={ri}
+              className={`group/row border-b border-line-soft/50 last:border-0 ${
+                sel.has(ri) ? "bg-copper/[0.06]" : ""
+              }`}
+            >
+              {editable && (
+                <td className="w-6 px-1 py-1.5 align-top">
+                  <input
+                    type="checkbox"
+                    title="Select row — shift-click ranges, ↑↓ move, Del remove"
+                    className={`h-3.5 w-3.5 accent-[#c98a63] ${
+                      sel.size
+                        ? ""
+                        : "opacity-0 group-hover/row:opacity-100"
+                    }`}
+                    checked={sel.has(ri)}
+                    readOnly
+                    // no text selection on shift-click; keep block select/clear out of it
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                      if (e.shiftKey) e.preventDefault();
+                    }}
+                    // toggle in onClick (not onChange): change events have no shiftKey
+                    onClick={(e) => boxClick(ri, e)}
+                  />
+                </td>
+              )}
+              {r.map((c, ci) => (
+                <td
+                  key={ci}
+                  title={editable && !(editing?.ri === ri && editing?.ci === ci)
+                    ? "Double-click to edit"
+                    : undefined}
+                  onDoubleClick={(e) => {
+                    if (!editable) return;
+                    e.stopPropagation();
+                    document.getSelection()?.removeAllRanges();
+                    setEditing({ ri, ci });
+                    setDraft(c);
+                  }}
+                  className={`px-2.5 py-1.5 align-top text-ink-soft ${
+                    align[ci] ?? "text-left"
+                  }`}
+                >
+                  {editing?.ri === ri && editing?.ci === ci
+                    ? (
+                      <input
+                        autoFocus
+                        value={draft}
+                        onChange={(e) => setDraft(e.target.value)}
+                        onBlur={() => {
+                          if (editing?.ri === ri && editing?.ci === ci) {
+                            commitCell(ri, ci, draft, null);
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            commitCell(ri, ci, draft, null);
+                          } else if (e.key === "Escape") {
+                            setEditing(null);
+                          } else if (e.key === "Tab") {
+                            e.preventDefault();
+                            const d = e.shiftKey ? -1 : 1;
+                            let nri = ri, nci = ci + d;
+                            if (nci >= r.length) {
+                              nri = ri + 1;
+                              nci = 0;
+                            } else if (nci < 0) {
+                              nri = ri - 1;
+                              nci = r.length - 1;
+                            }
+                            commitCell(
+                              ri,
+                              ci,
+                              draft,
+                              nri >= 0 && nri < rows.length
+                                ? { ri: nri, ci: nci }
+                                : null,
+                            );
+                          }
+                        }}
+                        className="w-full min-w-[80px] border-b border-copper/60 bg-transparent font-[inherit] text-ink outline-none"
+                      />
+                    )
+                    : renderInline(c)}
+                </td>
+              ))}
+              {editable && (
+                <td className="w-0 whitespace-nowrap px-1 py-1 align-top">
+                  {ops?.onCommentRow && (
+                    <button
+                      type="button"
+                      title="Comment on this row"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        ops.onCommentRow?.(
+                          lines[base + ri].replaceAll("|", " ").trim().slice(
+                            0,
+                            80,
+                          ),
+                        );
+                      }}
+                      className="rounded px-1 text-[11px] text-ink-muted opacity-0 hover:bg-panel hover:text-copper group-hover/row:opacity-100"
+                    >
+                      💬
+                    </button>
+                  )}
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function renderBlocks(
+  src: string,
+  listVariant?: ListVariant,
+  ops?: TableOps,
+): ReactNode[] {
   const lines = src.replace(/\r\n?/g, "\n").split("\n");
   const out: ReactNode[] = [];
   let i = 0, key = 0;
@@ -278,10 +657,14 @@ function renderBlocks(src: string, listVariant?: ListVariant): ReactNode[] {
       }
       i++; // closing fence
       const code = buf.join("\n");
+      if (label.toLowerCase() === "mermaid") {
+        out.push(<MermaidBlock key={key++} text={code} />);
+        continue;
+      }
       out.push(
         <pre
           key={key++}
-          className="relative my-1.5 overflow-x-auto rounded-md bg-panel p-2 font-mono text-[0.92em] leading-relaxed text-ink-soft"
+          className="md-snippet-card relative my-1.5 overflow-x-auto rounded-md bg-panel p-2 font-mono text-[0.92em] leading-relaxed text-ink-soft"
         >
           {label && (
             <span className="pointer-events-none absolute right-1.5 top-1 select-none text-[9px] uppercase tracking-wide text-ink-muted/50">
@@ -394,6 +777,7 @@ function renderBlocks(src: string, listVariant?: ListVariant): ReactNode[] {
       continue;
     }
     if (line.includes("|") && TABLE_SEP.test(lines[i + 1] ?? "")) {
+      const hdrIdx = i;
       const align = parseTableRow(lines[i + 1]).map(colAlign);
       const header = parseTableRow(line);
       i += 2;
@@ -403,43 +787,15 @@ function renderBlocks(src: string, listVariant?: ListVariant): ReactNode[] {
         i++;
       }
       out.push(
-        <div key={key++} className="my-1.5 overflow-x-auto">
-          <table className="w-full border-collapse text-[0.92em]">
-            <thead>
-              <tr>
-                {header.map((h, ci) => (
-                  <th
-                    key={ci}
-                    className={`border-b border-line-soft px-2 py-1 font-semibold text-ink ${
-                      align[ci] ?? "text-left"
-                    }`}
-                  >
-                    {renderInline(h)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, ri) => (
-                <tr
-                  key={ri}
-                  className="border-b border-line-soft/50 last:border-0"
-                >
-                  {r.map((c, ci) => (
-                    <td
-                      key={ci}
-                      className={`px-2 py-1 align-top text-ink-soft ${
-                        align[ci] ?? "text-left"
-                      }`}
-                    >
-                      {renderInline(c)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>,
+        <MdTable
+          key={key++}
+          header={header}
+          align={align}
+          rows={rows}
+          lines={lines}
+          hdrIdx={hdrIdx}
+          ops={ops}
+        />,
       );
       continue;
     }
@@ -463,12 +819,19 @@ function renderBlocks(src: string, listVariant?: ListVariant): ReactNode[] {
 }
 
 // Render `text` as Markdown. `className` styles the wrapper (e.g. font size context).
+// `onEdit`/`onCommentRow` enable per-row table controls (page editor only).
 export function Markdown(
-  { text, className, listVariant }: {
+  { text, className, listVariant, onEdit, onCommentRow }: {
     text: string;
     className?: string;
     listVariant?: ListVariant;
+    onEdit?: (next: string) => void;
+    onCommentRow?: (anchor: string) => void;
   },
 ) {
-  return <div className={className}>{renderBlocks(text, listVariant)}</div>;
+  return (
+    <div className={className}>
+      {renderBlocks(text, listVariant, { onEdit, onCommentRow })}
+    </div>
+  );
 }

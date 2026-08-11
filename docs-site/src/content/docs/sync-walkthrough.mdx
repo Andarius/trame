@@ -1,0 +1,167 @@
+---
+title: 'Hub API & sync'
+description: 'The hub Deno/TS API server and the changeset sync protocol, with a guided walkthrough.'
+---
+
+import SyncFlow from '../../components/SyncFlow.astro';
+
+Trame is local-first: each laptop runs a Deno app over an embedded Postgres (PGlite) and works
+fully offline. Laptops sync through a **Deno/TS API server on the hub**, which fronts the hub
+Postgres as the auth/authz boundary and the realtime fan-out — laptops never talk to the hub
+database directly. `LISTEN/NOTIFY` runs between Postgres and the API only.
+
+## Topology
+
+How a change travels from one laptop to another — step through with the tabs (←/→ works inside them).
+
+<SyncFlow />
+
+Two hops, deliberately different:
+
+- **App ↔ hub API** (cross-machine): the live hop. Changeset `/sync` over HTTPS + a WSS nudge
+  channel.
+- **Browser ↔ local app** (same machine): a simple localhost poll. Never the bottleneck.
+
+## Stack
+
+Hand-rolled rather than an off-the-shelf sync engine (Electric/PowerSync/Zero/Triplit): those
+impose their own conflict model or full-sync transport, which fights the HTTP-data + WSS-nudge
+design and the LWW envelope.
+
+| Concern | Use | Note |
+| :--- | :--- | :--- |
+| HTTP routing + middleware | **Hono** | Auth/logging/error chain in front of `/sync` + the WS upgrade; `Deno.serve(app.fetch)` |
+| WebSocket | **`Deno.upgradeWebSocket`** | Token re-checked at the handshake |
+| Postgres driver | **postgres.js** | Same driver as the client (`app/sync.ts`) |
+| Payload validation | **zod** | Mutation/response schemas in the shared, versioned `sync/protocol` package |
+| Auth | **opaque revocable session tokens** (argon2id passwords) | App-level authz; Postgres RLS only as defense-in-depth |
+| Change tracking | server `change_log` + monotonic revision cursor | Ordering authority; not client `updated_at` |
+| TLS / deploy | **Deno terminates TLS + WSS itself** (`Deno.serve({cert,key})`) | No reverse proxy on the LAN hub |
+
+## Sync protocol
+
+Local reads/writes never block on the network. Every mutation is written to PGlite **and**
+appended to a durable outbox in the *same* transaction, so a crash can't lose or double-apply it.
+
+```text
+POST /sync
+{
+  cursor,                       // opaque, server-issued; null on first sync
+  mutations: [
+    { mutationId, entity, id, op: "upsert" | "delete", value }
+  ]
+}
+
+→ 200 {
+  acknowledgements: [ mutationId ],      // applied — drop from the outbox
+  rejectedMutations: [                   // surfaced, never silently dropped
+    { mutationId, reason }               // e.g. "forbidden", "stale", "schema"
+  ],
+  changes: [
+    { revision, entity, id, value | tombstone }
+  ],
+  nextCursor
+}
+```
+
+Properties:
+
+- **Idempotent pushes** — `mutationId` is stable; retrying a partially-applied batch is safe.
+- **Per-mutation authz** — the server validates auth + page access on each mutation and can reject
+  individual ones without stalling the queue (a batch of 10 with 2 forbidden acks 8, rejects 2).
+- **Server revision, not client clock** — pulls resume from an opaque monotonic `cursor` the
+  server issues from its change-log. Client clocks are unsafe with multiple writers, so the LWW
+  envelope (`origin`/`updated_at`/`deleted`) rides the protocol but never decides delivery order.
+- **Merge rule — two authorities** — server `rev` is the *delivery-ordering* authority; the LWW
+  envelope `updated_at` is the *value-resolution* authority. On push the server assigns `rev`,
+  checks authz, and applies the same `on conflict … where excluded.updated_at > …` rule the client
+  uses, sourced from the shared package. An offline client with a genuinely newer `updated_at`
+  still wins on value, but no client clock ever decides delivery order.
+- **Rejected mutations are UI state** — the app shows "couldn't sync (forbidden/stale)", it does
+  not discard the edit silently.
+
+The realtime channel never carries data — it only says "there are changes ≥ revision N"; the client
+then does a normal durable `/sync`.
+
+## Change-log & cursor
+
+The server's `change_log` is one mechanism doing three jobs: the monotonic cursor, change capture,
+and the WS-nudge source.
+
+```sql
+create table change_log (
+  rev    bigint generated always as identity primary key,  -- monotonic, server-issued cursor
+  entity text not null,        -- 'sessions', 'page_comments', …
+  row_id uuid not null,
+  op     text not null,        -- upsert | delete
+  at     timestamptz not null default now(),
+  actor  uuid,                 -- users.id; null during legacy coexistence
+  source text                  -- 'api' | 'legacy-direct'
+);
+```
+
+- **One `after insert/update/delete` trigger per synced table** appends a row *in the same
+  transaction* as the mutation (atomic), then `pg_notify('changes', '')`.
+- **Pull** = `where rev > $cursor order by rev limit $batch`, hydrate each `row_id` to its current
+  state (coalesce repeats in a batch to the latest), tombstones for deletes, `nextCursor` = max
+  `rev` served.
+- **Fan-out**: the API holds one `LISTEN changes`; on NOTIFY it pushes `{changed, minRevision}` to
+  subscribed WS clients.
+- **Compaction**: rows older than 30 days are dropped — poll + cursor self-heal; a device offline
+  longer re-syncs from scratch.
+
+## Realtime (WSS)
+
+WSS rather than SSE: a general duplex foundation for later presence/typing/cursors, so the
+transport won't need swapping when those land. It carries **invalidation nudges only**.
+
+```text
+S→C  { type: "changed", minRevision }     // "pull to catch up"
+C→S  { type: "hello", cursor }            // sent on (re)open — server streams missed nudges
+      ping / pong                          // heartbeat
+```
+
+Because WSS bypasses the HTTP middleware chain, four things are handled explicitly:
+
+1. **Auth at the handshake** — the token is re-checked at `upgradeWebSocket` and bad connections
+   are rejected *before* the upgrade completes.
+2. **Reconnect + backoff** — client-side, exponential + jitter (no free `EventSource` reconnect).
+3. **Catch-up on (re)open** — the client sends its last `cursor`; the server streams missed
+   nudges, then goes live. A dropped socket loses no data — the next `/sync` reconciles regardless.
+4. **Heartbeat** — ping/pong to detect half-open connections and defeat idle timeouts.
+
+Nudge-only means correctness never depends on the socket; it only depends on `/sync`. The 15 s
+poll stays as the fallback when the socket is down. A slow or stuck client is dropped to the poll
+fallback rather than buffering nudges unbounded.
+
+## Identity & auth
+
+- **Accounts + opaque revocable session tokens** (argon2id passwords) handle app-level auth. A
+  device is still a device (`origin`/`NODE_ID` drives LWW), but a **user** is a first-class
+  account.
+- `page_comments.author` records the person (stamped on write) with a display name — `origin`
+  alone only identifies the node, not who wrote the comment.
+
+## Access control
+
+`/sync` is filtered by page sharing: pull returns only rows the caller may see; push validates
+page membership per mutation. Postgres RLS exists only as defense-in-depth — authz lives in the
+API.
+
+Revocation is **tombstones-on-reconnect**: the client purges or masks the page locally on its next
+sync. An offline laptop cannot be made to forget a page it already pulled — this is access
+control, not DRM.
+
+## Code sharing
+
+The hub imports the same `schema.sql`, row codecs, LWW rules and domain types as the client,
+through a small versioned `sync/protocol` package with runtime (zod) validation — one toolchain,
+no semantic drift between the two ends.
+
+## Limitations
+
+- **No live page co-editing.** `pages.content` is whole-document JSONB LWW: two people editing the
+  same page body will overwrite each other. Comments are append-only and safe to share; page
+  co-editing needs block-level operations or a CRDT.
+- **A device offline more than 30 days** falls outside the change-log window and re-syncs from
+  scratch.

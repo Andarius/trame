@@ -7,10 +7,12 @@ import {
   createStatus,
   createUdb,
   createUdbRow,
+  deleteSession,
   deleteStatus,
   deleteUdb,
   exportPage,
   getBoard,
+  getIdentity,
   getPlugins,
   getStatus,
   getUpdate,
@@ -50,6 +52,7 @@ import {
   appConfirm,
   ConfirmHost,
   EntityIcon,
+  pageGlyph,
   Popover,
   setStatuses,
 } from "./ui";
@@ -159,10 +162,6 @@ const NAV: {
   { key: "agents", glyph: "↻", label: "AI Sessions", view: "agents" },
   { key: "explore", glyph: "✦", label: "Explore", view: "explore" },
 ];
-
-const pageGlyph = (
-  kind: string,
-) => (kind === "project" ? "◎" : kind === "story" ? "◇" : "□");
 
 // "New …" affordance under a sidebar section — a subtle dashed chip. `indent` is
 // the x of the section's icon column (tree rows: 26 = 8px pad + 14px chevron + 4px
@@ -312,6 +311,12 @@ function PageNode(
   );
 }
 
+// A root page owned by another hub user reached us via a share — group it apart.
+// Ownerless pages (legacy rows, dev mode) count as mine.
+function isSharedIn(p: PageMeta, meId: string | null): boolean {
+  return meId != null && p.owner_id != null && p.owner_id !== meId;
+}
+
 function Sidebar(
   {
     view,
@@ -359,6 +364,11 @@ function Sidebar(
 ) {
   const activeKey = view === "board" || view === "list" ? "sessions" : view;
   const synced = status?.remote && status.lastSync;
+  // my user id (null in dev / before hub login) — used to split off shared-in roots
+  const [meId, setMeId] = useState<string | null>(null);
+  useEffect(() => {
+    getIdentity().then((i) => setMeId(i.userId)).catch(() => {});
+  }, []);
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     try {
       return new Set<string>(
@@ -467,12 +477,13 @@ function Sidebar(
           </button>
         );
       })}
-      {/* one tree, two root sections: projects (what sessions ladder up to) vs plain pages */}
+      {/* one tree, three root sections: projects (what sessions ladder up to),
+          pages shared in by other users, and unfiled pages (the inbox to triage) */}
       <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
         PROJECTS
       </div>
       {(childrenOf.get(null) ?? []).filter((p) =>
-        p.kind === "project" || p.kind === "story"
+        (p.kind === "project" || p.kind === "story") && !isSharedIn(p, meId)
       ).map((p) => (
         <PageNode
           key={p.id}
@@ -490,10 +501,37 @@ function Sidebar(
         />
       ))}
       <NewChip label="New project" indent={26} onClick={onNewProject} />
+      {(childrenOf.get(null) ?? []).some((p) => isSharedIn(p, meId)) && (
+        <>
+          <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+            SHARED WITH ME
+          </div>
+          {(childrenOf.get(null) ?? []).filter((p) => isSharedIn(p, meId)).map(
+            (p) => (
+              <PageNode
+                key={p.id}
+                p={p}
+                depth={0}
+                childrenOf={childrenOf}
+                dbsOf={dbsOf}
+                expanded={expanded}
+                onToggle={onToggle}
+                current={view === "page" ? pageId : null}
+                currentDb={view === "database" ? dbId : null}
+                onOpenPage={onOpenPage}
+                onOpenDb={onOpenDb}
+                onNewChild={(id) => onNewPage(id)}
+              />
+            ),
+          )}
+        </>
+      )}
       <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
-        PAGES
+        UNFILED
       </div>
-      {(childrenOf.get(null) ?? []).filter((p) => p.kind === "page").map((
+      {(childrenOf.get(null) ?? []).filter((p) =>
+        p.kind === "page" && !isSharedIn(p, meId)
+      ).map((
         p,
       ) => (
         <PageNode
@@ -725,9 +763,16 @@ export function App() {
   const params = new URLSearchParams(location.search);
   const [board, setBoard] = useState<BoardData | null>(null);
   const [status, setStatus] = useState<AppStatus | null>(null);
-  const [view, setView] = useState<View>(
-    (params.get("view") as View) ?? "board",
-  );
+  const [view, setView] = useState<View>(() => {
+    const v = params.get("view") as View | null;
+    if (v) return v;
+    // bare entity links (?page=, ?db=, ...) imply their view
+    if (params.get("page")) return "page";
+    if (params.get("db")) return "database";
+    if (params.get("client")) return "client";
+    if (params.get("plugin")) return "plugin";
+    return "board";
+  });
   const [group, setGroup] = useState<"none" | "story" | "project">(() => {
     const g = params.get("group");
     return g === "story" || g === "objective"
@@ -829,6 +874,39 @@ export function App() {
     getPlugins().then((p) => Array.isArray(p) && setPlugins(keepSame(p))).catch(
       () => {},
     );
+  };
+
+  // multi-select on the sessions views (board + list): checkboxes fill `selected`,
+  // a floating bar bulk-deletes. Cleared on view change, Escape, and after delete.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const toggleSelected = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const selectMany = (ids: string[], on: boolean) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) on ? next.add(id) : next.delete(id);
+      return next;
+    });
+  useEffect(() => setSelected(new Set()), [view]);
+  useEffect(() => {
+    if (selected.size === 0) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelected(new Set());
+    };
+    globalThis.addEventListener("keydown", onKey);
+    return () => globalThis.removeEventListener("keydown", onKey);
+  }, [selected.size]);
+  const deleteSelected = async () => {
+    const n = selected.size;
+    if (!(await appConfirm(`Delete ${n} session${n > 1 ? "s" : ""}?`))) return;
+    await Promise.all([...selected].map((id) => deleteSession(id).catch(() => {})));
+    setSelected(new Set());
+    refresh();
   };
 
   // "Sync now" is otherwise silent when nothing moves (0↓0↑) — flash the result so it reads as alive
@@ -1009,7 +1087,7 @@ export function App() {
 
   const isSessions = view === "board" || view === "list";
   const currentClient = view === "client"
-    ? board?.clients.find((c) => c.id === clientId) ?? null
+    ? board?.projects.find((c) => c.id === clientId) ?? null
     : null;
   const currentPlugin = view === "plugin"
     ? plugins.find((p) => p.id === pluginId) ?? null
@@ -1341,14 +1419,18 @@ export function App() {
               <button
                 type="button"
                 onClick={() => setStoryFilter(null)}
-                title="Clear story"
+                title="Clear filter"
                 className="flex max-w-full items-center gap-1.5 rounded-md border border-copper/50 px-2 py-1 text-[11.5px] text-copper hover:bg-copper/10"
               >
-                <span className="shrink-0 text-[9px]">◇</span>
-                <span className="truncate">
-                  {board?.objectives.find((o) => o.id === storyFilter)?.title ??
-                    "story"}
-                </span>
+                {(() => {
+                  const fp = board?.pages.find((p) => p.id === storyFilter);
+                  return (
+                    <>
+                      <EntityIcon icon={fp?.icon} fallback={pageGlyph(fp?.kind ?? "story")} className="shrink-0 text-[9px]" />
+                      <span className="truncate">{fp?.title ?? "story"}</span>
+                    </>
+                  );
+                })()}
                 <span className="shrink-0 text-[11px]">✕</span>
               </button>
             </div>
@@ -1367,6 +1449,9 @@ export function App() {
               onFilterStory={(id) =>
                 setStoryFilter((cur) => cur === id ? null : id)}
               hideEmpty={hideEmpty}
+              selected={selected}
+              onToggleSelect={toggleSelected}
+              onSelectMany={selectMany}
             />
           )
           : view === "list"
@@ -1377,6 +1462,9 @@ export function App() {
               storyFilter={storyFilter}
               onFilterStory={(id) =>
                 setStoryFilter((cur) => cur === id ? null : id)}
+              selected={selected}
+              onToggleSelect={toggleSelected}
+              onSelectMany={selectMany}
             />
           )
           : view === "page"
@@ -1439,6 +1527,28 @@ export function App() {
             />
           )}
       </main>
+      {isSessions && selected.size > 0 && (
+        <div className="fixed bottom-5 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-line bg-panel px-3.5 py-2 shadow-xl shadow-black/40">
+          <span className="text-[12px] text-ink-soft">
+            {selected.size} selected
+          </span>
+          <button
+            type="button"
+            onClick={deleteSelected}
+            className="rounded-md border border-blocked/50 px-2.5 py-1 text-[11.5px] text-blocked hover:bg-blocked/10"
+          >
+            Delete
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelected(new Set())}
+            title="Clear selection (Esc)"
+            className="text-[12px] text-ink-muted hover:text-ink-soft"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       {openId && board && (() => {
         const session = board.sessions.find((s) => s.id === openId);
         return session
