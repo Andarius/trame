@@ -1034,7 +1034,10 @@ function BlockEditor(
                   e.preventDefault(); // no text selection while dragging
                   setDragIdx(i);
                 }}
-                className={`absolute left-0.5 top-[2px] cursor-grab select-none p-1 text-[13px] leading-none text-ink-muted hover:text-ink ${
+                // fixed width keeps it inside the 24px block gutter (pl-6) — with
+                // p-1 the glyph's font-dependent width could overlap the todo
+                // checkbox and swallow its clicks
+                className={`absolute left-0.5 top-[2px] w-[18px] overflow-hidden py-1 text-center cursor-grab select-none text-[13px] leading-none text-ink-muted hover:text-ink ${
                   dragIdx === null ? "hidden group-hover:block" : "block"
                 }`}
               >
