@@ -13,7 +13,7 @@ Stack: **Deno-desktop** app → **local PGlite** (embedded Postgres, offline rea
 custom **changeset LWW sync over HTTPS** → a small **Deno API in front of Postgres** on a home
 server (the hub), with **WebSocket nudges** so edits propagate between machines in seconds.
 No PowerSync, no Electric. Everything is Postgres, so the SQL is identical on the laptop and
-the hub. (Design + migration story: `docs/hub-api.md`.)
+the hub. (Design + migration story: `docs-site/src/content/docs/hub-api.md`.)
 
 ```
  laptop A (Deno app)                          laptop B (Deno app)
@@ -50,6 +50,7 @@ the hub. (Design + migration story: `docs/hub-api.md`.)
 ## Layout
 ```
 db/schema.sql              shared schema (hub Postgres AND local PGlite) — idempotent; re-applying it IS the migration
+docs-site/                 Astro + Starlight docs (data model, hub API design, release notes) — `just docs`
 protocol/                  versioned sync protocol shared by app and hub (entities, LWW rule, html-block bridge)
 hub/docker-compose.yml     the hub: Postgres (docker-network only) + the Deno API in front of it
 hub/api/                   the API: device tokens, changeset /sync, per-page ACLs, WSS nudges, public /l/* pages

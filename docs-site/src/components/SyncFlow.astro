@@ -1,0 +1,256 @@
+---
+// Guided SVG walkthrough of the hub sync flow. Steps highlight paths; see sync-walkthrough.mdx.
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+const steps = [
+	{
+		title: 'Local write',
+		text: 'A change in the UI lands in the local PGlite and a durable outbox in the same transaction — the app works fully offline.',
+	},
+	{
+		title: 'Push',
+		text: 'When online, the laptop pushes outbox mutations with POST /sync — Hono middleware checks the opaque session token.',
+	},
+	{
+		title: 'Apply',
+		text: 'The hub applies mutations with last-write-wins, appends to change_log, and mints a monotonic revision cursor.',
+	},
+	{
+		title: 'Nudge',
+		text: 'Other connected laptops get a WS nudge — no data on the socket, just “something changed”. The 15 s poll stays as fallback.',
+	},
+	{
+		title: 'Pull',
+		text: 'The nudged laptop pulls changes from its revision cursor over HTTP, applies them to PGlite, and the UI updates live.',
+	},
+];
+---
+
+<figure class="syncflow" aria-label="Interactive walkthrough of the hub sync flow">
+	<svg viewBox="0 0 920 340" role="img" aria-labelledby="syncflow-desc">
+		<desc id="syncflow-desc">
+			Two laptops sync through the Hub API: local writes are pushed as changesets, applied to
+			Postgres, and other laptops are nudged over WebSocket to pull.
+		</desc>
+
+		<!-- group containers -->
+		<g class="grp">
+			<rect x="12" y="18" width="252" height="304" rx="14" />
+			<text x="34" y="44" class="grp-label">Laptop A</text>
+		</g>
+		<g class="grp">
+			<rect x="334" y="18" width="252" height="304" rx="14" />
+			<text x="356" y="44" class="grp-label">Hub</text>
+		</g>
+		<g class="grp">
+			<rect x="656" y="18" width="252" height="304" rx="14" />
+			<text x="678" y="44" class="grp-label">Laptop B</text>
+		</g>
+
+		<!-- nodes: all 208×64, title baseline cy−6 / sub cy+16, single-line title cy+5 -->
+		<g class="node" data-steps="1">
+			<rect x="34" y="66" width="208" height="64" rx="10" />
+			<text x="138" y="103">React SPA</text>
+		</g>
+		<g class="node" data-steps="1 2">
+			<rect x="34" y="180" width="208" height="64" rx="10" />
+			<text x="138" y="206">Deno app</text>
+			<text x="138" y="228" class="sub">PGlite · outbox</text>
+		</g>
+
+		<g class="node" data-steps="2 3 4 5">
+			<rect x="356" y="94" width="208" height="64" rx="10" />
+			<text x="460" y="120">Hub API</text>
+			<text x="460" y="142" class="sub">Deno · Hono</text>
+		</g>
+		<g class="node" data-steps="3">
+			<path d="M 356 216 a 104 10 0 0 1 208 0 v 44 a 104 10 0 0 1 -208 0 z" class="db" />
+			<ellipse cx="460" cy="216" rx="104" ry="10" class="db-lid" />
+			<text x="460" y="246">Postgres</text>
+			<text x="460" y="266" class="sub">change_log · revision</text>
+		</g>
+
+		<g class="node" data-steps="4 5">
+			<rect x="678" y="94" width="208" height="64" rx="10" />
+			<text x="782" y="120">Deno app</text>
+			<text x="782" y="142" class="sub">PGlite</text>
+		</g>
+		<g class="node" data-steps="5">
+			<rect x="678" y="222" width="208" height="64" rx="10" />
+			<text x="782" y="259">React SPA</text>
+		</g>
+
+		<!-- edges -->
+		<g class="edge" data-steps="1">
+			<path d="M 138 130 V 180" />
+			<text x="150" y="158" class="edge-label" text-anchor="start">write + outbox</text>
+		</g>
+		<g class="edge" data-steps="2">
+			<path d="M 242 200 C 300 195, 300 133, 356 126" />
+			<text x="300" y="184" class="edge-label">POST /sync</text>
+		</g>
+		<g class="edge" data-steps="3">
+			<path d="M 460 158 V 206" />
+			<text x="472" y="186" class="edge-label" text-anchor="start">LWW apply</text>
+		</g>
+		<g class="edge nudge" data-steps="4">
+			<path d="M 564 112 H 678" />
+			<text x="621" y="100" class="edge-label">WS nudge</text>
+		</g>
+		<g class="edge" data-steps="5">
+			<path d="M 678 144 H 564" />
+			<text x="621" y="162" class="edge-label">pull from cursor</text>
+		</g>
+		<g class="edge" data-steps="5">
+			<path d="M 782 158 V 222" />
+			<text x="794" y="194" class="edge-label" text-anchor="start">live update</text>
+		</g>
+	</svg>
+
+	<figcaption class="controls">
+		<Tabs>
+			{steps.map((s, i) => (
+				<TabItem label={`${i + 1} · ${s.title}`}>{s.text}</TabItem>
+			))}
+		</Tabs>
+	</figcaption>
+</figure>
+
+<style>
+	.syncflow {
+		margin: 1.5rem 0;
+		border: 1px solid var(--sl-color-hairline);
+		border-radius: 16px;
+		background: var(--sl-color-bg-nav);
+		padding: 1rem 1rem 0.75rem;
+	}
+	svg {
+		width: 100%;
+		height: auto;
+		display: block;
+	}
+
+	/* groups */
+	.grp rect {
+		fill: none;
+		stroke: var(--sl-color-hairline);
+		stroke-dasharray: 5 5;
+	}
+	.grp-label {
+		fill: var(--sl-color-gray-3);
+		font: 600 13px var(--sl-font-system, sans-serif);
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+	}
+
+	/* nodes */
+	.node rect,
+	.node .db {
+		fill: var(--sl-color-bg);
+		stroke: var(--sl-color-gray-4);
+		stroke-width: 1.5;
+		transition: opacity 0.3s, stroke 0.3s, fill 0.3s;
+	}
+	.node .db-lid {
+		fill: var(--sl-color-bg);
+		stroke: var(--sl-color-gray-4);
+		stroke-width: 1.5;
+	}
+	.node text {
+		fill: var(--sl-color-white);
+		font: 600 15px var(--sl-font-system, sans-serif);
+		text-anchor: middle;
+	}
+	.node .sub {
+		fill: var(--sl-color-gray-3);
+		font-size: 12px;
+		font-weight: 400;
+	}
+	.node,
+	.edge {
+		opacity: 0.35;
+		transition: opacity 0.3s;
+	}
+	.node.on,
+	.edge.on {
+		opacity: 1;
+	}
+	.node.on rect,
+	.node.on .db,
+	.node.on .db-lid {
+		stroke: var(--sl-color-accent);
+		fill: var(--sl-color-accent-low);
+	}
+
+	/* edges */
+	.edge path {
+		fill: none;
+		stroke: var(--sl-color-gray-4);
+		stroke-width: 2;
+		marker-end: url(#sf-arrow);
+	}
+	.edge.nudge path {
+		stroke-dasharray: 6 5;
+	}
+	.edge.on path {
+		stroke: var(--sl-color-accent);
+		marker-end: url(#sf-arrow-on);
+		stroke-dasharray: 6 5;
+		animation: sf-march 0.7s linear infinite;
+	}
+	@keyframes sf-march {
+		to { stroke-dashoffset: -11; }
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.edge.on path { animation: none; }
+	}
+	.edge-label {
+		fill: var(--sl-color-gray-2);
+		font: 12px var(--sl-font-system, sans-serif);
+		text-anchor: middle;
+	}
+	.edge.on .edge-label {
+		fill: var(--sl-color-accent-high);
+		font-weight: 600;
+	}
+
+	/* controls — Starlight Tabs; only pin the panel height to avoid layout shift */
+	.controls { margin: 0.25rem 0 0; }
+	.controls :global([role='tabpanel']) {
+		min-height: 3.6rem;
+		font-size: var(--sl-text-sm);
+		color: var(--sl-color-gray-2);
+	}
+</style>
+
+<script>
+	for (const fig of document.querySelectorAll<HTMLElement>('.syncflow')) {
+		const svg = fig.querySelector('svg')!;
+		// shared arrowhead markers, injected once per svg
+		svg.insertAdjacentHTML(
+			'afterbegin',
+			`<defs>
+				<marker id="sf-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+					<path d="M 0 0 L 10 5 L 0 10 z" fill="var(--sl-color-gray-4)" />
+				</marker>
+				<marker id="sf-arrow-on" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+					<path d="M 0 0 L 10 5 L 0 10 z" fill="var(--sl-color-accent)" />
+				</marker>
+			</defs>`,
+		);
+
+		// follow the Starlight tabs: highlight the SVG for whichever tab is selected
+		const tabs = [...fig.querySelectorAll<HTMLElement>('[role="tab"]')];
+		const sync = () => {
+			const idx = tabs.findIndex((t) => t.getAttribute('aria-selected') === 'true');
+			if (idx < 0) return;
+			const step = String(idx + 1);
+			for (const el of fig.querySelectorAll<HTMLElement>('[data-steps]')) {
+				el.classList.toggle('on', el.dataset.steps!.split(' ').includes(step));
+			}
+		};
+		const mo = new MutationObserver(sync);
+		for (const t of tabs) mo.observe(t, { attributes: true, attributeFilter: ['aria-selected'] });
+		sync();
+	}
+</script>

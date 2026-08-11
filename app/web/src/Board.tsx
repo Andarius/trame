@@ -10,8 +10,20 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { useRef, useState } from "react";
-import type { BoardData, Session, Status } from "./api";
-import { ClientChip, ObjectiveChip, statusStyle, StatusDot } from "./ui";
+import type { BoardData, Session, Status } from "./api.ts";
+import {
+  ClientChip,
+  inSubtree,
+  ObjectiveChip,
+  pageGlyph,
+  pagesById,
+  projectOf,
+  sessionAnchor,
+  shiftRange,
+  statusStyle,
+  StatusDot,
+  storyOf,
+} from "./ui";
 
 function TicketBody(
   { s, board, overlay = false, showObjective = true, storyFilter, onFilterStory }: {
@@ -23,8 +35,10 @@ function TicketBody(
     onFilterStory?: (id: string) => void;
   },
 ) {
-  const client = board.clients.find((c) => c.id === s.client_id);
-  const objective = board.objectives.find((o) => o.id === s.objective_id);
+  const byId = pagesById(board.pages);
+  const client = board.projects.find((c) => c.id === s.client_id);
+  // the chip shows the derived story; a story-less session shows its anchor page instead
+  const chipPage = storyOf(s, byId) ?? sessionAnchor(s, byId);
   const done = statusStyle(s.status).terminal;
   return (
     <div
@@ -33,11 +47,13 @@ function TicketBody(
       } ${done && !overlay ? "opacity-60" : ""}`}
     >
       <div className="text-[12.5px] font-medium leading-snug">{s.title}</div>
-      {showObjective && objective && (
+      {showObjective && chipPage && (
         <ObjectiveChip
-          title={objective.title}
-          active={objective.id === storyFilter}
-          onClick={onFilterStory ? () => onFilterStory(objective.id) : undefined}
+          title={chipPage.title}
+          glyph={pageGlyph(chipPage.kind)}
+          icon={chipPage.icon}
+          active={chipPage.id === storyFilter}
+          onClick={onFilterStory ? () => onFilterStory(chipPage.id) : undefined}
         />
       )}
       <div className="flex items-center gap-1.5">
@@ -52,13 +68,15 @@ function TicketBody(
 }
 
 function DraggableTicket(
-  { s, board, showObjective, onOpen, storyFilter, onFilterStory }: {
+  { s, board, showObjective, onOpen, storyFilter, onFilterStory, selected = false, onToggleSelect }: {
     s: Session;
     board: BoardData;
     showObjective: boolean;
     onOpen: (id: string) => void;
     storyFilter?: string | null;
     onFilterStory?: (id: string) => void;
+    selected?: boolean;
+    onToggleSelect?: (id: string, shift: boolean) => void;
   },
 ) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: s.id });
@@ -68,7 +86,9 @@ function DraggableTicket(
       {...listeners}
       {...attributes}
       onClick={() => onOpen(s.id)}
-      className={`cursor-pointer touch-none active:cursor-grabbing ${isDragging ? "opacity-30" : ""}`}
+      className={`group relative cursor-pointer touch-none active:cursor-grabbing ${isDragging ? "opacity-30" : ""} ${
+        selected ? "rounded-lg ring-1 ring-copper/60" : ""
+      }`}
     >
       <TicketBody
         s={s}
@@ -77,12 +97,30 @@ function DraggableTicket(
         storyFilter={storyFilter}
         onFilterStory={onFilterStory}
       />
+      {onToggleSelect && (
+        <input
+          type="checkbox"
+          checked={selected}
+          readOnly
+          // stop pointerdown so the dnd sensor never claims the click
+          onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.shiftKey && e.preventDefault()} // no text selection on shift-click
+          // toggle in onClick (not onChange): change events have no shiftKey
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleSelect(s.id, e.shiftKey);
+          }}
+          className={`absolute right-2 top-2 h-3.5 w-3.5 accent-[#c98a63] ${
+            selected ? "" : "opacity-0 transition-opacity group-hover:opacity-100"
+          }`}
+        />
+      )}
     </div>
   );
 }
 
 function Column(
-  { status, sessions, board, dropId, showObjective, onOpen, compact = false, storyFilter, onFilterStory }: {
+  { status, sessions, board, dropId, showObjective, onOpen, compact = false, storyFilter, onFilterStory, selected, onToggleSelect, onSelectMany, anchorId, onAnchor }: {
     status: Status;
     sessions: Session[];
     board: BoardData;
@@ -92,9 +130,21 @@ function Column(
     compact?: boolean;
     storyFilter?: string | null;
     onFilterStory?: (id: string) => void;
+    selected?: Set<string>;
+    onToggleSelect?: (id: string) => void;
+    onSelectMany?: (ids: string[], on: boolean) => void;
+    anchorId?: string | null;
+    onAnchor?: (id: string) => void;
   },
 ) {
   const { setNodeRef, isOver } = useDroppable({ id: dropId });
+  // shift-click ranges span this column only (anchor outside it falls back to a toggle)
+  const toggle = (id: string, shift: boolean) => {
+    const range = shift && onSelectMany ? shiftRange(sessions.map((x) => x.id), anchorId ?? null, id) : null;
+    if (range) onSelectMany!(range, !(selected?.has(id) ?? false));
+    else onToggleSelect?.(id);
+    onAnchor?.(id);
+  };
   return (
     <div
       ref={setNodeRef}
@@ -116,6 +166,8 @@ function Column(
           onOpen={onOpen}
           storyFilter={storyFilter}
           onFilterStory={onFilterStory}
+          selected={selected?.has(s.id) ?? false}
+          onToggleSelect={onToggleSelect && toggle}
         />
       ))}
     </div>
@@ -123,7 +175,7 @@ function Column(
 }
 
 export function Board(
-  { board, group, onMove, onOpen, storyFilter, onFilterStory, hideEmpty }: {
+  { board, group, onMove, onOpen, storyFilter, onFilterStory, hideEmpty, selected, onToggleSelect, onSelectMany }: {
     board: BoardData;
     group: "none" | "story" | "project";
     onMove: (id: string, status: Status) => void;
@@ -131,9 +183,13 @@ export function Board(
     storyFilter?: string | null;
     onFilterStory?: (id: string) => void;
     hideEmpty?: boolean;
+    selected?: Set<string>;
+    onToggleSelect?: (id: string) => void;
+    onSelectMany?: (ids: string[], on: boolean) => void;
   },
 ) {
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [anchorId, setAnchorId] = useState<string | null>(null); // last-clicked checkbox, for shift-ranges
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
   const active = activeId ? board.sessions.find((s) => s.id === activeId) : null;
   // suppress the click that fires right after a drop
@@ -153,15 +209,10 @@ export function Board(
     if (current && current.status !== status) onMove(id, status);
   };
 
-  // a session's project = the parent of its story (or the page itself if it's a project)
-  const pageById = new Map(board.pages.map((p) => [p.id, p]));
-  const projectOf = (s: Session): string | null => {
-    const pg = s.page_id ? pageById.get(s.page_id) : undefined;
-    if (!pg) return null;
-    return pg.kind === "project" ? pg.id : pg.parent_id ?? null;
-  };
-  // clicking a card's story chip narrows the board to that story (drag still uses the full set)
-  const visible = storyFilter ? board.sessions.filter((s) => s.objective_id === storyFilter) : board.sessions;
+  const byId = pagesById(board.pages);
+  // clicking a card's story chip narrows the board to that story's SUBTREE
+  // (drag still uses the full set)
+  const visible = storyFilter ? board.sessions.filter((s) => inSubtree(s, storyFilter, byId)) : board.sessions;
   // status columns come from the synced statuses table (already sort_key-ordered),
   // optionally hiding the empty ones
   const ordered = board.statuses.map((s) => s.key);
@@ -172,42 +223,42 @@ export function Board(
     ? [{ key: "all", title: null, sessions: visible }]
     : group === "project"
     ? [
-      ...board.clients.map((c) => ({
+      ...board.projects.map((c) => ({
         key: c.id,
         title: c.name,
         glyph: "◎",
         color: c.color,
-        sessions: visible.filter((s) => projectOf(s) === c.id),
+        sessions: visible.filter((s) => projectOf(s, byId) === c.id),
       })),
       {
         key: "none",
         title: "— No project",
         glyph: "◎",
-        sessions: visible.filter((s) => !projectOf(s)),
+        sessions: visible.filter((s) => !projectOf(s, byId)),
       },
     ]
     : [
-      ...board.objectives.map((o) => ({
+      ...board.stories.map((o) => ({
         key: o.id,
         title: o.title,
         glyph: "◇",
-        sessions: visible.filter((s) => s.objective_id === o.id),
+        // subtree: sessions anchored to the story or any page nested under it
+        sessions: visible.filter((s) => storyOf(s, byId)?.id === o.id),
       })),
       {
         key: "none",
         title: "— No story",
         glyph: "◇",
-        // also catches sessions whose page hasn't been promoted yet (sync window)
-        sessions: visible.filter((s) =>
-          !s.objective_id || !board.objectives.some((o) => o.id === s.objective_id)
-        ),
+        sessions: visible.filter((s) => !storyOf(s, byId)),
       },
     ];
+  // grouped lanes with no sessions are pure noise (drag only moves within a lane)
+  const shownLanes = group === "none" ? lanes : lanes.filter((l) => l.sessions.length > 0);
 
   return (
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5 pt-4">
-        {lanes.map((lane) => (
+        {shownLanes.map((lane) => (
           <div key={lane.key} className={`flex flex-col gap-2 ${group === "none" ? "min-h-0 flex-1" : ""}`}>
             {lane.title && (
               <div className="flex items-center gap-2 px-0.5">
@@ -231,6 +282,11 @@ export function Board(
                   compact={group !== "none"}
                   storyFilter={storyFilter}
                   onFilterStory={onFilterStory}
+                  selected={selected}
+                  onToggleSelect={onToggleSelect}
+                  onSelectMany={onSelectMany}
+                  anchorId={anchorId}
+                  onAnchor={setAnchorId}
                 />
               ))}
             </div>

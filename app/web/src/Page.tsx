@@ -18,6 +18,7 @@ import {
   getPage,
   getPresence,
   listComments,
+  openInBrowser,
   type PageComment,
   type PageDetail,
   pingPresence,
@@ -26,15 +27,19 @@ import {
   type UdbMeta,
   updateComment,
   updatePage,
+  uploadAsset,
 } from "./api";
 import {
   appConfirm,
   ClientChip,
   EntityIcon,
+  inSubtree,
+  pagesById,
   Popover,
   Select,
   StatusDot,
   statusStyle,
+  storyOf,
   timeAgo,
 } from "./ui";
 import { Markdown } from "./md";
@@ -106,8 +111,10 @@ function blocksToMarkdown(title: string, blocks: Block[]): string {
   for (const b of blocks) {
     if (b.type === "heading") lines.push(`## ${b.text}`);
     else if (b.type === "todo") {
-      lines.push(`- [${b.done ? "x" : " "}] ${b.text}`);
-    } else if (b.type === "text") lines.push(b.text);
+      lines.push(`${"  ".repeat(b.indent ?? 0)}- [${b.done ? "x" : " "}] ${b.text}`);
+    } else if (b.type === "text") {
+      lines.push(b.indent ? `${"  ".repeat(b.indent)}${b.text}` : b.text);
+    }
   }
   return `${lines.join("\n").replace(/\n{3,}/g, "\n\n").trim()}\n`;
 }
@@ -465,6 +472,211 @@ function CommentGutter(
   );
 }
 
+// Lucide paths inlined (GearIcon-style) — a static lucide-react import would pull
+// the whole library into the main chunk since cells.tsx dynamic-imports it.
+const TOOL_PATHS = {
+  copy: (
+    <>
+      <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+    </>
+  ),
+  edit: (
+    <>
+      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+      <path d="m15 5 4 4" />
+    </>
+  ),
+  delete: (
+    <>
+      <path d="M3 6h18" />
+      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+      <line x1="10" x2="10" y1="11" y2="17" />
+      <line x1="14" x2="14" y1="11" y2="17" />
+    </>
+  ),
+  open: (
+    <>
+      <path d="M15 3h6v6" />
+      <path d="M10 14 21 3" />
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+    </>
+  ),
+  replace: (
+    <>
+      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+      <path d="M21 3v5h-5" />
+      <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+      <path d="M8 16H3v5" />
+    </>
+  ),
+};
+type ToolIconName = keyof typeof TOOL_PATHS;
+
+function ToolIcon({ name }: { name: ToolIconName }) {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {TOOL_PATHS[name]}
+    </svg>
+  );
+}
+
+const FENCE_LANGS = [
+  "plain",
+  "typescript",
+  "python",
+  "bash",
+  "json",
+  "sql",
+  "mermaid",
+] as const;
+
+// simple-icons brand marks (fill), inlined like TOOL_PATHS to stay off the main chunk
+const SI_TYPESCRIPT =
+  "M1.125 0C.502 0 0 .502 0 1.125v21.75C0 23.498.502 24 1.125 24h21.75c.623 0 1.125-.502 1.125-1.125V1.125C24 .502 23.498 0 22.875 0zm17.363 9.75c.612 0 1.154.037 1.627.111a6.38 6.38 0 0 1 1.306.34v2.458a3.95 3.95 0 0 0-.643-.361 5.093 5.093 0 0 0-.717-.26 5.453 5.453 0 0 0-1.426-.2c-.3 0-.573.028-.819.086a2.1 2.1 0 0 0-.623.242c-.17.104-.3.229-.393.374a.888.888 0 0 0-.14.49c0 .196.053.373.156.529.104.156.252.304.443.444s.423.276.696.41c.273.135.582.274.926.416.47.197.892.407 1.266.628.374.222.695.473.963.753.268.279.472.598.614.957.142.359.214.776.214 1.253 0 .657-.125 1.21-.373 1.656a3.033 3.033 0 0 1-1.012 1.085 4.38 4.38 0 0 1-1.487.596c-.566.12-1.163.18-1.79.18a9.916 9.916 0 0 1-1.84-.164 5.544 5.544 0 0 1-1.512-.493v-2.63a5.033 5.033 0 0 0 3.237 1.2c.333 0 .624-.03.872-.09.249-.06.456-.144.623-.25.166-.108.29-.234.373-.38a1.023 1.023 0 0 0-.074-1.089 2.12 2.12 0 0 0-.537-.5 5.597 5.597 0 0 0-.807-.444 27.72 27.72 0 0 0-1.007-.436c-.918-.383-1.602-.852-2.053-1.405-.45-.553-.676-1.222-.676-2.005 0-.614.123-1.141.369-1.582.246-.441.58-.804 1.004-1.089a4.494 4.494 0 0 1 1.47-.629 7.536 7.536 0 0 1 1.77-.201zm-15.113.188h9.563v2.166H9.506v9.646H6.789v-9.646H3.375z";
+const SI_PYTHON =
+  "M14.25.18l.9.2.73.26.59.3.45.32.34.34.25.34.16.33.1.3.04.26.02.2-.01.13V8.5l-.05.63-.13.55-.21.46-.26.38-.3.31-.33.25-.35.19-.35.14-.33.1-.3.07-.26.04-.21.02H8.77l-.69.05-.59.14-.5.22-.41.27-.33.32-.27.35-.2.36-.15.37-.1.35-.07.32-.04.27-.02.21v3.06H3.17l-.21-.03-.28-.07-.32-.12-.35-.18-.36-.26-.36-.36-.35-.46-.32-.59-.28-.73-.21-.88-.14-1.05-.05-1.23.06-1.22.16-1.04.24-.87.32-.71.36-.57.4-.44.42-.33.42-.24.4-.16.36-.1.32-.05.24-.01h.16l.06.01h8.16v-.83H6.18l-.01-2.75-.02-.37.05-.34.11-.31.17-.28.25-.26.31-.23.38-.2.44-.18.51-.15.58-.12.64-.1.71-.06.77-.04.84-.02 1.27.05zm-6.3 1.98l-.23.33-.08.41.08.41.23.34.33.22.41.09.41-.09.33-.22.23-.34.08-.41-.08-.41-.23-.33-.33-.22-.41-.09-.41.09zm13.09 3.95l.28.06.32.12.35.18.36.27.36.35.35.47.32.59.28.73.21.88.14 1.04.05 1.23-.06 1.23-.16 1.04-.24.86-.32.71-.36.57-.4.45-.42.33-.42.24-.4.16-.36.09-.32.05-.24.02-.16-.01h-8.22v.82h5.84l.01 2.76.02.36-.05.34-.11.31-.17.29-.25.25-.31.24-.38.2-.44.17-.51.15-.58.13-.64.09-.71.07-.77.04-.84.01-1.27-.04-1.07-.14-.9-.2-.73-.25-.59-.3-.45-.33-.34-.34-.25-.34-.16-.33-.1-.3-.04-.25-.02-.2.01-.13v-5.34l.05-.64.13-.54.21-.46.26-.38.3-.32.33-.24.35-.2.35-.14.33-.1.3-.06.26-.04.21-.02.13-.01h5.84l.69-.05.59-.14.5-.21.41-.28.33-.32.27-.35.2-.36.15-.36.1-.35.07-.32.04-.28.02-.21V6.07h2.09l.14.01zm-6.47 14.25l-.23.33-.08.41.08.41.23.33.33.23.41.08.41-.08.33-.23.23-.33.08-.41-.08-.41-.23-.33-.33-.23-.41-.08-.41.08z";
+const SI_BASH =
+  "M21.038,4.9l-7.577-4.498C13.009,0.134,12.505,0,12,0c-0.505,0-1.009,0.134-1.462,0.403L2.961,4.9 C2.057,5.437,1.5,6.429,1.5,7.503v8.995c0,1.073,0.557,2.066,1.462,2.603l7.577,4.497C10.991,23.866,11.495,24,12,24 c0.505,0,1.009-0.134,1.461-0.402l7.577-4.497c0.904-0.537,1.462-1.529,1.462-2.603V7.503C22.5,6.429,21.943,5.437,21.038,4.9z M15.17,18.946l0.013,0.646c0.001,0.078-0.05,0.167-0.111,0.198l-0.383,0.22c-0.061,0.031-0.111-0.007-0.112-0.085L14.57,19.29 c-0.328,0.136-0.66,0.169-0.872,0.084c-0.04-0.016-0.057-0.075-0.041-0.142l0.139-0.584c0.011-0.046,0.036-0.092,0.069-0.121 c0.012-0.011,0.024-0.02,0.036-0.026c0.022-0.011,0.043-0.014,0.062-0.006c0.229,0.077,0.521,0.041,0.802-0.101 c0.357-0.181,0.596-0.545,0.592-0.907c-0.003-0.328-0.181-0.465-0.613-0.468c-0.55,0.001-1.064-0.107-1.072-0.917 c-0.007-0.667,0.34-1.361,0.889-1.8l-0.007-0.652c-0.001-0.08,0.048-0.168,0.111-0.2l0.37-0.236 c0.061-0.031,0.111,0.007,0.112,0.087l0.006,0.653c0.273-0.109,0.511-0.138,0.726-0.088c0.047,0.012,0.067,0.076,0.048,0.151 l-0.144,0.578c-0.011,0.044-0.036,0.088-0.065,0.116c-0.012,0.012-0.025,0.021-0.038,0.028c-0.019,0.01-0.038,0.013-0.057,0.009 c-0.098-0.022-0.332-0.073-0.699,0.113c-0.385,0.195-0.52,0.53-0.517,0.778c0.003,0.297,0.155,0.387,0.681,0.396 c0.7,0.012,1.003,0.318,1.01,1.023C16.105,17.747,15.736,18.491,15.17,18.946z M19.143,17.859c0,0.06-0.008,0.116-0.058,0.145 l-1.916,1.164c-0.05,0.029-0.09,0.004-0.09-0.056v-0.494c0-0.06,0.037-0.093,0.087-0.122l1.887-1.129 c0.05-0.029,0.09-0.004,0.09,0.056V17.859z M20.459,6.797l-7.168,4.427c-0.894,0.523-1.553,1.109-1.553,2.187v8.833 c0,0.645,0.26,1.063,0.66,1.184c-0.131,0.023-0.264,0.039-0.398,0.039c-0.42,0-0.833-0.114-1.197-0.33L3.226,18.64 c-0.741-0.44-1.201-1.261-1.201-2.142V7.503c0-0.881,0.46-1.702,1.201-2.142l7.577-4.498c0.363-0.216,0.777-0.33,1.197-0.33 c0.419,0,0.833,0.114,1.197,0.33l7.577,4.498c0.624,0.371,1.046,1.013,1.164,1.732C21.686,6.557,21.12,6.411,20.459,6.797z";
+const SI_MERMAID =
+  "M23.99 2.115A12.223 12.223 0 0 0 12 10.149 12.223 12.223 0 0 0 .01 2.115a12.23 12.23 0 0 0 5.32 10.604 6.562 6.562 0 0 1 2.845 5.423v3.754h7.65v-3.754a6.561 6.561 0 0 1 2.844-5.423 12.223 12.223 0 0 0 5.32-10.604Z";
+
+const brandLogo = (d: string, color: string) => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill={color} aria-hidden="true">
+    <path d={d} />
+  </svg>
+);
+const strokeLogo = (paths: JSX.Element, color?: string) => (
+  <svg
+    width="12"
+    height="12"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color ?? "currentColor"}
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    {paths}
+  </svg>
+);
+const LANG_LOGOS: Record<(typeof FENCE_LANGS)[number], JSX.Element> = {
+  plain: strokeLogo(
+    <>
+      <path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" />
+      <path d="M14 2v5a1 1 0 0 0 1 1h5" />
+      <path d="M16 13H8" />
+      <path d="M16 17H8" />
+    </>,
+  ),
+  typescript: brandLogo(SI_TYPESCRIPT, "#3178C6"),
+  python: brandLogo(SI_PYTHON, "#5A9FD4"),
+  bash: brandLogo(SI_BASH, "#4EAA25"),
+  json: strokeLogo(
+    <>
+      <path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1" />
+      <path d="M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1" />
+    </>,
+    "#d4a72c",
+  ),
+  sql: strokeLogo(
+    <>
+      <ellipse cx="12" cy="5" rx="9" ry="3" />
+      <path d="M3 5V19A9 3 0 0 0 21 19V5" />
+      <path d="M3 12A9 3 0 0 0 21 12" />
+    </>,
+    "#699eca",
+  ),
+  mermaid: brandLogo(SI_MERMAID, "#FF3670"),
+};
+
+// Hover toolbar in a block's top-right corner (snippet/image/todo quick actions).
+function CornerToolbar(
+  { chip, onChip, actions }: {
+    chip?: string; // snippet language label; opens the picker
+    onChip?: (lang: string) => void;
+    actions: {
+      icon: ToolIconName;
+      title: string;
+      danger?: boolean;
+      onClick: () => void;
+    }[];
+  },
+) {
+  const [menu, setMenu] = useState(false);
+  return (
+    <div
+      // preventDefault keeps focus in the block's textarea while clicking actions
+      onMouseDown={(e) => e.preventDefault()}
+      className={`absolute right-1 top-1 z-10 ${
+        menu ? "flex" : "hidden group-hover:flex"
+      } items-center gap-0.5 rounded-md border border-overlay-border bg-card p-0.5 shadow-lg shadow-black/40`}
+    >
+      {chip !== undefined && (
+        <div className="relative mr-0.5 border-r border-line pr-1">
+          <button
+            type="button"
+            title="Language"
+            onClick={() => setMenu((m) => !m)}
+            className="flex items-center gap-1 rounded px-1.5 font-mono text-[10px] text-copper hover:text-ink"
+          >
+            {LANG_LOGOS[(chip || "plain") as keyof typeof LANG_LOGOS]}
+            {chip || "plain"} ▾
+          </button>
+          {menu && (
+            <Popover
+              onClose={() => setMenu(false)}
+              className="!left-auto !right-0 w-[130px] !min-w-0"
+            >
+              {FENCE_LANGS.map((l) => (
+                <button
+                  key={l}
+                  type="button"
+                  className={`flex w-full items-center gap-1.5 rounded px-2 py-1 text-left font-mono text-[11px] hover:bg-panel ${
+                    l === (chip || "plain") ? "text-copper" : "text-ink-soft"
+                  }`}
+                  onClick={() => {
+                    setMenu(false);
+                    onChip?.(l);
+                  }}
+                >
+                  {LANG_LOGOS[l]}
+                  {l}
+                </button>
+              ))}
+            </Popover>
+          )}
+        </div>
+      )}
+      {actions.map((a) => (
+        <button
+          type="button"
+          key={a.title}
+          title={a.title}
+          onClick={a.onClick}
+          className={`flex h-5 w-5 items-center justify-center rounded text-ink-muted hover:bg-panel ${
+            a.danger ? "hover:text-blocked" : "hover:text-ink"
+          }`}
+        >
+          <ToolIcon name={a.icon} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function BlockEditor(
   {
     blocks,
@@ -521,17 +733,139 @@ function BlockEditor(
   const setBlock = (i: number, patch: Partial<Block>) =>
     onChange(blocks.map((b, j) => (j === i ? { ...b, ...patch } as Block : b)));
   const insertAfter = (i: number) => {
+    const cur = blocks[i];
+    const inTodo = isText(cur) && cur.type === "todo";
+    // Enter on an EMPTY todo exits the list instead of stacking empty rings
+    // (outdenting first if nested)
+    if (inTodo && !cur.text.trim()) {
+      return setBlock(
+        i,
+        cur.indent ? { indent: cur.indent - 1 } : { type: "text" },
+      );
+    }
+    const indent = (isText(cur) && cur.indent) ? { indent: cur.indent } : {};
     const next = [
       ...blocks.slice(0, i + 1),
-      { type: "text", text: "", id: genId() } as Block,
+      (inTodo
+        ? { type: "todo", text: "", done: false, ...indent, id: genId() }
+        : { type: "text", text: "", ...indent, id: genId() }) as Block,
       ...blocks.slice(i + 1),
     ];
     onChange(next);
     setFocusIdx(i + 1);
   };
+  // toggling done sinks the item below the open ones of its contiguous todo run
+  // (and un-checking lifts it back to the end of the open section).
+  // Indented blocks travel with their parent todo, so subtrees stay glued.
+  const toggleTodo = (i: number) => {
+    const cur = blocks[i] as TextBlock;
+    const done = !cur.done;
+    const lvl = cur.indent ?? 0;
+    const ind = (x: Block) => (isText(x) ? x.indent ?? 0 : 0);
+    const inRun = (x: Block) =>
+      (x.type === "todo" && ind(x) === lvl) || (isText(x) && ind(x) > lvl);
+    let start = i, end = i;
+    while (start > 0 && inRun(blocks[start - 1])) start--;
+    // the run must open on a same-level todo, not a dangling deeper block
+    while (
+      start < i && !(blocks[start].type === "todo" && ind(blocks[start]) === lvl)
+    ) start++;
+    while (end < blocks.length - 1 && inRun(blocks[end + 1])) end++;
+    const groups: Block[][] = [];
+    for (const x of blocks.slice(start, end + 1)) {
+      if (x.type === "todo" && ind(x) === lvl) groups.push([x]);
+      else groups.at(-1)?.push(x);
+    }
+    const gi = groups.findIndex((g) => g[0] === cur);
+    if (gi < 0) return;
+    const moved = groups[gi].map((x, j) => (j === 0 ? { ...x, done } : x));
+    const rest = groups.filter((_, j) => j !== gi);
+    const firstDone = rest.findIndex((g) => (g[0] as TextBlock).done);
+    const at = done || firstDone === -1 ? rest.length : firstDone;
+    rest.splice(at, 0, moved as Block[]);
+    onChange([
+      ...blocks.slice(0, start),
+      ...rest.flat(),
+      ...blocks.slice(end + 1),
+    ]);
+  };
   const remove = (i: number) => {
     onChange(blocks.filter((_, j) => j !== i));
     setFocusIdx(Math.max(0, i - 1));
+  };
+  // Alt+↑ / Alt+↓ — swap the focused block with its neighbor
+  const move = (i: number, dir: -1 | 1) => {
+    const j = i + dir;
+    if (j < 0 || j >= blocks.length) return;
+    const next = [...blocks];
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(next);
+    setFocusIdx(j);
+  };
+  // mouse reordering: ⋮⋮ handle on hover, drop on a row to move the block there.
+  // Pointer events, NOT html5 dnd — WebKitGTK (the desktop webview) drops dragstart.
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [overIdx, setOverIdx] = useState<number | null>(null);
+  const moveTo = (from: number, to: number) => {
+    if (from === to) return;
+    const next = [...blocks];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    onChange(next);
+  };
+  useEffect(() => {
+    if (dragIdx === null) return;
+    const up = () => {
+      if (overIdx !== null) moveTo(dragIdx, overIdx);
+      setDragIdx(null);
+      setOverIdx(null);
+    };
+    document.addEventListener("mouseup", up);
+    return () => document.removeEventListener("mouseup", up);
+  }, [dragIdx, overIdx, blocks]);
+  // a table row picked as comment target (💬 on row hover), awaiting its body
+  const [rowPending, setRowPending] = useState(
+    null as { id: string; anchor: string } | null,
+  );
+  // clicking an image selects its block (ring) instead of opening the markdown;
+  // Escape deselects, Delete/Backspace removes, any outside click clears
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!selectedId) return;
+    const bidOf = (x: Block, j: number) =>
+      (isText(x) && x.id) ? x.id : String(j);
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelectedId(null);
+      if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        const idx = blocks.findIndex((x, j) => bidOf(x, j) === selectedId);
+        if (idx >= 0) remove(idx);
+        setSelectedId(null);
+      }
+    };
+    const clear = () => setSelectedId(null);
+    document.addEventListener("keydown", key);
+    document.addEventListener("mousedown", clear);
+    return () => {
+      document.removeEventListener("keydown", key);
+      document.removeEventListener("mousedown", clear);
+    };
+  }, [selectedId, blocks]);
+  // swap an image block's asset via a file picker, keeping the alt text
+  const replaceImage = (i: number) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = () => {
+      const f = input.files?.[0];
+      const cur = blocks[i];
+      if (!f || !isText(cur)) return;
+      const alt = cur.text.match(/^\s*!\[([^\]]*)\]/)?.[1] || "image";
+      uploadAsset(f).then((r) => {
+        if (r.id) set(i, { text: `![${alt}](/api/assets/${r.id})` });
+      });
+    };
+    input.click();
   };
   const pick = (i: number, key: string) => {
     setMenuIdx(null);
@@ -615,7 +949,10 @@ function BlockEditor(
           : null;
         const items = filter === null
           ? []
-          : SLASH.filter((s) => s.label.toLowerCase().includes(filter));
+          : SLASH.filter((s) =>
+            // match the key too: "/todo" must find "To-do" despite the hyphen
+            s.key.includes(filter) || s.label.toLowerCase().includes(filter)
+          );
         const blockComments = b.id
           ? comments.filter((c) => c.block_id === b.id)
           : [];
@@ -649,30 +986,126 @@ function BlockEditor(
               ? "text-ink-muted line-through"
               : "text-ink-soft"
           }`;
+        // fenced-code blocks keep their snippet look while editing (see md.tsx <pre>)
+        const isSnippet = b.type === "text" && /^\s*```/.test(b.text);
+        // image-only blocks keep the picture visible; the markdown edits below it
+        const isImage = b.type === "text" &&
+          /^\s*!\[[^\]]*\]\([^)\s]+\)\s*$/.test(b.text);
+        // pipe-table blocks select on click (like images) — raw markdown via ✏️ only
+        const isTable = b.type === "text" && /^\s*\|.*\|/.test(b.text);
+        const editCls = isSnippet
+          ? "my-1 rounded-md bg-panel px-2 font-mono text-[12px] leading-relaxed text-ink-soft"
+          : isImage
+          ? "rounded-md bg-panel px-2 font-mono text-[11px] leading-relaxed text-ink-muted"
+          : isTable
+          ? "my-1 rounded-md bg-panel px-2 font-mono text-[11.5px] leading-relaxed text-ink-soft"
+          : `bg-transparent ${textCls}`;
         return (
           <Fragment key={b.id ?? i}>
             <div
               data-block-id={b.id || undefined}
-              className={`group relative -mx-1 flex items-start gap-2 px-1 ${
+              className={`group relative -ml-6 -mr-1 flex items-start gap-2 pl-6 pr-1 ${
                 hasOpen ? "rounded-md bg-copper/[0.05]" : ""
-              } ${flash === b.id ? "rounded-md ring-1 ring-copper/50" : ""}`}
+              } ${flash === b.id ? "rounded-md ring-1 ring-copper/50" : ""} ${
+                selectedId === bid
+                  // tables/snippets: color the card's own contour — no ring
+                  // floating around the block gutter with a gap
+                  ? isTable
+                    ? "[&_.md-table-card]:border-copper/70 [&_.md-table-card]:ring-1 [&_.md-table-card]:ring-copper/50"
+                    : isSnippet
+                    ? "[&_.md-snippet-card]:ring-1 [&_.md-snippet-card]:ring-copper/60"
+                    : "rounded-md ring-2 ring-copper/60"
+                  : ""
+              } ${
+                overIdx === i && dragIdx !== null && dragIdx !== i
+                  ? "shadow-[0_-2px_0_0_#c98a63]"
+                  : ""
+              }`}
+              // nested blocks shift right; overrides the base pl-6 (24px)
+              style={b.indent ? { paddingLeft: 24 + b.indent * 20 } : undefined}
+              onMouseMove={() => {
+                if (dragIdx !== null && overIdx !== i) setOverIdx(i);
+              }}
             >
+              <button
+                type="button"
+                title="Drag to move"
+                onMouseDown={(e) => {
+                  e.preventDefault(); // no text selection while dragging
+                  setDragIdx(i);
+                }}
+                // fixed width keeps it inside the 24px block gutter (pl-6) — with
+                // p-1 the glyph's font-dependent width could overlap the todo
+                // checkbox and swallow its clicks
+                className={`absolute left-0.5 top-[2px] w-[18px] overflow-hidden py-1 text-center cursor-grab select-none text-[13px] leading-none text-ink-muted hover:text-ink ${
+                  dragIdx === null ? "hidden group-hover:block" : "block"
+                }`}
+              >
+                ⋮⋮
+              </button>
               {b.type === "todo" && (
-                <input
-                  type="checkbox"
-                  checked={Boolean(b.done)}
-                  onChange={(e) => set(i, { done: e.target.checked })}
-                  className="mt-[7px] h-3.5 w-3.5 accent-[#c98a63]"
-                />
+                // same visual language as session-report lists: ○ open, ✓ done
+                <button
+                  type="button"
+                  title={b.done ? "Mark as open" : "Mark as done"}
+                  onClick={() => toggleTodo(i)}
+                  className="mt-[7px] flex h-3.5 w-3.5 shrink-0 items-center justify-center"
+                >
+                  {b.done
+                    ? (
+                      <span className="text-[12px] leading-none text-active">
+                        ✓
+                      </span>
+                    )
+                    : (
+                      <span className="h-3 w-3 rounded-full border-[1.5px] border-copper hover:bg-copper/20" />
+                    )}
+                </button>
               )}
               <div
                 // kept mounted (not conditionally excluded) so the sibling textarea below
                 // never shifts position and gets remounted, which would drop its ref/focus
-                style={editing ? { display: "none" } : undefined}
-                className={`w-full cursor-text py-1 ${textCls}`}
-                onClick={() => setFocusIdx(i)}
+                style={editing && !isImage ? { display: "none" } : undefined}
+                title={isTable
+                  ? "Double-click a cell to edit — ✏️ for raw markdown (export)"
+                  : isSnippet
+                  ? "Click selects — double-click or ✏️ to edit"
+                  : isImage
+                  ? "Click selects the block — edit its markdown via ✏️"
+                  : undefined}
+                className={`w-full py-1 ${
+                  isImage || isTable || isSnippet
+                    ? "cursor-default"
+                    : "cursor-text"
+                } ${textCls}`}
+                // a drag-selection also fires click on mouseup; only a plain click edits
+                onClick={() => {
+                  if (document.getSelection()?.isCollapsed === false) return;
+                  if (isImage || isTable || isSnippet) {
+                    return setSelectedId(bid);
+                  }
+                  setFocusIdx(i);
+                }}
+                onDoubleClick={() => {
+                  if (isSnippet) {
+                    document.getSelection()?.removeAllRanges();
+                    setSelectedId(null);
+                    setFocusIdx(i);
+                  }
+                }}
+                onMouseDown={(e) => {
+                  // keep the document-level clear from racing this row's select
+                  if (isImage || isTable || isSnippet) e.stopPropagation();
+                }}
               >
-                <Markdown text={b.text} listVariant={listVariant} />
+                <Markdown
+                  text={b.text}
+                  listVariant={listVariant}
+                  onEdit={isTable ? (next) => set(i, { text: next }) : undefined}
+                  onCommentRow={isTable && b.id
+                    ? (anchor) => setRowPending({ id: b.id as string, anchor })
+                    : undefined}
+                />
               </div>
               <textarea
                 ref={(el) => {
@@ -692,7 +1125,7 @@ function BlockEditor(
                   opacity: 0,
                   pointerEvents: "none",
                 }}
-                className={`w-full resize-none overflow-hidden border-none bg-transparent py-1 outline-none placeholder:text-ink-muted/40 ${textCls}`}
+                className={`w-full resize-none overflow-hidden border-none py-1 outline-none placeholder:text-ink-muted/40 ${editCls}`}
                 onFocus={() => setActiveId(bid)}
                 onBlur={() => setActiveId((cur) => (cur === bid ? null : cur))}
                 onChange={(e) => {
@@ -700,6 +1133,21 @@ function BlockEditor(
                   grow(e.target);
                   setMenuIdx(e.target.value.startsWith("/") ? i : null);
                   setMenuSel(0);
+                }}
+                onPaste={(e) => {
+                  const files = [...(e.clipboardData?.files ?? [])]
+                    .filter((f) => f.type.startsWith("image/"));
+                  if (!files.length) return;
+                  e.preventDefault();
+                  const before = b.text.slice(0, e.currentTarget.selectionStart);
+                  const after = b.text.slice(e.currentTarget.selectionEnd);
+                  Promise.all(files.map((f) => uploadAsset(f))).then((rs) => {
+                    const md = rs
+                      .filter((r) => r.id)
+                      .map((r) => `![image](/api/assets/${r.id})`)
+                      .join("\n");
+                    if (md) set(i, { text: `${before}${md}${after}` });
+                  });
                 }}
                 onKeyDown={(e) => {
                   if (menuIdx === i && items.length) {
@@ -725,7 +1173,14 @@ function BlockEditor(
                       return setMenuIdx(null);
                     }
                   }
+                  // inside a snippet Enter stays a newline; a closed fence + caret
+                  // at the end exits to a new block, and arrows move within the code
+                  const el = e.currentTarget;
+                  const atEnd = el.selectionStart === b.text.length &&
+                    el.selectionEnd === b.text.length;
+                  const snippetDone = isSnippet && /\n\s*```\s*$/.test(b.text);
                   if (e.key === "Enter" && !e.shiftKey) {
+                    if (isSnippet && !(snippetDone && atEnd)) return;
                     e.preventDefault();
                     insertAfter(i);
                   } else if (
@@ -733,13 +1188,34 @@ function BlockEditor(
                   ) {
                     e.preventDefault();
                     remove(i);
+                  } else if (
+                    e.key === "Tab" && !isSnippet && b.type !== "heading"
+                  ) {
+                    // Tab / Shift+Tab nest the block under the one above
+                    e.preventDefault();
+                    const lvl = b.indent ?? 0;
+                    if (e.shiftKey) {
+                      if (lvl > 0) set(i, { indent: lvl - 1 });
+                    } else {
+                      const prev = blocks.slice(0, i).filter(isText).at(-1);
+                      const max = Math.min(4, prev ? (prev.indent ?? 0) + 1 : 0);
+                      if (lvl < max) set(i, { indent: lvl + 1 });
+                    }
+                  } else if (e.key === "ArrowUp" && e.altKey) {
+                    e.preventDefault();
+                    move(i, -1);
+                  } else if (e.key === "ArrowDown" && e.altKey) {
+                    e.preventDefault();
+                    move(i, 1);
                   } else if (e.key === "ArrowUp" && !e.shiftKey && i > 0) {
+                    if (isSnippet && el.selectionStart > 0) return;
                     e.preventDefault();
                     setFocusIdx(i - 1);
                   } else if (
                     e.key === "ArrowDown" && !e.shiftKey &&
                     i < blocks.length - 1
                   ) {
+                    if (isSnippet && !atEnd) return;
                     e.preventDefault();
                     setFocusIdx(i + 1);
                   }
@@ -772,6 +1248,98 @@ function BlockEditor(
                   ))}
                 </Popover>
               )}
+              {isSnippet && (
+                <CornerToolbar
+                  chip={b.text.match(/^\s*```\s*([\w+#-]*)/)?.[1] ?? ""}
+                  onChip={(l) =>
+                    set(i, {
+                      text: b.text.replace(
+                        /^(\s*```)[^\n]*/,
+                        `$1${l === "plain" ? "" : l}`,
+                      ),
+                    })}
+                  actions={[
+                    {
+                      icon: "copy",
+                      title: "Copy code",
+                      onClick: () =>
+                        navigator.clipboard?.writeText(
+                          b.text
+                            .replace(/^\s*```[^\n]*\n?/, "")
+                            .replace(/\n?\s*```\s*$/, ""),
+                        ),
+                    },
+                    { icon: "edit", title: "Edit", onClick: () => setFocusIdx(i) },
+                    {
+                      icon: "delete",
+                      title: "Delete",
+                      danger: true,
+                      onClick: () => remove(i),
+                    },
+                  ]}
+                />
+              )}
+              {isImage && (
+                <CornerToolbar
+                  actions={[
+                    {
+                      icon: "open",
+                      title: "Open full size",
+                      onClick: () => {
+                        const url = b.text.match(/\(([^)\s]+)\)\s*$/)?.[1];
+                        // the desktop webview has no window.open — route via /api/open
+                        if (url) openInBrowser(url);
+                      },
+                    },
+                    {
+                      icon: "replace",
+                      title: "Replace image",
+                      onClick: () => replaceImage(i),
+                    },
+                    {
+                      icon: "edit",
+                      title: "Edit alt / URL",
+                      onClick: () => setFocusIdx(i),
+                    },
+                    {
+                      icon: "delete",
+                      title: "Delete",
+                      danger: true,
+                      onClick: () => remove(i),
+                    },
+                  ]}
+                />
+              )}
+              {isTable && (
+                <CornerToolbar
+                  actions={[
+                    {
+                      icon: "edit",
+                      title: "Raw markdown (edit / export)",
+                      onClick: () => setFocusIdx(i),
+                    },
+                    {
+                      icon: "delete",
+                      title: "Delete",
+                      danger: true,
+                      onClick: () => remove(i),
+                    },
+                  ]}
+                />
+              )}
+              {b.type === "todo" && (
+                <CornerToolbar
+                  actions={[
+                    { icon: "edit", title: "Edit", onClick: () => setFocusIdx(i) },
+                    {
+                      icon: "delete",
+                      title: "Delete",
+                      danger: true,
+                      onClick: () => remove(i),
+                    },
+                  ]}
+                />
+              )}
               <div className="absolute -right-7 top-[3px]">
                 <CommentGutter
                   blockId={b.id ?? ""}
@@ -786,6 +1354,29 @@ function BlockEditor(
                 />
               </div>
             </div>
+            {rowPending?.id === bid && (
+              <div className="my-1 ml-6 flex max-w-[480px] flex-col gap-1.5 rounded-md border border-copper/40 bg-panel p-2">
+                <div className="flex items-start justify-between gap-2 text-[10.5px] text-ink-muted">
+                  <span className="min-w-0 truncate">
+                    on row: “{rowPending.anchor}”
+                  </span>
+                  <button
+                    type="button"
+                    className="shrink-0 hover:text-ink"
+                    onClick={() => setRowPending(null)}
+                  >
+                    ×
+                  </button>
+                </div>
+                <AddNote
+                  autoFocus
+                  onAdd={(body) => {
+                    commentOps.add(bid, rowPending?.anchor ?? "", body);
+                    setRowPending(null);
+                  }}
+                />
+              </div>
+            )}
             {inlineOpen && (
               <div className="my-1 ml-6 flex max-w-[480px] flex-col gap-1.5 border-l-2 border-copper/40 pl-3">
                 {visibleComments.map((c) => (
@@ -932,7 +1523,44 @@ export function Page(
   const [iconOpen, setIconOpen] = useState(false);
   const [colorOpen, setColorOpen] = useState(false);
   const saveTimer = useRef<number | undefined>(undefined);
+  const savingRef = useRef(0); // in-flight updatePage calls
   const blocksRef = useRef<Block[]>([]);
+
+  // live-refresh content written by others (agents via MCP, another tab). Never
+  // while the user is mid-edit — focused input/textarea, pending debounce, or
+  // in-flight save skips the tick, re-checked once the fetch resolves.
+  useEffect(() => {
+    const busy = () => {
+      if (saveTimer.current !== undefined || savingRef.current > 0) return true;
+      const tag = document.activeElement?.tagName;
+      return tag === "TEXTAREA" || tag === "INPUT";
+    };
+    const tick = () => {
+      if (document.hidden || busy()) return;
+      getPage(pageId).then((p) => {
+        if (busy()) return; // an edit started while the fetch was in flight
+        if (
+          p.content.length &&
+          JSON.stringify(p.content) !== JSON.stringify(blocksRef.current)
+        ) {
+          const { blocks: content, changed } = ensureIds(p.content);
+          setBlocks(content);
+          blocksRef.current = content;
+          if (changed) {
+            savingRef.current++;
+            updatePage(pageId, { content }).catch(() => {}).finally(() =>
+              savingRef.current--
+            );
+          }
+        }
+        setPage((
+          prev,
+        ) => (JSON.stringify(prev) === JSON.stringify(p) ? prev : p));
+      }).catch(() => {});
+    };
+    const t = setInterval(tick, 5000);
+    return () => clearInterval(t);
+  }, [pageId]);
 
   const reload = () => getPage(pageId).then(setPage).catch(() => {});
   const reloadComments = () =>
@@ -1001,7 +1629,12 @@ export function Page(
       const { blocks: content, changed } = ensureIds(raw);
       setBlocks(content);
       blocksRef.current = content;
-      if (changed) updatePage(pageId, { content }).catch(() => {});
+      if (changed) {
+        savingRef.current++;
+        updatePage(pageId, { content }).catch(() => {}).finally(() =>
+          savingRef.current--
+        );
+      }
     }).catch(() => {});
     return () => {
       // flush a pending debounce so fast page-switches don't lose the last edit
@@ -1018,12 +1651,17 @@ export function Page(
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       saveTimer.current = undefined;
-      updatePage(pageId, { content: blocksRef.current }).catch(() => {});
+      savingRef.current++;
+      updatePage(pageId, { content: blocksRef.current }).catch(() => {})
+        .finally(() => savingRef.current--);
     }, 800);
   };
 
-  const patch = (p: Parameters<typeof updatePage>[1]) =>
-    updatePage(pageId, p).then(reload).then(onChanged);
+  const patch = (p: Parameters<typeof updatePage>[1]) => {
+    savingRef.current++;
+    return updatePage(pageId, p).then(reload).then(onChanged)
+      .finally(() => savingRef.current--);
+  };
 
   const newSubpage = () =>
     createPage({ parent_id: pageId }).then((
@@ -1053,39 +1691,35 @@ export function Page(
   };
 
   if (!page) return <p className="p-6 text-ink-muted">Loading…</p>;
-  const client = board.clients.find((c) => c.id === page.client_id);
+  const client = board.projects.find((c) => c.id === page.client_id);
   const isProject = page.kind === "project";
   const isStory = page.kind === "story";
   // sessions come from the polled board (not the fetch-once getPage) so they stay live.
-  // a project's sessions live on its child stories, so roll those up too.
+  // subtree semantics: anything anchored to this page or any page nested under it.
+  const byId = pagesById(board.pages);
   const childStoryIds = new Set(
     page.children.filter((c) => c.kind === "story").map((c) => c.id),
   );
   const sessions = board.sessions
-    .filter((s) =>
-      s.page_id === pageId || s.objective_id === pageId ||
-      (s.objective_id && childStoryIds.has(s.objective_id))
-    )
+    .filter((s) => inSubtree(s, pageId, byId))
     .sort((a, b) =>
       (statusStyle(a.status).terminal ? 1 : 0) -
       (statusStyle(b.status).terminal ? 1 : 0)
     );
   const done = sessions.filter((s) => statusStyle(s.status).terminal).length;
   // a project's sessions come from several stories — group them under their story
-  // (like Objectives.tsx) instead of one flat list; a story only ever shows its own.
+  // instead of one flat list; a story only ever shows its own.
   const sessionsByStory = isProject
     ? page.children
       .filter((c) => c.kind === "story")
       .map((story) => ({
         story,
-        list: sessions.filter((s) => s.objective_id === story.id),
+        list: sessions.filter((s) => storyOf(s, byId)?.id === story.id),
       }))
       .filter((g) => g.list.length > 0)
     : [];
   const ungroupedSessions = isProject
-    ? sessions.filter((s) =>
-      !s.objective_id || !childStoryIds.has(s.objective_id)
-    )
+    ? sessions.filter((s) => !childStoryIds.has(storyOf(s, byId)?.id ?? ""))
     : sessions;
   const sessionRow = (s: Session) => (
     <div

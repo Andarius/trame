@@ -83,8 +83,8 @@ export function Drawer(
 ) {
   const [title, setTitle] = useState(session.title);
   const [status, setStatus] = useState<Status>(session.status);
-  const [client, setClient] = useState(board.clients.find((c) => c.id === session.client_id)?.name ?? "");
-  const [pageId, setPageId] = useState(session.page_id ?? session.objective_id ?? "");
+  const [client, setClient] = useState(board.projects.find((c) => c.id === session.client_id)?.name ?? "");
+  const [pageId, setPageId] = useState(session.page_id ?? "");
   const [branch, setBranch] = useState(session.branch ?? "");
   const [nextStep, setNextStep] = useState(session.next_step ?? "");
   const [prUrl, setPrUrl] = useState(session.pr_url ?? "");
@@ -353,7 +353,7 @@ export function Drawer(
             className={rowVal}
             options={[
               { value: "", label: "none" },
-              ...board.clients.map((c) => ({ value: c.name, label: c.name, dot: clientColor(c.name, c.color) })),
+              ...board.projects.map((c) => ({ value: c.name, label: c.name, dot: clientColor(c.name, c.color) })),
             ]}
             onChange={(v) => {
               setClient(v);
@@ -367,7 +367,7 @@ export function Drawer(
             className={rowVal}
             options={[
               { value: "", label: "none" },
-              ...pageOptions(board.objectives, board.pages ?? []),
+              ...pageOptions(board.stories, board.pages ?? []),
             ]}
             onChange={(v) => {
               setPageId(v);

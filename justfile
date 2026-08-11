@@ -208,17 +208,28 @@ demo:
     echo "demo → http://127.0.0.1:8799  (ctrl-c to stop)"
     wait
 
-# Read the design docs in the terminal with glow. No arg = browse docs/; `just docs hub-api` opens one
+# Serve the docs site with HMR (Astro + Starlight, http://localhost:4321)
 [group('docs')]
-docs doc='':
+docs:
+    cd docs-site && npm install && npm run dev
+
+# Build the static docs site into docs-site/dist
+[group('docs')]
+docs-build:
+    cd docs-site && npm install && npm run build
+
+# Read a doc in the terminal with glow. No arg = browse; `just docs-read hub-api` opens one
+[group('docs')]
+docs-read doc='':
     #!/usr/bin/env bash
     set -euo pipefail
-    command -v glow >/dev/null || { echo "glow not installed — see https://github.com/charmbracelet/glow (or open docs/ in your editor)" >&2; exit 1; }
+    command -v glow >/dev/null || { echo "glow not installed — see https://github.com/charmbracelet/glow (or open docs-site/src/content/docs in your editor)" >&2; exit 1; }
+    dir=docs-site/src/content/docs
     doc="{{ doc }}"
     if [ -z "$doc" ]; then
-        glow docs
+        glow "$dir"
     else
-        f="docs/${doc%.md}.md"
-        [ -f "$f" ] || { echo "no such doc: $f" >&2; exit 1; }
+        f=$(find "$dir" -name "${doc%.md}.md" -print -quit)
+        [ -n "$f" ] || { echo "no such doc: $doc" >&2; exit 1; }
         glow -p "$f"
     fi

@@ -64,12 +64,12 @@ export function db(): Promise<PGlite> {
 
 export async function getBoard() {
   const pg = await db();
-  // Project > Story > Session. "clients" = top-level Project pages (shape {id,name,color}
-  // for the chip/sidebar); "objectives" = Story pages (what sessions ladder to).
-  const clients = (await pg.query(
+  // Project > Story > Session. "projects" = top-level Project pages (shape {id,name,color}
+  // for the chip/sidebar); "stories" = Story pages (what sessions ladder to).
+  const projects = (await pg.query(
     `select id, title as name, color from pages where kind='project' and not deleted order by title`,
   )).rows;
-  const objectives = (await pg.query(`select * from pages where kind='story' and not deleted order by title`)).rows;
+  const stories = (await pg.query(`select * from pages where kind='story' and not deleted order by title`)).rows;
   const sessions = (await pg.query(`select * from sessions where not deleted order by last_touched desc`)).rows;
   const pages = (await pg.query(
     `select id, parent_id, kind, title, icon, client_id, color from pages where not deleted order by title`,
@@ -77,7 +77,7 @@ export async function getBoard() {
   const statuses = (await pg.query(
     `select id, key, label, color, terminal, sort_key from statuses where not deleted order by sort_key`,
   )).rows;
-  return { clients, objectives, sessions, pages, statuses };
+  return { projects, stories, sessions, pages, statuses };
 }
 
 const PALETTE = ["#7a9ee7", "#b590e7", "#c98a63", "#7bd88f", "#e3c567"];
@@ -169,13 +169,11 @@ export async function upsertSession(s: Record<string, unknown>): Promise<string>
   // Accept human names (from the CLI/MCP) and resolve them to ids.
   if (typeof s.client === "string" && !s.client_id) s.client_id = await resolveClient(s.client);
   if (typeof s.page === "string" && !s.page_id) s.page_id = await resolveObjective(s.page, (s.client_id as string) ?? null);
-  if (typeof s.objective === "string" && !s.objective_id) {
-    s.objective_id = await resolveObjective(s.objective, (s.client_id as string) ?? null);
+  if (typeof s.objective === "string" && !s.page_id) {
+    s.page_id = await resolveObjective(s.objective, (s.client_id as string) ?? null);
   }
-  // objective_id ↔ page_id are the same id since the pages merge; keep both filled
-  // until the frontend is fully off objective_id.
+  // pre-teardown callers (old outbox lines, old CLI) may still send objective_id
   s.page_id ??= s.objective_id;
-  s.objective_id ??= s.page_id;
   // project = a page that has sessions: attaching promotes a plain page (one-way)
   if (s.page_id) await promoteToProject(s.page_id as string, (s.client_id as string) ?? null);
   // One coding-agent transcript maps to one card, regardless of import vs skill tracking.
@@ -202,14 +200,14 @@ export async function upsertSession(s: Record<string, unknown>): Promise<string>
   // Transcript linkage: null never clobbers (UI edits omit it); a fresh value wins.
   await pg.query(
     `insert into sessions
-       (id,title,status,client_id,objective_id,page_id,repo_path,branch,next_step,pr_url,summary,claude_id,agent,last_touched,origin,updated_at)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$13,$14,now(),$12,now())
+       (id,title,status,client_id,page_id,repo_path,branch,next_step,pr_url,summary,claude_id,agent,last_touched,origin,updated_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$12,$13,now(),$11,now())
      on conflict (id) do update set
-       title=$2,status=$3,client_id=$4,objective_id=$5,page_id=$6,repo_path=$7,branch=$8,
-       next_step=$9,pr_url=$10,summary=$11,claude_id=coalesce($13,sessions.claude_id),
-       agent=coalesce($14,sessions.agent),
-       last_touched=now(),origin=$12,updated_at=now()`,
-    [id, s.title, await resolveStatusKey(pg, s.status), s.client_id ?? null, s.objective_id ?? null, s.page_id ?? null,
+       title=$2,status=$3,client_id=$4,page_id=$5,repo_path=$6,branch=$7,
+       next_step=$8,pr_url=$9,summary=$10,claude_id=coalesce($12,sessions.claude_id),
+       agent=coalesce($13,sessions.agent),
+       last_touched=now(),origin=$11,updated_at=now()`,
+    [id, s.title, await resolveStatusKey(pg, s.status), s.client_id ?? null, s.page_id ?? null,
       s.repo_path ?? null, s.branch ?? null, s.next_step ?? null, s.pr_url ?? null, s.summary ?? "", NODE_ID,
       s.claude_id ?? null, s.agent ?? null],
   );
@@ -366,7 +364,7 @@ export async function updateObjective(o: { id: string; title?: string; story?: s
 export async function listReports() {
   const pg = await db();
   return (await pg.query(
-    `select id, title, client_id, objective_id, created_at from reports where not deleted order by created_at desc`,
+    `select id, title, client_id, page_id, created_at from reports where not deleted order by created_at desc`,
   )).rows;
 }
 
@@ -378,10 +376,10 @@ export async function getReport(id: string) {
 export async function createReport(r: { title: string; html: string; client?: string; objective?: string }) {
   const pg = await db();
   const clientId = r.client ? await resolveClient(r.client) : null;
-  const objectiveId = r.objective ? await resolveObjective(r.objective, clientId) : null;
+  const pageId = r.objective ? await resolveObjective(r.objective, clientId) : null;
   const row = (await pg.query(
-    `insert into reports (title, html, client_id, objective_id, page_id, origin) values ($1,$2,$3,$4,$4,$5) returning id`,
-    [r.title, r.html, clientId, objectiveId, NODE_ID],
+    `insert into reports (title, html, client_id, page_id, origin) values ($1,$2,$3,$4,$5) returning id`,
+    [r.title, r.html, clientId, pageId, NODE_ID],
   )).rows[0] as { id: string };
   return row.id;
 }

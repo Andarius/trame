@@ -1,4 +1,8 @@
-# v0.4.1 — security hardening and data-integrity fixes
+---
+title: "v0.4.1 — security hardening and data-integrity fixes"
+sidebar:
+  label: "v0.4.1"
+---
 
 A patch release for v0.4.0: it closes two credential/CSRF holes in the local API and the
 deployments plugin, and fixes several ways the new features could lose or hide data.

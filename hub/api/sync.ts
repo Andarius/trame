@@ -1,4 +1,4 @@
-// The changeset /sync core (docs/hub-api.md §Sync protocol): mutations up, changes
+// The changeset /sync core (docs-site/src/content/docs/hub-api.md §Sync protocol): mutations up, changes
 // down. Push applies the shared LWW rule inside one transaction with trame.actor/
 // trame.source set, so the change_log triggers stamp who wrote through the API.
 // Pull is cursor-based over change_log (null cursor = full snapshot).
