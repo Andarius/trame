@@ -837,7 +837,7 @@ export function ViewToolbar(
                           key={d}
                           className={`rounded px-1.5 py-0.5 text-[10px] ${
                             s.dir === d
-                              ? "bg-[#272b37] text-ink"
+                              ? "bg-tab-active text-ink"
                               : "text-ink-muted hover:text-ink-soft"
                           }`}
                           onClick={() =>
