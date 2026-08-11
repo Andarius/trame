@@ -46,7 +46,10 @@ use that name as the client; otherwise **Side-projects**. (Configure the list vi
    - `title` — `<repo-basename> — <short topic>`
    - `next_step` — one imperative line (the very next thing to do on resume); fold in any note from `$ARGUMENTS`
    - `objective` — the bigger goal this session serves (found-or-created by name server-side); omit if genuinely unclear
-   - `summary` — 1–3 lines of what happened this session (becomes a worklog entry)
+   - `summary` — worklog entry, 1–3 lines, PR-description style: lead with the outcome
+     (what this session delivered or established), not how. Do include decisions made and
+     dead-ends worth remembering ("X fails because Y") — the diff can't show them and
+     resume needs them. No implementation narration; name a file only if resuming starts there.
    - `pr_url` — only if evident
 4. Build one JSON object with keys:
    `title, status, client, objective, repo_path (=working dir), branch, next_step, pr_url, summary`
