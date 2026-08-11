@@ -22,9 +22,9 @@ impossible, and writes should go through the outbox writer instead (see Writes).
 | Endpoint | Returns |
 |---|---|
 | `GET /api/status` | `{nodeId, remote, lastSync, version, dataDir, desktop}` |
-| `GET /api/board` | everything at once: `{clients, objectives, sessions}` |
+| `GET /api/board` | everything at once: `{projects, stories, sessions, pages, statuses}` |
 | `GET /api/sessions/<id>/events` | worklog `[{at, kind, summary}]` (kind: log, import, …) |
-| `GET /api/pages` | pages/projects tree (flat list; `parent_id`, `kind: page\|project`) |
+| `GET /api/pages` | page tree (flat list; `parent_id`, `kind: project\|story\|page`) |
 | `GET /api/pages/<id>` | one page with content blocks and its sessions |
 | `GET /api/udb` | user databases `[{id, name, icon, row_count}]` |
 | `GET /api/udb/<id>` | `{db, properties, rows}` — `rows[].vals` keyed by property id, `derived` holds formula/rollup values |
@@ -33,7 +33,8 @@ impossible, and writes should go through the outbox writer instead (see Writes).
 
 Session fields worth knowing: `status` (active|paused|blocked|done), `next_step` (for a
 blocked session this states the blocker), `client_id`/`page_id` (join against
-`board.clients` / `board.objectives`), `repo_path`, `branch`, `last_touched`.
+`board.projects` / `board.stories` — `page_id` can point at any page in the tree),
+`repo_path`, `branch`, `last_touched`.
 
 ## Recipes
 
@@ -41,7 +42,7 @@ Open sessions with their project, grouped:
 
 ```bash
 curl -s http://127.0.0.1:$PORT/api/board | jq -r '
-  (.objectives | map({key: .id, value: .title}) | from_entries) as $proj
+  (.stories | map({key: .id, value: .title}) | from_entries) as $proj
   | .sessions[] | select(.status != "done")
   | "\(.status)\t\($proj[.page_id] // "—")\t\(.title)\t→ \(.next_step // "")"' | sort
 ```

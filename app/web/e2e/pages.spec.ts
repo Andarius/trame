@@ -70,7 +70,7 @@ test("deleting the project removes the subtree from the sidebar", async ({ page 
 });
 
 test("attaching a session to a plain page promotes it to a project", async ({ page, request }) => {
-  // plain page, no session yet → sits under PAGES
+  // plain page, no session yet → sits under UNFILED
   await request.post("/api/pages", { data: { title: "Scratch notes", kind: "page" } });
   // attach by title (the CLI path) — must reuse the page, not mint a duplicate project
   await request.post("/api/sessions", {

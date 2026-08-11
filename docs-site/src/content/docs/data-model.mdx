@@ -41,5 +41,10 @@ Comments anchor to a specific block inside `pages.content`.
 - No `◇` ancestor (anchored to a project, or a page right under one) → story-less session.
 - Views show the anchor only as the tail of `Project › Story › page`.
 
+The top level is an inbox, not a home. The sidebar splits root entries into **Projects**,
+**Shared with me** (roots owned by another hub user — shares and sync can't guess where
+they belong in *your* tree), and **Unfiled** (parentless plain pages awaiting triage).
+Agents are nudged to nest new pages under the relevant project instead of the root.
+
 One denormalized remnant: `sessions.client_id` holds a Project page id, used only as the
 fallback when a session has no anchor.

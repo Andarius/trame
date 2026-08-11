@@ -8,6 +8,21 @@ export const shq = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`; // POSIX si
 // window, or type it into an already-open "existing" session (konsole D-Bus, Linux only).
 export type LaunchMode = "window" | "tab" | "existing";
 
+// A live ghostty single-instance daemon means ghostty is the user's actual terminal:
+// prefer it over spawning a konsole they may not use. Checked at call time — the
+// daemon can start/stop between launches.
+export function ghosttyRunning(): boolean {
+  try {
+    return new Deno.Command("pgrep", {
+      args: ["-x", "ghostty"],
+      stdout: "null",
+      stderr: "null",
+    }).outputSync().success;
+  } catch {
+    return false;
+  }
+}
+
 // Open a terminal at `cwd` running `command` (kept open afterwards). Best-effort:
 // returns false if no terminal could be launched, so the caller offers copy-to-clipboard.
 // `existing` is handled by resumeInExisting() in main.ts; this covers "window" and "tab".
@@ -58,6 +73,11 @@ export function spawnTerminal(
         ["x-terminal-emulator", ["-e", "bash", "-lc", keep]],
         ["xterm", ["-e", "bash", "-lc", keep]],
       ];
+    // Ghostty can't open a tab remotely (new_tab is keybind-only), but +new-window
+    // lands instantly in the running instance — the right terminal for both modes.
+    if (ghosttyRunning()) {
+      terms.unshift(["ghostty", ["+new-window", "-e", "bash", "-lc", keep]]);
+    }
     for (const [bin, args] of terms) {
       try {
         new Deno.Command(bin, { args, stdout: "null", stderr: "null" }).spawn();

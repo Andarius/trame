@@ -77,7 +77,7 @@ export function Palette(
   return (
     <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/45 pt-[14vh]" onClick={onClose}>
       <div
-        className="flex max-h-[56vh] w-[600px] flex-col overflow-hidden rounded-xl border border-[#323649] bg-[#171923] shadow-2xl shadow-black/60"
+        className="flex max-h-[56vh] w-[600px] flex-col overflow-hidden rounded-xl border border-overlay-border bg-panel-modal shadow-2xl shadow-black/60"
         onClick={(e) => e.stopPropagation()}
       >
         <input

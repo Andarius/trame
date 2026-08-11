@@ -36,12 +36,22 @@ export function StatusDot({ status, size = 8 }: { status: Status; size?: number 
   );
 }
 
-const FALLBACK = ["#7a9ee7", "#b590e7", "#c98a63", "#7bd88f", "#e3c567"];
+// hex (not hsl) — callers append an alpha suffix (`c + "24"`) for tinted chips
+const hslHex = (h: number, s: number, l: number) => {
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    const v = l -
+      s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(v * 255).toString(16).padStart(2, "0");
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+};
+// 24 hue steps instead of a tiny palette, so two projects rarely collide
 export function clientColor(name: string, color?: string | null): string {
   if (color) return color;
   let h = 0;
   for (const c of name) h = (h * 31 + c.charCodeAt(0)) | 0;
-  return FALLBACK[Math.abs(h) % FALLBACK.length];
+  return hslHex((Math.abs(h) % 24) * 15, 0.55, 0.62);
 }
 
 export function ClientChip(
@@ -78,6 +88,16 @@ export function timeAgo(iso: string): string {
   if (d < 2) return "yesterday";
   if (d < 7) return `${d | 0}d ago`;
   return `${(d / 7) | 0}w ago`;
+}
+
+// Shift-click range: ids between the last-clicked anchor and `id`, or null when
+// there is no usable anchor (caller falls back to a single toggle).
+export function shiftRange(ordered: string[], anchorId: string | null, id: string): string[] | null {
+  const ai = anchorId ? ordered.indexOf(anchorId) : -1;
+  const i = ordered.indexOf(id);
+  if (ai < 0 || i < 0) return null;
+  const [lo, hi] = ai < i ? [ai, i] : [i, ai];
+  return ordered.slice(lo, hi + 1);
 }
 
 // Anchored popover. A stack tracks nesting so Escape / outside clicks only close the
@@ -119,7 +139,7 @@ export function Popover(
   return (
     <div
       ref={ref}
-      className={`absolute left-0 top-full z-40 mt-1 min-w-[210px] rounded-lg border border-chipline bg-[#171923] p-1.5 shadow-2xl shadow-black/60 ${className ?? ""}`}
+      className={`absolute left-0 top-full z-40 mt-1 min-w-[210px] rounded-lg border border-chipline bg-panel-modal p-1.5 shadow-2xl shadow-black/60 ${className ?? ""}`}
       style={style}
     >
       {children}
@@ -219,7 +239,7 @@ export function ConfirmHost() {
   return (
     <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/45 pt-[24vh]" onClick={() => done(false)}>
       <div
-        className="flex w-[420px] flex-col gap-4 rounded-xl border border-[#323649] bg-[#171923] p-5 shadow-2xl shadow-black/50"
+        className="flex w-[420px] flex-col gap-4 rounded-xl border border-overlay-border bg-panel-modal p-5 shadow-2xl shadow-black/50"
         onClick={(e) => e.stopPropagation()}
       >
         <p className="m-0 whitespace-pre-line text-[13px] leading-relaxed text-ink">{req.message}</p>
@@ -354,14 +374,20 @@ export function EntityIcon(
 }
 
 export function ObjectiveChip(
-  { title, onClick, active }: { title: string; onClick?: () => void; active?: boolean },
+  { title, onClick, active, glyph = "◇", icon }: {
+    title: string;
+    onClick?: () => void;
+    active?: boolean;
+    glyph?: string;
+    icon?: string | null;
+  },
 ) {
   const cls = `inline-flex w-fit items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10.5px] leading-none ${
     active ? "border-copper/60 text-copper" : "border-chipline/60 text-ink-soft"
   } ${onClick ? "cursor-pointer hover:border-copper/50 hover:text-copper" : ""}`;
   const inner = (
     <>
-      <span className={`text-[9px] ${active ? "text-copper" : "text-ink-muted"}`}>◇</span>
+      <EntityIcon icon={icon} fallback={glyph} className={`text-[9px] ${active ? "text-copper" : "text-ink-muted"}`} />
       {title}
     </>
   );
@@ -379,11 +405,11 @@ export function ObjectiveChip(
     : <span className={cls}>{inner}</span>;
 }
 
-// Options for project/page pickers: projects (◎) first, then plain pages (□) which get
-// promoted to projects when a session attaches. Duplicate titles are disambiguated with
+// Options for story/page pickers: stories (◇) first, then plain pages (□) which get
+// promoted to stories when a session attaches. Duplicate titles are disambiguated with
 // the parent page's title. Values are page ids.
 export function pageOptions(
-  objectives: { id: string; title: string }[],
+  stories: { id: string; title: string }[],
   pages: { id: string; parent_id: string | null; kind: string; title: string }[],
 ): { value: string; label: string }[] {
   const titleCount = new Map<string, number>();
@@ -394,7 +420,61 @@ export function pageOptions(
     return (titleCount.get(p.title) ?? 0) > 1 && parent ? `${p.title} · ${parent.title}` : p.title;
   };
   return [
-    ...objectives.map((o) => ({ value: o.id, label: `◇ ${o.title}` })),
+    ...stories.map((o) => ({ value: o.id, label: `◇ ${o.title}` })),
     ...pages.filter((p) => p.kind === "page").map((p) => ({ value: p.id, label: `□ ${disambig(p)}` })),
   ];
+}
+
+// The session tree model: a session anchors to one page (page_id); story and project
+// are DERIVED by walking ancestors up from the anchor. Filters use subtree semantics.
+export const pageGlyph = (kind: string) => kind === "project" ? "◎" : kind === "story" ? "◇" : "□";
+
+type TreePage = { id: string; parent_id: string | null; kind: string; title: string; icon: string | null };
+
+// ancestor walk with a hop cap: parent_id has no FK, sync can deliver odd states
+function* ancestry<P extends TreePage>(start: P | undefined, byId: Map<string, P>): Generator<P> {
+  let p = start;
+  for (let hops = 0; p && hops < 20; hops++) {
+    yield p;
+    p = p.parent_id ? byId.get(p.parent_id) : undefined;
+  }
+}
+
+export const pagesById = <P extends TreePage>(pages: P[]) => new Map(pages.map((p) => [p.id, p]));
+
+// The anchor: the exact page a session is attached to.
+export function sessionAnchor<P extends TreePage>(
+  s: { page_id: string | null },
+  byId: Map<string, P>,
+): P | undefined {
+  return s.page_id ? byId.get(s.page_id) : undefined;
+}
+
+// story = nearest story ancestor of the anchor (or the anchor itself); may be none.
+export function storyOf<P extends TreePage>(
+  s: { page_id: string | null },
+  byId: Map<string, P>,
+): P | undefined {
+  for (const p of ancestry(sessionAnchor(s, byId), byId)) if (p.kind === "story") return p;
+  return undefined;
+}
+
+// project = nearest project ancestor; client_id is only the fallback for sessions with no page.
+export function projectOf<P extends TreePage>(
+  s: { page_id: string | null; client_id: string | null },
+  byId: Map<string, P>,
+): string | null {
+  for (const p of ancestry(sessionAnchor(s, byId), byId)) if (p.kind === "project") return p.id;
+  return s.client_id;
+}
+
+// Subtree semantics: a session matches a filter page when its anchor is that page
+// or sits anywhere under it.
+export function inSubtree<P extends TreePage>(
+  s: { page_id: string | null },
+  rootId: string,
+  byId: Map<string, P>,
+): boolean {
+  for (const p of ancestry(sessionAnchor(s, byId), byId)) if (p.id === rootId) return true;
+  return false;
 }

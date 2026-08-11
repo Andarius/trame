@@ -1,4 +1,4 @@
-// WS nudge fan-out (docs/hub-api.md §Realtime). The socket carries invalidation
+// WS nudge fan-out (docs-site/src/content/docs/hub-api.md §Realtime). The socket carries invalidation
 // nudges ONLY — "there are changes ≥ rev N, pull" — never data, so correctness
 // always rests on /sync and a dropped socket loses nothing.
 import type { Q } from "./db.ts";

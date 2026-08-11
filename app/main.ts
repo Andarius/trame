@@ -19,8 +19,14 @@ import {
   listPluginManifests,
   startPlugins,
 } from "./plugins/index.ts";
+import { getAsset, putAsset } from "./assets.ts";
 import { isCrossSite } from "./csrf.ts";
-import { type LaunchMode, shq, spawnTerminal } from "./terminal.ts";
+import {
+  ghosttyRunning,
+  type LaunchMode,
+  shq,
+  spawnTerminal,
+} from "./terminal.ts";
 import {
   deleteReportFile,
   getLinkBase,
@@ -244,13 +250,26 @@ async function runSync() {
   return r;
 }
 
+// Background sync passes shouldn't dump a stack trace every time the hub is
+// simply off-LAN — that's routine, not a bug. Anything else still logs in full.
+const HUB_UNREACHABLE =
+  /no route to host|ehostunreach|enetunreach|econnrefused|etimedout|client error \(connect\)/i;
+function logSyncFailure(e: unknown) {
+  const msg = String((e as Error)?.message ?? e);
+  if (HUB_UNREACHABLE.test(msg)) {
+    console.warn(`sync: hub unreachable (${msg.split("\n")[0]})`);
+  } else {
+    console.error(e);
+  }
+}
+
 // Push local writes soon after they happen instead of waiting out the poll — the
 // receiving side is already realtime (WS nudges), this closes the sending side.
 // Debounced so a burst of edits rides one pass.
 let syncSoonTimer: ReturnType<typeof setTimeout> | undefined;
 function syncSoon() {
   clearTimeout(syncSoonTimer);
-  syncSoonTimer = setTimeout(() => runSync().catch(console.error), 1_500);
+  syncSoonTimer = setTimeout(() => runSync().catch(logSyncFailure), 1_500);
 }
 
 const WEB_DIST = `${APP_ROOT}/web/dist`;
@@ -330,6 +349,35 @@ async function resumeInExisting(
   ]);
   if (r.ok) return { ok: true };
   const disabled = /disabled in the settings|AccessDenied/i.test(r.err);
+  return { ok: false, reason: disabled ? "api-disabled" : "no-konsole" };
+}
+
+// Open a new tab in the active konsole window (D-Bus) and run `command` in it.
+// `konsole --new-tab` can't attach when instances run per-process (org.kde.konsole-<pid>
+// services), so a plain spawn opens a fresh window — this is the path that actually tabs.
+async function tabInExisting(
+  cwd: string,
+  command: string,
+): Promise<ExistingResult> {
+  const svc = await activeKonsoleService();
+  if (!svc) return { ok: false, reason: "no-konsole" };
+  const sid = await qdbus(
+    svc,
+    "/Windows/1",
+    "org.kde.konsole.Window.newSession",
+  );
+  if (!sid) return { ok: false, reason: "no-konsole" };
+  const r = await qdbusRaw([
+    svc,
+    `/Sessions/${sid}`,
+    "org.kde.konsole.Session.sendText",
+    `cd ${shq(cwd)} && ${command}\n`,
+  ]);
+  if (r.ok) return { ok: true };
+  // qdbus prints the D-Bus error on stdout, not stderr — scan both
+  const disabled = /disabled in the settings|AccessDenied/i.test(
+    `${r.err}\n${r.out}`,
+  );
   return { ok: false, reason: disabled ? "api-disabled" : "no-konsole" };
 }
 
@@ -552,50 +600,90 @@ async function handler(req: Request): Promise<Response> {
     }
     return json({ url, state: await prState(url) });
   }
+  // Pasted images: POST raw bytes → {id}; GET /api/assets/<id> serves them back.
+  if (pathname === "/api/assets" && req.method === "POST") {
+    const mime = req.headers.get("content-type") ?? "";
+    if (!/^image\//.test(mime)) return json({ error: "images only" }, 400);
+    const bytes = new Uint8Array(await req.arrayBuffer());
+    if (bytes.length > 10 * 1024 * 1024) {
+      return json({ error: "too large (10 MB max)" }, 413);
+    }
+    return json({ id: await putAsset(bytes, mime) });
+  }
+  const assetId = pathname.match(/^\/api\/assets\/([0-9a-f-]{36})$/);
+  if (assetId) {
+    const a = await getAsset(assetId[1]);
+    if (!a) return new Response("not found", { status: 404 });
+    return new Response(a.bytes, {
+      headers: {
+        "content-type": a.mime,
+        "x-content-type-options": "nosniff",
+        "cache-control": "public, max-age=31536000, immutable",
+      },
+    });
+  }
   // Resume a Claude Code or Codex session on the machine holding its transcript.
   if (pathname === "/api/resume" && req.method === "POST") {
-    const { id, probe, mode } = await req.json();
+    const { id, probe, mode, repoPath: rawRepoPath, agent: rawAgent } =
+      await req
+        .json();
     if (typeof id !== "string" || !UUID_RE.test(id)) {
       return json({ error: "invalid id" }, 400);
     }
     const launchMode: LaunchMode = mode === "tab" || mode === "existing"
       ? mode
       : "window";
-    const pg = await db();
-    const row = (await pg.query(
-      `select repo_path, claude_id, agent from sessions where id=$1 and not deleted`,
-      [id],
-    ))
-      .rows[0] as {
-        repo_path: string | null;
-        claude_id: string | null;
-        agent: string | null;
-      } | undefined;
-    const repo = row?.repo_path;
-    // Imported cards carry the transcript UUID as id; skill-tracked cards store it
-    // in the legacy-named claude_id column. cid flows into a shell command, so it
-    // must be a UUID like id — guard against a poisoned/synced claude_id value.
-    const cid = row?.claude_id && UUID_RE.test(row.claude_id)
-      ? row.claude_id
-      : id;
-    // Home device = the node that imported it (its transcript lives there).
-    const ev = (await pg.query(
-      `select summary from session_events where session_id=$1 and kind='import' and not deleted order by at limit 1`,
-      [id],
-    )).rows[0] as { summary: string | null } | undefined;
-    const agent =
-      row?.agent === "codex" || ev?.summary?.startsWith("Imported from Codex")
-        ? "codex"
-        : "claude";
-    // "Imported from <agent> · <node>" — only trust a node after the separator
-    // (older imports had no "· <node>" suffix; splitting would echo the whole label)
-    const parts = ev?.summary?.split("·") ?? [];
-    const homeNode = parts.length > 1
-      ? parts[parts.length - 1].trim() || null
-      : null;
-    const local = agent === "codex"
-      ? await codexTranscriptIsLocal(cid)
-      : await claudeTranscriptIsLocal(cid);
+
+    let repo: string | null | undefined;
+    let cid: string;
+    let agent: string;
+    let local: boolean;
+    let homeNode: string | null = null;
+
+    if (typeof rawRepoPath === "string" && rawRepoPath) {
+      // Sessions view: caller just scanned this transcript on this machine's own
+      // ~/.claude (or ~/.codex) dir — no sessions-table row needed, and it's local by
+      // construction. Not looked up in the DB, so this never doubles as a track action.
+      repo = rawRepoPath;
+      cid = id;
+      agent = rawAgent === "codex" ? "codex" : "claude";
+      local = true;
+    } else {
+      const pg = await db();
+      const row = (await pg.query(
+        `select repo_path, claude_id, agent from sessions where id=$1 and not deleted`,
+        [id],
+      ))
+        .rows[0] as {
+          repo_path: string | null;
+          claude_id: string | null;
+          agent: string | null;
+        } | undefined;
+      repo = row?.repo_path;
+      // Imported cards carry the transcript UUID as id; skill-tracked cards store it
+      // in the legacy-named claude_id column. cid flows into a shell command, so it
+      // must be a UUID like id — guard against a poisoned/synced claude_id value.
+      cid = row?.claude_id && UUID_RE.test(row.claude_id) ? row.claude_id : id;
+      // Home device = the node that imported it (its transcript lives there).
+      const ev = (await pg.query(
+        `select summary from session_events where session_id=$1 and kind='import' and not deleted order by at limit 1`,
+        [id],
+      )).rows[0] as { summary: string | null } | undefined;
+      agent =
+        row?.agent === "codex" || ev?.summary?.startsWith("Imported from Codex")
+          ? "codex"
+          : "claude";
+      // "Imported from <agent> · <node>" — only trust a node after the separator
+      // (older imports had no "· <node>" suffix; splitting would echo the whole label)
+      const parts = ev?.summary?.split("·") ?? [];
+      homeNode = parts.length > 1
+        ? parts[parts.length - 1].trim() || null
+        : null;
+      local = agent === "codex"
+        ? await codexTranscriptIsLocal(cid)
+        : await claudeTranscriptIsLocal(cid);
+    }
+
     const cmd = agent === "codex"
       ? `codex resume ${cid}`
       : `claude --resume ${cid}`;
@@ -618,6 +706,27 @@ async function handler(req: Request): Promise<Response> {
         reason: r.reason,
       });
     }
+    // tab on Linux: attach via konsole D-Bus first — spawning `konsole --new-tab`
+    // opens a fresh window when instances are per-process. no-konsole falls through
+    // to the spawn path (gnome-terminal --tab etc.); api-disabled reports back so
+    // the UI copies the command instead of opening a stray window. When a ghostty
+    // daemon is live, konsole windows are Trame's own strays — skip straight to
+    // spawnTerminal, which prefers ghostty.
+    if (
+      launchMode === "tab" && Deno.build.os === "linux" && !ghosttyRunning()
+    ) {
+      const r = await tabInExisting(repo, cmd);
+      if (r.ok || r.reason === "api-disabled") {
+        return json({
+          ...base,
+          ok: r.ok,
+          launched: r.ok,
+          local: true,
+          mode: launchMode,
+          reason: r.reason,
+        });
+      }
+    }
     const launched = spawnTerminal(repo, cmd, launchMode);
     return json({
       ...base,
@@ -625,6 +734,80 @@ async function handler(req: Request): Promise<Response> {
       launched,
       local: true,
       mode: launchMode,
+    });
+  }
+  // Bulk resume (the post-reboot case): every session in one shot. konsole gets a
+  // single window with one tab per session via --tabs-from-file (no D-Bus, commands
+  // allowed); ghostty gets one window per session (tabs aren't remotely scriptable);
+  // anything else loops plain terminal windows.
+  if (pathname === "/api/resume-all" && req.method === "POST") {
+    const { sessions } = await req.json() as {
+      sessions: { id: string; repoPath: string; agent?: string }[];
+    };
+    if (!Array.isArray(sessions) || !sessions.length) {
+      return json({ error: "no sessions" }, 400);
+    }
+    const items = [];
+    for (const s of sessions) {
+      // ids flow into shell commands / the tabs file — validate hard, skip quietly
+      if (typeof s.id !== "string" || !UUID_RE.test(s.id)) continue;
+      if (typeof s.repoPath !== "string" || !s.repoPath.startsWith("/")) {
+        continue;
+      }
+      try {
+        if (!(await Deno.stat(s.repoPath)).isDirectory) continue;
+      } catch {
+        continue;
+      }
+      items.push({
+        id: s.id,
+        repo: s.repoPath,
+        cmd: s.agent === "codex"
+          ? `codex resume ${s.id}`
+          : `claude --resume ${s.id}`,
+      });
+    }
+    if (!items.length) return json({ error: "no resumable sessions" }, 400);
+    const haveKonsole = await new Deno.Command("konsole", {
+      args: ["--version"],
+      stdout: "null",
+      stderr: "null",
+    }).output().then((r) => r.success).catch(() => false);
+    if (Deno.build.os === "linux" && haveKonsole && !ghosttyRunning()) {
+      // one line per tab: title/workdir/command, ";;"-separated, trailing newline
+      // required. Values must not contain ";;" or newlines — repo basename is the
+      // only free-form part, so sanitize it.
+      const lines = items.map((it) => {
+        const name = (it.repo.split("/").filter(Boolean).pop() ?? "session")
+          .replace(/;|\n/g, " ");
+        return `title: ${name};; workdir: ${it.repo};; command: /bin/bash -lc ${
+          shq(`${it.cmd}; exec ${Deno.env.get("SHELL") ?? "bash"}`)
+        }`;
+      });
+      const file = await Deno.makeTempFile({
+        prefix: "trame-tabs-",
+        suffix: ".txt",
+      });
+      await Deno.writeTextFile(file, lines.join("\n") + "\n");
+      try {
+        new Deno.Command("konsole", {
+          args: ["--tabs-from-file", file],
+          stdout: "null",
+          stderr: "null",
+        }).spawn();
+        return json({ ok: true, launched: items.length, mode: "konsole-tabs" });
+      } catch {
+        // konsole vanished between the probe and the spawn — fall through
+      }
+    }
+    let launched = 0;
+    for (const it of items) {
+      if (spawnTerminal(it.repo, it.cmd, "window")) launched++;
+    }
+    return json({
+      ok: launched > 0,
+      launched,
+      mode: ghosttyRunning() ? "ghostty-windows" : "windows",
     });
   }
   // Directory autocomplete for the Explore "report folders" field. Lists sub-directories
@@ -1101,11 +1284,11 @@ try {
 // Startup: pick up any offline CLI writes, sync once, then poll. The device→user
 // claim happens inside db() init (kept lazy — e2e wipes the data dir post-listen).
 await drainOutbox();
-runSync().catch(console.error);
-setInterval(() => runSync().catch(console.error), SYNC_INTERVAL_MS);
+runSync().catch(logSyncFailure);
+setInterval(() => runSync().catch(logSyncFailure), SYNC_INTERVAL_MS);
 // hub WS nudges (when syncViaApi is on): a nudge just runs the same sync early —
 // the poll above stays as the fallback when the socket is down
-startRealtime(() => runSync().catch(console.error));
+startRealtime(() => runSync().catch(logSyncFailure));
 startPlugins();
 
 // Every successful mutating /api call schedules a debounced push (excluding /api/sync
