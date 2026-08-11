@@ -63,6 +63,15 @@ const INLINE: [RegExp, (m: RegExpMatchArray, k: number) => ReactNode][] = [
     /^(https?:\/\/[^\s<>)]+)/,
     (m, k) => <Link key={k} href={m[1]}>{m[1]}</Link>,
   ],
+  // issue/PR refs (#126) — copper mono, like the session drawer's PR chips
+  [
+    /^#\d+\b/,
+    (m, k) => (
+      <span key={k} className="font-mono text-[0.92em] text-copper">
+        {m[0]}
+      </span>
+    ),
+  ],
 ];
 
 function renderInline(text: string): ReactNode[] {
@@ -81,7 +90,7 @@ function renderInline(text: string): ReactNode[] {
     }
     if (hit) continue;
     // consume plain text up to the next possible token start (always ≥1 char → no loop)
-    const next = rest.slice(1).search(/[`*~[]|https?:\/\//);
+    const next = rest.slice(1).search(/[`*~[#]|https?:\/\//);
     const take = next === -1 ? rest.length : next + 1;
     out.push(rest.slice(0, take));
     rest = rest.slice(take);
@@ -96,7 +105,23 @@ const HEADING: Record<number, string> = {
 };
 const isBlockStart = (l: string) =>
   /^\s*```/.test(l) || /^#{1,6}\s/.test(l) || /^\s*([-*_])\1{2,}\s*$/.test(l) ||
-  /^\s*>\s?/.test(l) || /^\s*([-*+]|\d+\.)\s+/.test(l);
+  /^\s*>\s?/.test(l) || /^\s*([-*+]|\d+\.)\s+/.test(l) ||
+  /^\s*\|.*\|\s*$/.test(l);
+
+// GFM pipe-table row: strip outer pipes, split on unescaped `|`
+function parseTableRow(line: string): string[] {
+  let s = line.trim();
+  if (s.startsWith("|")) s = s.slice(1);
+  if (s.endsWith("|")) s = s.slice(0, -1);
+  return s.split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, "|"));
+}
+const TABLE_SEP = /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/;
+const colAlign = (c: string) =>
+  c.startsWith(":") && c.endsWith(":")
+    ? "text-center"
+    : c.endsWith(":")
+    ? "text-right"
+    : "text-left";
 
 // Dependency-free syntax highlighting for fenced code — a small regex tokenizer that
 // builds React <span>s (never innerHTML). Rough by design; unknown langs render plain.
@@ -226,7 +251,12 @@ function highlightCode(code: string, lang: Hl): ReactNode[] {
   return out;
 }
 
-function renderBlocks(src: string): ReactNode[] {
+// Session-report styling for bullet lists, driven by the section they sit under
+// (Page.tsx maps the preceding heading block to a variant): "done" renders green
+// checks with muted text, "open" renders copper rings in a copper-tinted callout.
+export type ListVariant = "done" | "open";
+
+function renderBlocks(src: string, listVariant?: ListVariant): ReactNode[] {
   const lines = src.replace(/\r\n?/g, "\n").split("\n");
   const out: ReactNode[] = [];
   let i = 0, key = 0;
@@ -299,35 +329,117 @@ function renderBlocks(src: string): ReactNode[] {
     const listM = line.match(/^\s*([-*+]|\d+\.)\s+/);
     if (listM) {
       const ordered = /\d+\./.test(listM[1]);
-      const items: ReactNode[] = [];
+      const texts: string[] = [];
       while (i < lines.length) {
         const m = lines[i].match(/^\s*([-*+]|\d+\.)\s+(.*)$/);
         if (!m) break;
-        items.push(
-          <li key={items.length} className="leading-relaxed">
-            {renderInline(m[2])}
-          </li>,
+        texts.push(m[2]);
+        i++;
+      }
+      if (ordered) {
+        out.push(
+          <ol
+            key={key++}
+            className="my-1 list-decimal space-y-0.5 pl-5 text-ink-soft"
+          >
+            {texts.map((t, j) => (
+              <li key={j} className="leading-relaxed">{renderInline(t)}</li>
+            ))}
+          </ol>,
         );
+      } else if (listVariant === "done") {
+        out.push(
+          <ul
+            key={key++}
+            className="my-1 list-none space-y-1 pl-0 text-ink-muted"
+          >
+            {texts.map((t, j) => (
+              <li key={j} className="flex gap-2 leading-relaxed">
+                <span className="w-3.5 shrink-0 pt-px text-center text-[11px] text-active">
+                  ✓
+                </span>
+                <span className="min-w-0">{renderInline(t)}</span>
+              </li>
+            ))}
+          </ul>,
+        );
+      } else if (listVariant === "open") {
+        out.push(
+          <div
+            key={key++}
+            className="my-1.5 rounded-lg border border-copper/30 bg-copper/[0.06] px-3 py-2"
+          >
+            <ul className="list-none space-y-1.5 pl-0 text-ink-soft">
+              {texts.map((t, j) => (
+                <li key={j} className="flex gap-2 leading-relaxed">
+                  <span className="mt-[5px] h-3 w-3 shrink-0 rounded-full border-[1.5px] border-copper" />
+                  <span className="min-w-0">{renderInline(t)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>,
+        );
+      } else {
+        out.push(
+          <ul
+            key={key++}
+            className="my-1 list-disc space-y-0.5 pl-4 text-ink-soft"
+          >
+            {texts.map((t, j) => (
+              <li key={j} className="leading-relaxed">{renderInline(t)}</li>
+            ))}
+          </ul>,
+        );
+      }
+      continue;
+    }
+    if (line.includes("|") && TABLE_SEP.test(lines[i + 1] ?? "")) {
+      const align = parseTableRow(lines[i + 1]).map(colAlign);
+      const header = parseTableRow(line);
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && lines[i].trim() && lines[i].includes("|")) {
+        rows.push(parseTableRow(lines[i]));
         i++;
       }
       out.push(
-        ordered
-          ? (
-            <ol
-              key={key++}
-              className="my-1 list-decimal space-y-0.5 pl-5 text-ink-soft"
-            >
-              {items}
-            </ol>
-          )
-          : (
-            <ul
-              key={key++}
-              className="my-1 list-disc space-y-0.5 pl-4 text-ink-soft"
-            >
-              {items}
-            </ul>
-          ),
+        <div key={key++} className="my-1.5 overflow-x-auto">
+          <table className="w-full border-collapse text-[0.92em]">
+            <thead>
+              <tr>
+                {header.map((h, ci) => (
+                  <th
+                    key={ci}
+                    className={`border-b border-line-soft px-2 py-1 font-semibold text-ink ${
+                      align[ci] ?? "text-left"
+                    }`}
+                  >
+                    {renderInline(h)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, ri) => (
+                <tr
+                  key={ri}
+                  className="border-b border-line-soft/50 last:border-0"
+                >
+                  {r.map((c, ci) => (
+                    <td
+                      key={ci}
+                      className={`px-2 py-1 align-top text-ink-soft ${
+                        align[ci] ?? "text-left"
+                      }`}
+                    >
+                      {renderInline(c)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>,
       );
       continue;
     }
@@ -352,7 +464,11 @@ function renderBlocks(src: string): ReactNode[] {
 
 // Render `text` as Markdown. `className` styles the wrapper (e.g. font size context).
 export function Markdown(
-  { text, className }: { text: string; className?: string },
+  { text, className, listVariant }: {
+    text: string;
+    className?: string;
+    listVariant?: ListVariant;
+  },
 ) {
-  return <div className={className}>{renderBlocks(text)}</div>;
+  return <div className={className}>{renderBlocks(text, listVariant)}</div>;
 }

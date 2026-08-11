@@ -31,6 +31,7 @@ import {
   updateStatus,
   updateUdb,
 } from "./api";
+import { AgentSessions } from "./AgentSessions";
 import { Board } from "./Board";
 import { Drawer } from "./Drawer";
 import { Explore } from "./Explore";
@@ -61,6 +62,7 @@ import { DatabaseView } from "./udb/DatabaseTable";
 type View =
   | "board"
   | "list"
+  | "agents"
   | "explore"
   | "database"
   | "page"
@@ -148,12 +150,13 @@ function GearIcon({ size = 15 }: { size?: number }) {
 }
 
 const NAV: {
-  key: "sessions" | "explore";
+  key: "sessions" | "agents" | "explore";
   glyph: string;
   label: string;
   view: View;
 }[] = [
   { key: "sessions", glyph: "▦", label: "Sessions", view: "board" },
+  { key: "agents", glyph: "↻", label: "Claude Sessions", view: "agents" },
   { key: "explore", glyph: "✦", label: "Explore", view: "explore" },
 ];
 
@@ -1013,6 +1016,8 @@ export function App() {
     : null;
   const title = isSessions
     ? "Sessions"
+    : view === "agents"
+    ? "Claude Sessions"
     : view === "database"
     ? currentDb?.name ?? "Database"
     : view === "client"
@@ -1421,6 +1426,8 @@ export function App() {
               ? <Panel onOpenSettings={() => setModal("pluginSettings")} />
               : <p className="p-6 text-ink-muted">Unknown plugin.</p>;
           })()
+          : view === "agents"
+          ? <AgentSessions board={board} onOpenSession={setOpenId} />
           : (
             <Explore
               key={exploreEpoch}
