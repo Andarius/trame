@@ -35,7 +35,7 @@ export function PluginSettingsModal(
       onClick={onClose}
     >
       <div
-        className="flex max-h-[80vh] w-[620px] flex-col overflow-hidden rounded-xl border border-[#323649] bg-[#171923] shadow-2xl shadow-black/50"
+        className="flex max-h-[80vh] w-[620px] flex-col overflow-hidden rounded-xl border border-overlay-border bg-panel-modal shadow-2xl shadow-black/50"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2.5 border-b border-line px-5 py-3.5">

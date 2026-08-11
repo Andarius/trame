@@ -1,10 +1,12 @@
 @import "tailwindcss";
 
-/* Trame design tokens — from the Figma file */
+/* Trame design tokens — from the Figma file ("Trame" variable collection,
+   Dark/Light modes). Values below are the Dark mode; light overrides follow. */
 @theme {
   --color-canvas: #0c0d10;
   --color-sidebar: #0a0b0d;
   --color-panel: #14161b;
+  --color-panel-modal: #171923;
   --color-card: #1d2129;
   --color-line: #232633;
   --color-line-soft: #1a1d24;
@@ -18,10 +20,73 @@
   --color-paused: #e3c567;
   --color-blocked: #e06c75;
   --color-done: #6b7280;
+
+  /* Chrome tokens — not in the Figma variable collection, just naming the
+     handful of one-off backgrounds/borders that were previously raw hex. */
+  --color-active-row: #1a1d26;
+  --color-hover: #14161c;
+  --color-well: #101219;
+  --color-overlay-border: #323649;
+  --color-tab-active: #272b37;
+  --color-block: #0e1014;
+  --color-chip-active-bg: #12291d;
+  --color-chip-active-border: #1d4531;
 }
 
-/* We paint the dark theme ourselves, but anything the browser draws — scrollbars, selects,
-   pickers — is light until we say this. That glare is what the scrollbar rule below was for. */
+/* Light overrides: prefers-color-scheme covers "system" (no data-theme attr);
+   [data-theme] covers an explicit user choice in either direction (the theme
+   toggle sets/clears document.documentElement.dataset.theme — see theme.ts). */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --color-canvas: #f6f7f9;
+    --color-sidebar: #eef0f3;
+    --color-panel: #ffffff;
+    --color-panel-modal: #fafbfc;
+    --color-card: #eef0f4;
+    --color-line: #e2e5ea;
+    --color-line-soft: #edeef1;
+    --color-chipline: #c7ccd6;
+    --color-ink: #1c1f26;
+    --color-ink-soft: #4b5262;
+    --color-ink-muted: #626a7c;
+
+    --color-active-row: #eef1f5;
+    --color-hover: #f2f3f6;
+    --color-well: #eef0f4;
+    --color-overlay-border: #ccd1da;
+    --color-tab-active: #e7eaf0;
+    --color-block: #eef0f3;
+    --color-chip-active-bg: #e3f7ea;
+    --color-chip-active-border: #bfe8cc;
+  }
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-canvas: #f6f7f9;
+  --color-sidebar: #eef0f3;
+  --color-panel: #ffffff;
+  --color-panel-modal: #fafbfc;
+  --color-card: #eef0f4;
+  --color-line: #e2e5ea;
+  --color-line-soft: #edeef1;
+  --color-chipline: #c7ccd6;
+  --color-ink: #1c1f26;
+  --color-ink-soft: #4b5262;
+  --color-ink-muted: #626a7c;
+
+  --color-active-row: #eef1f5;
+  --color-hover: #f2f3f6;
+  --color-well: #eef0f4;
+  --color-overlay-border: #ccd1da;
+  --color-tab-active: #e7eaf0;
+  --color-block: #eef0f3;
+  --color-chip-active-bg: #e3f7ea;
+  --color-chip-active-border: #bfe8cc;
+}
+
+/* Dark is the unconditional fallback (matches @theme above), so no explicit
+   :root[data-theme="dark"] override block is needed. */
 :root {
   color-scheme: dark;
 }
@@ -32,7 +97,7 @@ body,
   height: 100%;
 }
 
-/* dark, thin scrollbars everywhere (the platform-native ones glare on this theme) */
+/* thin scrollbars everywhere (the platform-native ones glare against either theme) */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--color-chipline) transparent;

@@ -104,7 +104,7 @@ function Column(
     >
       <div className="flex items-center gap-1.5 px-1 pt-0.5 pb-1">
         <StatusDot status={status} />
-        <span className="text-[12.5px] font-semibold text-[#d9dde5]">{statusStyle(status).label}</span>
+        <span className="text-[12.5px] font-semibold text-ink">{statusStyle(status).label}</span>
         <span className="text-[11.5px] font-medium text-ink-muted">{sessions.length}</span>
       </div>
       {sessions.map((s) => (

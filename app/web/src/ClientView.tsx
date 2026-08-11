@@ -28,7 +28,7 @@ export function ClientView(
     <button type="button"
       key={s.id}
       onClick={() => onOpenSession(s.id)}
-      className="flex items-center gap-2 rounded px-1.5 py-1 text-left hover:bg-[#14161c]"
+      className="flex items-center gap-2 rounded px-1.5 py-1 text-left hover:bg-hover"
     >
       <StatusDot status={s.status} size={7} />
       <span className={`text-[12.5px] ${statusStyle(s.status).terminal ? "text-ink-muted line-through" : "text-ink-soft"}`}>
@@ -58,7 +58,7 @@ export function ClientView(
           const ss = sessionsOf(p.id);
           const done = ss.filter((s) => statusStyle(s.status).terminal).length;
           return (
-            <div key={p.id} className="flex flex-col gap-1 rounded-lg border border-line bg-[#101219] p-3">
+            <div key={p.id} className="flex flex-col gap-1 rounded-lg border border-line bg-well p-3">
               <button type="button"
                 onClick={() => onOpenPage(p.id)}
                 className="flex items-center gap-2 text-left"
