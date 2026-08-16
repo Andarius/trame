@@ -414,37 +414,59 @@ async function codexTranscriptIsLocal(
   return false;
 }
 
-// Best-effort PR/MR state. GitHub via the authed `gh` CLI; other hosts → "unknown"
+// Best-effort PR/MR info. GitHub via the authed `gh` CLI; other hosts → "unknown"
 // (GitLab would need a token). Cached 60s so opening a drawer doesn't hammer the API.
-const prStateCache = new Map<string, { state: string; at: number }>();
-async function prState(url: string): Promise<string> {
-  const hit = prStateCache.get(url);
-  if (hit && Date.now() - hit.at < 60_000) return hit.state;
-  let state = "unknown";
+// stacked = base branch is not the repo default (gh-stack style dependent PR).
+type PrInfo = { state: string; title?: string; base?: string; stacked?: boolean };
+const prInfoCache = new Map<string, { info: PrInfo; at: number }>();
+const defaultBranchCache = new Map<string, string>();
+const gh = (...args: string[]) =>
+  new Deno.Command("gh", { args, stdout: "piped", stderr: "null" }).output();
+
+async function prInfo(url: string): Promise<PrInfo> {
+  const hit = prInfoCache.get(url);
+  if (hit && Date.now() - hit.at < 60_000) return hit.info;
+  let info: PrInfo = { state: "unknown" };
   try {
     if (/^https:\/\/github\.com\//.test(url)) {
-      const out = await new Deno.Command("gh", {
-        args: ["pr", "view", url, "--json", "state,isDraft"],
-        stdout: "piped",
-        stderr: "null",
-      }).output();
+      const out = await gh("pr", "view", url, "--json", "state,isDraft,title,baseRefName");
       if (out.success) {
         const j = JSON.parse(new TextDecoder().decode(out.stdout)) as {
           state: string;
           isDraft: boolean;
+          title: string;
+          baseRefName: string;
         };
-        state = j.state === "MERGED"
+        const state = j.state === "MERGED"
           ? "merged"
           : j.state === "CLOSED"
           ? "closed"
           : j.isDraft
           ? "draft"
           : "open";
+        const repo = url.match(/github\.com\/([^/]+\/[^/]+)/)?.[1];
+        let stacked: boolean | undefined;
+        if (repo) {
+          let def = defaultBranchCache.get(repo);
+          if (!def) {
+            const r = await gh(
+              "repo", "view", repo,
+              "--json", "defaultBranchRef",
+              "-q", ".defaultBranchRef.name",
+            );
+            if (r.success) {
+              def = new TextDecoder().decode(r.stdout).trim();
+              if (def) defaultBranchCache.set(repo, def);
+            }
+          }
+          if (def) stacked = j.baseRefName !== def;
+        }
+        info = { state, title: j.title, base: j.baseRefName, stacked };
       }
     }
   } catch { /* gh missing / offline → unknown */ }
-  prStateCache.set(url, { state, at: Date.now() });
-  return state;
+  prInfoCache.set(url, { info, at: Date.now() });
+  return info;
 }
 
 const json = (data: unknown, status = 200) =>
@@ -592,13 +614,14 @@ async function handler(req: Request): Promise<Response> {
       .spawn();
     return json({ ok: true });
   }
-  // Best-effort PR/MR state for a link (open|draft|merged|closed|unknown).
+  // Best-effort PR/MR info for a link: state (open|draft|merged|closed|unknown),
+  // title, base branch, and whether the PR is stacked (base ≠ default branch).
   if (pathname === "/api/pr-state" && req.method === "POST") {
     const { url } = await req.json();
     if (typeof url !== "string" || !/^https:\/\//.test(url)) {
       return json({ error: "invalid url" }, 400);
     }
-    return json({ url, state: await prState(url) });
+    return json({ url, ...await prInfo(url) });
   }
   // Pasted images: POST raw bytes → {id}; GET /api/assets/<id> serves them back.
   if (pathname === "/api/assets" && req.method === "POST") {
