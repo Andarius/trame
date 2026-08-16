@@ -416,8 +416,9 @@ async function codexTranscriptIsLocal(
 
 // Best-effort PR/MR info. GitHub via the authed `gh` CLI; other hosts → "unknown"
 // (GitLab would need a token). Cached 60s so opening a drawer doesn't hammer the API.
-// stacked = base branch is not the repo default (gh-stack style dependent PR).
-type PrInfo = { state: string; title?: string; base?: string; stacked?: boolean };
+// stack: set when the PR is part of a gh-stack chain — either its base is not the
+// repo default ("stacked on <base>") or open PRs are based on its head branch.
+type PrInfo = { state: string; title?: string; base?: string; stack?: string };
 const prInfoCache = new Map<string, { info: PrInfo; at: number }>();
 const defaultBranchCache = new Map<string, string>();
 const gh = (...args: string[]) =>
@@ -429,13 +430,17 @@ async function prInfo(url: string): Promise<PrInfo> {
   let info: PrInfo = { state: "unknown" };
   try {
     if (/^https:\/\/github\.com\//.test(url)) {
-      const out = await gh("pr", "view", url, "--json", "state,isDraft,title,baseRefName");
+      const out = await gh(
+        "pr", "view", url,
+        "--json", "state,isDraft,title,baseRefName,headRefName",
+      );
       if (out.success) {
         const j = JSON.parse(new TextDecoder().decode(out.stdout)) as {
           state: string;
           isDraft: boolean;
           title: string;
           baseRefName: string;
+          headRefName: string;
         };
         const state = j.state === "MERGED"
           ? "merged"
@@ -445,7 +450,7 @@ async function prInfo(url: string): Promise<PrInfo> {
           ? "draft"
           : "open";
         const repo = url.match(/github\.com\/([^/]+\/[^/]+)/)?.[1];
-        let stacked: boolean | undefined;
+        let stack: string | undefined;
         if (repo) {
           let def = defaultBranchCache.get(repo);
           if (!def) {
@@ -459,9 +464,26 @@ async function prInfo(url: string): Promise<PrInfo> {
               if (def) defaultBranchCache.set(repo, def);
             }
           }
-          if (def) stacked = j.baseRefName !== def;
+          if (def && j.baseRefName !== def) {
+            stack = `stacked on ${j.baseRefName}`;
+          } else if (def) {
+            // bottom of a stack? any open PR based on this PR's head branch
+            const r = await gh(
+              "pr", "list", "-R", repo,
+              "--base", j.headRefName,
+              "--json", "number",
+            );
+            if (r.success) {
+              const deps = JSON.parse(new TextDecoder().decode(r.stdout)) as {
+                number: number;
+              }[];
+              if (deps.length) {
+                stack = `${deps.map((d) => `#${d.number}`).join(", ")} stacked on top`;
+              }
+            }
+          }
         }
-        info = { state, title: j.title, base: j.baseRefName, stacked };
+        info = { state, title: j.title, base: j.baseRefName, stack };
       }
     }
   } catch { /* gh missing / offline → unknown */ }

@@ -164,7 +164,7 @@ function PrChip({ url, label }: { url: string; label?: string }) {
     <a
       href={url}
       title={`${url}${info.title ? ` · ${info.title}` : ""} · ${info.state}${
-        info.stacked ? ` · stacked on ${info.base}` : ""
+        info.stack ? ` · ${info.stack}` : ""
       }`}
       onClick={(e) => {
         e.preventDefault();
@@ -183,8 +183,8 @@ function PrChip({ url, label }: { url: string; label?: string }) {
       {info.state !== "unknown" && (
         <span className="shrink-0" style={{ color }}>{info.state}</span>
       )}
-      {info.stacked && (
-        <span className="shrink-0 text-ink-muted" title={`stacked on ${info.base}`}>
+      {info.stack && (
+        <span className="shrink-0 text-ink-muted" title={info.stack}>
           ⧉
         </span>
       )}
