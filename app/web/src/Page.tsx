@@ -97,6 +97,51 @@ const SLASH: { key: string; label: string; hint: string }[] = [
   { key: "html", label: "HTML", hint: "embedded interactive doc" },
 ];
 
+// colors offered when typing "{{" — keys must match PILL_COLORS in md.tsx
+const PILLS: { key: string; dot: string; hint: string }[] = [
+  { key: "green", dot: "bg-active", hint: "done / ok" },
+  { key: "yellow", dot: "bg-paused", hint: "pending / warn" },
+  { key: "red", dot: "bg-blocked", hint: "blocked / error" },
+  { key: "copper", dot: "bg-copper", hint: "accent" },
+  { key: "gray", dot: "bg-chipline", hint: "neutral" },
+];
+
+// pixel position of `index` inside a textarea (mirror-div technique), relative to
+// the textarea's top-left; y is the bottom of the caret's line
+function caretXY(el: HTMLTextAreaElement, index: number): { x: number; y: number } {
+  const div = document.createElement("div");
+  const s = getComputedStyle(el);
+  for (
+    const p of [
+      "fontFamily",
+      "fontSize",
+      "fontWeight",
+      "lineHeight",
+      "letterSpacing",
+      "paddingTop",
+      "paddingRight",
+      "paddingBottom",
+      "paddingLeft",
+      "boxSizing",
+      "tabSize",
+    ] as const
+  ) div.style[p] = s[p];
+  div.style.position = "absolute";
+  div.style.visibility = "hidden";
+  div.style.whiteSpace = "pre-wrap";
+  div.style.overflowWrap = "break-word";
+  div.style.width = `${el.clientWidth}px`;
+  div.textContent = el.value.slice(0, index);
+  const span = document.createElement("span");
+  span.textContent = "\u200b";
+  div.appendChild(span);
+  document.body.appendChild(div);
+  const x = span.offsetLeft;
+  const y = span.offsetTop + span.offsetHeight;
+  div.remove();
+  return { x, y };
+}
+
 type CommentOps = {
   add: (blockId: string, anchor: string, body: string) => void;
   update: (id: string, patch: { body?: string; resolved?: boolean }) => void;
@@ -713,6 +758,12 @@ function BlockEditor(
   const [focusIdx, setFocusIdx] = useState<number | null>(null);
   const [menuIdx, setMenuIdx] = useState<number | null>(null); // block showing the slash menu
   const [menuSel, setMenuSel] = useState(0); // highlighted item in the slash menu
+  // open "{{" pill autocomplete: block index, offset of the partial color, its
+  // text, and the popup anchor under the "{{" (px, relative to the block row)
+  const [pill, setPill] = useState<
+    { i: number; start: number; query: string; x: number; y: number } | null
+  >(null);
+  const [pillSel, setPillSel] = useState(0);
   // block currently in raw-textarea edit mode (Notion-style: click to edit, blur to render)
   const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -911,6 +962,27 @@ function BlockEditor(
     setFocusIdx(i);
   };
 
+  // "{{gr" + pick green → "{{green:}}" with the caret before "}}"
+  const pickPill = (color: string) => {
+    if (!pill) return;
+    const b = blocks[pill.i];
+    if (!isText(b)) return;
+    const after = b.text.slice(pill.start + pill.query.length);
+    const closing = after.startsWith("}}") ? "" : "}}";
+    set(pill.i, {
+      text: `${b.text.slice(0, pill.start)}${color}:${closing}${after}`,
+    });
+    setPill(null);
+    const el = refs.current[pill.i];
+    const pos = pill.start + color.length + 1;
+    if (el) {
+      requestAnimationFrame(() => {
+        el.focus();
+        el.setSelectionRange(pos, pos);
+      });
+    }
+  };
+
   const grow = (el: HTMLTextAreaElement) => {
     el.style.height = "0";
     el.style.height = `${el.scrollHeight}px`;
@@ -953,6 +1025,9 @@ function BlockEditor(
             // match the key too: "/todo" must find "To-do" despite the hyphen
             s.key.includes(filter) || s.label.toLowerCase().includes(filter)
           );
+        const pillItems = pill?.i === i
+          ? PILLS.filter((p) => p.key.startsWith(pill.query.toLowerCase()))
+          : [];
         const blockComments = b.id
           ? comments.filter((c) => c.block_id === b.id)
           : [];
@@ -1133,6 +1208,25 @@ function BlockEditor(
                   grow(e.target);
                   setMenuIdx(e.target.value.startsWith("/") ? i : null);
                   setMenuSel(0);
+                  // caret sitting right after "{{" (plus a partial color) opens the pill menu
+                  const m = e.target.value
+                    .slice(0, e.target.selectionStart)
+                    .match(/\{\{([a-zA-Z]*)$/);
+                  if (m) {
+                    const el = e.target;
+                    const p = caretXY(el, el.selectionStart - m[0].length);
+                    setPill({
+                      i,
+                      start: el.selectionStart - m[1].length,
+                      query: m[1],
+                      x: Math.max(
+                        0,
+                        Math.min(el.offsetLeft + p.x, el.offsetLeft + el.clientWidth - 210),
+                      ),
+                      y: el.offsetTop + p.y,
+                    });
+                  } else setPill(null);
+                  setPillSel(0);
                 }}
                 onPaste={(e) => {
                   const files = [...(e.clipboardData?.files ?? [])]
@@ -1171,6 +1265,28 @@ function BlockEditor(
                     if (e.key === "Escape") {
                       e.preventDefault();
                       return setMenuIdx(null);
+                    }
+                  }
+                  if (pill?.i === i && pillItems.length) {
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      return setPillSel((s) => (s + 1) % pillItems.length);
+                    }
+                    if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      return setPillSel((s) =>
+                        (s - 1 + pillItems.length) % pillItems.length
+                      );
+                    }
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      return pickPill(
+                        pillItems[Math.min(pillSel, pillItems.length - 1)].key,
+                      );
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      return setPill(null);
                     }
                   }
                   // inside a snippet Enter stays a newline; a closed fence + caret
@@ -1243,6 +1359,38 @@ function BlockEditor(
                       </span>
                       <span className="text-[10.5px] text-ink-muted">
                         {s.hint}
+                      </span>
+                    </button>
+                  ))}
+                </Popover>
+              )}
+              {pill?.i === i && pillItems.length > 0 && (
+                <Popover
+                  onClose={() => setPill(null)}
+                  className="w-[200px]"
+                  // anchored under the "{{" — inline left/top override left-0/top-full
+                  style={{ left: pill.x, top: pill.y }}
+                >
+                  {pillItems.map((p, si) => (
+                    <button
+                      type="button"
+                      key={p.key}
+                      className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ${
+                        si === Math.min(pillSel, pillItems.length - 1)
+                          ? "bg-panel"
+                          : "hover:bg-panel"
+                      }`}
+                      onMouseMove={() => setPillSel(si)}
+                      onClick={() => pickPill(p.key)}
+                    >
+                      <span
+                        className={`h-2.5 w-2.5 shrink-0 rounded-full ${p.dot}`}
+                      />
+                      <span className="text-xs font-medium text-ink">
+                        {p.key}
+                      </span>
+                      <span className="text-[10.5px] text-ink-muted">
+                        {p.hint}
                       </span>
                     </button>
                   ))}
