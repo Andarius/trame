@@ -414,15 +414,141 @@ async function codexTranscriptIsLocal(
   return false;
 }
 
-// Best-effort PR/MR info. GitHub via the authed `gh` CLI; other hosts → "unknown"
-// (GitLab would need a token). Cached 60s so opening a drawer doesn't hammer the API.
-// stack: set when the PR is part of a gh-stack chain — either its base is not the
-// repo default ("stacked on <base>") or open PRs are based on its head branch.
+// Best-effort PR/MR info. GitHub via the authed `gh` CLI, GitLab (any host) via
+// `glab api`; missing CLI/auth → "unknown". Cached 60s so opening a drawer doesn't
+// hammer the API. stack: set when part of a stacked chain — either the base is not
+// the repo default ("stacked on <base>") or open PRs/MRs target its head branch.
 type PrInfo = { state: string; title?: string; base?: string; stack?: string };
 const prInfoCache = new Map<string, { info: PrInfo; at: number }>();
-const defaultBranchCache = new Map<string, string>();
+const defaultBranchCache = new Map<string, string>(); // owner/repo or host/project
 const gh = (...args: string[]) =>
-  new Deno.Command("gh", { args, stdout: "piped", stderr: "null" }).output();
+  new Deno.Command("gh", { args, stdin: "null", stdout: "piped", stderr: "null" })
+    .output();
+// glab REST call against the MR's own host (works for self-hosted instances too)
+async function glabApi<T>(host: string, path: string): Promise<T | null> {
+  const out = await new Deno.Command("glab", {
+    args: ["api", path],
+    env: { GITLAB_HOST: host },
+    stdin: "null", // glab may prompt for auth on a live stdin and hang the request
+    stdout: "piped",
+    stderr: "null",
+  }).output();
+  if (!out.success) return null;
+  try {
+    const j = JSON.parse(new TextDecoder().decode(out.stdout));
+    // glab exits 0 on HTTP errors and prints {"message": "404 ..."} — treat as failure
+    if (j && !Array.isArray(j) && typeof j.message === "string") return null;
+    return j as T;
+  } catch {
+    return null;
+  }
+}
+
+// "#42, #43 +2 more stacked on top" — capped so a busy branch doesn't flood the tooltip
+function stackedOnTop(refs: string[]): string {
+  const shown = refs.slice(0, 3).join(", ");
+  const more = refs.length - 3;
+  return `${shown}${more > 0 ? ` +${more} more` : ""} stacked on top`;
+}
+
+async function ghPrInfo(url: string): Promise<PrInfo | null> {
+  const out = await gh(
+    "pr", "view", url,
+    "--json", "state,isDraft,title,baseRefName,headRefName",
+  );
+  if (!out.success) return null;
+  const j = JSON.parse(new TextDecoder().decode(out.stdout)) as {
+    state: string;
+    isDraft: boolean;
+    title: string;
+    baseRefName: string;
+    headRefName: string;
+  };
+  const state = j.state === "MERGED"
+    ? "merged"
+    : j.state === "CLOSED"
+    ? "closed"
+    : j.isDraft
+    ? "draft"
+    : "open";
+  const repo = url.match(/github\.com\/([^/]+\/[^/]+)/)?.[1];
+  let stack: string | undefined;
+  if (repo) {
+    let def = defaultBranchCache.get(repo);
+    if (!def) {
+      const r = await gh(
+        "repo", "view", repo,
+        "--json", "defaultBranchRef",
+        "-q", ".defaultBranchRef.name",
+      );
+      if (r.success) {
+        def = new TextDecoder().decode(r.stdout).trim();
+        if (def) defaultBranchCache.set(repo, def);
+      }
+    }
+    if (def && j.baseRefName !== def) {
+      stack = `stacked on ${j.baseRefName}`;
+    } else if (def && (state === "open" || state === "draft")) {
+      // bottom of a live stack? any open PR based on this PR's head branch
+      const r = await gh(
+        "pr", "list", "-R", repo,
+        "--base", j.headRefName,
+        "--json", "number",
+      );
+      if (r.success) {
+        const deps = JSON.parse(new TextDecoder().decode(r.stdout)) as {
+          number: number;
+        }[];
+        if (deps.length) stack = stackedOnTop(deps.map((d) => `#${d.number}`));
+      }
+    }
+  }
+  return { state, title: j.title, base: j.baseRefName, stack };
+}
+
+async function glabMrInfo(url: string): Promise<PrInfo | null> {
+  const m = url.match(/^https:\/\/([^/]+)\/(.+?)\/-\/merge_requests\/(\d+)/);
+  if (!m) return null;
+  const [, host, project, iid] = m;
+  const proj = encodeURIComponent(project);
+  const mr = await glabApi<{
+    state: string;
+    draft: boolean;
+    title: string;
+    target_branch: string;
+    source_branch: string;
+  }>(host, `projects/${proj}/merge_requests/${iid}`);
+  if (!mr || typeof mr.state !== "string" || !mr.target_branch) return null;
+  const state = mr.state === "merged"
+    ? "merged"
+    : mr.state === "closed"
+    ? "closed"
+    : mr.draft
+    ? "draft"
+    : "open";
+  const key = `${host}/${project}`;
+  let def = defaultBranchCache.get(key);
+  if (!def) {
+    const p = await glabApi<{ default_branch: string }>(host, `projects/${proj}`);
+    if (p?.default_branch) {
+      def = p.default_branch;
+      defaultBranchCache.set(key, def);
+    }
+  }
+  let stack: string | undefined;
+  if (def && mr.target_branch !== def) {
+    stack = `stacked on ${mr.target_branch}`;
+  } else if (def && (state === "open" || state === "draft")) {
+    const deps = await glabApi<{ iid: number }[]>(
+      host,
+      `projects/${proj}/merge_requests?state=opened&target_branch=${
+        encodeURIComponent(mr.source_branch)
+      }`,
+    );
+    if (deps?.length) stack = stackedOnTop(deps.map((d) => `!${d.iid}`));
+  }
+  return { state, title: mr.title, base: mr.target_branch, stack };
+}
 
 async function prInfo(url: string): Promise<PrInfo> {
   const hit = prInfoCache.get(url);
@@ -430,63 +556,11 @@ async function prInfo(url: string): Promise<PrInfo> {
   let info: PrInfo = { state: "unknown" };
   try {
     if (/^https:\/\/github\.com\//.test(url)) {
-      const out = await gh(
-        "pr", "view", url,
-        "--json", "state,isDraft,title,baseRefName,headRefName",
-      );
-      if (out.success) {
-        const j = JSON.parse(new TextDecoder().decode(out.stdout)) as {
-          state: string;
-          isDraft: boolean;
-          title: string;
-          baseRefName: string;
-          headRefName: string;
-        };
-        const state = j.state === "MERGED"
-          ? "merged"
-          : j.state === "CLOSED"
-          ? "closed"
-          : j.isDraft
-          ? "draft"
-          : "open";
-        const repo = url.match(/github\.com\/([^/]+\/[^/]+)/)?.[1];
-        let stack: string | undefined;
-        if (repo) {
-          let def = defaultBranchCache.get(repo);
-          if (!def) {
-            const r = await gh(
-              "repo", "view", repo,
-              "--json", "defaultBranchRef",
-              "-q", ".defaultBranchRef.name",
-            );
-            if (r.success) {
-              def = new TextDecoder().decode(r.stdout).trim();
-              if (def) defaultBranchCache.set(repo, def);
-            }
-          }
-          if (def && j.baseRefName !== def) {
-            stack = `stacked on ${j.baseRefName}`;
-          } else if (def) {
-            // bottom of a stack? any open PR based on this PR's head branch
-            const r = await gh(
-              "pr", "list", "-R", repo,
-              "--base", j.headRefName,
-              "--json", "number",
-            );
-            if (r.success) {
-              const deps = JSON.parse(new TextDecoder().decode(r.stdout)) as {
-                number: number;
-              }[];
-              if (deps.length) {
-                stack = `${deps.map((d) => `#${d.number}`).join(", ")} stacked on top`;
-              }
-            }
-          }
-        }
-        info = { state, title: j.title, base: j.baseRefName, stack };
-      }
+      info = (await ghPrInfo(url)) ?? info;
+    } else if (url.includes("/-/merge_requests/")) {
+      info = (await glabMrInfo(url)) ?? info;
     }
-  } catch { /* gh missing / offline → unknown */ }
+  } catch { /* cli missing / offline → unknown */ }
   prInfoCache.set(url, { info, at: Date.now() });
   return info;
 }
