@@ -192,7 +192,8 @@ export type PrInfo = {
   state: string;
   title?: string;
   base?: string;
-  stacked?: boolean;
+  // human label when part of a gh-stack chain, e.g. "stacked on fix/x" or "#42 stacked on top"
+  stack?: string;
 };
 export const prInfo = (url: string) =>
   post("/api/pr-state", { url })
