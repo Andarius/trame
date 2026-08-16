@@ -10,7 +10,7 @@ Trame is a local-first session tracker. Everything is a local HTTP API — no au
 ## Finding the API
 
 ```bash
-PORT=$(jq -r .port ~/.local/share/session-tracker/port.json)   # usually 8787
+PORT=$(jq -r .port ~/.local/share/trame/port.json)   # usually 8787
 curl -s http://127.0.0.1:$PORT/api/status
 ```
 
