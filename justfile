@@ -178,7 +178,7 @@ install-track:
 # Wipe the local PGlite data + outbox (fresh local db)
 [group('setup')]
 reset-local:
-    rm -rf "${XDG_DATA_HOME:-$HOME/.local/share}/session-tracker"
+    rm -rf "${XDG_DATA_HOME:-$HOME/.local/share}/trame"
     echo "local data cleared"
 
 # Enable the git pre-commit hook (lint + typecheck on staged code)
