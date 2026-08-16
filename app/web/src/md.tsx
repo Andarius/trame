@@ -1,11 +1,12 @@
 // Tiny dependency-free Markdown → React renderer. Safe by construction: it builds
 // React nodes (never dangerouslySetInnerHTML) and scheme-checks link hrefs. Covers the
 // common subset — headings, fenced code, blockquotes, ordered/unordered lists, rules,
-// paragraphs; inline code, **bold**, *italic*, ~~strike~~, [links](url), bare URLs and
-// {{pills}} ({{green:text}} · green|yellow|red|copper|gray — handy for table cells).
+// paragraphs; inline code, **bold**, *italic*, ~~strike~~, [links](url), bare URLs
+// (PR/MR links render as state chips) and {{pills}} ({{green:text}} ·
+// green|yellow|red|copper|gray — handy for table cells).
 // Underscore emphasis is intentionally NOT supported so snake_case survives.
 import { Fragment, type ReactNode, useEffect, useState } from "react";
-import { openInBrowser } from "./api";
+import { openInBrowser, prInfo, type PrInfo } from "./api";
 
 // ```mermaid fences render as diagrams. The lib (~1.5 MB) is dynamically imported so
 // pages without diagrams never load it. The svg-string injection is the one exception
@@ -79,6 +80,118 @@ function Link({ href, children }: { href: string; children: ReactNode }) {
   );
 }
 
+// GitHub PR / GitLab MR URLs — bare or as [text](url) links — render as compact
+// chips (icon + repo#42 + title + state, ⧉ badge when stacked), matching the
+// session drawer's colors; info resolves lazily via /api/pr-state and is cached
+// module-wide so each URL fetches once.
+const PR_HREF = /^https?:\/\/[^\s<>)]+\/(?:pull|-\/merge_requests)\/\d+(?:[/?#][^\s<>)]*)?$/;
+const PR_STATE_COLOR: Record<string, string> = {
+  open: "#7bd88f",
+  draft: "#8b93a3",
+  merged: "#b590e7",
+  closed: "#e06c75",
+  unknown: "#5a6172",
+};
+const prInfoCache = new Map<string, PrInfo>();
+const prInfoPending = new Map<string, Promise<PrInfo>>();
+const getPrInfo = (url: string): Promise<PrInfo> => {
+  const done = prInfoCache.get(url);
+  if (done) return Promise.resolve(done);
+  let p = prInfoPending.get(url);
+  if (!p) {
+    p = prInfo(url).then((info) => {
+      prInfoCache.set(url, info);
+      prInfoPending.delete(url);
+      return info;
+    });
+    prInfoPending.set(url, p);
+  }
+  return p;
+};
+
+// repo#42 for GitHub, proj!39 for GitLab (same parsing as the drawer's prLabel)
+function prChipLabel(url: string): string {
+  try {
+    const u = new URL(url);
+    const mr = u.pathname.includes("/merge_requests/");
+    const m = u.pathname.match(/\/([^/]+)\/(?:pull|-\/merge_requests)\/(\d+)/);
+    return m ? `${m[1]}${mr ? "!" : "#"}${m[2]}` : `${u.host}${u.pathname}`;
+  } catch {
+    return url;
+  }
+}
+
+// inline SVGs (octicon-style) so they render on WebKitGTK
+function GitHubMark() {
+  return (
+    <svg
+      width="11" height="11" viewBox="0 0 16 16" fill="currentColor"
+      aria-hidden="true" className="shrink-0 text-ink-muted"
+    >
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
+    </svg>
+  );
+}
+function MergeMark() {
+  return (
+    <svg
+      width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+      aria-hidden="true" className="shrink-0 text-ink-muted"
+    >
+      <circle cx="3.5" cy="3.5" r="1.8" />
+      <circle cx="3.5" cy="12.5" r="1.8" />
+      <circle cx="12.5" cy="12.5" r="1.8" />
+      <path d="M3.5 5.3v5.4M12.5 10.7V7.5c0-1.7-1.3-3-3-3H7.8M9.6 2.7 7.8 4.5l1.8 1.8" />
+    </svg>
+  );
+}
+
+function PrChip({ url, label }: { url: string; label?: string }) {
+  const [info, setInfo] = useState<PrInfo>(
+    prInfoCache.get(url) ?? { state: "unknown" },
+  );
+  useEffect(() => {
+    let alive = true;
+    getPrInfo(url).then((i) => alive && setInfo(i));
+    return () => {
+      alive = false;
+    };
+  }, [url]);
+  const name = label ?? prChipLabel(url);
+  const color = PR_STATE_COLOR[info.state] ?? PR_STATE_COLOR.unknown;
+  return (
+    <a
+      href={url}
+      title={`${url}${info.title ? ` · ${info.title}` : ""} · ${info.state}${
+        info.stack ? ` · ${info.stack}` : ""
+      }`}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openInBrowser(url);
+      }}
+      className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-chipline bg-panel px-1.5 py-px align-[-1px] font-mono text-[0.82em] text-ink no-underline transition-colors hover:border-copper/60"
+    >
+      {url.includes("/-/merge_requests/") ? <MergeMark /> : <GitHubMark />}
+      <span className="shrink-0">{name}</span>
+      {info.title && info.title !== name && (
+        <span className="max-w-[240px] truncate font-sans text-ink-muted">
+          {info.title}
+        </span>
+      )}
+      {info.state !== "unknown" && (
+        <span className="shrink-0" style={{ color }}>{info.state}</span>
+      )}
+      {info.stack && (
+        <span className="shrink-0 text-ink-muted" title={info.stack}>
+          ⧉
+        </span>
+      )}
+    </a>
+  );
+}
+
 // {{text}} pills — an optional known-color prefix ({{green:done}}) tints them; any
 // other "word:" stays part of the text. Full class strings so Tailwind sees them.
 const PILL_COLORS: Record<string, string> = {
@@ -136,8 +249,15 @@ const INLINE: [RegExp, (m: RegExpMatchArray, k: number) => ReactNode][] = [
   }],
   [/^\[([^\]]+)\]\(([^)\s]+)\)/, (m, k) => {
     const h = safeHref(m[2]);
-    return h ? <Link key={k} href={h}>{renderInline(m[1])}</Link> : m[0];
+    if (!h) return m[0];
+    if (PR_HREF.test(h)) return <PrChip key={k} url={h} label={m[1]} />;
+    return <Link key={k} href={h}>{renderInline(m[1])}</Link>;
   }],
+  // PR/MR chips before generic bare URLs; trailing path/query (e.g. /files) stays in the link
+  [
+    /^(https?:\/\/[^\s<>)]+\/(?:pull|-\/merge_requests)\/\d+(?:[/?#][^\s<>)]*)?)/,
+    (m, k) => <PrChip key={k} url={m[1]} />,
+  ],
   [
     /^(https?:\/\/[^\s<>)]+)/,
     (m, k) => <Link key={k} href={m[1]}>{m[1]}</Link>,
