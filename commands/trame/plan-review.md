@@ -11,7 +11,7 @@ Process the user's block comments on the current Trame plan and update the plan 
 2. Fetch the page and its comments:
 
    ```bash
-   PORT=$(jq -r .port ~/.local/share/session-tracker/port.json)
+   PORT=$(jq -r .port ~/.local/share/trame/port.json)
    curl -s http://127.0.0.1:$PORT/api/pages/<page_id> | jq '{content, comments}'
    ```
 
