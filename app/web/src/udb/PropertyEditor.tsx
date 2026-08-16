@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  type ColorRule,
   createUdbProp,
   deleteUdbProp,
   getUdb,
@@ -37,13 +38,14 @@ const field =
   "w-full rounded-md border border-chipline bg-transparent px-2 py-1.5 text-xs text-ink outline-none focus:border-copper/60";
 
 export function PropertyEditor(
-  { dbId, prop, allProps, udbs, sortDir, onSort, onClose, onSaved }: {
+  { dbId, prop, allProps, udbs, sortDir, onSort, onHide, onClose, onSaved }: {
     dbId: string;
     prop: UdbProp | null; // null = create
     allProps: UdbProp[];
     udbs: UdbMeta[];
     sortDir?: 1 | -1 | null; // current sort direction on THIS column, if any
     onSort?: (dir: 1 | -1 | null) => void; // null = clear sort
+    onHide?: () => void; // hide this column in the current view tab
     onClose: () => void;
     onSaved: () => void;
   },
@@ -149,6 +151,18 @@ export function PropertyEditor(
             )}
           </div>
         )}
+        {prop && onHide && (
+          <button
+            type="button"
+            className="flex items-center justify-center gap-1 rounded-md border border-chipline py-1 text-[11px] text-ink-muted transition-colors hover:text-ink-soft"
+            onClick={() => {
+              onHide();
+              onClose();
+            }}
+          >
+            ⊟ Hide in this view
+          </button>
+        )}
         <div className="flex items-end gap-2">
           <div className="relative flex flex-col gap-1">
             <span className={lbl}>ICON</span>
@@ -196,17 +210,48 @@ export function PropertyEditor(
         )}
 
         {type === "number" && (
+          <div className="flex gap-2">
+            <label className="flex flex-1 flex-col gap-1">
+              <span className={lbl}>FORMAT</span>
+              <Select
+                value={config.format ?? "plain"}
+                options={[
+                  { value: "plain", label: "Plain" },
+                  { value: "euro", label: "Euro (€)" },
+                  { value: "dollar", label: "Dollar ($)" },
+                  { value: "percent", label: "Percent (%)" },
+                ]}
+                onChange={(v) => set({ format: v as PropConfig["format"] })}
+              />
+            </label>
+            <label className="flex w-20 flex-col gap-1">
+              <span className={lbl}>UNIT</span>
+              <input
+                className={`${field} py-1.5`}
+                value={config.unit ?? ""}
+                placeholder="s, kg…"
+                onChange={(e) => set({ unit: e.target.value || undefined })}
+              />
+            </label>
+          </div>
+        )}
+
+        {type === "number" && (
           <label className="flex flex-col gap-1">
-            <span className={lbl}>FORMAT</span>
+            <span className={lbl}>UNIT FROM COLUMN</span>
             <Select
-              value={config.format ?? "plain"}
+              value={config.unit_prop ?? ""}
+              placeholder="— fixed unit only —"
               options={[
-                { value: "plain", label: "Plain" },
-                { value: "euro", label: "Euro (€)" },
-                { value: "dollar", label: "Dollar ($)" },
-                { value: "percent", label: "Percent (%)" },
+                { value: "", label: "— fixed unit only —" },
+                ...allProps
+                  .filter((p) =>
+                    (p.type === "select" || p.type === "text") &&
+                    p.id !== prop?.id
+                  )
+                  .map((p) => ({ value: p.id, label: p.name })),
               ]}
-              onChange={(v) => set({ format: v as PropConfig["format"] })}
+              onChange={(v) => set({ unit_prop: v || undefined })}
             />
           </label>
         )}
@@ -232,23 +277,6 @@ export function PropertyEditor(
             </div>
             {config.show_as && config.show_as !== "number" && (
               <div className="mt-1 flex flex-col gap-1.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] text-ink-muted">Color</span>
-                  <div className="flex gap-1">
-                    {OPTION_COLORS.map((c) => (
-                      <button
-                        key={c}
-                        type="button"
-                        className={`h-4 w-4 rounded-full border ${
-                          config.color === c ? "border-ink" : "border-black/30"
-                        }`}
-                        style={{ background: c }}
-                        title="fill color"
-                        onClick={() => set({ color: c })}
-                      />
-                    ))}
-                  </div>
-                </div>
                 <label className="flex items-center gap-2 text-[11px] text-ink-muted">
                   Max (100%)
                   <input
@@ -272,6 +300,210 @@ export function PropertyEditor(
                   />
                   Show number
                 </label>
+              </div>
+            )}
+          </div>
+        )}
+
+        {type === "number" && (
+          <div className="flex flex-col gap-1.5">
+            <span className={lbl}>COLOR</span>
+            <div className="flex gap-1">
+              {(["fixed", "scale", "rules"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  className={`flex-1 rounded-md border px-2 py-1 text-[11px] capitalize ${
+                    (config.color_mode ?? "fixed") === m
+                      ? "border-copper text-copper"
+                      : "border-chipline text-ink-muted hover:text-ink-soft"
+                  }`}
+                  onClick={() => {
+                    const patch: PropConfig = { color_mode: m };
+                    // switching to a dynamic mode with nothing to paint: default to text
+                    if (
+                      m !== "fixed" &&
+                      (config.color_apply ?? "none") === "none" &&
+                      (config.show_as ?? "number") === "number"
+                    ) patch.color_apply = "text";
+                    set(patch);
+                  }}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+
+            {(config.show_as ?? "number") === "number" && (
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-ink-muted">Apply to</span>
+                <div className="flex flex-1 gap-1">
+                  {(["none", "text", "pill", "dot", "cell"] as const).map((
+                    a,
+                  ) => (
+                    <button
+                      key={a}
+                      type="button"
+                      className={`flex-1 rounded-md border px-1 py-0.5 text-[10.5px] capitalize ${
+                        (config.color_apply ?? "none") === a
+                          ? "border-copper text-copper"
+                          : "border-chipline text-ink-muted hover:text-ink-soft"
+                      }`}
+                      onClick={() =>
+                        set({ color_apply: a === "none" ? undefined : a })}
+                    >
+                      {a}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {(config.color_mode ?? "fixed") === "fixed" && (
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-ink-muted">Color</span>
+                <div className="flex gap-1">
+                  {OPTION_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      className={`h-4 w-4 rounded-full border ${
+                        config.color === c ? "border-ink" : "border-black/30"
+                      }`}
+                      style={{ background: c }}
+                      title="color"
+                      onClick={() => set({ color: c })}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {config.color_mode === "scale" && (
+              <div className="flex flex-col gap-1.5">
+                <div className="flex gap-1">
+                  {(["low", "high"] as const).map((g) => (
+                    <button
+                      key={g}
+                      type="button"
+                      className={`flex-1 rounded-md border px-2 py-1 text-[11px] ${
+                        (config.good ?? "low") === g
+                          ? "border-copper text-copper"
+                          : "border-chipline text-ink-muted hover:text-ink-soft"
+                      }`}
+                      onClick={() => set({ good: g })}
+                    >
+                      {g} is good
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2 text-[11px] text-ink-muted">
+                  Range
+                  <input
+                    type="number"
+                    className="w-16 rounded-md border border-chipline bg-transparent px-1.5 py-0.5 text-[11px] text-ink outline-none"
+                    value={config.scale_min ?? ""}
+                    placeholder="auto"
+                    onChange={(e) =>
+                      set({
+                        scale_min: e.target.value === ""
+                          ? undefined
+                          : Number(e.target.value),
+                      })}
+                  />
+                  →
+                  <input
+                    type="number"
+                    className="w-16 rounded-md border border-chipline bg-transparent px-1.5 py-0.5 text-[11px] text-ink outline-none"
+                    value={config.scale_max ?? ""}
+                    placeholder="auto"
+                    onChange={(e) =>
+                      set({
+                        scale_max: e.target.value === ""
+                          ? undefined
+                          : Number(e.target.value),
+                      })}
+                  />
+                </div>
+                <div
+                  className={`h-1.5 rounded-full ${
+                    (config.good ?? "low") === "low" ? "" : "-scale-x-100"
+                  }`}
+                  style={{
+                    background:
+                      "linear-gradient(90deg, #7bd88f, #e3c567, #e06c75)",
+                  }}
+                />
+              </div>
+            )}
+
+            {config.color_mode === "rules" && (
+              <div className="flex flex-col gap-1">
+                {(config.rules ?? []).map((r, i) => (
+                  <div key={i} className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      className="h-3.5 w-3.5 shrink-0 rounded-full border border-black/30"
+                      style={{ background: r.color }}
+                      title="cycle color"
+                      onClick={() => {
+                        const rules = [...(config.rules ?? [])];
+                        rules[i] = {
+                          ...r,
+                          color: OPTION_COLORS[
+                            (OPTION_COLORS.indexOf(r.color) + 1) %
+                            OPTION_COLORS.length
+                          ],
+                        };
+                        set({ rules });
+                      }}
+                    />
+                    <span className="text-[11px] text-ink-muted">&lt;</span>
+                    <input
+                      type="number"
+                      className="w-20 rounded-md border border-chipline bg-transparent px-1.5 py-0.5 text-[11px] text-ink outline-none"
+                      value={r.lt ?? ""}
+                      placeholder="otherwise"
+                      onChange={(e) => {
+                        const rules = [...(config.rules ?? [])];
+                        rules[i] = {
+                          ...r,
+                          lt: e.target.value === ""
+                            ? undefined
+                            : Number(e.target.value),
+                        };
+                        set({ rules });
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="px-1 text-[11px] text-ink-muted hover:text-blocked"
+                      onClick={() =>
+                        set({
+                          rules: (config.rules ?? []).filter((_, j) =>
+                            j !== i
+                          ),
+                        })}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="w-fit text-[11px] text-ink-muted hover:text-ink-soft"
+                  onClick={() => {
+                    const rules: ColorRule[] = [...(config.rules ?? [])];
+                    rules.push({
+                      color: OPTION_COLORS[
+                        (rules.length + 3) % OPTION_COLORS.length
+                      ],
+                    });
+                    set({ rules });
+                  }}
+                >
+                  ＋ Add rule
+                </button>
               </div>
             )}
           </div>
