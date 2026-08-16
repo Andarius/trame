@@ -20,7 +20,7 @@ import {
   updateUdbProp,
 } from "../api";
 import { EntityIcon, Select } from "../ui";
-import { Cell, IconPicker } from "./cells";
+import { Cell, ColumnRanges, IconPicker, TableProps } from "./cells";
 import { PropertyEditor, TYPE_GLYPH } from "./PropertyEditor";
 import { RowPanel } from "./RowPanel";
 import {
@@ -32,6 +32,7 @@ import {
   groupRows,
   isDefaultTabs,
   loadTabs,
+  numOf,
   parseTabs,
   saveTabs,
   type ViewConfig,
@@ -368,6 +369,23 @@ export const DatabaseView = memo(function DatabaseView(
   const groupProp = (data && deferredView.groupBy && data.properties.find((p) =>
     p.id === deferredView.groupBy
   )) || null;
+
+  // Auto ranges for scale-colored columns: min/max over the filtered set (not the page).
+  const colRanges = useMemo(() => {
+    const out: Record<string, { min: number; max: number }> = {};
+    for (const p of data?.properties ?? []) {
+      if (p.config.color_mode !== "scale") continue;
+      let min = Infinity, max = -Infinity;
+      for (const r of rows) {
+        const n = numOf(p, r);
+        if (n === null) continue;
+        if (n < min) min = n;
+        if (n > max) max = n;
+      }
+      if (min !== Infinity) out[p.id] = { min, max };
+    }
+    return out;
+  }, [data?.properties, rows]);
   const summaryConfigured = !!deferredView.summary; // this tab is a summary (aggregate-only) view
   // a summary view is read-only — tell App so it drops the global "New row" affordance
   const readOnly = summaryConfigured;
@@ -418,7 +436,9 @@ export const DatabaseView = memo(function DatabaseView(
 
   if (!data) return <p className="p-6 text-ink-muted">Loading…</p>;
   const props = data.properties;
-  const grid = props.map((p) => `${widths[p.id] ?? colWidth(p)}px`).join(" ") +
+  // grid + header render only the view's visible columns; data ops use all props
+  const visProps = props.filter((p) => !view.hidden?.includes(p.id));
+  const grid = visProps.map((p) => `${widths[p.id] ?? colWidth(p)}px`).join(" ") +
     " minmax(44px, 1fr)";
   // summary ("DB view") mode: a read-only aggregate table, shown instead of the raw grid
   const summaryMode = !!(groupProp && groups && deferredView.summary);
@@ -460,7 +480,7 @@ export const DatabaseView = memo(function DatabaseView(
     <TableRow
       key={r.id}
       row={r}
-      props={props}
+      props={visProps}
       grid={grid}
       iconOpen={iconFor === r.id}
       onIconFor={setIconFor}
@@ -509,6 +529,8 @@ export const DatabaseView = memo(function DatabaseView(
   );
 
   return (
+    <ColumnRanges.Provider value={colRanges}>
+    <TableProps.Provider value={props}>
     <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center gap-2 px-6 pt-2">
@@ -553,7 +575,7 @@ export const DatabaseView = memo(function DatabaseView(
                     className="grid border-b border-line"
                     style={{ gridTemplateColumns: grid }}
                   >
-                    {props.map((p) => (
+                    {visProps.map((p) => (
                       <div
                         key={p.id}
                         className="group relative flex items-center border-r border-line-soft last:border-r-0"
@@ -612,6 +634,13 @@ export const DatabaseView = memo(function DatabaseView(
                             udbs={udbs}
                             sortDir={sortDirOf(p.id)}
                             onSort={(dir) => setColSort(p.id, dir)}
+                            onHide={p.type !== "title"
+                              ? () =>
+                                changeView({
+                                  ...view,
+                                  hidden: [...(view.hidden ?? []), p.id],
+                                })
+                              : undefined}
                             onClose={() => setEditor(null)}
                             onSaved={reload}
                           />
@@ -738,5 +767,7 @@ export const DatabaseView = memo(function DatabaseView(
         />
       )}
     </div>
+    </TableProps.Provider>
+    </ColumnRanges.Provider>
   );
 });

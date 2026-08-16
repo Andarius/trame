@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import { DateInput, EntityIcon, Popover } from "../ui";
 import { Markdown } from "../md";
@@ -31,31 +31,166 @@ export const OPTION_COLORS = [
 const cellInput =
   "w-full truncate rounded-md border border-transparent bg-transparent px-1.5 py-1 text-xs text-ink outline-none transition-colors hover:bg-panel/70 focus:border-chipline focus:bg-panel";
 
-export function fmtNumber(v: unknown, cfg: PropConfig): string {
+function fmtBare(v: unknown, cfg: PropConfig): string {
   if (v === null || v === undefined || v === "" || Number.isNaN(Number(v))) {
     return "";
   }
   const n = Number(v);
-  const s = cfg.precision != null ? n.toFixed(cfg.precision) : String(n);
+  return cfg.precision != null ? n.toFixed(cfg.precision) : String(n);
+}
+
+export function fmtNumber(v: unknown, cfg: PropConfig): string {
+  const s = fmtBare(v, cfg);
+  if (!s) return "";
+  if (cfg.unit) return `${s} ${cfg.unit}`;
   if (cfg.format === "euro") return `${s} €`;
   if (cfg.format === "dollar") return `$${s}`;
   if (cfg.format === "percent") return `${s} %`;
   return s;
 }
 
+// Value-dependent color. "scale" interpolates a good→bad ramp over the column
+// range (status tokens: active/paused/blocked); "rules" is a first-match ladder.
+const RAMP = ["#7bd88f", "#e3c567", "#e06c75"] as const;
+
+// Per-column min/max of the visible rows, provided by DatabaseTable for auto scale ranges.
+export const ColumnRanges = createContext<
+  Record<string, { min: number; max: number }>
+>({});
+
+// All properties of the table, provided by DatabaseTable — lets a cell resolve
+// config that references sibling columns (e.g. unit_prop).
+export const TableProps = createContext<UdbProp[]>([]);
+
+// Per-row unit: the referenced select option's name, or the raw text value.
+function rowUnit(
+  cfg: PropConfig,
+  row: UdbRow,
+  props: UdbProp[],
+): string | undefined {
+  if (!cfg.unit_prop) return undefined;
+  const p = props.find((x) => x.id === cfg.unit_prop);
+  if (!p) return undefined;
+  const raw = row.vals[p.id];
+  if (p.type === "select") {
+    return p.config.options?.find((o) => o.id === raw)?.name;
+  }
+  return typeof raw === "string" && raw ? raw : undefined;
+}
+
+function lerpHex(a: string, b: string, t: number): string {
+  const c = (i: number) =>
+    Math.round(
+      parseInt(a.slice(i, i + 2), 16) * (1 - t) +
+        parseInt(b.slice(i, i + 2), 16) * t,
+    ).toString(16).padStart(2, "0");
+  return `#${c(1)}${c(3)}${c(5)}`;
+}
+
+export function valueColor(
+  v: number,
+  cfg: PropConfig,
+  range?: { min: number; max: number },
+): string | null {
+  const mode = cfg.color_mode ?? "fixed";
+  if (mode === "fixed") return cfg.color ?? null;
+  if (mode === "rules") {
+    const rules = [...(cfg.rules ?? [])].sort((a, b) =>
+      (a.lt ?? Infinity) - (b.lt ?? Infinity)
+    );
+    for (const r of rules) {
+      if (r.lt === undefined || v < r.lt) return r.color;
+    }
+    return null;
+  }
+  const min = cfg.scale_min ?? range?.min ?? 0;
+  const max = cfg.scale_max ?? range?.max ?? cfg.max ?? 100;
+  if (max <= min) return RAMP[1];
+  let t = Math.max(0, Math.min(1, (v - min) / (max - min)));
+  if ((cfg.good ?? "low") === "high") t = 1 - t;
+  return t < 0.5
+    ? lerpHex(RAMP[0], RAMP[1], t * 2)
+    : lerpHex(RAMP[1], RAMP[2], (t - 0.5) * 2);
+}
+
+// Background wash for color_apply="cell" — applied by the cell wrapper, not NumberViz.
+export function cellWash(
+  value: unknown,
+  cfg: PropConfig,
+  ranges: Record<string, { min: number; max: number }>,
+  propId: string,
+): string | undefined {
+  if (cfg.color_apply !== "cell") return undefined;
+  const n = Number(value);
+  if (value === null || value === undefined || value === "" || !Number.isFinite(n)) return undefined;
+  const c = valueColor(n, cfg, ranges[propId]);
+  return c ? c + "1c" : undefined;
+}
+
 // Notion-style "Show as": render a number as plain text, a progress bar, or a
 // ring filled to value/max in the configured color. Falls back to plain text.
-export function NumberViz({ value, cfg }: { value: unknown; cfg: PropConfig }) {
+export function NumberViz(
+  { value, cfg, propId }: { value: unknown; cfg: PropConfig; propId?: string },
+) {
+  const ranges = useContext(ColumnRanges);
   const label = fmtNumber(value, cfg);
   const has = value !== null && value !== undefined && value !== "" &&
     !Number.isNaN(Number(value));
   const showAs = cfg.show_as ?? "number";
+  const vColor = has
+    ? valueColor(Number(value), cfg, propId ? ranges[propId] : undefined)
+    : null;
   if (showAs === "number" || !has) {
+    if (!has) {
+      return <>{label || <span className="text-ink-muted/40">&nbsp;</span>}</>;
+    }
+    const apply = cfg.color_apply ?? "none";
+    const bare = fmtBare(value, cfg);
+    const unit = cfg.unit
+      ? <span className="ml-1 text-[10.5px] text-ink-muted">{cfg.unit}</span>
+      : null;
+    if (apply === "pill" && vColor) {
+      return (
+        <span
+          className="inline-block rounded-full px-2 text-[11px] leading-[1.6]"
+          style={{ color: vColor, background: vColor + "1f" }}
+        >
+          {label}
+        </span>
+      );
+    }
+    if (apply === "dot" && vColor) {
+      return (
+        <>
+          <span
+            className="mr-1.5 inline-block h-[7px] w-[7px] rounded-full align-[0.5px]"
+            style={{ background: vColor }}
+          />
+          {bare}
+          {unit}
+        </>
+      );
+    }
+    if (apply === "text" && vColor) {
+      return (
+        <>
+          <span style={{ color: vColor }}>{bare}</span>
+          {cfg.unit
+            ? (
+              <span className="ml-1 text-[10.5px]" style={{ color: vColor + "99" }}>
+                {cfg.unit}
+              </span>
+            )
+            : null}
+        </>
+      );
+    }
+    if (unit) return <>{bare}{unit}</>;
     return <>{label || <span className="text-ink-muted/40">&nbsp;</span>}</>;
   }
   const max = cfg.max && cfg.max > 0 ? cfg.max : 100;
   const frac = Math.max(0, Math.min(1, Number(value) / max));
-  const color = cfg.color || "var(--color-copper)";
+  const color = vColor || "var(--color-copper)";
   const withValue = cfg.show_value !== false;
   if (showAs === "bar") {
     return (
@@ -442,9 +577,88 @@ export function IconPicker(
   );
 }
 
-function TextCell(
-  { value, mono, commit, panel }: {
+// Full-text modal for long text cells: markdown view, click to edit, Escape/✕ to close.
+function TextModal(
+  { value, title, mono, commit, onClose }: {
     value: string;
+    title?: string;
+    mono?: boolean;
+    commit: (v: unknown) => void;
+    onClose: () => void;
+  },
+) {
+  const [v, setV] = useState(value);
+  const [editing, setEditing] = useState(false);
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopImmediatePropagation();
+      onClose();
+    };
+    document.addEventListener("keydown", h, true);
+    return () => document.removeEventListener("keydown", h, true);
+  }, [onClose]);
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-start justify-center bg-black/45 pt-[10vh]"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[76vh] w-[640px] max-w-[92vw] flex-col rounded-xl border border-overlay-border bg-panel-modal shadow-2xl shadow-black/50"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-2 border-b border-line-soft px-4 py-2">
+          <span className="min-w-0 flex-1 truncate text-[11.5px] font-medium text-ink-soft">
+            {title}
+          </span>
+          <span className="text-[10.5px] text-ink-muted/70">
+            {editing ? "click outside the text to save" : "click text to edit"}
+          </span>
+          <button
+            type="button"
+            className="rounded px-1.5 text-[13px] leading-none text-ink-muted hover:bg-panel hover:text-ink"
+            onClick={onClose}
+          >
+            ✕
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          {editing
+            ? (
+              <textarea
+                autoFocus
+                className={`field-sizing-content w-full resize-none whitespace-pre-wrap break-words rounded-md border border-chipline bg-panel px-2 py-1.5 text-xs leading-relaxed text-ink outline-none ${
+                  mono ? "font-mono text-[11px]" : ""
+                }`}
+                rows={4}
+                value={v}
+                onChange={(e) => setV(e.target.value)}
+                onBlur={() => {
+                  setEditing(false);
+                  if (v !== value) commit(v || null);
+                }}
+              />
+            )
+            : (
+              <div
+                className="cursor-text text-xs leading-relaxed text-ink"
+                onClick={() => setEditing(true)}
+              >
+                {v
+                  ? <Markdown text={v} />
+                  : <span className="text-ink-muted/40">Empty</span>}
+              </div>
+            )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TextCell(
+  { value, title, mono, commit, panel }: {
+    value: string;
+    title?: string;
     mono?: boolean;
     commit: (v: unknown) => void;
     panel?: boolean;
@@ -452,6 +666,7 @@ function TextCell(
 ) {
   const [v, setV] = useState(value);
   const [editing, setEditing] = useState(false);
+  const [modal, setModal] = useState(false);
   useEffect(() => setV(value), [value]);
   // panel (row detail): render Markdown, click to edit into a growing textarea.
   // table: a single-line truncating input.
@@ -486,24 +701,47 @@ function TextCell(
     );
   }
   return (
-    <input
-      className={`${cellInput} ${mono ? "font-mono text-[11px]" : ""}`}
-      value={v}
-      onChange={(e) => setV(e.target.value)}
-      onBlur={() => v !== value && commit(v || null)}
-      onKeyDown={(e) =>
-        e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-    />
+    <div className="group flex items-center">
+      <input
+        className={`${cellInput} ${mono ? "font-mono text-[11px]" : ""}`}
+        value={v}
+        onChange={(e) => setV(e.target.value)}
+        onBlur={() => v !== value && commit(v || null)}
+        onKeyDown={(e) =>
+          e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+      />
+      {value && (
+        <button
+          type="button"
+          className="px-1 text-[11px] text-ink-muted opacity-0 transition-opacity hover:text-copper group-hover:opacity-100"
+          title="open full text"
+          onClick={() => setModal(true)}
+        >
+          ⤢
+        </button>
+      )}
+      {modal && (
+        <TextModal
+          value={value}
+          title={title}
+          mono={mono}
+          commit={commit}
+          onClose={() => setModal(false)}
+        />
+      )}
+    </div>
   );
 }
 
 function NumberCell(
-  { value, cfg, commit }: {
+  { value, cfg, propId, commit }: {
     value: unknown;
     cfg: PropConfig;
+    propId: string;
     commit: (v: unknown) => void;
   },
 ) {
+  const ranges = useContext(ColumnRanges);
   const shown = value === null || value === undefined ? "" : String(value);
   const [v, setV] = useState(shown);
   const [editing, setEditing] = useState(false);
@@ -516,9 +754,10 @@ function NumberCell(
         className={`${cellInput} tabular-nums ${
           viz ? "text-left" : "text-right"
         }`}
+        style={{ background: cellWash(value, cfg, ranges, propId) }}
         onClick={() => setEditing(true)}
       >
-        <NumberViz value={value} cfg={cfg} />
+        <NumberViz value={value} cfg={cfg} propId={propId} />
       </button>
     );
   }
@@ -804,13 +1043,15 @@ function RelationCell(
 }
 
 export function DerivedCell(
-  { value, cfg, kind, panel }: {
+  { value, cfg, kind, propId, panel }: {
     value: Derived;
     cfg: PropConfig;
     kind: "formula" | "rollup";
+    propId?: string;
     panel?: boolean;
   },
 ) {
+  const ranges = useContext(ColumnRanges);
   if (value !== null && typeof value === "object" && "error" in value) {
     return (
       <span
@@ -828,9 +1069,14 @@ export function DerivedCell(
       className={`block px-1.5 py-1 text-xs tabular-nums text-ink-soft ${
         isNum && !viz ? "text-right" : ""
       } ${panel ? "whitespace-pre-wrap break-words" : "truncate"}`}
+      style={propId
+        ? { background: cellWash(value, cfg, ranges, propId) }
+        : undefined}
       title={kind === "formula" ? cfg.expr : undefined}
     >
-      {isNum ? <NumberViz value={value} cfg={cfg} /> : String(value ?? "")}
+      {isNum
+        ? <NumberViz value={value} cfg={cfg} propId={propId} />
+        : String(value ?? "")}
     </span>
   );
 }
@@ -845,6 +1091,7 @@ export function Cell(
     panel?: boolean; // row-detail panel: text wraps to full multiline instead of truncating
   },
 ) {
+  const allProps = useContext(TableProps);
   const v = row.vals[prop.id];
   const commit = (value: unknown) => onPatch(prop.id, value);
   switch (prop.type) {
@@ -853,12 +1100,22 @@ export function Cell(
       return (
         <TextCell
           value={typeof v === "string" ? v : ""}
+          title={prop.name}
           commit={commit}
           panel={panel}
         />
       );
-    case "number":
-      return <NumberCell value={v ?? null} cfg={prop.config} commit={commit} />;
+    case "number": {
+      const unit = rowUnit(prop.config, row, allProps);
+      return (
+        <NumberCell
+          value={v ?? null}
+          cfg={unit ? { ...prop.config, unit } : prop.config}
+          propId={prop.id}
+          commit={commit}
+        />
+      );
+    }
     case "checkbox":
       return <CheckboxCell value={v} commit={commit} />;
     case "date":
@@ -894,6 +1151,7 @@ export function Cell(
           value={row.derived[prop.id] ?? null}
           cfg={prop.config}
           kind={prop.type}
+          propId={prop.id}
           panel={panel}
         />
       );
