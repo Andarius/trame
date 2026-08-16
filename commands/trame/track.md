@@ -8,13 +8,13 @@ description: Log or update the current Claude Code session in Trame (the local s
 - Working dir: !`pwd`
 - Git branch: !`git branch --show-current 2>/dev/null || echo ""`
 - Git remote: !`git remote get-url origin 2>/dev/null || echo ""`
-- Trame instance: !`cat ~/.local/share/session-tracker/port.json 2>/dev/null || echo "(app not running — writes will queue to the outbox)"`
+- Trame instance: !`cat ~/.local/share/trame/port.json 2>/dev/null || echo "(app not running — writes will queue to the outbox)"`
 - Known clients: !`echo "${TRACKER_CLIENTS:-}"`
 - Argument: `$ARGUMENTS`
 
 ## What this does
 
-Records the current session as a card in **Trame** (`~/Projects/session-tracker`). The writer
+Records the current session as a card in **Trame** (`~/Projects/trame`). The writer
 POSTs to the running app (upserts by repo+branch among open sessions, resolves client/objective by
 name, logs the summary as a worklog event); if the app is closed it queues to the offline outbox.
 The writer also attaches the Claude session UUID (recorded per-cwd by the UserPromptSubmit hook
@@ -35,7 +35,7 @@ use that name as the client; otherwise **Side-projects**. (Configure the list vi
 
 ## Steps for `list`
 
-1. Read the port from `~/.local/share/session-tracker/port.json`, then `curl -s http://127.0.0.1:<port>/api/board`.
+1. Read the port from `~/.local/share/trame/port.json`, then `curl -s http://127.0.0.1:<port>/api/board`.
 2. Print open (non-done) sessions as a compact table — **Title · Status · Client · Objective · Next step** — grouped by objective. Do not write anything.
 
 ## Steps for tracking (all other actions)

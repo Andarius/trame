@@ -17,7 +17,7 @@ Interpret an optional first argument as the action:
 
 - Empty or `log`: status `active`.
 - `paused`, `blocked`, or `done`: use that status; treat the remaining text as a note.
-- `list`: read the port from `~/.local/share/session-tracker/port.json`, GET
+- `list`: read the port from `~/.local/share/trame/port.json`, GET
   `/api/board`, and print open sessions grouped by story. Do not write.
 
 For tracking actions:

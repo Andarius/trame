@@ -1,4 +1,4 @@
-# session-tracker
+# trame
 
 A **local-first** Claude Code and Codex session tracker. Each session ladders up to a **story** (grouped
 under a **project**); the board is **status columns × swimlanes** — the view no off-the-shelf
@@ -112,7 +112,7 @@ Mint a device token on the hub, then point the app at the API:
 ```bash
 ssh <hub> "docker exec tracker-api deno run -A --config /srv/hub/api/deno.json /srv/hub/api/main.ts mint <node-id>"
 ```
-Add to `~/.local/share/session-tracker/settings.json` (chmod 600):
+Add to `~/.local/share/trame/settings.json` (chmod 600):
 ```json
 { "syncViaApi": true, "hubApi": "https://192.168.1.x:8443", "hubApiToken": "<minted token>" }
 ```
@@ -170,13 +170,13 @@ picks it up automatically when you ask to save a document, note, or plan as a Tr
 
 For the card's **Resume** button to work, the writer needs the Claude session UUID — slash
 commands can't see their own session id, so a `UserPromptSubmit` hook records it per-cwd into
-`~/.local/share/session-tracker/claude-sessions.json`. Register it in `~/.claude/settings.json`
+`~/.local/share/trame/claude-sessions.json`. Register it in `~/.claude/settings.json`
 (per machine):
 ```json
 "hooks": {
   "UserPromptSubmit": [{ "matcher": "", "hooks": [{
     "type": "command",
-    "command": "deno run -A /path/to/session-tracker/track/claude-hook.ts",
+    "command": "deno run -A /path/to/trame/track/claude-hook.ts",
     "timeout": 5
   }] }]
 }
