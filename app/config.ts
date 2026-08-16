@@ -16,21 +16,21 @@ export const APP_ROOT = Deno.env.get("TRACKER_APP_ROOT") ?? Deno.cwd();
 export const REMOTE_PG = Deno.env.get("TRACKER_REMOTE_PG") ?? "";
 
 // Client TLS material for the hub (ca.crt, client.crt, client.key) — fetched by `just db-cert`.
-export const TLS_DIR = Deno.env.get("TRACKER_TLS_DIR") ?? `${dataHome}/session-tracker/certs`;
+export const TLS_DIR = Deno.env.get("TRACKER_TLS_DIR") ?? `${dataHome}/trame/certs`;
 
-export const DATA_DIR = Deno.env.get("TRACKER_DATA_DIR") ?? `${dataHome}/session-tracker/pglite`;
-export const OUTBOX = Deno.env.get("TRACKER_OUTBOX") ?? `${dataHome}/session-tracker/outbox.jsonl`;
+export const DATA_DIR = Deno.env.get("TRACKER_DATA_DIR") ?? `${dataHome}/trame/pglite`;
+export const OUTBOX = Deno.env.get("TRACKER_OUTBOX") ?? `${dataHome}/trame/outbox.jsonl`;
 // Written by the app on startup so the CLI/MCP can find the (possibly random) port.
-export const PORT_FILE = Deno.env.get("TRACKER_PORT_FILE") ?? `${dataHome}/session-tracker/port.json`;
+export const PORT_FILE = Deno.env.get("TRACKER_PORT_FILE") ?? `${dataHome}/trame/port.json`;
 // cwd → current Claude session map, written by the UserPromptSubmit hook (track/claude-hook.ts)
 // and read by track/track.ts to attach the Claude session UUID to tracked cards.
-export const CLAUDE_MAP = Deno.env.get("TRACKER_CLAUDE_MAP") ?? `${dataHome}/session-tracker/claude-sessions.json`;
+export const CLAUDE_MAP = Deno.env.get("TRACKER_CLAUDE_MAP") ?? `${dataHome}/trame/claude-sessions.json`;
 // Persisted window geometry (desktop mode).
-export const WINDOW_FILE = `${dataHome}/session-tracker/window.json`;
+export const WINDOW_FILE = `${dataHome}/trame/window.json`;
 // App settings editable from the UI (report folders, …). Device-local, not synced.
 // Overridable for test isolation.
 export const SETTINGS_FILE = Deno.env.get("TRACKER_SETTINGS_FILE") ??
-  `${dataHome}/session-tracker/settings.json`;
+  `${dataHome}/trame/settings.json`;
 export const HOME_DIR = home;
 // Claude Code transcript store (one dir per project cwd), overridable for test fixtures.
 export const CLAUDE_DIR = Deno.env.get("TRACKER_CLAUDE_DIR") ?? `${home}/.claude/projects`;
@@ -66,7 +66,7 @@ export const DEPLOYMENTS_POLL_ACTIVE_MS = Number(
 export const DEPLOYMENTS_FIXTURE = Deno.env.get("TRACKER_DEPLOYMENTS_FIXTURE") ?? "";
 // Pasted-image storage: files under ASSETS_DIR by default; an S3-compatible bucket
 // when TRACKER_S3_ENDPOINT + TRACKER_S3_BUCKET (+ keys) are set.
-export const ASSETS_DIR = Deno.env.get("TRACKER_ASSETS_DIR") ?? `${dataHome}/session-tracker/assets`;
+export const ASSETS_DIR = Deno.env.get("TRACKER_ASSETS_DIR") ?? `${dataHome}/trame/assets`;
 export const S3_ENDPOINT = Deno.env.get("TRACKER_S3_ENDPOINT") ?? ""; // e.g. https://s3.fr-par.scw.cloud
 export const S3_BUCKET = Deno.env.get("TRACKER_S3_BUCKET") ?? "";
 export const S3_REGION = Deno.env.get("TRACKER_S3_REGION") ?? "";
