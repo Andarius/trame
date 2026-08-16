@@ -10,7 +10,7 @@ import tailwindcss from "@tailwindcss/vite";
 async function apiTarget(): Promise<string> {
   try {
     const dataHome = process.env.XDG_DATA_HOME ?? `${homedir()}/.local/share`;
-    const { port } = JSON.parse(readFileSync(`${dataHome}/session-tracker/port.json`, "utf8"));
+    const { port } = JSON.parse(readFileSync(`${dataHome}/trame/port.json`, "utf8"));
     const alive = await fetch(`http://127.0.0.1:${port}/api/status`, {
       signal: AbortSignal.timeout(800),
     }).then((r) => r.ok).catch(() => false);

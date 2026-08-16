@@ -12,7 +12,7 @@ set -euo pipefail
 NODE="${1:-${TRACKER_NODE_ID:-$(hostname)}}"
 HOST="${2:-${TRACKER_HUB_HOST:-hub}}"
 DIR="Apps/tracker"
-DEST="${TRACKER_TLS_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/session-tracker/certs}"
+DEST="${TRACKER_TLS_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/trame/certs}"
 
 ssh "$HOST" "cd ~/$DIR && ./gen-certs.sh client '$NODE'"
 mkdir -p "$DEST"
