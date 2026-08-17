@@ -1924,7 +1924,7 @@ export function Page(
       onKeyDown={onPageKeyDown}
       onMouseDown={() => setPageSelected(false)}
     >
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="@container min-h-0 flex-1 overflow-y-auto">
         <div
           className={`mx-auto flex max-w-[820px] flex-col gap-4 px-8 py-7 ${
             pageSelected
@@ -2166,7 +2166,12 @@ export function Page(
           )}
 
           {page.databases.map((d) => (
-            <div key={d.id} className="flex flex-col gap-1">
+            // breakout: attached databases use the pane's width (100cqw minus the
+            // px-8 gutters), not the 820px text column
+            <div
+              key={d.id}
+              className="relative left-1/2 flex w-[min(1400px,100cqw_-_4rem)] -translate-x-1/2 flex-col gap-1"
+            >
               <div className="flex items-center gap-1.5 text-[12.5px] font-semibold text-ink">
                 <EntityIcon
                   icon={d.icon}

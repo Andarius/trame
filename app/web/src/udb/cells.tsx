@@ -656,12 +656,13 @@ function TextModal(
 }
 
 function TextCell(
-  { value, title, mono, commit, panel }: {
+  { value, title, mono, commit, panel, expand = true }: {
     value: string;
     title?: string;
     mono?: boolean;
     commit: (v: unknown) => void;
     panel?: boolean;
+    expand?: boolean; // false on title cells — "open row" already sits there
   },
 ) {
   const [v, setV] = useState(value);
@@ -710,10 +711,10 @@ function TextCell(
         onKeyDown={(e) =>
           e.key === "Enter" && (e.target as HTMLInputElement).blur()}
       />
-      {value && (
+      {value && expand && (
         <button
           type="button"
-          className="px-1 text-[11px] text-ink-muted opacity-0 transition-opacity hover:text-copper group-hover:opacity-100"
+          className="mr-1 rounded border border-chipline/60 bg-panel px-1 py-0.5 text-[9px] text-ink-muted opacity-0 transition-opacity hover:text-copper group-hover:opacity-100"
           title="open full text"
           onClick={() => setModal(true)}
         >
@@ -847,7 +848,7 @@ function UrlCell(
       {value && (
         <button
           type="button"
-          className="px-1 text-[11px] text-ink-muted opacity-0 transition-opacity hover:text-copper group-hover:opacity-100"
+          className="mr-1 rounded border border-chipline/60 bg-panel px-1 py-0.5 text-[9px] text-ink-muted opacity-0 transition-opacity hover:text-copper group-hover:opacity-100"
           title="open in browser"
           onClick={() => openInBrowser(value)}
         >
@@ -1103,6 +1104,7 @@ export function Cell(
           title={prop.name}
           commit={commit}
           panel={panel}
+          expand={prop.type !== "title"}
         />
       );
     case "number": {
