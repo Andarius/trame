@@ -3,7 +3,7 @@
 // untouched) and persisted per-database in localStorage — see load/saveView. AND-combined filters.
 import { useState } from "react";
 import type { UdbProp, UdbRow } from "../api";
-import { Popover, Select } from "../ui";
+import { EntityIcon, Popover, Select } from "../ui";
 import { TYPE_GLYPH } from "./PropertyEditor";
 
 export type Sort = { propId: string; dir: 1 | -1 };
@@ -34,6 +34,7 @@ export type ViewConfig = {
   groupBy?: string | null;
   aggs?: Record<string, Agg | null>;
   summary?: boolean;
+  hidden?: string[]; // property ids not rendered in this tab's grid
 };
 
 // operator menus per property category, plus which ops need a value input
@@ -100,7 +101,7 @@ const textOf = (p: UdbProp, r: UdbRow): string =>
   p.type === "formula" || p.type === "rollup"
     ? String(r.derived[p.id] ?? "")
     : String(r.vals[p.id] ?? "");
-const numOf = (p: UdbProp, r: UdbRow): number | null => {
+export const numOf = (p: UdbProp, r: UdbRow): number | null => {
   const raw = p.type === "formula" || p.type === "rollup"
     ? r.derived[p.id]
     : r.vals[p.id];
@@ -354,7 +355,7 @@ export type ViewTabs = { tabs: ViewTab[]; active: string };
 
 const emptyConfig = (): ViewConfig => ({ sorts: [], filters: [] });
 const isEmptyConfig = (c: ViewConfig) =>
-  !c.sorts.length && !c.filters.length && !c.groupBy;
+  !c.sorts.length && !c.filters.length && !c.groupBy && !c.hidden?.length;
 export const newTab = (
   name: string,
   config: ViewConfig = emptyConfig(),
@@ -635,11 +636,21 @@ export function ViewToolbar(
     onChange: (v: ViewConfig) => void;
   },
 ) {
-  const [open, setOpen] = useState<"sort" | "filter" | "group" | null>(null);
+  const [open, setOpen] = useState<
+    "sort" | "filter" | "group" | "columns" | null
+  >(null);
   const sortable = props;
   const byId = new Map(props.map((p) => [p.id, p]));
   const groupProp = view.groupBy ? byId.get(view.groupBy) : undefined;
   const aggProps = props.filter((p) => AGGREGATABLE.has(p.type));
+  const hidden = new Set(view.hidden ?? []);
+  const hideable = props.filter((p) => p.type !== "title"); // title stays visible
+  const toggleHidden = (id: string) => {
+    const next = new Set(hidden);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    onChange({ ...view, hidden: next.size ? [...next] : undefined });
+  };
 
   const addSort = () => {
     const used = new Set(view.sorts.map((s) => s.propId));
@@ -965,6 +976,59 @@ export function ViewToolbar(
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+          </Popover>
+        )}
+      </div>
+
+      <div className="relative">
+        <button
+          type="button"
+          className={chip(hidden.size > 0)}
+          onClick={() => setOpen((o) => (o === "columns" ? null : "columns"))}
+        >
+          ⊟ Columns{hidden.size > 0 && ` · ${hidden.size} hidden`}
+        </button>
+        {open === "columns" && (
+          <Popover
+            onClose={() => setOpen(null)}
+            className="w-[240px] max-w-[92vw] p-2"
+          >
+            <div className="flex flex-col gap-0.5">
+              {hideable.map((p) => (
+                <label
+                  key={p.id}
+                  className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-[11px] text-ink-soft hover:bg-panel/70"
+                >
+                  <input
+                    type="checkbox"
+                    checked={!hidden.has(p.id)}
+                    onChange={() => toggleHidden(p.id)}
+                  />
+                  <span className="inline-flex w-4 shrink-0 justify-center text-[10px] opacity-60">
+                    {p.config.icon
+                      ? <EntityIcon icon={p.config.icon} className="text-[11px]" />
+                      : TYPE_GLYPH[p.type] ?? "?"}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                </label>
+              ))}
+              {hideable.length === 0 && (
+                <p className="px-1 py-1.5 text-[11px] text-ink-muted/70">
+                  Only the title column — nothing to hide.
+                </p>
+              )}
+            </div>
+            {hidden.size > 0 && (
+              <div className="mt-1.5 border-t border-line-soft pt-1.5">
+                <button
+                  type="button"
+                  className="text-[11px] text-ink-muted hover:text-copper"
+                  onClick={() => onChange({ ...view, hidden: undefined })}
+                >
+                  Show all
+                </button>
               </div>
             )}
           </Popover>
