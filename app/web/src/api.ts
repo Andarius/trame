@@ -300,13 +300,23 @@ export type PropType =
   | "rollup";
 
 export type SelectOption = { id: string; name: string; color: string };
+export type ColorRule = { lt?: number; color: string };
 export type PropConfig = {
   format?: "plain" | "euro" | "dollar" | "percent";
+  unit?: string; // free-text suffix (e.g. "s", "kg") — rendered muted after the value
+  unit_prop?: string; // per-row unit from a sibling select/text column; unit is the fallback
   precision?: number;
   icon?: string | null; // custom column icon (emoji or image data-uri); else the type glyph
   // number visualization (Notion-style "Show as"): plain number, bar, or ring
   show_as?: "number" | "bar" | "ring";
-  color?: string; // bar/ring fill color
+  color?: string; // fixed color (bar/ring fill, or value color when color_apply is set)
+  // value-dependent color: fixed single color, continuous good→bad scale, or threshold rules
+  color_mode?: "fixed" | "scale" | "rules";
+  color_apply?: "none" | "text" | "pill" | "dot" | "cell"; // where the color shows on plain numbers
+  good?: "low" | "high"; // scale direction: which end of the range is green (default low)
+  scale_min?: number; // manual scale range; unset = auto from the visible column values
+  scale_max?: number;
+  rules?: ColorRule[]; // ordered ladder: first rule with v < lt wins; lt unset = otherwise
   max?: number; // value that reads as 100% (default 100)
   show_value?: boolean; // show the numeric label next to the bar/ring (default true)
   options?: SelectOption[];
