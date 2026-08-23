@@ -6,11 +6,12 @@
 // CLI mode goes through `glab api` (it signs + refreshes OAuth itself — glab's
 // stored token can be expired even while `auth status` says logged in).
 import { type Auth, glabApi } from "./auth.ts";
-import type { PendingDeployment } from "./mod.ts";
+import type { Changelog, PendingDeployment } from "./mod.ts";
 
 type Deployment = {
   id: number;
   ref: string;
+  sha: string;
   created_at: string;
   updated_at?: string;
   status: string;
@@ -155,6 +156,7 @@ export async function gitlabPending(
       repo: project,
       environment: env,
       ref: d.ref,
+      sha: d.sha,
       title: d.deployable?.name || `deploy #${d.id}`,
       requester: d.user?.username ?? null,
       waitingSince: since,
@@ -168,4 +170,57 @@ export async function gitlabPending(
     });
   }
   return out;
+}
+
+// What's in this deploy: commits between the environment's last successful
+// deployment and the pending sha, via /repository/compare.
+export async function gitlabChangelog(
+  project: string,
+  baseUrl: string,
+  auth: Auth,
+  environment: string,
+  sha: string,
+): Promise<Changelog> {
+  const proj = encodeURIComponent(project);
+  const prev = await gitlabGet<{ sha: string }[]>(
+    baseUrl,
+    auth,
+    `projects/${proj}/deployments?environment=${
+      encodeURIComponent(environment)
+    }&status=success&order_by=created_at&sort=desc&per_page=1`,
+  );
+  const base = prev[0]?.sha;
+  if (!base) {
+    return {
+      ok: false,
+      error: "no previous successful deployment to compare against",
+    };
+  }
+  const cmp = await gitlabGet<{
+    commits: {
+      id: string;
+      short_id: string;
+      title: string;
+      author_name: string | null;
+      created_at: string;
+    }[];
+  }>(
+    baseUrl,
+    auth,
+    `projects/${proj}/repository/compare?from=${base}&to=${
+      encodeURIComponent(sha)
+    }`,
+  );
+  return {
+    ok: true,
+    baseline: base.slice(0, 8),
+    compareUrl: `${baseUrl}/${project}/-/compare/${base}...${sha}`,
+    commits: cmp.commits.map((c) => ({
+      sha: c.short_id,
+      title: c.title,
+      author: c.author_name,
+      date: c.created_at,
+      url: `${baseUrl}/${project}/-/commit/${c.id}`,
+    })).reverse(), // compare is oldest-first; show newest first
+  };
 }

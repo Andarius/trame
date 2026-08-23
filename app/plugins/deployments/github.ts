@@ -1,12 +1,13 @@
 // GitHub: workflow runs paused on a protected environment. Two-step (N+1):
 // runs?status=waiting, then pending_deployments per run — fine authenticated
 // (5000 req/h), so callers must not invoke this without a token.
-import type { PendingDeployment } from "./mod.ts";
+import type { Changelog, PendingDeployment } from "./mod.ts";
 
 type Run = {
   id: number;
   display_title: string;
   head_branch: string;
+  head_sha: string;
   html_url: string;
   updated_at: string;
   actor: { login: string } | null;
@@ -54,6 +55,7 @@ export async function githubPending(
         repo,
         environment: p.environment.name,
         ref: run.head_branch,
+        sha: run.head_sha,
         title: run.display_title,
         requester: run.actor?.login ?? null,
         waitingSince: run.updated_at, // pending_deployments carries no timestamp
@@ -69,4 +71,53 @@ export async function githubPending(
     }
   }
   return out;
+}
+
+// What's in this deploy: commits between the environment's last deployment and
+// the pending head. Baseline = newest deployment record with a different sha
+// (the pending run's own record is already there, in "waiting"); statuses are
+// not checked — that would be another N+1 for a marginal edge case.
+export async function githubChangelog(
+  repo: string,
+  environment: string,
+  sha: string,
+  token: string,
+): Promise<Changelog> {
+  const deps = await gh(
+    `/repos/${repo}/deployments?environment=${
+      encodeURIComponent(environment)
+    }&per_page=20`,
+    token,
+  ) as { sha: string }[];
+  const base = deps.find((d) => d.sha !== sha)?.sha;
+  if (!base) {
+    return { ok: false, error: "no previous deployment to compare against" };
+  }
+  const cmp = await gh(
+    `/repos/${repo}/compare/${base}...${sha}?per_page=100`,
+    token,
+  ) as {
+    html_url: string;
+    commits: {
+      sha: string;
+      html_url: string;
+      commit: {
+        message: string;
+        author: { name?: string; date?: string } | null;
+      };
+      author: { login: string } | null;
+    }[];
+  };
+  return {
+    ok: true,
+    baseline: base.slice(0, 7),
+    compareUrl: cmp.html_url,
+    commits: cmp.commits.map((c) => ({
+      sha: c.sha.slice(0, 7),
+      title: c.commit.message.split("\n")[0],
+      author: c.author?.login ?? c.commit.author?.name ?? null,
+      date: c.commit.author?.date ?? null,
+      url: c.html_url,
+    })).reverse(), // newest first, like the deployments list
+  };
 }
