@@ -106,6 +106,7 @@ export const ENTITIES = [
       "repo_path",
       "branch",
       "next_step",
+      "specs",
       "pr_url",
       "summary",
       "claude_id",

@@ -299,6 +299,7 @@ create index if not exists udb_links_to on udb_links (prop_id, to_row);
 -- but stores either a Claude or Codex transcript UUID; agent identifies the provider.
 alter table sessions add column if not exists claude_id uuid;
 alter table sessions add column if not exists agent text;
+alter table sessions add column if not exists specs text;
 
 alter table sessions add column if not exists page_id uuid references pages (id);
 alter table reports add column if not exists page_id uuid references pages (id);
@@ -459,6 +460,7 @@ comment on table sessions is 'Coding-agent work sessions — the kanban cards. U
 comment on column sessions.status is 'active | paused | blocked | done — the board columns.';
 comment on column sessions.page_id is 'The anchor: the page this session ladders up to. Attaching promotes a plain page to kind=''story''. Story/project are derived by walking the tree up from it.';
 comment on column sessions.next_step is 'One imperative line — what to do next.';
+comment on column sessions.specs is 'Human-written spec for the session (markdown).';
 comment on column sessions.claude_id is 'LEGACY NAME: Claude Code or Codex transcript UUID. Imported cards also carry it as their id.';
 comment on column sessions.agent is 'Transcript provider: claude or codex. Null on older/manual cards; resume detects legacy Claude imports.';
 comment on column sessions.summary is 'Last "what happened" blurb; also written to session_events as the worklog.';
