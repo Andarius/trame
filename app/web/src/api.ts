@@ -18,6 +18,7 @@ export type Session = {
   repo_path: string | null;
   branch: string | null;
   next_step: string | null;
+  specs: string | null;
   pr_url: string | null;
   summary: string;
   last_touched: string;

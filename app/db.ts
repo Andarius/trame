@@ -200,16 +200,17 @@ export async function upsertSession(s: Record<string, unknown>): Promise<string>
   // Transcript linkage: null never clobbers (UI edits omit it); a fresh value wins.
   await pg.query(
     `insert into sessions
-       (id,title,status,client_id,page_id,repo_path,branch,next_step,pr_url,summary,claude_id,agent,last_touched,origin,updated_at)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$12,$13,now(),$11,now())
+       (id,title,status,client_id,page_id,repo_path,branch,next_step,pr_url,summary,claude_id,agent,specs,last_touched,origin,updated_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$12,$13,$14,now(),$11,now())
      on conflict (id) do update set
        title=$2,status=$3,client_id=$4,page_id=$5,repo_path=$6,branch=$7,
        next_step=$8,pr_url=$9,summary=$10,claude_id=coalesce($12,sessions.claude_id),
        agent=coalesce($13,sessions.agent),
+       specs=coalesce($14,sessions.specs),
        last_touched=now(),origin=$11,updated_at=now()`,
     [id, s.title, await resolveStatusKey(pg, s.status), s.client_id ?? null, s.page_id ?? null,
       s.repo_path ?? null, s.branch ?? null, s.next_step ?? null, s.pr_url ?? null, s.summary ?? "", NODE_ID,
-      s.claude_id ?? null, s.agent ?? null],
+      s.claude_id ?? null, s.agent ?? null, typeof s.specs === "string" ? s.specs : null],
   );
   return id;
 }

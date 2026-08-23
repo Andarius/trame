@@ -55,7 +55,13 @@ export function clientColor(name: string, color?: string | null): string {
 }
 
 export function ClientChip(
-  { name, color, onClick }: { name: string; color?: string | null; onClick?: () => void },
+  { name, color, onClick, title, active }: {
+    name: string;
+    color?: string | null;
+    onClick?: () => void;
+    title?: string;
+    active?: boolean;
+  },
 ) {
   const c = clientColor(name, color);
   const cls = "rounded px-1.5 py-0.5 text-[10px] font-medium leading-none";
@@ -64,9 +70,11 @@ export function ClientChip(
     return (
       <button
         type="button"
-        className={`${cls} hover:brightness-125`}
+        className={`${cls} hover:brightness-125 ${
+          active ? "ring-1 ring-copper/70" : ""
+        }`}
         style={style}
-        title={`Open ${name}`}
+        title={title ?? `Open ${name}`}
         onClick={(e) => {
           e.stopPropagation();
           onClick();
@@ -150,12 +158,13 @@ export function Popover(
 // Custom <select> replacement — native selects render with the platform theme (a light
 // GTK dropdown in the desktop webview) and can't be styled.
 export function Select(
-  { value, options, onChange, placeholder, className }: {
+  { value, options, onChange, placeholder, className, triggerStyle }: {
     value: string;
     options: { value: string; label: string; dot?: string }[]; // dot = color swatch (project chips)
     onChange: (v: string) => void;
     placeholder?: string;
     className?: string; // trigger styling; defaults to the app's field look
+    triggerStyle?: CSSProperties; // dynamic colors (e.g. status pill tint)
   },
 ) {
   const [open, setOpen] = useState(false);
@@ -170,6 +179,7 @@ export function Select(
           className ??
           "rounded-md border border-chipline bg-transparent px-2 py-1.5 text-xs text-ink outline-none focus:border-copper/60"
         }`}
+        style={triggerStyle}
         onClick={() => setOpen(true)}
       >
         {dot(current?.dot)}
