@@ -124,6 +124,7 @@ export const ENTITIES = [
       "session_id",
       "at",
       "summary",
+      "agent",
       "kind",
       "origin",
       "updated_at",

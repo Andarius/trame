@@ -211,6 +211,7 @@ create table if not exists session_events (
   updated_at timestamptz not null default now(),
   deleted boolean not null default false
 );
+alter table session_events add column if not exists agent text;  -- claude | codex; null = human/unknown
 
 -- Pasted images; page blocks reference them as ![...](/api/assets/<id>). Metadata
 -- only — bytes live on disk (ASSETS_DIR) or in S3 (TRACKER_S3_*). Not in the sync
