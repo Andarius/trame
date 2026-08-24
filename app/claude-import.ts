@@ -365,7 +365,7 @@ export async function importClaudeSessions(
       agent_id: item.claudeId,
     });
     const label = item.source === "codex" ? "Codex" : "Claude Code";
-    await addEvent(item.claudeId, `Imported from ${label} · ${NODE_ID}`, "import");
+    await addEvent(item.claudeId, `Imported from ${label} · ${NODE_ID}`, "import", item.source ?? "claude");
     // backdate recency to the transcript's last activity so the board keeps real order
     // (updated_at/origin stay fresh — the LWW sync still propagates the row)
     await pg.query(`update sessions set last_touched=$2 where id=$1`, [item.claudeId, item.lastActive]);

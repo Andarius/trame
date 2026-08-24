@@ -335,16 +335,16 @@ export async function deleteSession(id: string): Promise<void> {
 export async function listEvents(sessionId: string) {
   const pg = await db();
   return (await pg.query(
-    `select id, at, summary, kind from session_events where session_id=$1 and not deleted order by at desc`,
+    `select id, at, summary, kind, agent from session_events where session_id=$1 and not deleted order by at desc`,
     [sessionId],
   )).rows;
 }
 
-export async function addEvent(sessionId: string, summary: string, kind = "log"): Promise<void> {
+export async function addEvent(sessionId: string, summary: string, kind = "log", agent: string | null = null): Promise<void> {
   const pg = await db();
   await pg.query(
-    `insert into session_events (session_id, summary, kind, origin) values ($1,$2,$3,$4)`,
-    [sessionId, summary, kind, NODE_ID],
+    `insert into session_events (session_id, summary, kind, origin, agent) values ($1,$2,$3,$4,$5)`,
+    [sessionId, summary, kind, NODE_ID, agent],
   );
   await pg.query(`update sessions set last_touched=now(), origin=$2, updated_at=now() where id=$1`, [sessionId, NODE_ID]);
 }

@@ -70,6 +70,7 @@ export type Report = ReportMeta & { html: string };
 export type SessionEvent = {
   id: string;
   at: string;
+  agent?: string | null;
   summary: string | null;
   kind: string;
 };
