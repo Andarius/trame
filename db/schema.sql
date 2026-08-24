@@ -212,7 +212,6 @@ create table if not exists session_events (
   deleted boolean not null default false
 );
 alter table session_events add column if not exists agent text;  -- claude | codex; null = human/unknown
-
 -- Pasted images; page blocks reference them as ![...](/api/assets/<id>). Metadata
 -- only — bytes live on disk (ASSETS_DIR) or in S3 (TRACKER_S3_*). Not in the sync
 -- table set, so references don't resolve on other nodes unless both point at S3.
@@ -301,6 +300,12 @@ create index if not exists udb_links_to on udb_links (prop_id, to_row);
 alter table sessions add column if not exists claude_id uuid;
 alter table sessions add column if not exists agent text;
 alter table sessions add column if not exists specs text;
+-- one-time backfill: rows that predate the agent column were all Claude-tracked.
+-- Date-bounded so rows written after the column landed are never restamped.
+update sessions set agent = 'claude'
+where agent is null and updated_at < '2026-08-25';
+update session_events set agent = 'claude'
+where agent is null and kind <> 'log' and at < '2026-08-25';
 
 alter table sessions add column if not exists page_id uuid references pages (id);
 alter table reports add column if not exists page_id uuid references pages (id);
