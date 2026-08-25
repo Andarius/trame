@@ -132,6 +132,8 @@ server.tool(
     repo_path: z.string().optional(),
     branch: z.string().optional(),
     next_step: z.string().optional(),
+    specs: z.string().optional()
+      .describe("Markdown spec shown on the session ticket; omitting it never clears the existing spec"),
     pr_url: z.string().optional(),
     summary: z.string().optional(),
   },
