@@ -582,9 +582,10 @@ export function Drawer(
     </div>
   );
 
-  // "## " headings split the spec into collapsible sections (fence-aware); the
-  // preamble above the first heading is always visible. Open state is a local
-  // per-session convenience, not synced.
+  // Explicit opt-in folding: only "## Title {{fold}}" headings (fence-aware) start
+  // a collapsible section — plain ## headings render normally, so agents writing
+  // ordinary markdown never fold things by accident. Everything above the first
+  // marked heading stays visible. Open state is a local per-session convenience.
   const specSections = (() => {
     const lines = specs.split("\n");
     const out: { heading: string | null; body: string[] }[] = [{ heading: null, body: [] }];
@@ -592,8 +593,9 @@ export function Drawer(
     for (const l of lines) {
       if (/^\s*```/.test(l)) fenced = !fenced;
       const h = !fenced && l.match(/^##\s+(.*)$/);
-      if (h) out.push({ heading: h[1], body: [] });
-      else out.at(-1)!.body.push(l);
+      if (h && /\{\{fold\}\}/i.test(h[1])) {
+        out.push({ heading: h[1].replace(/\s*\{\{fold\}\}\s*/i, " ").trim(), body: [] });
+      } else out.at(-1)!.body.push(l);
     }
     return out;
   })();
