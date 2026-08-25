@@ -582,6 +582,37 @@ export function Drawer(
     </div>
   );
 
+  // "## " headings split the spec into collapsible sections (fence-aware); the
+  // preamble above the first heading is always visible. Open state is a local
+  // per-session convenience, not synced.
+  const specSections = (() => {
+    const lines = specs.split("\n");
+    const out: { heading: string | null; body: string[] }[] = [{ heading: null, body: [] }];
+    let fenced = false;
+    for (const l of lines) {
+      if (/^\s*```/.test(l)) fenced = !fenced;
+      const h = !fenced && l.match(/^##\s+(.*)$/);
+      if (h) out.push({ heading: h[1], body: [] });
+      else out.at(-1)!.body.push(l);
+    }
+    return out;
+  })();
+  const [openSecs, setOpenSecs] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(`trame:specsOpen:${session.id}`) ?? "[]"));
+    } catch {
+      return new Set();
+    }
+  });
+  const toggleSec = (h: string) =>
+    setOpenSecs((cur) => {
+      const next = new Set(cur);
+      if (next.has(h)) next.delete(h);
+      else next.add(h);
+      localStorage.setItem(`trame:specsOpen:${session.id}`, JSON.stringify([...next]));
+      return next;
+    });
+
   const specsSection = (
     <div className="flex flex-col gap-2">
       <span className={sectionLbl}>SPECS</span>
@@ -607,11 +638,40 @@ export function Drawer(
         : specs.trim()
         ? (
           <>
-            <Markdown
-              text={specs}
-              className="text-[13px] leading-relaxed"
-              onEditItem={editSpecItem}
-            />
+            {specSections.map((sec, i) =>
+              sec.heading === null
+                ? (sec.body.join("\n").trim()
+                  ? (
+                    <Markdown
+                      key={i}
+                      text={sec.body.join("\n")}
+                      className="text-[13px] leading-relaxed"
+                      onEditItem={editSpecItem}
+                    />
+                  )
+                  : null)
+                : (
+                  <div key={i} className="overflow-hidden rounded-lg border border-line-soft">
+                    <button type="button"
+                      className="flex w-full items-center gap-2 bg-panel px-3 py-2 text-left text-[12.5px] font-medium text-ink transition-colors hover:text-copper"
+                      onClick={() => toggleSec(sec.heading!)}
+                    >
+                      <span className="text-[10px] text-ink-muted">
+                        {openSecs.has(sec.heading!) ? "▾" : "▸"}
+                      </span>
+                      {sec.heading}
+                    </button>
+                    {openSecs.has(sec.heading!) && (
+                      <div className="px-3.5 pb-3 pt-2">
+                        <Markdown
+                          text={sec.body.join("\n")}
+                          className="text-[13px] leading-relaxed"
+                          onEditItem={editSpecItem}
+                        />
+                      </div>
+                    )}
+                  </div>
+                ))}
             <div className="flex items-center gap-1.5">
               <button type="button"
                 className="rounded-md border border-dashed border-chipline px-3 py-1.5 text-[12px] text-ink-muted/70 transition-colors hover:border-copper/60 hover:text-copper"
