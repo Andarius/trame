@@ -11,7 +11,7 @@ const PNG = Buffer.from(
   "base64",
 );
 
-const TITLES = ["Todo layout e2e", "Todo drag e2e"];
+const TITLES = ["Todo layout e2e", "Todo drag e2e", "Tabbed page e2e"];
 
 test.beforeAll(async ({ request }) => {
   const pages = await (await request.get("/api/pages")).json() as {
@@ -160,4 +160,28 @@ test("dragging a heading moves its whole section; Ctrl+Z undoes it", async ({ pa
   await expect(rows.nth(2)).toContainText("Completed");
   await expect(rows.nth(4)).toContainText("Follow-ups");
   await expect(rows.nth(5)).toContainText("a reminder");
+});
+
+test("{{tab}} headings group page blocks into a tab strip", async ({ page, request }) => {
+  const r = await request.post("/api/pages", {
+    data: {
+      title: "Tabbed page e2e",
+      content: [
+        block("text", "intro line"),
+        block("heading", "Alpha {{tab}}"),
+        block("text", "- alpha content"),
+        block("heading", "Beta {{tab}}"),
+        block("text", "- beta content"),
+      ],
+    },
+  });
+  const { id } = await r.json() as { id: string };
+  await page.goto(`/?view=page&page=${id}`);
+  // preamble stays; first tab active, second hidden
+  await expect(page.getByText("intro line")).toBeVisible();
+  await expect(page.getByText("alpha content")).toBeVisible();
+  await expect(page.getByText("beta content")).not.toBeVisible();
+  await page.getByRole("button", { name: "Beta" }).click();
+  await expect(page.getByText("beta content")).toBeVisible();
+  await expect(page.getByText("alpha content")).not.toBeVisible();
 });

@@ -1013,6 +1013,8 @@ function BlockEditor(
   // clicking an image selects its block (ring) instead of opening the markdown;
   // Escape deselects, Delete/Backspace removes, any outside click clears
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // active tab per {{tab}} group, keyed by the group's first heading block id
+  const [activeTabs, setActiveTabs] = useState<Record<string, number>>({});
   useEffect(() => {
     if (!selectedId) return;
     const bidOf = (x: Block, j: number) =>
@@ -1120,9 +1122,72 @@ function BlockEditor(
     el.style.height = `${el.scrollHeight}px`;
   };
 
+  // "{{tab}}" heading blocks group the rest of the page into tabs (same dialect
+  // as the session-ticket spec): each marked heading starts a tab that runs to
+  // the next one; the first heading's row renders the strip, inactive tabs'
+  // blocks are skipped. Double-click a tab label to rename its heading.
+  const tabMeta = (() => {
+    let group: number | null = null;
+    const heads = new Map<number, { i: number; title: string }[]>();
+    const of = new Map<number, { group: number; tab: number }>();
+    blocks.forEach((b, i) => {
+      const isTab = isText(b) && b.type === "heading" && /\{\{tab\}\}/i.test(b.text);
+      if (isTab) {
+        if (group === null) {
+          group = i;
+          heads.set(i, []);
+        }
+        heads.get(group)!.push({
+          i,
+          title: (b as TextBlock).text.replace(/\s*\{\{tab\}\}\s*/i, " ").trim(),
+        });
+        of.set(i, { group, tab: heads.get(group)!.length - 1 });
+      } else if (group !== null) {
+        of.set(i, { group, tab: heads.get(group)!.length - 1 });
+      }
+    });
+    return { heads, of };
+  })();
+
   return (
     <div className="flex flex-col">
       {blocks.map((b, i) => {
+        // tab groups: strip on the first marked heading, hide inactive tabs
+        const tm = tabMeta.of.get(i);
+        if (tm) {
+          const gb = blocks[tm.group];
+          const gid = (isText(gb) && gb.id) || String(tm.group);
+          const active = activeTabs[gid] ?? 0;
+          const heads = tabMeta.heads.get(tm.group)!;
+          const isHead = heads.some((h) => h.i === i);
+          // a tab heading being renamed renders as its normal editable row
+          const bid0 = ("id" in b && b.id) || String(i);
+          const renaming = isHead && (focusIdx === i || activeId === bid0);
+          if (isHead && !renaming) {
+            if (i !== tm.group) return null;
+            return (
+              <div key={bid0} className="flex gap-1 border-b border-line pb-0 pt-2">
+                {heads.map((h, ti) => (
+                  <button
+                    key={h.i}
+                    type="button"
+                    title="double-click to rename"
+                    className={`-mb-px border-b-2 px-3 py-1.5 text-[12.5px] transition-colors ${
+                      ti === active
+                        ? "border-copper font-medium text-copper"
+                        : "border-transparent text-ink-muted hover:text-ink-soft"
+                    }`}
+                    onClick={() => setActiveTabs((m) => ({ ...m, [gid]: ti }))}
+                    onDoubleClick={() => setFocusIdx(h.i)}
+                  >
+                    {h.title || "untitled"}
+                  </button>
+                ))}
+              </div>
+            );
+          }
+          if (!isHead && tm.tab !== active) return null;
+        }
         if (b.type === "folder") {
           return (
             <FolderBlock
