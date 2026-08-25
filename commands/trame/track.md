@@ -54,7 +54,8 @@ use that name as the client; otherwise **Side-projects**. (Configure the list vi
    - `specs` — ONLY when the user asked to set/update the session's spec: the full
      markdown spec shown on the ticket. Omitting the key never clears the existing spec. A
      `## Title {{fold}}` heading renders as a collapsible section on the ticket —
-     use it for long explainers (ELI5s, background) so the working spec stays on top.
+     use it for long explainers (ELI5s, background) so the working spec stays on
+     top; consecutive `## Title {{tab}}` headings render as a tab strip.
 4. Build one JSON object with keys:
    `title, status, client, objective, repo_path (=working dir), branch, next_step, pr_url, summary` (+ `specs` when updating it)
 5. Pipe it to the writer:

@@ -31,6 +31,7 @@ For tracking actions:
    - `specs`: only when the user asked to set/update the session's spec — the full
      markdown spec shown on the ticket; omitting the key never clears it.
      A `## Title {{fold}}` heading renders as a collapsible section on the ticket.
+     Consecutive `## Title {{tab}}` headings render as a tab strip.
    - `objective`: the larger goal, omitted only when genuinely unclear.
    - `summary`: worklog entry, one to three lines, PR-description style — lead with the
      outcome (what the session delivered or established), not how. Include decisions made

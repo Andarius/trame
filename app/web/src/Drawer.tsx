@@ -67,6 +67,42 @@ function AgentMark({ agent }: { agent: string }) {
   );
 }
 
+// tab strip for consecutive "## Title {{tab}}" spec sections
+function SpecTabs(
+  { tabs, onEditItem }: {
+    tabs: { heading: string; body: string }[];
+    onEditItem: (item: string, next: string) => void;
+  },
+) {
+  const [active, setActive] = useState(0);
+  const cur = tabs[Math.min(active, tabs.length - 1)];
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex gap-1 border-b border-line">
+        {tabs.map((t, i) => (
+          <button
+            key={i}
+            type="button"
+            className={`-mb-px border-b-2 px-3 py-1.5 text-[12.5px] transition-colors ${
+              i === active
+                ? "border-copper font-medium text-copper"
+                : "border-transparent text-ink-muted hover:text-ink-soft"
+            }`}
+            onClick={() => setActive(i)}
+          >
+            {t.heading}
+          </button>
+        ))}
+      </div>
+      <Markdown
+        text={cur.body}
+        className="text-[13px] leading-relaxed"
+        onEditItem={onEditItem}
+      />
+    </div>
+  );
+}
+
 // expand / collapse (full-screen) glyph — inline SVG so it renders on WebKitGTK
 function ExpandIcon({ open }: { open: boolean }) {
   return (
@@ -582,19 +618,27 @@ export function Drawer(
     </div>
   );
 
-  // Explicit opt-in folding: only "## Title {{fold}}" headings (fence-aware) start
-  // a collapsible section — plain ## headings render normally, so agents writing
-  // ordinary markdown never fold things by accident. Everything above the first
-  // marked heading stays visible. Open state is a local per-session convenience.
+  // Explicit opt-in sectioning (fence-aware): "## Title {{fold}}" starts a
+  // collapsible section, "## Title {{tab}}" a tab — consecutive tabs group into
+  // one strip. Plain ## headings render normally, so agents writing ordinary
+  // markdown never hide things by accident. Everything above the first marked
+  // heading stays visible. Open/active state is a local convenience.
   const specSections = (() => {
     const lines = specs.split("\n");
-    const out: { heading: string | null; body: string[] }[] = [{ heading: null, body: [] }];
+    const out: { heading: string | null; kind: "fold" | "tab" | null; body: string[] }[] = [
+      { heading: null, kind: null, body: [] },
+    ];
     let fenced = false;
     for (const l of lines) {
       if (/^\s*```/.test(l)) fenced = !fenced;
       const h = !fenced && l.match(/^##\s+(.*)$/);
-      if (h && /\{\{fold\}\}/i.test(h[1])) {
-        out.push({ heading: h[1].replace(/\s*\{\{fold\}\}\s*/i, " ").trim(), body: [] });
+      const kind = h && h[1].match(/\{\{(fold|tab)\}\}/i);
+      if (h && kind) {
+        out.push({
+          heading: h[1].replace(/\s*\{\{(fold|tab)\}\}\s*/i, " ").trim(),
+          kind: kind[1].toLowerCase() as "fold" | "tab",
+          body: [],
+        });
       } else out.at(-1)!.body.push(l);
     }
     return out;
@@ -640,19 +684,38 @@ export function Drawer(
         : specs.trim()
         ? (
           <>
-            {specSections.map((sec, i) =>
-              sec.heading === null
-                ? (sec.body.join("\n").trim()
-                  ? (
-                    <Markdown
-                      key={i}
-                      text={sec.body.join("\n")}
-                      className="text-[13px] leading-relaxed"
-                      onEditItem={editSpecItem}
-                    />
-                  )
-                  : null)
-                : (
+            {(() => {
+              const els: ReactNode[] = [];
+              for (let i = 0; i < specSections.length;) {
+                const sec = specSections[i];
+                if (sec.kind === "tab") {
+                  const group: { heading: string; body: string }[] = [];
+                  while (i < specSections.length && specSections[i].kind === "tab") {
+                    group.push({
+                      heading: specSections[i].heading ?? "",
+                      body: specSections[i].body.join("\n"),
+                    });
+                    i++;
+                  }
+                  els.push(<SpecTabs key={`tabs-${i}`} tabs={group} onEditItem={editSpecItem} />);
+                  continue;
+                }
+                if (sec.heading === null) {
+                  const text = sec.body.join("\n");
+                  if (text.trim()) {
+                    els.push(
+                      <Markdown
+                        key={i}
+                        text={text}
+                        className="text-[13px] leading-relaxed"
+                        onEditItem={editSpecItem}
+                      />,
+                    );
+                  }
+                  i++;
+                  continue;
+                }
+                els.push(
                   <div key={i} className="overflow-hidden rounded-lg border border-line-soft">
                     <button type="button"
                       className="flex w-full items-center gap-2 bg-panel px-3 py-2 text-left text-[12.5px] font-medium text-ink transition-colors hover:text-copper"
@@ -672,8 +735,12 @@ export function Drawer(
                         />
                       </div>
                     )}
-                  </div>
-                ))}
+                  </div>,
+                );
+                i++;
+              }
+              return els;
+            })()}
             <div className="flex items-center gap-1.5">
               <button type="button"
                 className="rounded-md border border-dashed border-chipline px-3 py-1.5 text-[12px] text-ink-muted/70 transition-colors hover:border-copper/60 hover:text-copper"
