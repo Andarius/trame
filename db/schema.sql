@@ -212,6 +212,22 @@ create table if not exists session_events (
   deleted boolean not null default false
 );
 alter table session_events add column if not exists agent text;  -- claude | codex; null = human/unknown
+
+-- Session <-> page-item links ("this session works on that TODO line"). Anchored
+-- like page_comments: block_id + an `anchor` text snapshot of the item line, so
+-- the link survives edits and degrades to its quote when the line disappears.
+create table if not exists session_links (
+  id uuid primary key default uuidv7(),
+  session_id uuid not null,   -- no FK: LWW pull order
+  page_id uuid not null,      -- no FK: LWW pull order
+  block_id uuid,               -- list block holding the item; null = whole page
+  anchor text not null default '',   -- the linked item's text at link time
+  origin text not null default 'seed',
+  updated_at timestamptz not null default now(),
+  deleted boolean not null default false
+);
+create index if not exists session_links_session on session_links (session_id);
+create index if not exists session_links_page on session_links (page_id);
 -- Pasted images; page blocks reference them as ![...](/api/assets/<id>). Metadata
 -- only — bytes live on disk (ASSETS_DIR) or in S3 (TRACKER_S3_*). Not in the sync
 -- table set, so references don't resolve on other nodes unless both point at S3.

@@ -1688,6 +1688,7 @@ export function App() {
               board={board}
               defaultExpanded={drawerFull}
               onExpandedChange={setDrawerFull}
+              onOpenPage={openPage}
               onClose={() => setOpenId(null)}
               onSaved={refresh}
             />

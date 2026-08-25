@@ -11,12 +11,14 @@ import {
   type BoardData,
   createComment,
   createPage,
+  addSessionLink,
   createUdb,
   deleteComment,
   deletePage,
   getIdentity,
   getPage,
   getPresence,
+  type SessionLink,
   listComments,
   openInBrowser,
   type PageComment,
@@ -739,6 +741,9 @@ function BlockEditor(
     flash,
     meId,
     onToggleThread,
+    links,
+    onOpenSession,
+    onLinkItem,
   }: {
     blocks: Block[];
     onChange: (blocks: Block[]) => void;
@@ -754,6 +759,9 @@ function BlockEditor(
     flash: string | null; // block briefly highlighted after a panel jump
     meId: string | null;
     onToggleThread: (blockId: string) => void;
+    links?: SessionLink[];
+    onOpenSession?: (id: string) => void;
+    onLinkItem?: (blockId: string, item: string) => void;
   },
 ) {
   const refs = useRef<(HTMLTextAreaElement | null)[]>([]);
@@ -1445,6 +1453,19 @@ function BlockEditor(
                     ? (item) => markOpen(i, item)
                     : undefined}
                   onEditItem={(item, next) => editItem(i, item, next)}
+                  getItemLink={(item) => {
+                    const l = links?.find((x) => x.block_id === b.id && x.anchor === item);
+                    return l
+                      ? {
+                        title: l.session_title ?? "session",
+                        color: statusStyle(l.session_status ?? "active").color,
+                        open: () => onOpenSession?.(l.session_id!),
+                      }
+                      : null;
+                  }}
+                  onLinkItem={b.id && onLinkItem
+                    ? (item) => onLinkItem(b.id as string, item)
+                    : undefined}
                 />
               </div>
               <textarea
@@ -1837,6 +1858,8 @@ export function Page(
   },
 ) {
   const [page, setPage] = useState<PageDetail | null>(null);
+  // 🔗 on a list item: pick the session to link it to
+  const [linkPick, setLinkPick] = useState<{ blockId: string; item: string } | null>(null);
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [comments, setComments] = useState<PageComment[]>([]);
   const [showResolved, setShowResolved] = useState(false);
@@ -2392,6 +2415,9 @@ export function Page(
           <BlockEditor
             blocks={blocks}
             onChange={changeBlocks}
+            links={page?.links ?? []}
+            onOpenSession={onOpenSession}
+            onLinkItem={(blockId, item) => setLinkPick({ blockId, item })}
             onSlashInsert={slashInsert}
             onOpenReport={onOpenReport}
             comments={comments}
@@ -2404,6 +2430,58 @@ export function Page(
             meId={meId}
             onToggleThread={toggleThread}
           />
+
+          {linkPick && (
+            <div
+              className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[18vh]"
+              onClick={() => setLinkPick(null)}
+            >
+              <div
+                className="w-[440px] rounded-xl border border-line bg-panel-modal p-3 shadow-2xl shadow-black/50"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="mb-1.5 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+                  LINK TO SESSION
+                </div>
+                <div className="mb-2 truncate rounded-md bg-panel px-2 py-1 text-[11.5px] text-ink-muted" title={linkPick.item}>
+                  {linkPick.item}
+                </div>
+                <div className="flex max-h-72 flex-col gap-0.5 overflow-y-auto">
+                  {[...board.sessions]
+                    .sort((a, b) =>
+                      (statusStyle(a.status).terminal ? 1 : 0) -
+                        (statusStyle(b.status).terminal ? 1 : 0)
+                    )
+                    .map((sn) => (
+                      <button
+                        key={sn.id}
+                        type="button"
+                        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-ink-soft hover:bg-panel"
+                        onClick={() => {
+                          addSessionLink(sn.id, {
+                            page_id: pageId,
+                            block_id: linkPick.blockId,
+                            anchor: linkPick.item,
+                          }).then(() => {
+                            setLinkPick(null);
+                            reload();
+                          });
+                        }}
+                      >
+                        <span
+                          className="h-[7px] w-[7px] shrink-0 rounded-full"
+                          style={{ background: statusStyle(sn.status).color }}
+                        />
+                        <span className="min-w-0 flex-1 truncate">{sn.title}</span>
+                        {sn.branch && (
+                          <span className="shrink-0 font-mono text-[10px] text-ink-muted">{sn.branch}</span>
+                        )}
+                      </button>
+                    ))}
+                </div>
+              </div>
+            </div>
+          )}
 
           {orphans.length > 0 && (
             <div className="flex flex-col gap-2 rounded-lg border border-line-soft bg-panel/30 p-3">

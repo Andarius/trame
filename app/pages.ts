@@ -69,7 +69,15 @@ export async function getPage(id: string) {
     [id],
   )).rows;
   const comments = await commentsForPage(id);
-  return { ...page, children, databases, sessions, comments };
+  // session links anchored to this page's items (render as chips on the lines)
+  const links = (await pg.query(
+    `select l.id, l.session_id, l.block_id, l.anchor,
+            s.title as session_title, s.status as session_status
+       from session_links l join sessions s on s.id = l.session_id and not s.deleted
+      where l.page_id=$1 and not l.deleted order by l.updated_at`,
+    [id],
+  )).rows;
+  return { ...page, children, databases, sessions, comments, links };
 }
 
 async function endKey(
