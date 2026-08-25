@@ -11,7 +11,7 @@ const PNG = Buffer.from(
   "base64",
 );
 
-const TITLES = ["Todo layout e2e", "Todo drag e2e", "Tabbed page e2e"];
+const TITLES = ["Todo layout e2e", "Todo drag e2e", "Tabbed page e2e", "Folded page e2e"];
 
 test.beforeAll(async ({ request }) => {
   const pages = await (await request.get("/api/pages")).json() as {
@@ -177,11 +177,38 @@ test("{{tab}} headings group page blocks into a tab strip", async ({ page, reque
   });
   const { id } = await r.json() as { id: string };
   await page.goto(`/?view=page&page=${id}`);
-  // preamble stays; first tab active, second hidden
-  await expect(page.getByText("intro line")).toBeVisible();
-  await expect(page.getByText("alpha content")).toBeVisible();
-  await expect(page.getByText("beta content")).not.toBeVisible();
+  // preamble stays; first tab active, second hidden (hidden textareas mirror the
+  // text, so scope assertions to rendered elements)
+  await expect(page.locator("p", { hasText: "intro line" })).toBeVisible();
+  await expect(page.locator("li", { hasText: "alpha content" })).toBeVisible();
+  await expect(page.locator("li", { hasText: "beta content" })).not.toBeVisible();
   await page.getByRole("button", { name: "Beta" }).click();
-  await expect(page.getByText("beta content")).toBeVisible();
-  await expect(page.getByText("alpha content")).not.toBeVisible();
+  await expect(page.locator("li", { hasText: "beta content" })).toBeVisible();
+  await expect(page.locator("li", { hasText: "alpha content" })).not.toBeVisible();
+});
+
+test("/fold slash command and {{fold}} accordion on a page", async ({ page, request }) => {
+  const r = await request.post("/api/pages", {
+    data: {
+      title: "Folded page e2e",
+      content: [
+        block("text", "always visible"),
+        block("heading", "Details {{fold}}"),
+        block("text", "- hidden detail"),
+      ],
+    },
+  });
+  const { id } = await r.json() as { id: string };
+  await page.goto(`/?view=page&page=${id}`);
+  await expect(page.locator("p", { hasText: "always visible" })).toBeVisible();
+  await expect(page.locator("li", { hasText: "hidden detail" })).not.toBeVisible();
+  await page.getByRole("button", { name: "Details" }).click();
+  await expect(page.locator("li", { hasText: "hidden detail" })).toBeVisible();
+
+  // the slash menu offers the section utilities
+  await page.locator("li", { hasText: "hidden detail" }).click();
+  await page.keyboard.press("Control+a");
+  await page.keyboard.type("/fol");
+  await expect(page.getByText("Folded section")).toBeVisible();
+  await page.keyboard.press("Escape");
 });
