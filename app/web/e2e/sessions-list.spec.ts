@@ -36,6 +36,7 @@ const seed = async (request: APIRequestContext) => {
   await request.post("/api/sessions", {
     data: {
       title: "chip session e2e",
+      client: "Chip Proj",
       objective: "Chip Story",
       no_event: true,
       repo_path: "/tmp/chip-e2e",
@@ -110,6 +111,14 @@ test("double-click opens the drawer full screen; single click stays a side panel
   // full-screen survives a refresh (&full=1 in the URL)
   await page.reload();
   await expect(page.getByTitle("collapse to side panel")).toBeVisible();
+});
+
+test("board card project chip filters the board", async ({ page, request }) => {
+  await seed(request);
+  await page.goto("/?view=board");
+  await page.getByTitle("Show only “Chip Proj”").first().click();
+  await expect(page.getByText("other session e2e")).not.toBeVisible();
+  await expect(page.getByText("chip session e2e")).toBeVisible();
 });
 
 test("double-click on a board card opens the drawer full screen", async ({ page, request }) => {
