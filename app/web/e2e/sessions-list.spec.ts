@@ -106,6 +106,10 @@ test("double-click opens the drawer full screen; single click stays a side panel
 
   await page.getByText("chip session e2e").dblclick();
   await expect(page.getByTitle("collapse to side panel")).toBeVisible();
+
+  // full-screen survives a refresh (&full=1 in the URL)
+  await page.reload();
+  await expect(page.getByTitle("collapse to side panel")).toBeVisible();
 });
 
 test("double-click on a board card opens the drawer full screen", async ({ page, request }) => {
@@ -129,8 +133,7 @@ test("expanded ticket: journal pane and editable persistent specs", async ({ pag
   await expect(page.getByText("first spec item")).toBeVisible();
   await expect(page.getByText("second spec item")).toBeVisible();
 
-  // survives a reload (the drawer reopens from the URL; expand shows the ticket)
+  // survives a reload — the URL restores the drawer already full screen
   await page.reload();
-  await page.getByTitle("expand to full screen").click();
   await expect(page.getByText("second spec item")).toBeVisible();
 });

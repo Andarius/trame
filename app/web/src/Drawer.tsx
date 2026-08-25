@@ -101,12 +101,13 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 export function Drawer(
-  { session, board, onClose, onSaved, defaultExpanded }: {
+  { session, board, onClose, onSaved, defaultExpanded, onExpandedChange }: {
     session: Session;
     board: BoardData;
     onClose: () => void;
     onSaved: () => void;
     defaultExpanded?: boolean;
+    onExpandedChange?: (v: boolean) => void; // App mirrors it into the URL
   },
 ) {
   const [title, setTitle] = useState(session.title);
@@ -128,6 +129,9 @@ export function Drawer(
   useEffect(() => {
     if (defaultExpanded) setExpanded(true);
   }, [defaultExpanded]);
+  useEffect(() => {
+    onExpandedChange?.(expanded);
+  }, [expanded]);
   const nsRef = useRef<HTMLTextAreaElement>(null);
   const [nsEditing, setNsEditing] = useState(false);
   const growNs = () => {

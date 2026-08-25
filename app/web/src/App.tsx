@@ -938,8 +938,9 @@ export function App() {
       null,
   );
   const [openId, setOpenId] = useState<string | null>(params.get("session"));
-  // double-click in the Sessions list opens the drawer already expanded
-  const [drawerFull, setDrawerFull] = useState(false);
+  // double-click in the Sessions list opens the drawer already expanded;
+  // mirrored to the URL (&full=1) so a refresh restores the full-screen ticket
+  const [drawerFull, setDrawerFull] = useState(params.get("full") === "1");
   const openSession = (id: string, full = false) => {
     setDrawerFull(full);
     setOpenId(id);
@@ -1083,10 +1084,11 @@ export function App() {
     put("client", view === "client" ? clientId : null);
     put("plugin", view === "plugin" ? pluginId : null);
     put("session", openId);
+    put("full", openId && drawerFull ? "1" : null);
     put("group", group === "none" ? null : group);
     put("story", storyFilter.join(",") || null);
     history.replaceState(null, "", u);
-  }, [view, pageId, dbId, clientId, pluginId, openId, group, storyFilter]);
+  }, [view, pageId, dbId, clientId, pluginId, openId, drawerFull, group, storyFilter]);
   useEffect(() => {
     refresh();
     const t = setInterval(refresh, 5000);
@@ -1681,6 +1683,7 @@ export function App() {
               session={session}
               board={board}
               defaultExpanded={drawerFull}
+              onExpandedChange={setDrawerFull}
               onClose={() => setOpenId(null)}
               onSaved={refresh}
             />
