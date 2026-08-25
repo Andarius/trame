@@ -28,13 +28,15 @@ For tracking actions:
 3. Infer these fields from the current conversation without asking:
    - `title`: `<repo-basename> — <short topic>`.
    - `next_step`: one imperative line for the next resume; incorporate the user's note.
+   - `specs`: only when the user asked to set/update the session's spec — the full
+     markdown spec shown on the ticket; omitting the key never clears it.
    - `objective`: the larger goal, omitted only when genuinely unclear.
    - `summary`: worklog entry, one to three lines, PR-description style — lead with the
      outcome (what the session delivered or established), not how. Include decisions made
      and dead-ends worth remembering ("X fails because Y"); no implementation narration.
    - `pr_url`: only when evident.
 4. Pipe one JSON object containing `title`, `status`, `client`,
-   `objective`, `repo_path`, `branch`, `next_step`, `pr_url`, and
+   `objective`, `repo_path`, `branch`, `next_step`, `specs` (only when updating it), `pr_url`, and
    `summary` to:
 
    ```bash
