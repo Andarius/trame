@@ -145,4 +145,15 @@ test("expanded ticket: journal pane and editable persistent specs", async ({ pag
   // survives a reload — the URL restores the drawer already full screen
   await page.reload();
   await expect(page.getByText("second spec item")).toBeVisible();
+
+  // "## " headings fold into collapsible sections, collapsed by default
+  await page.getByTitle("edit raw markdown").click();
+  await page.keyboard.type("\n## ELI5\n- folded detail");
+  await page.getByText("SPECS", { exact: true }).click(); // blur commits
+  await expect(page.getByRole("button", { name: /ELI5/ })).toBeVisible();
+  await expect(page.getByText("folded detail")).not.toBeVisible();
+  await page.getByRole("button", { name: /ELI5/ }).click();
+  await expect(page.getByText("folded detail")).toBeVisible();
+  // the preamble stays always visible alongside the section
+  await expect(page.getByText("second spec item")).toBeVisible();
 });
