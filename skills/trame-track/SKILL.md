@@ -30,6 +30,7 @@ For tracking actions:
    - `next_step`: one imperative line for the next resume; incorporate the user's note.
    - `specs`: only when the user asked to set/update the session's spec — the full
      markdown spec shown on the ticket; omitting the key never clears it.
+     A `## Title {{fold}}` heading renders as a collapsible section on the ticket.
    - `objective`: the larger goal, omitted only when genuinely unclear.
    - `summary`: worklog entry, one to three lines, PR-description style — lead with the
      outcome (what the session delivered or established), not how. Include decisions made
