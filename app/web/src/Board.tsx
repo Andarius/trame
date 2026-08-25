@@ -57,7 +57,15 @@ function TicketBody(
         />
       )}
       <div className="flex items-center gap-1.5">
-        {client && <ClientChip name={client.name} color={client.color} />}
+        {client && (
+          <ClientChip
+            name={client.name}
+            color={client.color}
+            title={`Show only “${client.name}”`}
+            active={storyFilter?.includes(client.id) ?? false}
+            onClick={onFilterStory ? () => onFilterStory(client.id) : undefined}
+          />
+        )}
         {s.branch && <span className="text-[10.5px] text-ink-muted">{s.branch}</span>}
       </div>
       {s.next_step && !done && (
