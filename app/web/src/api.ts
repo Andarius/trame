@@ -539,7 +539,27 @@ export type PageDetail = PageMeta & {
   }[];
   sessions: Session[];
   comments: PageComment[];
+  links: SessionLink[];
 };
+
+// session <-> page-item link (anchored like comments: block id + text snapshot)
+export type SessionLink = {
+  id: string;
+  session_id?: string;
+  page_id?: string;
+  block_id: string | null;
+  anchor: string;
+  page_title?: string;
+  session_title?: string;
+  session_status?: Status;
+};
+export const getSessionLinks = (id: string) =>
+  fetch(`/api/sessions/${id}/links`).then((r) => r.json() as Promise<SessionLink[]>);
+export const addSessionLink = (
+  sessionId: string,
+  l: { page_id: string; block_id?: string | null; anchor?: string },
+) => post(`/api/sessions/${sessionId}/links`, l);
+export const deleteSessionLink = (id: string) => post(`/api/links/${id}/delete`, {});
 
 export const listPages = () =>
   fetch("/api/pages").then((r) => r.json() as Promise<PageMeta[]>);

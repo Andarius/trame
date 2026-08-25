@@ -118,6 +118,19 @@ export const ENTITIES = [
     ],
   },
   {
+    name: "session_links",
+    cols: [
+      "id",
+      "session_id",
+      "page_id",
+      "block_id",
+      "anchor",
+      "origin",
+      "updated_at",
+      "deleted",
+    ],
+  },
+  {
     name: "session_events",
     cols: [
       "id",

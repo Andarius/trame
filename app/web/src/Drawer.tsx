@@ -3,7 +3,9 @@ import {
   addLog,
   type BoardData,
   deleteSession,
+  deleteSessionLink,
   getEvents,
+  getSessionLinks,
   openInBrowser,
   prState,
   probeResume,
@@ -13,6 +15,7 @@ import {
   saveSession,
   type Session,
   type SessionEvent,
+  type SessionLink,
   type Status,
 } from "./api";
 import { appConfirm, clientColor, pageOptions, Popover, Select, StatusDot, timeAgo } from "./ui";
@@ -137,13 +140,14 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 export function Drawer(
-  { session, board, onClose, onSaved, defaultExpanded, onExpandedChange }: {
+  { session, board, onClose, onSaved, defaultExpanded, onExpandedChange, onOpenPage }: {
     session: Session;
     board: BoardData;
     onClose: () => void;
     onSaved: () => void;
     defaultExpanded?: boolean;
     onExpandedChange?: (v: boolean) => void; // App mirrors it into the URL
+    onOpenPage?: (id: string) => void; // navigate to a linked page
   },
 ) {
   const [title, setTitle] = useState(session.title);
@@ -179,6 +183,12 @@ export function Drawer(
   const [prStates, setPrStates] = useState<Record<string, string>>({});
   const prLinks = prUrl.split("\n").map((s) => s.trim()).filter(Boolean);
   const [events, setEvents] = useState<SessionEvent[]>([]);
+  // page-item links ("this session works on that TODO line")
+  const [links, setLinks] = useState<SessionLink[]>([]);
+  useEffect(() => {
+    getSessionLinks(session.id).then((l) => Array.isArray(l) && setLinks(l))
+      .catch(() => {});
+  }, [session.id]);
   const [log, setLog] = useState("");
   const [flash, setFlash] = useState(false);
   const flashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -659,6 +669,46 @@ export function Drawer(
       return next;
     });
 
+  const linkedRow = links.length > 0 && (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-[11px] text-ink-muted">Linked</span>
+      <div className="flex flex-wrap gap-1.5">
+        {links.map((l) => (
+          <span
+            key={l.id}
+            className="group flex max-w-full items-center gap-1.5 rounded-md border border-line bg-panel px-2 py-1 text-[11.5px]"
+          >
+            <button
+              type="button"
+              className="flex min-w-0 items-center gap-1.5 text-left text-ink-soft transition-colors hover:text-copper"
+              title={`${l.page_title ?? "page"}${l.anchor ? ` — ${l.anchor}` : ""}`}
+              onClick={() => {
+                if (l.page_id) {
+                  onOpenPage?.(l.page_id);
+                  onClose();
+                }
+              }}
+            >
+              <span className="text-[10px] text-ink-muted">▤</span>
+              <span className="truncate">{(l.anchor || l.page_title || "").replace(/\*\*|`/g, "")}</span>
+            </button>
+            <button
+              type="button"
+              title="unlink"
+              className="shrink-0 text-[11px] text-ink-muted opacity-0 transition-opacity hover:text-blocked group-hover:opacity-100"
+              onClick={() =>
+                deleteSessionLink(l.id).then(() =>
+                  getSessionLinks(session.id).then((x) => Array.isArray(x) && setLinks(x))
+                )}
+            >
+              ✕
+            </button>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+
   const specsSection = (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
@@ -874,6 +924,7 @@ export function Drawer(
                   </div>
                 </div>
               </div>
+              {linkedRow}
               <div className="max-w-[760px]">{specsSection}</div>
             </div>
           </div>

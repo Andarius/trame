@@ -480,7 +480,49 @@ type TableOps = {
   onMarkDone?: (item: string) => void;
   onMarkOpen?: (item: string) => void;
   onEditItem?: (item: string, next: string) => void;
+  // session links on list items: resolver returns the chip for a linked item,
+  // onLinkItem offers the hover 🔗 to create one
+  getItemLink?: (item: string) => { title: string; color: string; open: () => void } | null;
+  onLinkItem?: (item: string) => void;
 };
+
+// trailing per-item affordances: the linked-session chip and the hover 🔗
+function itemTrail(t: string, ops?: TableOps): ReactNode {
+  const lk = ops?.getItemLink?.(t);
+  return (
+    <>
+      {lk && (
+        <button
+          type="button"
+          title={`session: ${lk.title}`}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            lk.open();
+          }}
+          className="ml-1 inline-flex max-w-[200px] shrink-0 items-center gap-1.5 self-center rounded-md border border-chipline/60 px-1.5 py-0.5 align-middle text-[10px] leading-none text-ink-muted transition-colors hover:border-copper/50 hover:text-copper"
+        >
+          <span className="h-[6px] w-[6px] shrink-0 rounded-full" style={{ background: lk.color }} />
+          <span className="truncate">{lk.title}</span>
+        </button>
+      )}
+      {!lk && ops?.onLinkItem && (
+        <button
+          type="button"
+          title="link a session"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            ops.onLinkItem!(t);
+          }}
+          className="ml-1 shrink-0 self-center text-[10.5px] text-ink-muted opacity-0 transition-opacity hover:text-copper group-hover:opacity-100"
+        >
+          🔗
+        </button>
+      )}
+    </>
+  );
+}
 
 // click a list item's text to edit just that line in place (page editor only) —
 // Enter/blur commits, Escape cancels; links/images/buttons inside keep their clicks
@@ -944,7 +986,7 @@ function renderBlocks(
             className="my-1 list-none space-y-1 pl-0 text-ink-muted"
           >
             {texts.map((t, j) => (
-              <li key={j} className="flex gap-2 leading-relaxed">
+              <li key={j} className="group flex gap-2 leading-relaxed">
                 {ops?.onMarkOpen
                   ? (
                     <button
@@ -967,6 +1009,7 @@ function renderBlocks(
                     </span>
                   )}
                 {itemContent(t, ops, "min-w-0")}
+                {itemTrail(t, ops)}
               </li>
             ))}
           </ul>,
@@ -979,7 +1022,7 @@ function renderBlocks(
           >
             <ul className="list-none space-y-1.5 pl-0 text-ink-soft">
               {texts.map((t, j) => (
-                <li key={j} className="flex gap-2 leading-relaxed">
+                <li key={j} className="group flex gap-2 leading-relaxed">
                   {ops?.onMarkDone
                     ? (
                       <button
@@ -998,6 +1041,7 @@ function renderBlocks(
                       <span className="mt-[5px] h-3 w-3 shrink-0 rounded-full border-[1.5px] border-copper" />
                     )}
                   {itemContent(t, ops, "min-w-0")}
+                  {itemTrail(t, ops)}
                 </li>
               ))}
             </ul>
@@ -1010,7 +1054,10 @@ function renderBlocks(
             className="my-1 list-disc space-y-0.5 pl-4 text-ink-soft"
           >
             {texts.map((t, j) => (
-              <li key={j} className="leading-relaxed">{itemContent(t, ops)}</li>
+              <li key={j} className="group leading-relaxed">
+                {itemContent(t, ops)}
+                {itemTrail(t, ops)}
+              </li>
             ))}
           </ul>,
         );
@@ -1071,6 +1118,8 @@ export function Markdown(
     onMarkDone,
     onMarkOpen,
     onEditItem,
+    getItemLink,
+    onLinkItem,
   }: {
     text: string;
     className?: string;
@@ -1080,6 +1129,8 @@ export function Markdown(
     onMarkDone?: (item: string) => void;
     onMarkOpen?: (item: string) => void;
     onEditItem?: (item: string, next: string) => void;
+    getItemLink?: (item: string) => { title: string; color: string; open: () => void } | null;
+    onLinkItem?: (item: string) => void;
   },
 ) {
   return (
@@ -1090,6 +1141,8 @@ export function Markdown(
         onMarkDone,
         onMarkOpen,
         onEditItem,
+        getItemLink,
+        onLinkItem,
       })}
     </div>
   );

@@ -349,6 +349,39 @@ export async function addEvent(sessionId: string, summary: string, kind = "log",
   await pg.query(`update sessions set last_touched=now(), origin=$2, updated_at=now() where id=$1`, [sessionId, NODE_ID]);
 }
 
+export async function linksForSession(sessionId: string) {
+  const pg = await db();
+  return (await pg.query(
+    `select l.id, l.page_id, l.block_id, l.anchor, p.title as page_title
+       from session_links l join pages p on p.id = l.page_id and not p.deleted
+      where l.session_id=$1 and not l.deleted order by l.updated_at`,
+    [sessionId],
+  )).rows;
+}
+
+export async function addSessionLink(
+  sessionId: string,
+  pageId: string,
+  blockId: string | null,
+  anchor: string,
+): Promise<string> {
+  const pg = await db();
+  const row = (await pg.query(
+    `insert into session_links (session_id, page_id, block_id, anchor, origin)
+     values ($1,$2,$3,$4,$5) returning id`,
+    [sessionId, pageId, blockId, anchor, NODE_ID],
+  )).rows[0] as { id: string };
+  return row.id;
+}
+
+export async function deleteSessionLink(id: string): Promise<void> {
+  const pg = await db();
+  await pg.query(
+    `update session_links set deleted=true, updated_at=now(), origin=$2 where id=$1`,
+    [id, NODE_ID],
+  );
+}
+
 export async function updateObjective(o: { id: string; title?: string; story?: string; status?: string }): Promise<void> {
   const pg = await db();
   await pg.query(

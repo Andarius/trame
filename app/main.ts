@@ -43,15 +43,18 @@ import {
 import { ASSETS } from "./embed.ts";
 import {
   addEvent,
+  addSessionLink,
   createObjective,
   createReport,
   createStatus,
   db,
   deleteSession,
+  deleteSessionLink,
   deleteStatus,
   drainOutbox,
   getBoard,
   getReport,
+  linksForSession,
   listEvents,
   listReports,
   moveStatus,
@@ -1033,6 +1036,17 @@ async function handler(req: Request): Promise<Response> {
       await addEvent(id, body.summary, "track", typeof body.agent === "string" ? body.agent : null);
     }
     return json({ id });
+  }
+  const lm = pathname.match(/^\/api\/sessions\/([^/]+)\/links$/);
+  if (lm && req.method === "POST") {
+    const b = await req.json();
+    return json({ id: await addSessionLink(lm[1], b.page_id, b.block_id ?? null, b.anchor ?? "") });
+  }
+  if (lm) return json(await linksForSession(lm[1]));
+  const ldm = pathname.match(/^\/api\/links\/([^/]+)\/delete$/);
+  if (ldm && req.method === "POST") {
+    await deleteSessionLink(ldm[1]);
+    return json({ ok: true });
   }
   const em = pathname.match(/^\/api\/sessions\/([^/]+)\/events$/);
   if (em && req.method === "POST") {
