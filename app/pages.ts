@@ -276,6 +276,11 @@ export async function createComment(
   // backfill never re-claims their comments for the local user
   const agent = p.agent ? agentIdentity(p.agent) : null;
   const author = agent?.name ?? p.author?.trim();
+  // every agent comment carries a footer: name the model even when the writer
+  // could only measure its own id
+  const meta = p.agent
+    ? { ...p.meta, model: (p.meta?.model as string | undefined) ?? p.agent }
+    : p.meta;
   const row = (await pg.query(
     `insert into page_comments (page_id, block_id, anchor, body, author, author_avatar, author_id, meta, origin)
      values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`,
@@ -288,7 +293,7 @@ export async function createComment(
       agent?.avatar ?? (author ? (p.author_avatar ?? "") : me.avatar),
       // sentinel only for real agent threads; a custom display author stays the local user
       agent ? AGENT_AUTHOR_ID : me.userId,
-      p.meta ? JSON.stringify(p.meta) : null,
+      meta ? JSON.stringify(meta) : null,
       NODE_ID,
     ],
   )).rows[0] as { id: string };

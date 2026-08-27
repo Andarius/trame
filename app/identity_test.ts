@@ -89,6 +89,39 @@ Deno.test("agent comments use canonical attribution without a user id", async ()
   );
 });
 
+Deno.test("agent comments always carry a model in their meta", async () => {
+  const { db } = await import("./db.ts");
+  const { createComment, createPage } = await import("./pages.ts");
+  const pg = await db();
+
+  const pageId = await createPage({ title: "agent meta page" });
+  const metas = await Promise.all(
+    [
+      { agent: "codex" as const, meta: undefined },
+      { agent: "claude" as const, meta: { model: "claude-opus-5", out: 42 } },
+      { agent: undefined, meta: undefined },
+    ].map(async ({ agent, meta }, i) => {
+      const id = await createComment({
+        page_id: pageId,
+        block_id: `b-meta-${i}`,
+        body: "note",
+        agent,
+        meta,
+      });
+      return ((await pg.query(`select meta from page_comments where id=$1`, [
+        id,
+      ])).rows[0] as { meta: string | null }).meta;
+    }),
+  );
+  // an agent that cannot measure itself still names its model; a human gets no footer
+  assertEquals(JSON.parse(metas[0] as string), { model: "codex" });
+  assertEquals(JSON.parse(metas[1] as string), {
+    model: "claude-opus-5",
+    out: 42,
+  });
+  assertEquals(metas[2], null);
+});
+
 Deno.test("page creators stamp owner_id", async () => {
   const { db, resolveClient } = await import("./db.ts");
   const { createPage } = await import("./pages.ts");
