@@ -18,6 +18,7 @@ export type Session = {
   repo_path: string | null;
   branch: string | null;
   next_step: string | null;
+  specs: string | null;
   pr_url: string | null;
   summary: string;
   last_touched: string;
@@ -69,6 +70,7 @@ export type Report = ReportMeta & { html: string };
 export type SessionEvent = {
   id: string;
   at: string;
+  agent?: string | null;
   summary: string | null;
   kind: string;
 };

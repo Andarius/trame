@@ -31,7 +31,7 @@ function TicketBody(
     board: BoardData;
     overlay?: boolean;
     showObjective?: boolean;
-    storyFilter?: string | null;
+    storyFilter?: string[] | null;
     onFilterStory?: (id: string) => void;
   },
 ) {
@@ -52,12 +52,20 @@ function TicketBody(
           title={chipPage.title}
           glyph={pageGlyph(chipPage.kind)}
           icon={chipPage.icon}
-          active={chipPage.id === storyFilter}
+          active={storyFilter?.includes(chipPage.id) ?? false}
           onClick={onFilterStory ? () => onFilterStory(chipPage.id) : undefined}
         />
       )}
       <div className="flex items-center gap-1.5">
-        {client && <ClientChip name={client.name} color={client.color} />}
+        {client && (
+          <ClientChip
+            name={client.name}
+            color={client.color}
+            title={`Show only “${client.name}”`}
+            active={storyFilter?.includes(client.id) ?? false}
+            onClick={onFilterStory ? () => onFilterStory(client.id) : undefined}
+          />
+        )}
         {s.branch && <span className="text-[10.5px] text-ink-muted">{s.branch}</span>}
       </div>
       {s.next_step && !done && (
@@ -68,12 +76,13 @@ function TicketBody(
 }
 
 function DraggableTicket(
-  { s, board, showObjective, onOpen, storyFilter, onFilterStory, selected = false, onToggleSelect }: {
+  { s, board, showObjective, onOpen, onOpenFull, storyFilter, onFilterStory, selected = false, onToggleSelect }: {
     s: Session;
     board: BoardData;
     showObjective: boolean;
     onOpen: (id: string) => void;
-    storyFilter?: string | null;
+    onOpenFull?: (id: string) => void;
+    storyFilter?: string[] | null;
     onFilterStory?: (id: string) => void;
     selected?: boolean;
     onToggleSelect?: (id: string, shift: boolean) => void;
@@ -86,6 +95,10 @@ function DraggableTicket(
       {...listeners}
       {...attributes}
       onClick={() => onOpen(s.id)}
+      onDoubleClick={() => {
+        document.getSelection()?.removeAllRanges();
+        onOpenFull?.(s.id);
+      }}
       className={`group relative cursor-pointer touch-none active:cursor-grabbing ${isDragging ? "opacity-30" : ""} ${
         selected ? "rounded-lg ring-1 ring-copper/60" : ""
       }`}
@@ -120,15 +133,16 @@ function DraggableTicket(
 }
 
 function Column(
-  { status, sessions, board, dropId, showObjective, onOpen, compact = false, storyFilter, onFilterStory, selected, onToggleSelect, onSelectMany, anchorId, onAnchor }: {
+  { status, sessions, board, dropId, showObjective, onOpen, onOpenFull, compact = false, storyFilter, onFilterStory, selected, onToggleSelect, onSelectMany, anchorId, onAnchor }: {
     status: Status;
     sessions: Session[];
     board: BoardData;
     dropId: string;
     showObjective: boolean;
     onOpen: (id: string) => void;
+    onOpenFull?: (id: string) => void;
     compact?: boolean;
-    storyFilter?: string | null;
+    storyFilter?: string[] | null;
     onFilterStory?: (id: string) => void;
     selected?: Set<string>;
     onToggleSelect?: (id: string) => void;
@@ -164,6 +178,7 @@ function Column(
           board={board}
           showObjective={showObjective}
           onOpen={onOpen}
+          onOpenFull={onOpenFull}
           storyFilter={storyFilter}
           onFilterStory={onFilterStory}
           selected={selected?.has(s.id) ?? false}
@@ -175,12 +190,13 @@ function Column(
 }
 
 export function Board(
-  { board, group, onMove, onOpen, storyFilter, onFilterStory, hideEmpty, selected, onToggleSelect, onSelectMany }: {
+  { board, group, onMove, onOpen, onOpenFull, storyFilter, onFilterStory, hideEmpty, selected, onToggleSelect, onSelectMany }: {
     board: BoardData;
     group: "none" | "story" | "project";
     onMove: (id: string, status: Status) => void;
     onOpen: (id: string) => void;
-    storyFilter?: string | null;
+    onOpenFull?: (id: string) => void;
+    storyFilter?: string[] | null;
     onFilterStory?: (id: string) => void;
     hideEmpty?: boolean;
     selected?: Set<string>;
@@ -197,6 +213,10 @@ export function Board(
   const openGuarded = (id: string) => {
     if (Date.now() - lastDragEnd.current > 250) onOpen(id);
   };
+  const openFullGuarded = onOpenFull &&
+    ((id: string) => {
+      if (Date.now() - lastDragEnd.current > 250) onOpenFull(id);
+    });
 
   const onDragStart = (e: DragStartEvent) => setActiveId(String(e.active.id));
   const onDragEnd = (e: DragEndEvent) => {
@@ -212,7 +232,9 @@ export function Board(
   const byId = pagesById(board.pages);
   // clicking a card's story chip narrows the board to that story's SUBTREE
   // (drag still uses the full set)
-  const visible = storyFilter ? board.sessions.filter((s) => inSubtree(s, storyFilter, byId)) : board.sessions;
+  const visible = storyFilter?.length
+    ? board.sessions.filter((s) => storyFilter.some((f) => inSubtree(s, f, byId)))
+    : board.sessions;
   // status columns come from the synced statuses table (already sort_key-ordered),
   // optionally hiding the empty ones
   const ordered = board.statuses.map((s) => s.key);
@@ -279,6 +301,7 @@ export function Board(
                   board={board}
                   showObjective={group === "none"}
                   onOpen={openGuarded}
+                  onOpenFull={openFullGuarded}
                   compact={group !== "none"}
                   storyFilter={storyFilter}
                   onFilterStory={onFilterStory}
