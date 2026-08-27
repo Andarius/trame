@@ -4,7 +4,7 @@ import { type APIRequestContext, expect, test } from "@playwright/test";
 // double-clicking a row opens the drawer already expanded to full screen.
 test.describe.configure({ mode: "serial" });
 
-const PAGE_TITLES = ["Chip Proj", "Chip Story", "Chip Proj B"];
+const PAGE_TITLES = ["Chip Proj", "Chip Story", "Chip Proj B", "Linked todo e2e"];
 const SESSION_TITLES = [
   "chip session e2e",
   "other session e2e",
@@ -172,4 +172,30 @@ test("expanded ticket: journal pane and editable persistent specs", async ({ pag
   await page.getByRole("button", { name: "Tab B" }).click();
   await expect(page.getByText("beta item")).toBeVisible();
   await expect(page.getByText("alpha item")).not.toBeVisible();
+});
+
+test("item 🔗 links a session; chips render on both sides", async ({ page, request }) => {
+  await seed(request);
+  const r = await request.post("/api/pages", {
+    data: {
+      title: "Linked todo e2e",
+      content: [
+        { id: crypto.randomUUID(), type: "heading", text: "Open" },
+        { id: crypto.randomUUID(), type: "text", text: "- migrate the widget" },
+      ],
+    },
+  });
+  const { id: pid } = await r.json() as { id: string };
+  await page.goto(`/?view=page&page=${pid}`);
+  await page.locator("li", { hasText: "migrate the widget" }).hover();
+  await page.getByTitle("link a session").click();
+  await page.getByRole("button", { name: /chip session e2e/ }).click();
+  // chip lands on the item, linking to the session
+  await expect(page.getByTitle("session: chip session e2e")).toBeVisible();
+
+  // the ticket's Linked row shows the quoted item
+  await page.goto("/?view=list");
+  await page.getByText("chip session e2e").dblclick();
+  await expect(page.getByText("Linked", { exact: true })).toBeVisible();
+  await expect(page.getByTitle(/migrate the widget/)).toBeVisible();
 });
