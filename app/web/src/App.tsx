@@ -152,6 +152,132 @@ function GearIcon({ size = 15 }: { size?: number }) {
   );
 }
 
+// active session-filter chips plus an autocomplete input to add more
+// stories/projects; sessions shown are the union of the selected subtrees
+function FilterBar(
+  { pages, filter, onToggle, onClear }: {
+    pages: BoardData["pages"];
+    filter: string[];
+    onToggle: (id: string) => void;
+    onClear: () => void;
+  },
+) {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const [sel, setSel] = useState(0);
+  const ql = q.trim().toLowerCase();
+  // empty query (just focused): offer projects and stories, projects first;
+  // typing searches every page by title
+  const hits = (ql
+    ? pages.filter((p) =>
+      p.title && !filter.includes(p.id) &&
+      p.title.toLowerCase().includes(ql)
+    )
+    : pages
+      .filter((p) => p.title && !filter.includes(p.id) && p.kind !== "page")
+      .sort((a, b) =>
+        a.kind === b.kind
+          ? a.title.localeCompare(b.title)
+          : a.kind === "project"
+          ? -1
+          : 1
+      )).slice(0, 8);
+  const pick = (id: string) => {
+    onToggle(id);
+    setQ("");
+    setSel(0);
+  };
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      {filter.map((id) => {
+        const fp = pages.find((p) => p.id === id);
+        return (
+          <button
+            key={id}
+            type="button"
+            onClick={() => onToggle(id)}
+            title="Remove filter"
+            className="flex max-w-full shrink-0 items-center gap-1.5 rounded-md border border-copper/50 px-2 py-1 text-[11.5px] text-copper hover:bg-copper/10"
+          >
+            <EntityIcon
+              icon={fp?.icon}
+              fallback={pageGlyph(fp?.kind ?? "story")}
+              className="shrink-0 text-[9px]"
+            />
+            <span className="truncate">{fp?.title ?? "story"}</span>
+            <span className="shrink-0 text-[11px]">✕</span>
+          </button>
+        );
+      })}
+      <div className="relative">
+        <input
+          value={q}
+          placeholder="＋ filter…"
+          className="w-[110px] rounded-md border border-transparent bg-transparent px-2 py-1 text-[11.5px] text-ink outline-none placeholder:text-ink-muted/60 focus:border-chipline focus:bg-panel"
+          onChange={(e) => {
+            setQ(e.target.value);
+            setOpen(true);
+            setSel(0);
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setOpen(false)}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              setSel((s) => Math.min(s + 1, hits.length - 1));
+            }
+            if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setSel((s) => Math.max(s - 1, 0));
+            }
+            if (e.key === "Enter" && hits[sel]) {
+              e.preventDefault();
+              pick(hits[sel].id);
+            }
+            if (e.key === "Escape") {
+              setQ("");
+              setOpen(false);
+              (e.target as HTMLInputElement).blur();
+            }
+          }}
+        />
+        {open && hits.length > 0 && (
+          <div className="absolute left-0 top-full z-30 mt-1 w-[240px] overflow-hidden rounded-md border border-line bg-sidebar py-1 shadow-xl shadow-black/40">
+            {hits.map((p, i) => (
+              <button
+                key={p.id}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()} // keep input focus so blur doesn't kill the click
+                onClick={() => pick(p.id)}
+                className={`flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-[12px] ${
+                  i === sel ? "bg-panel text-ink" : "text-ink-soft hover:bg-panel"
+                }`}
+              >
+                <EntityIcon
+                  icon={p.icon}
+                  fallback={pageGlyph(p.kind)}
+                  className="shrink-0 text-[10px]"
+                />
+                <span className="truncate">{p.title}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {filter.length > 1 && (
+        <button
+          type="button"
+          onClick={onClear}
+          title="Clear all filters"
+          className="shrink-0 text-[11px] text-ink-muted hover:text-ink"
+        >
+          clear
+        </button>
+      )}
+    </div>
+  );
+}
+
 const NAV: {
   key: "sessions" | "agents" | "explore";
   glyph: string;
@@ -783,9 +909,13 @@ export function App() {
   });
   const [groupMenu, setGroupMenu] = useState(false);
   const [colMenu, setColMenu] = useState(false);
-  const [storyFilter, setStoryFilter] = useState<string | null>(
-    params.get("story"),
-  ); // narrow sessions to one story
+  const [storyFilter, setStoryFilter] = useState<string[]>(
+    params.get("story")?.split(",").filter(Boolean) ?? [],
+  ); // narrow sessions to the selected stories/projects (subtree union)
+  const toggleStoryFilter = (id: string) =>
+    setStoryFilter((cur) =>
+      cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
+    );
   // column order + the status set itself now live in the synced DB (board.statuses);
   // only "hide empty" stays a per-device preference.
   const [hideEmpty, setHideEmpty] = useState<boolean>(() =>
@@ -808,6 +938,17 @@ export function App() {
       null,
   );
   const [openId, setOpenId] = useState<string | null>(params.get("session"));
+  // double-click in the Sessions list opens the drawer already expanded; mirrored
+  // to the URL so a refresh restores it. A session link WITHOUT &full defaults to
+  // the full ticket (a direct link means "show me this session") — only an
+  // explicit full=0 (written when collapsing in-app) keeps the side panel.
+  const [drawerFull, setDrawerFull] = useState(
+    params.get("session") !== null && params.get("full") !== "0",
+  );
+  const openSession = (id: string, full = false) => {
+    setDrawerFull(full);
+    setOpenId(id);
+  };
   const [exploreEpoch, setExploreEpoch] = useState(0); // bump to rescan files after settings change
   const [exploreTarget, setExploreTarget] = useState<string | null>(null); // report path to pre-open in Explore
   const [exploreReturn, setExploreReturn] = useState<string | null>(null); // page id to go back to from Explore
@@ -848,7 +989,7 @@ export function App() {
 
   const onPalettePick = (h: SearchHit) => {
     setPaletteOpen(false);
-    if (h.kind === "session") setOpenId(h.id);
+    if (h.kind === "session") openSession(h.id);
     else if (h.kind === "client") openClient(h.id);
     else if (h.kind === "database") openDb(h.id);
     else openPage(h.id);
@@ -947,10 +1088,11 @@ export function App() {
     put("client", view === "client" ? clientId : null);
     put("plugin", view === "plugin" ? pluginId : null);
     put("session", openId);
+    put("full", openId ? (drawerFull ? "1" : "0") : null);
     put("group", group === "none" ? null : group);
-    put("story", storyFilter);
+    put("story", storyFilter.join(",") || null);
     history.replaceState(null, "", u);
-  }, [view, pageId, dbId, clientId, pluginId, openId, group, storyFilter]);
+  }, [view, pageId, dbId, clientId, pluginId, openId, drawerFull, group, storyFilter]);
   useEffect(() => {
     refresh();
     const t = setInterval(refresh, 5000);
@@ -1414,26 +1556,13 @@ export function App() {
                 </button>
               )}
           </div>
-          {isSessions && storyFilter && (
-            <div className="flex">
-              <button
-                type="button"
-                onClick={() => setStoryFilter(null)}
-                title="Clear filter"
-                className="flex max-w-full items-center gap-1.5 rounded-md border border-copper/50 px-2 py-1 text-[11.5px] text-copper hover:bg-copper/10"
-              >
-                {(() => {
-                  const fp = board?.pages.find((p) => p.id === storyFilter);
-                  return (
-                    <>
-                      <EntityIcon icon={fp?.icon} fallback={pageGlyph(fp?.kind ?? "story")} className="shrink-0 text-[9px]" />
-                      <span className="truncate">{fp?.title ?? "story"}</span>
-                    </>
-                  );
-                })()}
-                <span className="shrink-0 text-[11px]">✕</span>
-              </button>
-            </div>
+          {isSessions && board && (
+            <FilterBar
+              pages={board.pages}
+              filter={storyFilter}
+              onToggle={toggleStoryFilter}
+              onClear={() => setStoryFilter([])}
+            />
           )}
         </header>
         {!board
@@ -1444,10 +1573,10 @@ export function App() {
               board={board}
               group={group}
               onMove={onMove}
-              onOpen={setOpenId}
+              onOpen={(id) => openSession(id)}
+              onOpenFull={(id) => openSession(id, true)}
               storyFilter={storyFilter}
-              onFilterStory={(id) =>
-                setStoryFilter((cur) => cur === id ? null : id)}
+              onFilterStory={toggleStoryFilter}
               hideEmpty={hideEmpty}
               selected={selected}
               onToggleSelect={toggleSelected}
@@ -1458,10 +1587,10 @@ export function App() {
           ? (
             <List
               board={board}
-              onOpen={setOpenId}
+              onOpen={(id) => openSession(id)}
+              onOpenFull={(id) => openSession(id, true)}
               storyFilter={storyFilter}
-              onFilterStory={(id) =>
-                setStoryFilter((cur) => cur === id ? null : id)}
+              onFilterStory={toggleStoryFilter}
               selected={selected}
               onToggleSelect={toggleSelected}
               onSelectMany={selectMany}
@@ -1476,7 +1605,7 @@ export function App() {
                 board={board}
                 udbs={udbs}
                 onOpenPage={openPage}
-                onOpenSession={setOpenId}
+                onOpenSession={(id) => openSession(id)}
                 onOpenClient={openClient}
                 onOpenReport={openReport}
                 onChanged={refresh}
@@ -1502,7 +1631,7 @@ export function App() {
                 board={board}
                 clientId={clientId}
                 onOpenPage={openPage}
-                onOpenSession={setOpenId}
+                onOpenSession={(id) => openSession(id)}
               />
             )
             : <p className="p-6 text-ink-muted">No client selected.</p>)
@@ -1515,7 +1644,7 @@ export function App() {
               : <p className="p-6 text-ink-muted">Unknown plugin.</p>;
           })()
           : view === "agents"
-          ? <AgentSessions board={board} onOpenSession={setOpenId} />
+          ? <AgentSessions board={board} onOpenSession={(id) => openSession(id)} />
           : (
             <Explore
               key={exploreEpoch}
@@ -1557,6 +1686,8 @@ export function App() {
               key={session.id}
               session={session}
               board={board}
+              defaultExpanded={drawerFull}
+              onExpandedChange={setDrawerFull}
               onClose={() => setOpenId(null)}
               onSaved={refresh}
             />
