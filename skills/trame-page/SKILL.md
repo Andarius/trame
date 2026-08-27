@@ -92,9 +92,10 @@ instead (next section).
 2. Identify the page by `page_id` or exact `page_title`. Identify the target block by
    `block_id` or a unique `block_text` quote from the page. Prefer a concise exact quote.
 3. Prefer the `trame_add_comment` MCP tool when available. Pass the page reference,
-   block reference, comment `body`, and `agent` set to the id of the model actually
-   writing — attribute the real model, not the harness seat. `codex` and `claude` get a
-   branded avatar; any other id (e.g. `glm`, `gemini`) gets a generated one.
+   block reference, comment `body`, `agent` set to the id of the model actually
+   writing — attribute the real model, not the harness seat (`codex` and `claude` get a
+   branded avatar; any other id, e.g. `glm`, `gemini`, gets a generated one) — and
+   `meta` (see step 5; the tool rejects calls without `meta.model`).
 4. Otherwise pipe one JSON object to `__COMMENT_WRITER__`:
 
    ```json
@@ -102,7 +103,8 @@ instead (next section).
      "page_title": "Release plan",
      "block_text": "Ship the first release",
      "body": "Clarify the rollback criterion.",
-     "agent": "codex"
+     "agent": "codex",
+     "meta": {"model": "gpt-5.6-sol", "in": 12894, "out": 512, "ms": 8300}
    }
    ```
 
