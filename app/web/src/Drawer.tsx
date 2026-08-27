@@ -6,8 +6,6 @@ import {
   deleteSessionLink,
   getEvents,
   getSessionLinks,
-  openInBrowser,
-  prState,
   probeResume,
   type ResumeInfo,
   type ResumeMode,
@@ -19,7 +17,7 @@ import {
   type Status,
 } from "./api";
 import { appConfirm, clientColor, pageOptions, Popover, Select, StatusDot, timeAgo } from "./ui";
-import { Markdown } from "./md";
+import { Markdown, PrChip } from "./md";
 
 // How the Resume button places the session; the last pick is the default, persisted.
 const RESUME_MODES: { mode: ResumeMode; label: string; hint: string }[] = [
@@ -37,14 +35,6 @@ const sectionLbl = "text-[10px] font-medium tracking-[0.8px] text-ink-muted/70";
 const SPECS_PLACEHOLDER = "- what this session must deliver\n- constraints, links, done-when…";
 const rowLbl = "shrink-0 pt-[5px] text-[11px] text-ink-muted";
 
-// PR/MR link chips: state colors + a short label (repo#42 / proj!39) parsed from the URL
-const PR_STATE_COLOR: Record<string, string> = {
-  open: "#7bd88f",
-  draft: "#8b93a3",
-  merged: "#b590e7",
-  closed: "#e06c75",
-  unknown: "#5a6172",
-};
 // journal attribution: which coding agent produced a track/import entry.
 // Brand paths mirror app/agent-comments.ts (Simple Icons OpenAI v15.0.0 /
 // Anthropic v16.21.0) — copied, not imported: web code never pulls server modules.
@@ -117,16 +107,6 @@ function ExpandIcon({ open }: { open: boolean }) {
     </svg>
   );
 }
-function prLabel(url: string): string {
-  try {
-    const u = new URL(url);
-    const mr = u.pathname.includes("/merge_requests/");
-    const m = u.pathname.match(/\/([^/]+)\/(?:pull|-\/merge_requests)\/(\d+)/);
-    return m ? `${m[1]}${mr ? "!" : "#"}${m[2]}` : `${u.host}${u.pathname}`;
-  } catch {
-    return url;
-  }
-}
 const rowVal =
   "w-full truncate rounded-md border border-transparent bg-transparent px-2 py-1 text-xs text-ink outline-none transition-colors hover:bg-panel focus:border-chipline focus:bg-panel";
 
@@ -180,7 +160,6 @@ export function Drawer(
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight}px`;
   };
-  const [prStates, setPrStates] = useState<Record<string, string>>({});
   const prLinks = prUrl.split("\n").map((s) => s.trim()).filter(Boolean);
   const [events, setEvents] = useState<SessionEvent[]>([]);
   // page-item links ("this session works on that TODO line")
@@ -206,14 +185,6 @@ export function Drawer(
     if (!session.repo_path) return;
     probeResume(session.id).then(setResumeInfo).catch(() => {});
   }, [session.id, session.repo_path]);
-
-  // resolve each PR/MR link's state (best-effort; server caches, GitHub via gh)
-  useEffect(() => {
-    for (const url of prLinks) {
-      if (prStates[url]) continue;
-      prState(url).then((state) => setPrStates((m) => ({ ...m, [url]: state })));
-    }
-  }, [prUrl]);
 
   // size the next-step textarea to its content when it enters edit mode
   useEffect(() => {
@@ -495,40 +466,22 @@ export function Drawer(
   );
   const prField = (
     <div className="flex min-w-0 flex-col gap-1">
-      {prLinks.map((url) => {
-        const state = prStates[url] ?? "unknown";
-        return (
-          <div key={url} className="group flex items-center gap-1.5 rounded-md px-2 py-1 hover:bg-panel">
-            <span
-              className="h-[7px] w-[7px] shrink-0 rounded-full"
-              style={{ background: PR_STATE_COLOR[state] ?? PR_STATE_COLOR.unknown }}
-              title={state}
-            />
-            <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink" title={url}>
-              {prLabel(url)}
-            </span>
-            {state !== "unknown" && <span className="shrink-0 text-[10px] text-ink-muted">{state}</span>}
-            <button type="button"
-              className="shrink-0 text-[11.5px] text-ink-muted transition-colors hover:text-copper"
-              title="open in browser"
-              onClick={() => openInBrowser(url)}
-            >
-              ↗
-            </button>
-            <button type="button"
-              className="shrink-0 text-[11.5px] text-ink-muted opacity-0 transition-opacity hover:text-blocked group-hover:opacity-100"
-              title="remove"
-              onClick={() => {
-                const next = prLinks.filter((u) => u !== url).join("\n");
-                setPrUrl(next);
-                commit({ pr_url: next || undefined });
-              }}
-            >
-              ✕
-            </button>
-          </div>
-        );
-      })}
+      {prLinks.map((url) => (
+        <div key={url} className="group flex min-w-0 items-center gap-1">
+          <PrChip url={url} />
+          <button type="button"
+            className="shrink-0 text-[11.5px] text-ink-muted opacity-0 transition-opacity hover:text-blocked group-hover:opacity-100"
+            title="remove"
+            onClick={() => {
+              const next = prLinks.filter((u) => u !== url).join("\n");
+              setPrUrl(next);
+              commit({ pr_url: next || undefined });
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      ))}
       <input
         className={rowVal}
         value={prNew}

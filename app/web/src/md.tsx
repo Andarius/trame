@@ -147,7 +147,7 @@ function MergeMark() {
   );
 }
 
-function PrChip({ url, label }: { url: string; label?: string }) {
+export function PrChip({ url, label }: { url: string; label?: string }) {
   const [info, setInfo] = useState<PrInfo>(
     prInfoCache.get(url) ?? { state: "unknown" },
   );
