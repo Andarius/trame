@@ -472,12 +472,99 @@ function highlightCode(code: string, lang: Hl): ReactNode[] {
 // checks with muted text, "open" renders copper rings in a copper-tinted callout.
 export type ListVariant = "done" | "open";
 
-// per-row table controls (reorder / comment) — only wired by the page editor;
-// read-only contexts (comments, drawers) render plain tables
+// per-row controls (table reorder/comment, open-list mark-done) — only wired by
+// the page editor; read-only contexts (comments, drawers) render them inert
 type TableOps = {
   onEdit?: (next: string) => void;
   onCommentRow?: (anchor: string) => void;
+  onMarkDone?: (item: string) => void;
+  onMarkOpen?: (item: string) => void;
+  onEditItem?: (item: string, next: string) => void;
 };
+
+// click a list item's text to edit just that line in place (page editor only) —
+// Enter/blur commits, Escape cancels; links/images/buttons inside keep their clicks
+function EditableItem(
+  { raw, onCommit, children }: {
+    raw: string;
+    onCommit: (next: string) => void;
+    children: ReactNode;
+  },
+) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(raw);
+  const grow = (el: HTMLTextAreaElement) => {
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  };
+  if (!editing) {
+    return (
+      <span
+        className="min-w-0 cursor-text"
+        onClick={(e) => {
+          if ((e.target as HTMLElement).closest("a,img,button")) return;
+          e.stopPropagation();
+          setVal(raw);
+          setEditing(true);
+        }}
+      >
+        {children}
+      </span>
+    );
+  }
+  return (
+    <textarea
+      rows={1}
+      value={val}
+      className="w-full min-w-0 resize-none rounded border-none bg-panel px-1 font-mono text-[12px] leading-relaxed text-ink outline-none"
+      ref={(el) => {
+        if (el && document.activeElement !== el) {
+          grow(el);
+          el.focus();
+          el.setSelectionRange(el.value.length, el.value.length);
+        }
+      }}
+      onChange={(e) => {
+        setVal(e.target.value);
+        grow(e.target);
+      }}
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          setEditing(false);
+          onCommit(val);
+        }
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          setEditing(false);
+        }
+      }}
+      onBlur={() => {
+        setEditing(false);
+        onCommit(val);
+      }}
+    />
+  );
+}
+
+// wraps an item's rendered content in the line editor when the page editor wired it
+function itemContent(
+  t: string,
+  ops: TableOps | undefined,
+  cls?: string,
+): ReactNode {
+  return ops?.onEditItem
+    ? (
+      <EditableItem raw={t} onCommit={(next) => ops.onEditItem!(t, next)}>
+        {renderInline(t)}
+      </EditableItem>
+    )
+    : cls
+    ? <span className={cls}>{renderInline(t)}</span>
+    : renderInline(t);
+}
 
 // Card-framed table. When editable: click selects a row (shift = range,
 // ctrl/cmd = toggle), ↑/↓ moves the selection, Delete removes it, Escape clears.
@@ -846,7 +933,7 @@ function renderBlocks(
             className="my-1 list-decimal space-y-0.5 pl-5 text-ink-soft"
           >
             {texts.map((t, j) => (
-              <li key={j} className="leading-relaxed">{renderInline(t)}</li>
+              <li key={j} className="leading-relaxed">{itemContent(t, ops)}</li>
             ))}
           </ol>,
         );
@@ -858,10 +945,28 @@ function renderBlocks(
           >
             {texts.map((t, j) => (
               <li key={j} className="flex gap-2 leading-relaxed">
-                <span className="w-3.5 shrink-0 pt-px text-center text-[11px] text-active">
-                  ✓
-                </span>
-                <span className="min-w-0">{renderInline(t)}</span>
+                {ops?.onMarkOpen
+                  ? (
+                    <button
+                      type="button"
+                      title="Mark as open"
+                      className="w-3.5 shrink-0 pt-px text-center text-[11px] text-active hover:opacity-60"
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        // don't bubble into the block's click-to-edit
+                        e.stopPropagation();
+                        ops.onMarkOpen!(t);
+                      }}
+                    >
+                      ✓
+                    </button>
+                  )
+                  : (
+                    <span className="w-3.5 shrink-0 pt-px text-center text-[11px] text-active">
+                      ✓
+                    </span>
+                  )}
+                {itemContent(t, ops, "min-w-0")}
               </li>
             ))}
           </ul>,
@@ -875,8 +980,24 @@ function renderBlocks(
             <ul className="list-none space-y-1.5 pl-0 text-ink-soft">
               {texts.map((t, j) => (
                 <li key={j} className="flex gap-2 leading-relaxed">
-                  <span className="mt-[5px] h-3 w-3 shrink-0 rounded-full border-[1.5px] border-copper" />
-                  <span className="min-w-0">{renderInline(t)}</span>
+                  {ops?.onMarkDone
+                    ? (
+                      <button
+                        type="button"
+                        title="Mark as done"
+                        className="mt-[5px] h-3 w-3 shrink-0 rounded-full border-[1.5px] border-copper hover:bg-copper/20"
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          // don't bubble into the block's click-to-edit
+                          e.stopPropagation();
+                          ops.onMarkDone!(t);
+                        }}
+                      />
+                    )
+                    : (
+                      <span className="mt-[5px] h-3 w-3 shrink-0 rounded-full border-[1.5px] border-copper" />
+                    )}
+                  {itemContent(t, ops, "min-w-0")}
                 </li>
               ))}
             </ul>
@@ -889,7 +1010,7 @@ function renderBlocks(
             className="my-1 list-disc space-y-0.5 pl-4 text-ink-soft"
           >
             {texts.map((t, j) => (
-              <li key={j} className="leading-relaxed">{renderInline(t)}</li>
+              <li key={j} className="leading-relaxed">{itemContent(t, ops)}</li>
             ))}
           </ul>,
         );
@@ -939,19 +1060,37 @@ function renderBlocks(
 }
 
 // Render `text` as Markdown. `className` styles the wrapper (e.g. font size context).
-// `onEdit`/`onCommentRow` enable per-row table controls (page editor only).
+// `onEdit`/`onCommentRow`/`onMarkDone` enable per-row controls (page editor only).
 export function Markdown(
-  { text, className, listVariant, onEdit, onCommentRow }: {
+  {
+    text,
+    className,
+    listVariant,
+    onEdit,
+    onCommentRow,
+    onMarkDone,
+    onMarkOpen,
+    onEditItem,
+  }: {
     text: string;
     className?: string;
     listVariant?: ListVariant;
     onEdit?: (next: string) => void;
     onCommentRow?: (anchor: string) => void;
+    onMarkDone?: (item: string) => void;
+    onMarkOpen?: (item: string) => void;
+    onEditItem?: (item: string, next: string) => void;
   },
 ) {
   return (
     <div className={className}>
-      {renderBlocks(text, listVariant, { onEdit, onCommentRow })}
+      {renderBlocks(text, listVariant, {
+        onEdit,
+        onCommentRow,
+        onMarkDone,
+        onMarkOpen,
+        onEditItem,
+      })}
     </div>
   );
 }

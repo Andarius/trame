@@ -841,8 +841,107 @@ function BlockEditor(
     ]);
   };
   const remove = (i: number) => {
+    snapshot();
     onChange(blocks.filter((_, j) => j !== i));
     setFocusIdx(Math.max(0, i - 1));
+  };
+  // shared by ○/✓ list clicks: pull `item` out of block i's list and re-file its
+  // `line` into the list under the first heading matching `head` (created as
+  // `newHeading` if missing) — prepended for done items, appended for reopened ones
+  const refileItem = (
+    i: number,
+    item: string,
+    head: RegExp,
+    newHeading: string,
+    line: string,
+    prepend: boolean,
+  ) => {
+    const cur = blocks[i];
+    if (!isText(cur)) return;
+    const strip = (l: string) => l.replace(/^\s*[-*+]\s+/, "");
+    const lines = cur.text.split("\n");
+    const li = lines.findIndex((l) =>
+      /^\s*[-*+]\s+/.test(l) && strip(l) === item
+    );
+    if (li < 0) return;
+    snapshot();
+    lines.splice(li, 1);
+    const restText = lines.join("\n");
+    const next: Block[] = [];
+    for (let j = 0; j < blocks.length; j++) {
+      if (j === i) {
+        if (restText.trim()) next.push({ ...cur, text: restText });
+      } else next.push(blocks[j]);
+    }
+    let h = next.findIndex((b) =>
+      isText(b) && b.type === "heading" && head.test(b.text)
+    );
+    if (h < 0) {
+      const hb = { type: "heading", text: newHeading, id: genId() } as Block;
+      if (prepend) next.push(hb);
+      else next.unshift(hb);
+      h = prepend ? next.length - 1 : 0;
+    }
+    for (let j = h + 1; j <= next.length; j++) {
+      const b = next[j];
+      if (b && isText(b) && b.type === "text" && /^\s*[-*+]\s+/.test(b.text)) {
+        next[j] = {
+          ...b,
+          text: prepend ? `${line}\n${b.text}` : `${b.text}\n${line}`,
+        };
+        break;
+      }
+      if (!b || (isText(b) && b.type === "heading")) {
+        next.splice(j, 0, { type: "text", text: line, id: genId() } as Block);
+        break;
+      }
+    }
+    onChange(next);
+  };
+  // ○ click on an "open" markdown list: move the item to the top of the list under
+  // the Completed heading, stamped with a done pill; undoable via Ctrl+Z
+  const markDone = (i: number, item: string) => {
+    const d = new Date();
+    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")
+    }-${String(d.getDate()).padStart(2, "0")}`;
+    refileItem(
+      i,
+      item,
+      /^\s*(completed|done|shipped)\b/i,
+      "Completed",
+      `- ${item} {{green:done ${day}}}`,
+      true,
+    );
+  };
+  // ✓ click on a "done" markdown list: strip the done pill and lift the item back
+  // to the end of the Open list; undoable via Ctrl+Z
+  const markOpen = (i: number, item: string) =>
+    refileItem(
+      i,
+      item,
+      /^\s*(open|todo|next|pending|remaining|in progress|blocked)\b/i,
+      "Open",
+      `- ${item.replace(/\s*\{\{green:done [^}]*\}\}\s*$/, "")}`,
+      false,
+    );
+  // inline single-line edit from a rendered list item — replaces just that line
+  // (clearing it removes the item); undoable via Ctrl+Z
+  const editItem = (i: number, item: string, next: string) => {
+    const cur = blocks[i];
+    if (!isText(cur) || next === item) return;
+    const re = /^(\s*(?:[-*+]|\d+\.)\s+)(.*)$/;
+    const lines = cur.text.split("\n");
+    const li = lines.findIndex((l) => l.match(re)?.[2] === item);
+    if (li < 0) return;
+    snapshot();
+    if (next.trim()) lines[li] = lines[li].match(re)![1] + next;
+    else lines.splice(li, 1);
+    const text = lines.join("\n");
+    onChange(
+      text.trim()
+        ? blocks.map((b, j) => (j === i ? { ...b, text } as Block : b))
+        : blocks.filter((_, j) => j !== i),
+    );
   };
   // Alt+↑ / Alt+↓ — swap the focused block with its neighbor
   const move = (i: number, dir: -1 | 1) => {
@@ -853,15 +952,48 @@ function BlockEditor(
     onChange(next);
     setFocusIdx(j);
   };
+  // undo history for structural edits (drag reorder, block delete) — Ctrl/⌘+Z
+  // outside a textarea restores; text edits keep the browser's native undo
+  const undoStack = useRef<Block[][]>([]);
+  const snapshot = () => {
+    undoStack.current.push(blocks);
+    if (undoStack.current.length > 30) undoStack.current.shift();
+  };
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || (e.key !== "z" && e.key !== "Z")) return;
+      const tag = (document.activeElement as HTMLElement | null)?.tagName;
+      if (tag === "TEXTAREA" || tag === "INPUT") return;
+      const prev = undoStack.current.pop();
+      if (!prev) return;
+      e.preventDefault();
+      onChangeRef.current(prev);
+    };
+    document.addEventListener("keydown", key);
+    return () => document.removeEventListener("keydown", key);
+  }, []);
   // mouse reordering: ⋮⋮ handle on hover, drop on a row to move the block there.
   // Pointer events, NOT html5 dnd — WebKitGTK (the desktop webview) drops dragstart.
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
   const moveTo = (from: number, to: number) => {
     if (from === to) return;
+    // a heading drags its whole section (every block up to the next heading)
+    const head = blocks[from];
+    let len = 1;
+    if (isText(head) && head.type === "heading") {
+      while (
+        from + len < blocks.length &&
+        !(isText(blocks[from + len]) && blocks[from + len].type === "heading")
+      ) len++;
+    }
+    if (to > from && to < from + len) return; // dropped inside its own section
+    snapshot();
     const next = [...blocks];
-    const [moved] = next.splice(from, 1);
-    next.splice(to, 0, moved);
+    const moved = next.splice(from, len);
+    next.splice(to > from ? to - len + 1 : to, 0, ...moved);
     onChange(next);
   };
   useEffect(() => {
@@ -1154,9 +1286,13 @@ function BlockEditor(
                     : "cursor-text"
                 } ${textCls}`}
                 // a drag-selection also fires click on mouseup; only a plain click edits
-                onClick={() => {
+                onClick={(e) => {
                   if (document.getSelection()?.isCollapsed === false) return;
-                  if (isImage || isTable || isSnippet) {
+                  // an inline image inside a text block selects instead of opening
+                  // the raw markdown; clicks on the surrounding text still edit
+                  const onImg =
+                    (e.target as HTMLElement).tagName === "IMG";
+                  if (isImage || isTable || isSnippet || onImg) {
                     return setSelectedId(bid);
                   }
                   setFocusIdx(i);
@@ -1170,7 +1306,10 @@ function BlockEditor(
                 }}
                 onMouseDown={(e) => {
                   // keep the document-level clear from racing this row's select
-                  if (isImage || isTable || isSnippet) e.stopPropagation();
+                  if (
+                    isImage || isTable || isSnippet ||
+                    (e.target as HTMLElement).tagName === "IMG"
+                  ) e.stopPropagation();
                 }}
               >
                 <Markdown
@@ -1180,6 +1319,13 @@ function BlockEditor(
                   onCommentRow={isTable && b.id
                     ? (anchor) => setRowPending({ id: b.id as string, anchor })
                     : undefined}
+                  onMarkDone={listVariant === "open"
+                    ? (item) => markDone(i, item)
+                    : undefined}
+                  onMarkOpen={listVariant === "done"
+                    ? (item) => markOpen(i, item)
+                    : undefined}
+                  onEditItem={(item, next) => editItem(i, item, next)}
                 />
               </div>
               <textarea
