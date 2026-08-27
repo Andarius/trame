@@ -2,7 +2,7 @@
 // grouped under one tab per org/group. The backend poller owns freshness;
 // the deploy button approves/plays via /approve (two clicks — confirm step),
 // the row deep-links to the forge as before.
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { openInBrowser } from "../../api";
 import { timeAgo } from "../../ui";
 
@@ -22,13 +22,31 @@ type PendingDeployment = {
   repo: string;
   environment: string;
   ref: string;
+  sha?: string | null;
   title: string;
   requester: string | null;
   waitingSince: string;
   url: string;
   action: ApproveAction | null;
   status: DeployStatus;
+  ignored?: boolean;
 };
+
+type ChangelogCommit = {
+  sha: string;
+  title: string;
+  author: string | null;
+  date: string | null;
+  url: string | null;
+};
+type Changelog =
+  | {
+    ok: true;
+    baseline: string | null;
+    compareUrl: string | null;
+    commits: ChangelogCommit[];
+  }
+  | { ok: false; error: string };
 export type DeploymentsState = {
   configured: boolean;
   items: PendingDeployment[];
@@ -109,6 +127,66 @@ export function SourceChip({ source }: { source: "github" | "gitlab" }) {
   );
 }
 
+// Inline changelog under a row: commits between the environment's last deploy
+// and this one, newest first.
+function ChangelogBlock({ log }: { log: Changelog | "loading" | undefined }) {
+  return (
+    <div className="border-b border-line-soft bg-card/30 px-4 py-2 text-[11.5px] last:border-b-0">
+      {!log || log === "loading"
+        ? <span className="text-ink-muted">Loading changelog…</span>
+        : !log.ok
+        ? <span className="text-blocked">{log.error}</span>
+        : log.commits.length === 0
+        ? (
+          <span className="text-ink-muted">
+            No commits since the last deploy.
+          </span>
+        )
+        : (
+          <>
+            <div className="flex items-center gap-2 pb-1 text-[10.5px] text-ink-muted">
+              {log.commits.length} commit{log.commits.length === 1 ? "" : "s"}
+              {log.baseline ? ` since ${log.baseline}` : ""}
+              {log.compareUrl && (
+                <button
+                  type="button"
+                  className="text-copper hover:underline"
+                  onClick={() => openInBrowser(log.compareUrl!)}
+                >
+                  compare ↗
+                </button>
+              )}
+            </div>
+            {log.commits.map((c) => (
+              <div
+                key={c.sha}
+                onClick={() => c.url && openInBrowser(c.url)}
+                className={`flex items-center gap-2.5 rounded py-[3px] ${
+                  c.url ? "cursor-pointer hover:bg-card/60" : ""
+                }`}
+              >
+                <span className="shrink-0 font-mono text-[10.5px] text-ink-muted">
+                  {c.sha}
+                </span>
+                <span className="min-w-0 flex-1 truncate">{c.title}</span>
+                {c.author && (
+                  <span className="shrink-0 text-[10.5px] text-ink-muted">
+                    {c.author}
+                  </span>
+                )}
+                {c.date && (
+                  <span className="w-16 shrink-0 text-right text-[10.5px] text-ink-muted">
+                    {timeAgo(c.date)}
+                  </span>
+                )}
+              </div>
+            ))}
+          </>
+        )}
+    </div>
+  );
+}
+
 export function DeploymentsPanel(
   { onOpenSettings }: { onOpenSettings: () => void },
 ) {
@@ -118,6 +196,9 @@ export function DeploymentsPanel(
   const [confirming, setConfirming] = useState<string | null>(null); // item key
   const [deploying, setDeploying] = useState<string | null>(null);
   const [deployErr, setDeployErr] = useState<Record<string, string>>({});
+  const [showIgnored, setShowIgnored] = useState(false);
+  const [openLog, setOpenLog] = useState<string | null>(null); // item key
+  const [logs, setLogs] = useState<Record<string, Changelog | "loading">>({});
 
   // Read the cached state on a cadence that matches the backend: quick while a
   // pipeline is in flight, relaxed otherwise.
@@ -157,10 +238,41 @@ export function DeploymentsPanel(
       .finally(() => setDeploying(null));
   };
 
-  // org → tracked-deployment count, biggest first (tab order stays meaningful)
+  const setIgnored = (d: PendingDeployment, ignored: boolean) => {
+    fetch("/api/plugins/deployments/ignore", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ url: d.url, environment: d.environment, ignored }),
+    })
+      .then((r) => r.json())
+      .then((r: { ok: boolean; state?: DeploymentsState }) => {
+        if (r.ok && r.state) setState(r.state);
+      })
+      .catch(() => {});
+  };
+
+  // toggle the inline changelog; fetched once per item then cached for the view
+  const toggleLog = (d: PendingDeployment, key: string) => {
+    if (openLog === key) return setOpenLog(null);
+    setOpenLog(key);
+    if (logs[key]) return;
+    setLogs((l) => ({ ...l, [key]: "loading" }));
+    fetch("/api/plugins/deployments/changelog", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ url: d.url, environment: d.environment }),
+    })
+      .then((r) => r.json() as Promise<Changelog>)
+      .catch(() => ({ ok: false as const, error: "request failed" }))
+      .then((r) => setLogs((l) => ({ ...l, [key]: r })));
+  };
+
+  // org → tracked-deployment count (ignored excluded, like the nav badge),
+  // biggest first (tab order stays meaningful)
   const orgs = useMemo(() => {
     const m = new Map<string, number>();
     for (const d of state?.items ?? []) {
+      if (d.ignored) continue;
       m.set(orgOf(d.repo), (m.get(orgOf(d.repo)) ?? 0) + 1);
     }
     return [...m.entries()].sort((a, b) =>
@@ -192,9 +304,10 @@ export function DeploymentsPanel(
     );
   }
 
-  const shown = org
-    ? state.items.filter((d) => orgOf(d.repo) === org)
-    : state.items;
+  const nonIgnored = state.items.filter((d) => !d.ignored);
+  const ignoredCount = state.items.length - nonIgnored.length;
+  const base = showIgnored ? state.items : nonIgnored;
+  const shown = org ? base.filter((d) => orgOf(d.repo) === org) : base;
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-3">
@@ -220,6 +333,22 @@ export function DeploymentsPanel(
         >
           {busy ? "Refreshing…" : "Refresh"}
         </button>
+        {ignoredCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowIgnored((v) => !v)}
+            title={showIgnored
+              ? "Hide ignored deployments"
+              : "Show ignored deployments"}
+            className={`rounded-md border px-2 py-0.5 text-[11px] ${
+              showIgnored
+                ? "border-copper/50 text-copper"
+                : "border-chipline text-ink-muted hover:text-ink-soft"
+            }`}
+          >
+            {ignoredCount} ignored
+          </button>
+        )}
         <button
           type="button"
           onClick={onOpenSettings}
@@ -246,7 +375,7 @@ export function DeploymentsPanel(
       {/* one tab per org — an org's noise never buries another's */}
       {orgs.length > 0 && (
         <div className="mb-3.5 flex gap-1 border-b border-line px-1">
-          {[["__all", state.items.length] as [string, number], ...orgs].map(
+          {[["__all", nonIgnored.length] as [string, number], ...orgs].map(
             ([name, count]) => {
               const isAll = name === "__all";
               const active = isAll ? org === null : org === name;
@@ -283,107 +412,143 @@ export function DeploymentsPanel(
             {shown.map((d) => {
               const key = d.url + d.environment;
               return (
-                <div
-                  key={key}
-                  onClick={() => openInBrowser(d.url)}
-                  title={d.status === "running"
-                    ? "Open the running pipeline"
-                    : d.status === "failed"
-                    ? "Open the failed pipeline"
-                    : "Open the approval page in the browser"}
-                  className="flex cursor-pointer items-center gap-3.5 border-b border-line-soft px-3.5 py-[11px] last:border-b-0 hover:bg-card/50"
-                >
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-[12.5px] font-medium">
-                      {d.title}
-                    </span>
-                    <span className="mt-0.5 flex items-center gap-1.5 truncate text-[10.5px] text-ink-muted">
-                      <SourceChip source={d.source} /> {d.repo}
-                      {d.requester ? ` · ${d.requester}` : ""}
-                    </span>
-                  </span>
-                  <span className="w-20 truncate font-mono text-[10.5px] text-ink-muted">
-                    {d.ref}
-                  </span>
-                  <span
-                    className="whitespace-nowrap rounded-full border px-2 py-0.5 text-[10.5px]"
-                    style={{
-                      color: envColor(d.environment),
-                      borderColor: envColor(d.environment) + "66",
-                      background: envColor(d.environment) + "1a",
-                    }}
-                  >
-                    {d.environment}
-                  </span>
-                  <span
-                    className={`w-[76px] text-right text-[11px] ${
-                      d.status === "failed"
-                        ? "text-blocked"
-                        : ageColor(d.waitingSince)
+                <Fragment key={key}>
+                  <div
+                    onClick={() => openInBrowser(d.url)}
+                    title={d.status === "running"
+                      ? "Open the running pipeline"
+                      : d.status === "failed"
+                      ? "Open the failed pipeline"
+                      : "Open the approval page in the browser"}
+                    className={`group flex cursor-pointer items-center gap-3.5 border-b border-line-soft px-3.5 py-[11px] last:border-b-0 hover:bg-card/50 ${
+                      d.ignored ? "opacity-45" : ""
                     }`}
                   >
-                    {d.status === "running" ? "" : timeAgo(d.waitingSince)}
-                  </span>
-                  {d.status === "running"
-                    ? (
-                      <span className="flex items-center gap-1.5 whitespace-nowrap text-[11.5px] text-copper">
-                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-copper" />
-                        deploying · {elapsed(d.waitingSince)}
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span className="truncate text-[12.5px] font-medium">
+                        {d.title}
                       </span>
-                    )
-                    : d.status === "failed"
-                    ? (
-                      <span
-                        className="whitespace-nowrap text-[11.5px] text-blocked"
-                        title="pipeline failed — open to inspect the logs"
-                      >
-                        ✕ failed
+                      <span className="mt-0.5 flex items-center gap-1.5 truncate text-[10.5px] text-ink-muted">
+                        <SourceChip source={d.source} /> {d.repo}
+                        {d.requester ? ` · ${d.requester}` : ""}
                       </span>
-                    )
-                    : d.action
-                    ? (
-                      <button
-                        type="button"
-                        disabled={deploying === key}
-                        title={deployErr[key]
-                          ? `${deployErr[key]} — click to retry`
-                          : d.action.kind === "gitlab-play"
-                          ? "run the deploy job"
-                          : "approve this deployment"}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (confirming === key) deploy(d, key);
-                          else {
-                            setConfirming(key);
-                            // un-arm after a beat — no stale confirm on another row
-                            setTimeout(
-                              () =>
-                                setConfirming((c) => (c === key ? null : c)),
-                              4000,
-                            );
-                          }
-                        }}
-                        className={`whitespace-nowrap rounded-md border px-2 py-0.5 text-[11.5px] disabled:opacity-40 ${
-                          confirming === key || deployErr[key]
-                            ? "border-blocked/60 text-blocked hover:bg-blocked/10"
-                            : "border-copper/50 text-copper hover:bg-copper/10"
-                        }`}
-                      >
-                        {deploying === key
-                          ? "deploying…"
-                          : confirming === key
-                          ? "confirm?"
-                          : deployErr[key]
-                          ? "✕ retry"
-                          : "▶ deploy"}
-                      </button>
-                    )
-                    : (
-                      <span className="whitespace-nowrap text-[11.5px] text-copper">
-                        approve ↗
-                      </span>
-                    )}
-                </div>
+                    </span>
+                    <span className="w-20 truncate font-mono text-[10.5px] text-ink-muted">
+                      {d.ref}
+                    </span>
+                    <span
+                      className="whitespace-nowrap rounded-full border px-2 py-0.5 text-[10.5px]"
+                      style={{
+                        color: envColor(d.environment),
+                        borderColor: envColor(d.environment) + "66",
+                        background: envColor(d.environment) + "1a",
+                      }}
+                    >
+                      {d.environment}
+                    </span>
+                    <span
+                      className={`w-[76px] text-right text-[11px] ${
+                        d.status === "failed"
+                          ? "text-blocked"
+                          : ageColor(d.waitingSince)
+                      }`}
+                    >
+                      {d.status === "running" ? "" : timeAgo(d.waitingSince)}
+                    </span>
+                    {d.status === "running"
+                      ? (
+                        <span className="flex items-center gap-1.5 whitespace-nowrap text-[11.5px] text-copper">
+                          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-copper" />
+                          deploying · {elapsed(d.waitingSince)}
+                        </span>
+                      )
+                      : d.status === "failed"
+                      ? (
+                        <span
+                          className="whitespace-nowrap text-[11.5px] text-blocked"
+                          title="pipeline failed — open to inspect the logs"
+                        >
+                          ✕ failed
+                        </span>
+                      )
+                      : d.action
+                      ? (
+                        <button
+                          type="button"
+                          disabled={deploying === key}
+                          title={deployErr[key]
+                            ? `${deployErr[key]} — click to retry`
+                            : d.action.kind === "gitlab-play"
+                            ? "run the deploy job"
+                            : "approve this deployment"}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirming === key) deploy(d, key);
+                            else {
+                              setConfirming(key);
+                              // un-arm after a beat — no stale confirm on another row
+                              setTimeout(
+                                () =>
+                                  setConfirming((c) => (c === key ? null : c)),
+                                4000,
+                              );
+                            }
+                          }}
+                          className={`whitespace-nowrap rounded-md border px-2 py-0.5 text-[11.5px] disabled:opacity-40 ${
+                            confirming === key || deployErr[key]
+                              ? "border-blocked/60 text-blocked hover:bg-blocked/10"
+                              : "border-copper/50 text-copper hover:bg-copper/10"
+                          }`}
+                        >
+                          {deploying === key
+                            ? "deploying…"
+                            : confirming === key
+                            ? "confirm?"
+                            : deployErr[key]
+                            ? "✕ retry"
+                            : "▶ deploy"}
+                        </button>
+                      )
+                      : (
+                        <span className="whitespace-nowrap text-[11.5px] text-copper">
+                          approve ↗
+                        </span>
+                      )}
+                    <button
+                      type="button"
+                      title="Show changelog"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleLog(d, key);
+                      }}
+                      className={`rounded-md border px-1.5 py-0.5 text-[11px] ${
+                        openLog === key
+                          ? "border-copper/50 text-copper"
+                          : "border-chipline text-ink-muted opacity-0 transition-opacity hover:text-ink-soft group-hover:opacity-100"
+                      }`}
+                    >
+                      ≡
+                    </button>
+                    <button
+                      type="button"
+                      title={d.ignored
+                        ? "Stop ignoring"
+                        : "Ignore this deployment"}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIgnored(d, !d.ignored);
+                      }}
+                      className={`rounded-md border border-chipline px-1.5 py-0.5 text-[11px] text-ink-muted hover:text-ink-soft ${
+                        d.ignored
+                          ? ""
+                          : "opacity-0 transition-opacity group-hover:opacity-100"
+                      }`}
+                    >
+                      {d.ignored ? "↩" : "✕"}
+                    </button>
+                  </div>
+                  {openLog === key && <ChangelogBlock log={logs[key]} />}
+                </Fragment>
               );
             })}
           </div>

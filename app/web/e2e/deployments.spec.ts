@@ -69,6 +69,46 @@ test("deploy button approves after a confirm click", async ({ page }) => {
   expect(state.items).toHaveLength(4);
 });
 
+test("changelog expands with the commits in the deploy", async ({ page }) => {
+  await page.request.post("/api/plugins/deployments/refresh");
+  await page.goto("/?view=plugin&plugin=deployments");
+  const row = page.locator("div.cursor-pointer", {
+    hasText: "Deploy 2.4.0 — checkout revamp",
+  });
+  await row.getByTitle("Show changelog").click();
+  await expect(page.getByText("2 commits")).toBeVisible();
+  await expect(page.getByText("feat: checkout revamp")).toBeVisible();
+  await expect(page.getByText("fix: rounding on cart totals")).toBeVisible();
+  // second click folds it back
+  await row.getByTitle("Show changelog").click();
+  await expect(page.getByText("feat: checkout revamp")).toHaveCount(0);
+});
+
+test("ignore hides a deployment; restore brings it back", async ({ page }) => {
+  await page.request.post("/api/plugins/deployments/refresh");
+  await page.goto("/?view=plugin&plugin=deployments");
+  await expect(page.getByRole("button", { name: /^All 5$/ })).toBeVisible();
+  await page
+    .locator("div.cursor-pointer", { hasText: "release: v1.8.2" })
+    .getByTitle("Ignore this deployment")
+    .click();
+  await expect(page.getByText("release: v1.8.2")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^All 4$/ })).toBeVisible();
+  // persisted, not just hidden client-side: a re-poll still marks it ignored
+  const state = await (
+    await page.request.post("/api/plugins/deployments/refresh")
+  ).json();
+  expect(
+    state.items.filter((i: { ignored?: boolean }) => i.ignored),
+  ).toHaveLength(1);
+  // show ignored → dimmed row carries a restore button
+  await page.getByRole("button", { name: "1 ignored" }).click();
+  await expect(page.getByText("release: v1.8.2")).toBeVisible();
+  await page.getByTitle("Stop ignoring").click();
+  await expect(page.getByRole("button", { name: /^All 5$/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "1 ignored" })).toHaveCount(0);
+});
+
 test("connection test endpoint reachable while configuring", async ({ page }) => {
   // ungated route: must answer (not 403) even for a disabled plugin
   const r = await page.request.post("/api/plugins/deployments/test", {
@@ -79,21 +119,29 @@ test("connection test endpoint reachable while configuring", async ({ page }) =>
 
 test("gitlab token is redacted and bound to its saved host (no CSRF exfil)", async ({ page }) => {
   const settings = "/api/plugins/deployments/settings";
-  const post = (data: Record<string, unknown>) => page.request.post(settings, { data });
+  const post = (data: Record<string, unknown>) =>
+    page.request.post(settings, { data });
 
   // save a PAT for a specific host
-  let s = await (await post({ gitlabBaseUrl: "https://gl.example.com", gitlabToken: "secret-glpat" })).json();
+  let s = await (await post({
+    gitlabBaseUrl: "https://gl.example.com",
+    gitlabToken: "secret-glpat",
+  })).json();
   expect(s.gitlabHasToken).toBe(true);
   expect(JSON.stringify(s)).not.toContain("secret-glpat"); // never echoed back to the UI
 
   // GET also redacts to a boolean
   s = await (await page.request.get(settings)).json();
-  expect(s).toMatchObject({ gitlabHasToken: true, gitlabBaseUrl: "https://gl.example.com" });
+  expect(s).toMatchObject({
+    gitlabHasToken: true,
+    gitlabBaseUrl: "https://gl.example.com",
+  });
   expect(JSON.stringify(s)).not.toContain("secret-glpat");
 
   // pointing the base URL at another host WITHOUT re-supplying the token drops it,
   // so the background poller can never send the saved PAT to an unsaved host
-  s = await (await post({ gitlabBaseUrl: "https://attacker.example.com" })).json();
+  s = await (await post({ gitlabBaseUrl: "https://attacker.example.com" }))
+    .json();
   expect(s.gitlabHasToken).toBe(false);
 });
 

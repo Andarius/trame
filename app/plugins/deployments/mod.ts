@@ -7,7 +7,11 @@ import {
   DEPLOYMENTS_POLL_IDLE_MS,
 } from "../../config.ts";
 import type { Plugin, PluginSettings } from "../types.ts";
-import { getPluginSettings, isPluginEnabled } from "../settings.ts";
+import {
+  getPluginSettings,
+  isPluginEnabled,
+  savePluginSettings,
+} from "../settings.ts";
 import {
   type AuthSource,
   cliInstalled,
@@ -18,8 +22,12 @@ import {
   glabCliUser,
 } from "./auth.ts";
 import { spawnTerminal } from "../../terminal.ts";
-import { githubPending } from "./github.ts";
-import { gitlabActivePipeline, gitlabPending } from "./gitlab.ts";
+import { githubChangelog, githubPending } from "./github.ts";
+import {
+  gitlabActivePipeline,
+  gitlabChangelog,
+  gitlabPending,
+} from "./gitlab.ts";
 
 // How to act on a pending deployment from the panel (null = deep link only).
 export type ApproveAction =
@@ -40,13 +48,32 @@ export type PendingDeployment = {
   repo: string;
   environment: string;
   ref: string;
+  sha?: string | null; // head commit, when the forge exposes it — drives /changelog
   title: string;
   requester: string | null;
   waitingSince: string; // the relevant instant: waiting-since / started-at / failed-at
   url: string;
   action: ApproveAction | null;
   status: DeployStatus;
+  ignored?: boolean; // stamped from the settings slice at poll time
 };
+
+export type ChangelogCommit = {
+  sha: string;
+  title: string;
+  author: string | null;
+  date: string | null;
+  url: string | null;
+};
+
+export type Changelog =
+  | {
+    ok: true;
+    baseline: string | null; // short sha the compare starts from (null in fixture mode)
+    compareUrl: string | null;
+    commits: ChangelogCommit[];
+  }
+  | { ok: false; error: string };
 
 export type DeploymentsState = {
   configured: boolean;
@@ -99,6 +126,19 @@ const byWaiting = (items: PendingDeployment[]) =>
     a.waitingSince.localeCompare(b.waitingSince)
   );
 
+// Ignore identity: the deployment page + environment (same pair /approve uses
+// to drop an acted-on item). A new pipeline gets a new URL, so it resurfaces.
+const keyOf = (i: { url: string; environment: string }) =>
+  `${i.url}\n${i.environment}`;
+
+const markIgnored = (
+  items: PendingDeployment[],
+  slice: PluginSettings,
+): PendingDeployment[] => {
+  const keys = new Set(strList(slice.ignored));
+  return items.map((i) => ({ ...i, ignored: keys.has(keyOf(i)) }));
+};
+
 async function pollOnce(): Promise<DeploymentsState> {
   if (DEPLOYMENTS_FIXTURE) {
     const fixture = JSON.parse(await Deno.readTextFile(DEPLOYMENTS_FIXTURE));
@@ -108,7 +148,7 @@ async function pollOnce(): Promise<DeploymentsState> {
     }));
     return state = {
       configured: true,
-      items: byWaiting(items),
+      items: markIgnored(byWaiting(items), await getPluginSettings(ID)),
       polledAt: new Date().toISOString(),
       errors: (fixture.errors ?? []) as DeploymentsState["errors"],
       auth: { github: "none", gitlab: "none" },
@@ -167,7 +207,17 @@ async function pollOnce(): Promise<DeploymentsState> {
     Promise.all(jobs),
     Promise.all(pipelineChecks),
   ]);
-  const items = byWaiting(itemLists.flat());
+  const items = markIgnored(byWaiting(itemLists.flat()), slice);
+  // Ignores for items the forges no longer report are spent — prune them, but
+  // only on a clean poll (an erroring forge would otherwise wipe live ignores).
+  if (errors.length === 0) {
+    const present = new Set(items.map(keyOf));
+    const stored = strList(slice.ignored);
+    const kept = stored.filter((k) => present.has(k));
+    if (kept.length !== stored.length) {
+      await savePluginSettings(ID, { ignored: kept });
+    }
+  }
   return state = {
     configured: repos.length + projects.length > 0,
     items,
@@ -431,7 +481,7 @@ const deployments: Plugin = {
   // settings-UI routes, usable before the plugin is enabled
   ungatedRoutes: ["/test", "/auth-status", "/login"],
 
-  badge: () => state.items.length || null,
+  badge: () => state.items.filter((i) => !i.ignored).length || null,
 
   // Enabled from a cold start, the loop below is up to one idle interval (5 min) away
   // — fill the panel now instead of leaving it on "Loading…".
@@ -481,6 +531,90 @@ const deployments: Plugin = {
       const out = json({ ok: true, state: drop() });
       setTimeout(() => poll().catch(console.error), 4000);
       return out;
+    }
+    if (subPath === "/ignore" && req.method === "POST") {
+      const body = await req.json().catch(() => ({}));
+      const itemUrl = typeof body.url === "string" ? body.url : "";
+      const environment = typeof body.environment === "string"
+        ? body.environment
+        : "";
+      if (!itemUrl || !environment) {
+        return json({ ok: false, error: "bad request" }, 400);
+      }
+      const key = keyOf({ url: itemUrl, environment });
+      const ignored = body.ignored !== false;
+      if (ignored && !state.items.some((i) => keyOf(i) === key)) {
+        return json({ ok: false, error: "unknown deployment" }, 404);
+      }
+      const stored = new Set(strList((await getPluginSettings(ID)).ignored));
+      if (ignored) stored.add(key);
+      else stored.delete(key);
+      await savePluginSettings(ID, { ignored: [...stored] });
+      state = {
+        ...state,
+        items: state.items.map((i) => keyOf(i) === key ? { ...i, ignored } : i),
+      };
+      return json({ ok: true, state });
+    }
+    if (subPath === "/changelog" && req.method === "POST") {
+      const body = await req.json().catch(() => ({}));
+      const itemUrl = typeof body.url === "string" ? body.url : "";
+      const environment = typeof body.environment === "string"
+        ? body.environment
+        : "";
+      if (DEPLOYMENTS_FIXTURE) {
+        const fixture = JSON.parse(
+          await Deno.readTextFile(DEPLOYMENTS_FIXTURE),
+        );
+        const commits = (fixture.changelogs ?? {})[itemUrl] as
+          | ChangelogCommit[]
+          | undefined;
+        return json(
+          commits
+            ? { ok: true, baseline: null, compareUrl: null, commits }
+            : { ok: false, error: "no changelog available" },
+        );
+      }
+      const item = state.items.find((i) =>
+        i.url === itemUrl && i.environment === environment
+      );
+      if (!item) return json({ ok: false, error: "unknown deployment" }, 404);
+      const slice = await getPluginSettings(ID);
+      try {
+        if (item.source === "github") {
+          const gh = await githubAuth(slice);
+          if (!gh.token) {
+            return json({ ok: false, error: "no GitHub token" }, 502);
+          }
+          return json(
+            await githubChangelog(
+              item.repo,
+              item.environment,
+              item.sha ?? item.ref,
+              gh.token,
+            ),
+          );
+        }
+        const baseUrl = baseUrlOf(slice);
+        const gl = await gitlabAuth(slice, baseUrl);
+        if (gl.source === "none") {
+          return json({ ok: false, error: "no GitLab token" }, 502);
+        }
+        return json(
+          await gitlabChangelog(
+            item.repo,
+            baseUrl,
+            gl,
+            item.environment,
+            item.sha ?? item.ref,
+          ),
+        );
+      } catch (e) {
+        return json(
+          { ok: false, error: String((e as Error)?.message ?? e) },
+          502,
+        );
+      }
     }
     if (subPath === "/test" && req.method === "POST") {
       return json(await testForge(await req.json().catch(() => ({}))));

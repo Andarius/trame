@@ -74,5 +74,32 @@
       "action": null
     }
   ],
+  "changelogs": {
+    "https://github.com/acme/webapp/actions/runs/123456789": [
+      {
+        "sha": "a1b2c3d",
+        "title": "feat: checkout revamp",
+        "author": "julien",
+        "date": "2026-07-12T08:50:00Z",
+        "url": "https://github.com/acme/webapp/commit/a1b2c3d"
+      },
+      {
+        "sha": "9f8e7d6",
+        "title": "fix: rounding on cart totals",
+        "author": "marie",
+        "date": "2026-07-11T16:20:00Z",
+        "url": "https://github.com/acme/webapp/commit/9f8e7d6"
+      }
+    ],
+    "https://gitlab.com/acme/api/-/environments/42": [
+      {
+        "sha": "c0ffee12",
+        "title": "fix: rate-limit retries",
+        "author": "marie",
+        "date": "2026-07-13T06:10:00Z",
+        "url": "https://gitlab.com/acme/api/-/commit/c0ffee12"
+      }
+    ]
+  },
   "errors": []
 }
