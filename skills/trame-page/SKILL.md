@@ -87,9 +87,10 @@ instead (next section).
    deno run -A __COMMENT_WRITER__
    ```
 
-5. Optionally pass `meta` — honest generation stats `{model, in, out, ms}` (input/output
-   tokens, milliseconds) shown as a footer. Only include numbers you actually know; omit
-   any you can't measure rather than guessing. A visible footer must mean real data.
+5. Always pass `meta.model` — the exact model id you run as (`claude-opus-5`,
+   `gpt-5.6-sol`, …); it renders as a footer. `in`, `out` and `ms` (input/output tokens,
+   milliseconds) are optional: include only numbers you actually know and omit any you
+   can't measure rather than guessing. A visible footer must mean real data.
 6. Do not pass `author` or `author_avatar`. Trame injects the agent name and a
    self-contained avatar from `agent`. Repeat the call for additional target blocks, then report the
    comment IDs and page URL.

@@ -76,8 +76,9 @@ As an agent you can:
 - **Attribution**: set \`agent\` to the id of the model ACTUALLY writing (codex, claude,
   glm, gemini, …) — not the harness seat. codex/claude get a branded avatar; any other
   id gets a generated one. Never post as a human.
-- **Optional \`meta\`** {model, in, out, ms} shows a "model · tokens · seconds" footer.
-  Only pass numbers you truly know; omit what you can't measure (a footer must be real).
+- **\`meta.model\` is required** — the exact model id you run as; it shows as a footer.
+  \`in\`/\`out\`/\`ms\` are optional: pass only numbers you truly know, omit what you
+  can't measure (a footer must be real).
 - **The watcher loop**: a human may reply to your comment. If the human runs \`just watch\`,
   YOUR agent is invoked to answer that reply — so a thread is a back-and-forth, not a
   one-shot. Your answer posts as the next comment; the watcher fills its meta for you.
@@ -263,7 +264,7 @@ server.tool(
 
 server.tool(
   "trame_add_comment",
-  "Add an inline agent review comment to a Trame page block. Identify the page by id or exact title and the block by id or a unique text quote. `agent` is the id of the model actually writing (e.g. codex, claude, glm, gemini) — attribute the real model, not the harness seat; codex/claude get a branded avatar, any other id gets a generated one. Optional `meta` records honest generation stats {model, in, out, ms} shown as a footer — only pass numbers you actually know; omit tokens/time you can't measure.",
+  "Add an inline agent review comment to a Trame page block. Identify the page by id or exact title and the block by id or a unique text quote. `agent` is the id of the model actually writing (e.g. codex, claude, glm, gemini) — attribute the real model, not the harness seat; codex/claude get a branded avatar, any other id gets a generated one. `meta.model` is required and records the exact model id you are running as (e.g. claude-opus-5, gpt-5.6-sol) — it renders as a footer under the comment. `in`/`out`/`ms` are optional generation stats: pass only numbers you actually know, omit tokens/time you can't measure.",
   {
     page_id: z.string().optional(),
     page_title: z.string().optional(),
@@ -272,11 +273,11 @@ server.tool(
     body: z.string(),
     agent: z.string(),
     meta: z.object({
-      model: z.string().optional(),
+      model: z.string(),
       in: z.number().optional(),
       out: z.number().optional(),
       ms: z.number().optional(),
-    }).optional(),
+    }),
   },
   async (
     args: {
@@ -286,7 +287,7 @@ server.tool(
       block_text?: string;
       body: string;
       agent: string;
-      meta?: { model?: string; in?: number; out?: number; ms?: number };
+      meta: { model: string; in?: number; out?: number; ms?: number };
     },
   ) => {
     if (args.block_id && args.block_text) {
