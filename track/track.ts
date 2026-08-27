@@ -4,7 +4,7 @@
 // Offline fallback: append to the outbox; the app drains it on next launch.
 //
 // Input: one JSON object, as argv[0] or on stdin. Shape:
-//   { title, status?, client?, objective?, repo_path?, branch?, next_step?, pr_url?, summary? }
+//   { title, status?, client?, objective?, repo_path?, branch?, next_step?, specs?, pr_url?, summary? }
 import { CLAUDE_MAP, OUTBOX, PORT_FILE } from "../app/config.ts";
 
 type Input = {
@@ -15,6 +15,7 @@ type Input = {
   repo_path?: string;
   branch?: string;
   next_step?: string;
+  specs?: string; // markdown ticket spec; omit to leave the existing one untouched
   pr_url?: string;
   summary?: string;
   claude_id?: string;
