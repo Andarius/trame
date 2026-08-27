@@ -1,7 +1,7 @@
 // Agent-facing Trame page-comment writer.
 //
 // Input: one JSON object, as argv[0] or on stdin:
-//   { page_id|page_title, block_id|block_text, body, agent? }
+//   { page_id|page_title, block_id|block_text, body, agent?, meta? }
 //
 // The app injects the canonical agent name/avatar. This writer resolves human-friendly
 // page titles and target quotes so callers do not need to discover HTTP routes or UUIDs.
@@ -16,6 +16,7 @@ type Input = {
   body: string;
   agent?: AgentKind;
   // optional, honest generation stats → footer; only pass numbers you actually know
+  // model defaults to the agent id server-side; only pass stats you measured
   meta?: { model?: string; in?: number; out?: number; ms?: number };
 };
 

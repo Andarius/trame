@@ -15,9 +15,8 @@ Never use session-card fields as a substitute for a requested document or page r
      order sections actionable-first — `## Open` (or Next/Pending/Todo) before
      `## Completed`/Done. Reorder the sections if the draft has Completed first;
      Trame renders Open lists as a highlighted callout at the top.
-   - Trame renders GFM plus `{{pills}}`: `{{text}}` is a neutral chip,
-     `{{green:text}}` tints it (green|yellow|red|copper|gray) — useful for status
-     or category tags in table cells.
+   - Trame renders GFM plus the page extensions below — use them instead of
+     flattening structure into plain prose.
 2. Nest the page under the relevant project by default: use the parent the user named,
    else the project of the current session/repo (`trame_board` lists projects; the
    page writer accepts `parent_title`). Create a root page only for genuinely
@@ -38,6 +37,30 @@ Never use session-card fields as a substitute for a requested document or page r
    Pass `markdown_file` instead of `markdown` when the content is already in a local
    file. Pass `parent_title` to nest under an exact, unique title.
 5. Report the created page title and ID or URL.
+
+## Markdown dialect
+
+- **Section markers** — `## Title {{tab}}` groups the blocks below it into a tab;
+  consecutive `{{tab}}` headings form one strip. `## Title {{fold}}` is a standalone
+  collapsible section, collapsed by default. A fold ends a tab group and vice versa
+  (same dialect as the session-ticket spec).
+- **Todos** — `- [ ]` / `- [x]` become native checkable todo blocks; two leading spaces
+  per nesting level (max 4).
+- **Status lists** — plain bullets take their style from the nearest heading above:
+  `Completed`/`Done`/`Shipped` renders green checks, `Open`/`Todo`/`Next`/`Pending`/
+  `Remaining`/`In progress`/`Blocked` renders copper rings, each with a one-click
+  toggle that moves the item to the other list.
+- **Pills** — `{{text}}` is a neutral chip, `{{green:text}}` tints it
+  (green|yellow|red|copper|gray) — useful for status or category tags in table cells.
+- **Diagrams** — a fenced block tagged `mermaid` renders as a diagram.
+- **Code** — fences are syntax-highlighted for python/ts/js/bash/json/sql; the language
+  label shows on the card.
+- **Links** — a GitHub/GitLab PR or MR URL renders as a live PR chip (title + state),
+  `#123` as an issue ref, `![alt](url)` as an inline image.
+- **Tables** — GFM tables render as interactive cards (select/move/delete rows,
+  comment on a row).
+
+A leading `# Title` identical to the page title is dropped rather than rendered twice.
 
 ## Update a page
 
@@ -87,9 +110,10 @@ instead (next section).
    deno run -A __COMMENT_WRITER__
    ```
 
-5. Optionally pass `meta` — honest generation stats `{model, in, out, ms}` (input/output
-   tokens, milliseconds) shown as a footer. Only include numbers you actually know; omit
-   any you can't measure rather than guessing. A visible footer must mean real data.
+5. Always pass `meta.model` — the exact model id you run as (`claude-opus-5`,
+   `gpt-5.6-sol`, …); it renders as a footer. `in`, `out` and `ms` (input/output tokens,
+   milliseconds) are optional: include only numbers you actually know and omit any you
+   can't measure rather than guessing. A visible footer must mean real data.
 6. Do not pass `author` or `author_avatar`. Trame injects the agent name and a
    self-contained avatar from `agent`. Repeat the call for additional target blocks, then report the
    comment IDs and page URL.

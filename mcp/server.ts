@@ -76,8 +76,9 @@ As an agent you can:
 - **Attribution**: set \`agent\` to the id of the model ACTUALLY writing (codex, claude,
   glm, gemini, …) — not the harness seat. codex/claude get a branded avatar; any other
   id gets a generated one. Never post as a human.
-- **Optional \`meta\`** {model, in, out, ms} shows a "model · tokens · seconds" footer.
-  Only pass numbers you truly know; omit what you can't measure (a footer must be real).
+- **\`meta.model\` is required** — the exact model id you run as; it shows as a footer.
+  \`in\`/\`out\`/\`ms\` are optional: pass only numbers you truly know, omit what you
+  can't measure (a footer must be real).
 - **The watcher loop**: a human may reply to your comment. If the human runs \`just watch\`,
   YOUR agent is invoked to answer that reply — so a thread is a back-and-forth, not a
   one-shot. Your answer posts as the next comment; the watcher fills its meta for you.
@@ -94,6 +95,16 @@ As an agent you can:
   (option pickers, forms) — they click in Trame, you read the answer. Prefer it over
   trame_report when you want an answer back.
 - **trame_report** — publish a self-contained HTML report to the Explore view.
+
+## Page Markdown dialect
+GFM plus: \`## Title {{tab}}\` headings group the blocks below into a tab strip
+(consecutive markers = one strip) and \`## Title {{fold}}\` into a collapsible section;
+\`- [ ]\`/\`- [x]\` become checkable todos (2 spaces per nesting level);
+bullets under a Completed/Done heading render as checks, under Open/Todo/Next/Pending/
+Blocked as open rings with a one-click toggle between the two; \`{{text}}\` is a pill
+(\`{{green:…}}\` tints it: green|yellow|red|copper|gray); a \`mermaid\` fence renders as a
+diagram; PR/MR links become live PR chips and \`#123\` an issue ref. The same
+\`{{tab}}\`/\`{{fold}}\` markers work in a session's \`specs\`.
 
 ## Sessions (the board)
 - **trame_track** — create/update a work session (upsert by repo_path+branch).
@@ -133,7 +144,10 @@ server.tool(
     branch: z.string().optional(),
     next_step: z.string().optional(),
     specs: z.string().optional()
-      .describe("Markdown spec shown on the session ticket; omitting it never clears the existing spec"),
+      .describe(
+        "Markdown spec shown on the session ticket; omitting it never clears the existing spec. " +
+          "`## Title {{tab}}` headings render as a tab strip, `## Title {{fold}}` as a collapsible section",
+      ),
     pr_url: z.string().optional(),
     summary: z.string().optional(),
   },
@@ -163,7 +177,7 @@ server.tool(
 
 server.tool(
   "trame_create_page",
-  "Create a new Trame page/document from Markdown. Use this instead of putting a document into a session card. Nest it under the relevant project or page: resolve parent_id first (trame_board lists projects; the current session's project usually is the right home). Omit parent_id only for genuinely cross-project documents — parentless pages land in the Unfiled inbox awaiting manual triage.",
+  "Create a new Trame page/document from Markdown. Use this instead of putting a document into a session card. Nest it under the relevant project or page: resolve parent_id first (trame_board lists projects; the current session's project usually is the right home). Omit parent_id only for genuinely cross-project documents — parentless pages land in the Unfiled inbox awaiting manual triage. The Markdown dialect (tab/fold section headings, todos, pills, mermaid, PR chips) is listed by trame_capabilities.",
   {
     title: z.string(),
     markdown: z.string().optional(),
@@ -197,7 +211,7 @@ server.tool(
 
 server.tool(
   "trame_update_page",
-  "Replace a Trame page's content from Markdown IN PLACE (full new content, not a diff). Blocks whose text is unchanged keep their ids, so inline comments stay attached; comments on changed blocks detach to their quoted snapshot. Use for revising a page you authored (e.g. a plan revision) — reply to the comments you are addressing BEFORE updating. Structural blocks (html/database/subpage) are preserved. Optional title renames the page.",
+  "Replace a Trame page's content from Markdown IN PLACE (full new content, not a diff). Blocks whose text is unchanged keep their ids, so inline comments stay attached; comments on changed blocks detach to their quoted snapshot. Use for revising a page you authored (e.g. a plan revision) — reply to the comments you are addressing BEFORE updating. Structural blocks (html/database/subpage) are preserved. Optional title renames the page. See trame_capabilities for the page Markdown dialect.",
   {
     page_id: z.string().optional(),
     page_title: z.string().optional(),
@@ -263,7 +277,7 @@ server.tool(
 
 server.tool(
   "trame_add_comment",
-  "Add an inline agent review comment to a Trame page block. Identify the page by id or exact title and the block by id or a unique text quote. `agent` is the id of the model actually writing (e.g. codex, claude, glm, gemini) — attribute the real model, not the harness seat; codex/claude get a branded avatar, any other id gets a generated one. Optional `meta` records honest generation stats {model, in, out, ms} shown as a footer — only pass numbers you actually know; omit tokens/time you can't measure.",
+  "Add an inline agent review comment to a Trame page block. Identify the page by id or exact title and the block by id or a unique text quote. `agent` is the id of the model actually writing (e.g. codex, claude, glm, gemini) — attribute the real model, not the harness seat; codex/claude get a branded avatar, any other id gets a generated one. `meta.model` is required and records the exact model id you are running as (e.g. claude-opus-5, gpt-5.6-sol) — it renders as a footer under the comment. `in`/`out`/`ms` are optional generation stats: pass only numbers you actually know, omit tokens/time you can't measure.",
   {
     page_id: z.string().optional(),
     page_title: z.string().optional(),
@@ -272,11 +286,11 @@ server.tool(
     body: z.string(),
     agent: z.string(),
     meta: z.object({
-      model: z.string().optional(),
+      model: z.string(),
       in: z.number().optional(),
       out: z.number().optional(),
       ms: z.number().optional(),
-    }).optional(),
+    }),
   },
   async (
     args: {
@@ -286,7 +300,7 @@ server.tool(
       block_text?: string;
       body: string;
       agent: string;
-      meta?: { model?: string; in?: number; out?: number; ms?: number };
+      meta: { model: string; in?: number; out?: number; ms?: number };
     },
   ) => {
     if (args.block_id && args.block_text) {
