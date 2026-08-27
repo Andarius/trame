@@ -145,4 +145,31 @@ test("expanded ticket: journal pane and editable persistent specs", async ({ pag
   // survives a reload — the URL restores the drawer already full screen
   await page.reload();
   await expect(page.getByText("second spec item")).toBeVisible();
+
+  // only "## Title {{fold}}" headings fold; plain ## headings render normally
+  await page.getByTitle("edit raw markdown").click();
+  await page.keyboard.type(
+    "\n## Plain notes\n- visible note\n## ELI5 {{fold}}\n- folded detail",
+  );
+  await page.getByText("SPECS", { exact: true }).click(); // blur commits
+  await expect(page.getByText("visible note")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Plain notes/ })).not.toBeVisible();
+  await expect(page.getByRole("button", { name: /ELI5/ })).toBeVisible();
+  await expect(page.getByText("folded detail")).not.toBeVisible();
+  await page.getByRole("button", { name: /ELI5/ }).click();
+  await expect(page.getByText("folded detail")).toBeVisible();
+  // the preamble stays always visible alongside the sections
+  await expect(page.getByText("second spec item")).toBeVisible();
+
+  // {{tab}} sections group into a tab strip; one tab visible at a time
+  await page.getByTitle("edit raw markdown").click();
+  await page.keyboard.type(
+    "\n## Tab A {{tab}}\n- alpha item\n## Tab B {{tab}}\n- beta item",
+  );
+  await page.getByText("SPECS", { exact: true }).click();
+  await expect(page.getByText("alpha item")).toBeVisible();
+  await expect(page.getByText("beta item")).not.toBeVisible();
+  await page.getByRole("button", { name: "Tab B" }).click();
+  await expect(page.getByText("beta item")).toBeVisible();
+  await expect(page.getByText("alpha item")).not.toBeVisible();
 });
