@@ -91,6 +91,8 @@ const SLASH: { key: string; label: string; hint: string }[] = [
   { key: "text", label: "Text", hint: "plain paragraph" },
   { key: "heading", label: "Heading", hint: "section title" },
   { key: "todo", label: "To-do", hint: "checkbox item" },
+  { key: "tab", label: "Tab section", hint: "heading that becomes a tab" },
+  { key: "fold", label: "Folded section", hint: "collapsible heading" },
   { key: "subpage", label: "Sub-page", hint: "nest a page here" },
   { key: "database", label: "Database", hint: "table on this page" },
   { key: "folder", label: "Folder", hint: "live files from a directory" },
@@ -1013,6 +1015,10 @@ function BlockEditor(
   // clicking an image selects its block (ring) instead of opening the markdown;
   // Escape deselects, Delete/Backspace removes, any outside click clears
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // active tab per {{tab}} group, keyed by the group's first heading block id
+  const [activeTabs, setActiveTabs] = useState<Record<string, number>>({});
+  // open state per {{fold}} section, collapsed by default
+  const [openFolds, setOpenFolds] = useState<Record<string, boolean>>({});
   useEffect(() => {
     if (!selectedId) return;
     const bidOf = (x: Block, j: number) =>
@@ -1053,6 +1059,21 @@ function BlockEditor(
   const pick = (i: number, key: string) => {
     setMenuIdx(null);
     if (key === "subpage" || key === "database") return onSlashInsert(key, i);
+    // section markers: a heading whose {{tab}}/{{fold}} groups the blocks below
+    if (key === "tab" || key === "fold") {
+      onChange(
+        blocks.map((b, j) =>
+          j === i
+            ? {
+              type: "heading",
+              text: `{{${key}}} `,
+              id: (isText(b) && b.id) || genId(),
+            } as Block
+            : b
+        ),
+      );
+      return setFocusIdx(i);
+    }
     if (key === "folder") {
       return onChange(
         blocks.map((b, j) =>
@@ -1120,9 +1141,107 @@ function BlockEditor(
     el.style.height = `${el.scrollHeight}px`;
   };
 
+  // "{{tab}}" / "{{fold}}" heading blocks group the blocks below them (same
+  // dialect as the session-ticket spec): a tab runs to the next marked heading,
+  // consecutive tabs form one strip; a fold is a standalone accordion. The first
+  // heading's row renders the control; hidden blocks are skipped. Double-click
+  // a label to rename its heading.
+  const tabMeta = (() => {
+    let group: number | null = null;
+    let foldAt: number | null = null;
+    const heads = new Map<number, { i: number; title: string }[]>();
+    const of = new Map<number, { kind: "tab" | "fold"; group: number; tab: number }>();
+    blocks.forEach((b, i) => {
+      const m = isText(b) && b.type === "heading" && b.text.match(/\{\{(tab|fold)\}\}/i);
+      if (m && m[1].toLowerCase() === "tab") {
+        foldAt = null;
+        if (group === null) {
+          group = i;
+          heads.set(i, []);
+        }
+        heads.get(group)!.push({
+          i,
+          title: (b as TextBlock).text.replace(/\s*\{\{tab\}\}\s*/i, " ").trim(),
+        });
+        of.set(i, { kind: "tab", group, tab: heads.get(group)!.length - 1 });
+      } else if (m) {
+        group = null;
+        foldAt = i;
+        of.set(i, { kind: "fold", group: i, tab: 0 });
+      } else if (group !== null) {
+        of.set(i, { kind: "tab", group, tab: heads.get(group)!.length - 1 });
+      } else if (foldAt !== null) {
+        of.set(i, { kind: "fold", group: foldAt, tab: 0 });
+      }
+    });
+    return { heads, of };
+  })();
+
   return (
     <div className="flex flex-col">
       {blocks.map((b, i) => {
+        // section groups: strip/accordion on the marked heading, hide inactive blocks
+        const tm = tabMeta.of.get(i);
+        if (tm) {
+          const gb = blocks[tm.group];
+          const gid = (isText(gb) && gb.id) || String(tm.group);
+          const bid0 = ("id" in b && b.id) || String(i);
+          if (tm.kind === "fold") {
+            const open = openFolds[gid] ?? false;
+            const isHead = i === tm.group;
+            // a heading being renamed renders as its normal editable row
+            const renaming = isHead && (focusIdx === i || activeId === bid0);
+            if (isHead && !renaming) {
+              const title = (b as TextBlock).text
+                .replace(/\s*\{\{fold\}\}\s*/i, " ").trim();
+              return (
+                <div key={bid0} className="my-1 overflow-hidden rounded-lg border border-line-soft">
+                  <button
+                    type="button"
+                    title="double-click to rename"
+                    className="flex w-full items-center gap-2 bg-panel px-3 py-2 text-left text-[13px] font-medium text-ink transition-colors hover:text-copper"
+                    onClick={() => setOpenFolds((m) => ({ ...m, [gid]: !open }))}
+                    onDoubleClick={() => setFocusIdx(i)}
+                  >
+                    <span className="text-[10px] text-ink-muted">{open ? "▾" : "▸"}</span>
+                    {title || "untitled"}
+                  </button>
+                </div>
+              );
+            }
+            if (!isHead && !open) return null;
+          } else {
+            const active = activeTabs[gid] ?? 0;
+            const heads = tabMeta.heads.get(tm.group)!;
+            const isHead = heads.some((h) => h.i === i);
+            // a tab heading being renamed renders as its normal editable row
+            const renaming = isHead && (focusIdx === i || activeId === bid0);
+            if (isHead && !renaming) {
+              if (i !== tm.group) return null;
+              return (
+                <div key={bid0} className="flex gap-1 border-b border-line pb-0 pt-2">
+                  {heads.map((h, ti) => (
+                    <button
+                      key={h.i}
+                      type="button"
+                      title="double-click to rename"
+                      className={`-mb-px border-b-2 px-3 py-1.5 text-[12.5px] transition-colors ${
+                        ti === active
+                          ? "border-copper font-medium text-copper"
+                          : "border-transparent text-ink-muted hover:text-ink-soft"
+                      }`}
+                      onClick={() => setActiveTabs((m) => ({ ...m, [gid]: ti }))}
+                      onDoubleClick={() => setFocusIdx(h.i)}
+                    >
+                      {h.title || "untitled"}
+                    </button>
+                  ))}
+                </div>
+              );
+            }
+            if (!isHead && tm.tab !== active) return null;
+          }
+        }
         if (b.type === "folder") {
           return (
             <FolderBlock
