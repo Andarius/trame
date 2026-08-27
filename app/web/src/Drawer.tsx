@@ -661,7 +661,19 @@ export function Drawer(
 
   const specsSection = (
     <div className="flex flex-col gap-2">
-      <span className={sectionLbl}>SPECS</span>
+      <div className="flex items-center gap-2">
+        <span className={sectionLbl}>SPECS</span>
+        <span className="flex-1" />
+        {!specsEditing && specs.trim() && (
+          <button type="button"
+            title="edit raw markdown"
+            className="rounded-md px-1.5 py-0.5 text-[12px] text-ink-muted transition-colors hover:bg-panel hover:text-ink"
+            onClick={() => setSpecsEditing(true)}
+          >
+            ✏️
+          </button>
+        )}
+      </div>
       {specsEditing
         ? (
           <textarea
@@ -741,24 +753,15 @@ export function Drawer(
               }
               return els;
             })()}
-            <div className="flex items-center gap-1.5">
-              <button type="button"
-                className="rounded-md border border-dashed border-chipline px-3 py-1.5 text-[12px] text-ink-muted/70 transition-colors hover:border-copper/60 hover:text-copper"
-                onClick={() => {
-                  setSpecs(`${specs.replace(/\n*$/, "")}\n- `);
-                  setSpecsEditing(true);
-                }}
-              >
-                ＋ add a spec…
-              </button>
-              <button type="button"
-                title="edit raw markdown"
-                className="rounded-md px-2 py-1.5 text-[12px] text-ink-muted transition-colors hover:bg-panel hover:text-ink"
-                onClick={() => setSpecsEditing(true)}
-              >
-                ✏️
-              </button>
-            </div>
+            <button type="button"
+              className="w-fit rounded-md border border-dashed border-chipline px-3 py-1.5 text-[12px] text-ink-muted/70 transition-colors hover:border-copper/60 hover:text-copper"
+              onClick={() => {
+                setSpecs(`${specs.replace(/\n*$/, "")}\n- `);
+                setSpecsEditing(true);
+              }}
+            >
+              ＋ add a spec…
+            </button>
           </>
         )
         : (
