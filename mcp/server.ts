@@ -85,8 +85,9 @@ As an agent you can:
   one-shot. Your answer posts as the next comment; the watcher fills its meta for you.
 
 ## Pages & reports
-- **trame_create_page** — create a page from Markdown (not a session card). Nest it under
-  the relevant project via parent_id; parentless pages land in the Unfiled inbox.
+- **trame_create_page** — create a page from Markdown (not a session card). It files
+  itself under the project owning \`repo_path\` (pass your working directory); pass
+  parent_id only to nest it elsewhere.
 - **trame_update_page** — replace a page's content from Markdown IN PLACE; unchanged
   blocks keep their ids so inline comments stay anchored. Reply to comments before updating.
 - **trame_move_page** — reparent/reorder an existing page (fix a wrong parent, nest under another page).
@@ -181,35 +182,42 @@ server.tool(
 
 server.tool(
   "trame_create_page",
-  "Create a new Trame page/document from Markdown. Use this instead of putting a document into a session card. Nest it under the relevant project or page: resolve parent_id first (trame_board lists projects; the current session's project usually is the right home). Omit parent_id only for genuinely cross-project documents — parentless pages land in the Unfiled inbox awaiting manual triage. The Markdown dialect (tab/fold section headings, todos, pills, mermaid, PR chips) is listed by trame_capabilities.",
+  "Create a new Trame page/document from Markdown. Use this instead of putting a document into a session card. The page is filed under the project owning repo_path (pass the working directory; the server falls back to its own) — pass parent_id only to nest it somewhere else, e.g. under another page (trame_board lists projects and pages). The Markdown dialect (tab/fold section headings, todos, pills, mermaid, PR chips) is listed by trame_capabilities.",
   {
     title: z.string(),
     markdown: z.string().optional(),
     parent_id: z.string().optional(),
+    repo_path: z.string().optional(),
     icon: z.string().optional(),
   },
   async (
-    { title, markdown, parent_id, icon }: {
+    { title, markdown, parent_id, repo_path, icon }: {
       title: string;
       markdown?: string;
       parent_id?: string;
+      repo_path?: string;
       icon?: string;
     },
   ) => {
     const res = await post("/api/pages", {
       title,
       kind: "page",
-      parent_id: parent_id ?? null,
+      // no parent given: the app files the page under the repo's project
+      ...(parent_id ? { parent_id } : { repo_path: repo_path ?? Deno.cwd() }),
       icon: icon ?? null,
       content: markdownToPageBlocks(markdown ?? "", title),
     }) as Record<string, unknown>;
-    return text(
-      parent_id ? res : {
-        ...res,
-        note:
-          "created in Unfiled (no parent) — if a project fits, file it with trame_move_page",
-      },
-    );
+    // say where it landed — the parent is resolved app-side when none is given
+    const pages = await api("/api/pages") as {
+      id: string;
+      parent_id: string | null;
+      title: string;
+    }[];
+    const parentId = pages.find((p) => p.id === res.id)?.parent_id;
+    return text({
+      ...res,
+      filed_under: pages.find((p) => p.id === parentId)?.title ?? "Unfiled",
+    });
   },
 );
 

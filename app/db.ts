@@ -107,6 +107,29 @@ export async function resolveClient(name: string, color?: string): Promise<strin
   return row.id;
 }
 
+// Home project for a page an agent creates from a repo: the project of the session that
+// owns this path, else a project whose title is a path segment, else Side-projects. Keeps
+// agent-authored pages out of the Unfiled inbox.
+export async function resolveHomeProject(repoPath: string): Promise<string | null> {
+  const path = repoPath.replace(/\/+$/, "");
+  if (!path) return null;
+  const pg = await db();
+  const bySession = (await pg.query(
+    `select client_id from sessions
+      where not deleted and client_id is not null and repo_path is not null
+        and starts_with($1 || '/', repo_path || '/')
+      order by length(repo_path) desc, last_touched desc limit 1`,
+    [path],
+  )).rows[0] as { client_id: string } | undefined;
+  if (bySession) return bySession.client_id;
+  const byPath = (await pg.query(
+    `select id from pages where kind='project' and not deleted and position('/' || title || '/' in $1) > 0
+     order by length(title) desc limit 1`,
+    [path + "/"],
+  )).rows[0] as { id: string } | undefined;
+  return byPath ? byPath.id : await resolveClient("Side-projects");
+}
+
 // A Story is a kind='story' page nested under its Project (clientId). Find-or-create by
 // title; a same-titled plain page is reused (and promoted on attach) rather than duped.
 export async function resolveObjective(title: string, clientId: string | null): Promise<string> {
