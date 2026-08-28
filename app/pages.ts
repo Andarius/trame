@@ -276,10 +276,10 @@ export async function createComment(
   // backfill never re-claims their comments for the local user
   const agent = p.agent ? agentIdentity(p.agent) : null;
   const author = agent?.name ?? p.author?.trim();
-  // every agent comment carries a footer: name the model even when the writer
-  // could only measure its own id
+  // agent footers always name a model; blank models fall back to the agent id
+  const model = typeof p.meta?.model === "string" ? p.meta.model.trim() : "";
   const meta = p.agent
-    ? { ...p.meta, model: (p.meta?.model as string | undefined) ?? p.agent }
+    ? { ...p.meta, model: model || p.agent.trim().toLowerCase() }
     : p.meta;
   const row = (await pg.query(
     `insert into page_comments (page_id, block_id, anchor, body, author, author_avatar, author_id, meta, origin)

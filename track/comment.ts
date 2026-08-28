@@ -15,8 +15,7 @@ type Input = {
   block_text?: string;
   body: string;
   agent?: AgentKind;
-  // optional, honest generation stats → footer; only pass numbers you actually know
-  // model defaults to the agent id server-side; only pass stats you measured
+  // footer stats; model defaults to the agent id server-side — only pass numbers you measured
   meta?: { model?: string; in?: number; out?: number; ms?: number };
 };
 
