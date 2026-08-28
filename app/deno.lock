@@ -14,7 +14,6 @@
     "npm:@electric-sql/pglite@0.5.3": "0.5.3",
     "npm:@modelcontextprotocol/sdk@^1.12.0": "1.29.0_zod@3.25.76",
     "npm:@types/ws@8": "8.18.1",
-    "npm:postgres@^3.4.0": "3.4.9",
     "npm:ws@^8.18.0": "8.21.1",
     "npm:zod@^3.24.0": "3.25.76"
   },
@@ -462,9 +461,6 @@
     "pkce-challenge@5.0.1": {
       "integrity": "sha512-wQ0b/W4Fr01qtpHlqSqspcj3EhBvimsdh0KlHhH8HRZnMsEa0ea2fTULOXOS9ccQr3om+GcGRk4e+isrZWV8qQ=="
     },
-    "postgres@3.4.9": {
-      "integrity": "sha512-GD3qdB0x1z9xgFI6cdRD6xu2Sp2WCOEoe3mtnyB5Ee0XrrL5Pe+e4CCnJrRMnL1zYtRDZmQQVbvOttLnKDLnaw=="
-    },
     "proxy-addr@2.0.7": {
       "integrity": "sha512-llQsMLSUDUPT44jdrU/O37qlnifitDP+ZwrmmZcoSKyLKvtZxpyV0n2/bD/N4tBAAZ/gJEdZU7KMraoK1+XYAg==",
       "dependencies": [
@@ -636,7 +632,6 @@
       "jsr:@std/uuid@1",
       "npm:@clack/prompts@^1.6.0",
       "npm:@electric-sql/pglite@0.5.3",
-      "npm:postgres@^3.4.0",
       "npm:ws@^8.18.0"
     ]
   }

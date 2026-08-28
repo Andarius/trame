@@ -11,11 +11,7 @@ export const NODE_ID = Deno.env.get("TRACKER_NODE_ID") ?? Deno.hostname();
 // `just dev`/`just serve` both run from app/, so cwd = app/.
 export const APP_ROOT = Deno.env.get("TRACKER_APP_ROOT") ?? Deno.cwd();
 
-// Postgres on the hub, reachable over the LAN (or Tailscale), e.g.
-//   postgres://tracker:PASS@hub:5433/tracker
-export const REMOTE_PG = Deno.env.get("TRACKER_REMOTE_PG") ?? "";
-
-// Client TLS material for the hub (ca.crt, client.crt, client.key) — fetched by `just db-cert`.
+// Client TLS material for the hub (ca.crt) — fetched by `just db-cert`.
 export const TLS_DIR = Deno.env.get("TRACKER_TLS_DIR") ?? `${dataHome}/trame/certs`;
 
 export const DATA_DIR = Deno.env.get("TRACKER_DATA_DIR") ?? `${dataHome}/trame/pglite`;

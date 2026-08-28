@@ -2,7 +2,7 @@
 // *.excalidraw drawings so the Explore view can search files on disk alongside
 // published reports. Paths come from the UI-editable settings file, falling back
 // to the TRACKER_REPORT_PATHS env var.
-import { HOME_DIR, REMOTE_PG, REPORT_PATHS, SETTINGS_FILE } from "./config.ts";
+import { HOME_DIR, REPORT_PATHS, SETTINGS_FILE } from "./config.ts";
 import { updateSettings } from "./settings-store.ts";
 
 export type FileHit = { path: string; name: string; mtime: string };
@@ -15,77 +15,15 @@ export type ExploreConfig = {
   starred: string[];
   htmlFilter: "smart" | "all";
   source: "settings" | "env";
-  remotePg: string; // password always stripped — never shipped to the UI
-  remoteSource: "settings" | "env" | null;
-  remoteHasPassword: boolean;
+  hubApi: string; // the token is never shipped to the UI
+  hubSource: "settings" | "env" | null;
+  hubHasToken: boolean;
   authorName: string; // display name stamped on comments (empty = falls back to node id)
   authorAvatar: string; // optional avatar stamped on comments: image URL or data URI
 };
 
-// The URL and password are stored as separate settings keys (the UI keeps them
-// in separate fields); they are only composed here, at connection time.
-function withPassword(url: string, password: string): string {
-  if (!password) return url;
-  try {
-    const u = new URL(url);
-    u.password = password;
-    return u.toString();
-  } catch {
-    return url;
-  }
-}
-function stripPassword(url: string): string {
-  try {
-    const u = new URL(url);
-    u.password = "";
-    return u.toString();
-  } catch {
-    return url;
-  }
-}
-function urlPassword(url: string): string {
-  try {
-    return decodeURIComponent(new URL(url).password);
-  } catch {
-    return "";
-  }
-}
-
-// What sync would use if these (possibly unsaved) UI fields were saved: blank
-// password falls back to the stored one, blank URL to the effective config.
-export async function resolveRemotePg(
-  url: string,
-  password: string,
-): Promise<string | null> {
-  url = url.trim();
-  if (!url) return getRemotePg();
-  let pw = password.trim() || urlPassword(url);
-  if (!pw) {
-    try {
-      const s = JSON.parse(await Deno.readTextFile(SETTINGS_FILE));
-      if (typeof s.remotePgPassword === "string") pw = s.remotePgPassword;
-    } catch { /* none stored */ }
-  }
-  return withPassword(stripPassword(url), pw);
-}
-
-// The hub URL is UI-configurable (settings.json) with the env var as fallback,
-// re-read on every sync pass so a settings change applies without a restart.
-export async function getRemotePg(): Promise<string | null> {
-  try {
-    const settings = JSON.parse(await Deno.readTextFile(SETTINGS_FILE));
-    if (typeof settings.remotePg === "string" && settings.remotePg.trim()) {
-      const pw = typeof settings.remotePgPassword === "string"
-        ? settings.remotePgPassword
-        : "";
-      return withPassword(settings.remotePg.trim(), pw);
-    }
-  } catch { /* no settings file yet */ }
-  return REMOTE_PG || null;
-}
-
-// Hub API sync (phase 3, feature-flagged): used instead of direct Postgres when
-// enabled AND fully configured. settings.json wins over env; re-read every pass.
+// Hub API sync config: settings.json wins over env; re-read on every sync pass
+// so a settings change applies without a restart. Unconfigured = offline-only.
 export async function getHubApi(): Promise<
   { url: string; token: string } | null
 > {
@@ -93,14 +31,30 @@ export async function getHubApi(): Promise<
   try {
     s = JSON.parse(await Deno.readTextFile(SETTINGS_FILE));
   } catch { /* no settings file yet */ }
-  const enabled = s.syncViaApi === true ||
-    Deno.env.get("TRACKER_SYNC_VIA_API") === "1";
-  if (!enabled) return null;
   const url = (typeof s.hubApi === "string" && s.hubApi.trim()) ||
     Deno.env.get("TRACKER_HUB_API") || "";
   const token = (typeof s.hubApiToken === "string" && s.hubApiToken.trim()) ||
     Deno.env.get("TRACKER_HUB_API_TOKEN") || "";
   return url && token ? { url: url.replace(/\/$/, ""), token } : null;
+}
+
+// What sync would use if these (possibly unsaved) UI fields were saved: blank
+// token falls back to the stored one, blank URL to the effective config.
+export async function resolveHubApi(
+  url: string,
+  token: string,
+): Promise<{ url: string; token: string } | null> {
+  url = url.trim();
+  token = token.trim();
+  if (!url) return getHubApi();
+  if (!token) {
+    try {
+      const s = JSON.parse(await Deno.readTextFile(SETTINGS_FILE));
+      if (typeof s.hubApiToken === "string") token = s.hubApiToken.trim();
+    } catch { /* none stored */ }
+    token ||= Deno.env.get("TRACKER_HUB_API_TOKEN") ?? "";
+  }
+  return token ? { url: url.replace(/\/$/, ""), token } : null;
 }
 
 export async function getReportPaths(): Promise<ExploreConfig> {
@@ -117,21 +71,20 @@ export async function getReportPaths(): Promise<ExploreConfig> {
   const htmlFilter = settings.htmlFilter === "all"
     ? "all" as const
     : "smart" as const;
-  const savedRemote = typeof settings.remotePg === "string"
-    ? settings.remotePg.trim()
+  const savedHub = typeof settings.hubApi === "string"
+    ? settings.hubApi.trim()
     : "";
-  const savedPw = typeof settings.remotePgPassword === "string"
-    ? settings.remotePgPassword
-    : "";
-  const effective = savedRemote || REMOTE_PG;
-  const remotePg = stripPassword(effective);
-  const remoteSource = savedRemote
+  const envHub = Deno.env.get("TRACKER_HUB_API") ?? "";
+  const hubApi = savedHub || envHub;
+  const hubSource = savedHub
     ? "settings" as const
-    : REMOTE_PG
+    : envHub
     ? "env" as const
     : null;
-  const remoteHasPassword = Boolean(
-    savedRemote ? savedPw || urlPassword(savedRemote) : urlPassword(REMOTE_PG),
+  const hubHasToken = Boolean(
+    savedHub
+      ? (typeof settings.hubApiToken === "string" && settings.hubApiToken.trim())
+      : Deno.env.get("TRACKER_HUB_API_TOKEN"),
   );
   const authorName = typeof settings.authorName === "string"
     ? settings.authorName.trim()
@@ -146,9 +99,9 @@ export async function getReportPaths(): Promise<ExploreConfig> {
       starred,
       htmlFilter,
       source: "settings",
-      remotePg,
-      remoteSource,
-      remoteHasPassword,
+      hubApi,
+      hubSource,
+      hubHasToken,
       authorName,
       authorAvatar,
     };
@@ -159,9 +112,9 @@ export async function getReportPaths(): Promise<ExploreConfig> {
     starred,
     htmlFilter,
     source: "env",
-    remotePg,
-    remoteSource,
-    remoteHasPassword,
+    hubApi,
+    hubSource,
+    hubHasToken,
     authorName,
     authorAvatar,
   };
@@ -173,8 +126,8 @@ export async function saveExploreSettings(
     ignorePaths?: string[];
     starredPaths?: string[];
     htmlFilter?: "smart" | "all";
-    remotePg?: string;
-    remotePgPassword?: string;
+    hubApi?: string;
+    hubApiToken?: string;
     authorName?: string;
     authorAvatar?: string;
   },
@@ -206,22 +159,23 @@ export async function saveExploreSettings(
       );
     }
     if (patch.htmlFilter) settings.htmlFilter = patch.htmlFilter;
-    if (patch.remotePg !== undefined) {
-      let url = patch.remotePg.trim();
-      let pw = patch.remotePgPassword?.trim() ?? "";
-      // a full URL pasted with an embedded password gets split on save
-      if (!pw) pw = urlPassword(url);
-      url = stripPassword(url);
+    if (patch.hubApi !== undefined) {
+      const url = patch.hubApi.trim().replace(/\/$/, "");
+      const token = patch.hubApiToken?.trim() ?? "";
       if (url) {
-        settings.remotePg = url;
-        if (pw) settings.remotePgPassword = pw;
-        // blank password = keep the stored one (the UI never gets it back)
+        settings.hubApi = url;
+        if (token) settings.hubApiToken = token;
+        // blank token = keep the stored one (the UI never gets it back)
       } else {
-        // empty clears the override — env var (or offline) takes back over
-        delete settings.remotePg;
-        delete settings.remotePgPassword;
+        // empty clears the override — env vars (or offline) take back over
+        delete settings.hubApi;
+        delete settings.hubApiToken;
       }
     }
+    // legacy direct-Postgres sync keys — gone since the hub became an API
+    delete settings.remotePg;
+    delete settings.remotePgPassword;
+    delete settings.syncViaApi;
   });
   cache = null; // rescan with the new config
 }
