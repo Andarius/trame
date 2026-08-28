@@ -23,6 +23,7 @@ impossible, and writes should go through the outbox writer instead (see Writes).
 |---|---|
 | `GET /api/status` | `{nodeId, remote, lastSync, version, dataDir, desktop}` |
 | `GET /api/board` | everything at once: `{projects, stories, sessions, pages, statuses}` |
+| `GET /api/sessions/<id>` | one card resolved: project/story **by name**, branch, PR, next_step, specs, `links`, `activity` (worklog, newest first; `?events=N`) |
 | `GET /api/sessions/<id>/events` | worklog `[{at, kind, summary}]` (kind: log, import, …) |
 | `GET /api/pages` | page tree (flat list; `parent_id`, `kind: project\|story\|page`) |
 | `GET /api/pages/<id>` | one page with content blocks and its sessions |
@@ -30,6 +31,10 @@ impossible, and writes should go through the outbox writer instead (see Writes).
 | `GET /api/udb/<id>` | `{db, properties, rows}` — `rows[].vals` keyed by property id, `derived` holds formula/rollup values |
 | `GET /api/reports` | published exploration reports |
 | `GET /api/import/claude?days=7` | Claude Code transcripts grouped by repo (preview only, writes nothing) |
+
+A Trame URL the user pastes carries the ids in its query string: `?session=<id>` is the
+card, `?page=<id>` the page it sits on (`full` only picks panel vs. ticket). Read the card
+with `GET /api/sessions/<session id>` — that one call is what the drawer shows.
 
 Session fields worth knowing: `status` (active|paused|blocked|done), `next_step` (for a
 blocked session this states the blocker), `client_id`/`page_id` (join against

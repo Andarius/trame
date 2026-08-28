@@ -9,16 +9,20 @@ import { markdownToPageBlocks } from "../app/page-markdown.ts";
 import { mergePageBlocks } from "../app/page-merge.ts";
 import { resolveCommentBlock } from "../app/agent-comments.ts";
 import { HTML_BLOCK_MAX_BYTES } from "../protocol/html.ts";
+import { parseSessionRef } from "./session_url.ts";
 
-async function api(path: string, init?: RequestInit): Promise<unknown> {
-  let port: number;
+async function appPort(): Promise<number> {
   try {
-    port = JSON.parse(await Deno.readTextFile(PORT_FILE)).port;
+    return JSON.parse(await Deno.readTextFile(PORT_FILE)).port;
   } catch {
     throw new Error(
       "Trame app is not running (no port file). Start it with `just dev` or `just serve`.",
     );
   }
+}
+
+async function api(path: string, init?: RequestInit): Promise<unknown> {
+  const port = await appPort();
   const res = await fetch(`http://127.0.0.1:${port}${path}`, init).catch(() => {
     throw new Error(
       "Trame app is not reachable (stale port file?). Start it with `just dev` or `just serve`.",
@@ -112,6 +116,10 @@ interactive cards. A leading \`# Title\` equal to the page title is dropped. The
 \`{{tab}}\`/\`{{fold}}\` markers work in a session's \`specs\`.
 
 ## Sessions (the board)
+- **trame_session** — read ONE card the way the user sees it: project and story by name,
+  branch, PR, next step, specs, backlinks and the activity worklog. Takes a session id or
+  a Trame URL the user pasted — when someone gives you a link, read it with this rather
+  than guessing what is on it. \`trame_board\` returns raw ids and no worklog.
 - **trame_track** — create/update a work session (upsert by repo_path+branch).
 - **trame_set_status** — move a card between columns.
 - **trame_new_objective** — create the story/epic sessions ladder up to.
@@ -135,6 +143,39 @@ server.tool(
   "Read the Trame board: all sessions with status/client/objective/branch/next_step, plus stories and projects.",
   {},
   async () => text(await api("/api/board")),
+);
+
+server.tool(
+  "trame_session",
+  "Read ONE work session — the card the user sees in the app: project and story by name (not raw ids), status, repo path, branch, PR, next step, specs, backlink chips and the activity worklog. Accepts a session id or a Trame URL the user pasted (`…/?session=<id>`); a `?page=<id>` link with no session returns that page's sessions instead. Use this instead of scanning trame_board when you have a specific card or link.",
+  {
+    session: z.string().describe(
+      "Session id, or a pasted Trame URL (…/?session=<id>&full=1 or …/?page=<id>)",
+    ),
+    events: z.number().optional().describe("Worklog entries to return, newest first (default 20)"),
+  },
+  async ({ session, events }: { session: string; events?: number }) => {
+    const ref = parseSessionRef(session);
+    if (!ref) {
+      return text({
+        error:
+          `not a session id or Trame URL: ${session} — pass a uuid, or a link containing ?session=<uuid> or ?page=<uuid>`,
+      });
+    }
+    if (ref.kind === "page") {
+      // the link pointed at a page, not a card — hand back the cards anchored to it
+      const page = await api(`/api/pages/${ref.id}`) as Record<string, unknown>;
+      return text({
+        note: "URL had no ?session= — returning the page and the sessions anchored to it",
+        page: { id: page.id, title: page.title, kind: page.kind },
+        sessions: page.sessions ?? [],
+      });
+    }
+    const q = events ? `?events=${events}` : "";
+    const card = await api(`/api/sessions/${ref.id}${q}`) as Record<string, unknown>;
+    // hand back a link the user can click, even when called with a bare id
+    return text({ ...card, url: `http://127.0.0.1:${await appPort()}/?session=${ref.id}&full=1` });
+  },
 );
 
 server.tool(
