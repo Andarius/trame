@@ -1,4 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  DndContext,
+  DragOverlay,
+  type DragEndEvent,
+  type DragStartEvent,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
 import {
   applyUpdate,
   type AppStatus,
@@ -19,6 +30,7 @@ import {
   importPage,
   listPages,
   listUdbs,
+  movePage,
   moveStatus as apiMoveStatus,
   openInBrowser,
   type PageMeta,
@@ -324,6 +336,7 @@ function PageNode(
     onOpenPage,
     onOpenDb,
     onNewChild,
+    meId,
   }: {
     p: PageMeta;
     depth: number;
@@ -336,6 +349,7 @@ function PageNode(
     onOpenPage: (id: string) => void;
     onOpenDb: (id: string) => void;
     onNewChild: (parentId: string) => void;
+    meId: string | null;
   },
 ) {
   const kids = childrenOf.get(p.id) ?? [];
@@ -343,14 +357,30 @@ function PageNode(
   const hasKids = kids.length + dbs.length > 0;
   const open = expanded.has(p.id);
   const active = p.id === current;
+  const sharedIn = isSharedIn(p, meId);
+  const canDrag = p.kind === "page" && !sharedIn;
+  const canDrop = (p.kind === "project" || p.kind === "story") && !sharedIn;
+  const { attributes, listeners, setNodeRef: setDragRef, isDragging } =
+    useDraggable({ id: p.id, disabled: !canDrag });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: `drop:${p.id}`,
+    disabled: !canDrop,
+  });
   return (
     <>
       <div
+        ref={(el) => {
+          setDragRef(el);
+          setDropRef(el);
+        }}
+        {...(canDrag ? { ...attributes, ...listeners } : {})}
         className={`group flex items-center gap-1 rounded-md py-[5px] pr-1 text-left text-[13px] ${
           active
             ? "bg-active-row font-medium text-ink"
             : "text-ink-muted hover:text-ink-soft"
-        }`}
+        }${canDrag ? " touch-none active:cursor-grabbing" : ""}${
+          isDragging ? " opacity-40" : ""
+        }${isOver ? " bg-copper/10 ring-1 ring-copper/40" : ""}`}
         style={{ paddingLeft: 8 + depth * 14 }}
       >
         <button
@@ -359,6 +389,7 @@ function PageNode(
             hasKids ? "text-ink-muted/70 hover:text-ink" : "text-transparent"
           }`}
           onClick={() => hasKids && onToggle(p.id)}
+          onPointerDown={(e) => e.stopPropagation()}
           tabIndex={hasKids ? 0 : -1}
         >
           {open ? "▾" : "▸"}
@@ -389,6 +420,7 @@ function PageNode(
           className="hidden shrink-0 rounded px-1 text-[12px] text-ink-muted hover:text-ink group-hover:block"
           title="new sub-page"
           onClick={() => onNewChild(p.id)}
+          onPointerDown={(e) => e.stopPropagation()}
         >
           ＋
         </button>
@@ -431,6 +463,7 @@ function PageNode(
           onOpenPage={onOpenPage}
           onOpenDb={onOpenDb}
           onNewChild={onNewChild}
+          meId={meId}
         />
       ))}
     </>
@@ -441,6 +474,21 @@ function PageNode(
 // Ownerless pages (legacy rows, dev mode) count as mine.
 function isSharedIn(p: PageMeta, meId: string | null): boolean {
   return meId != null && p.owner_id != null && p.owner_id !== meId;
+}
+
+// drop zone covering the whole UNFILED section — dropping a page here un-files it
+function UnfiledZone({ children }: { children: ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: "unfiled" });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`flex flex-col gap-1 ${
+        isOver ? "rounded-md bg-copper/5 ring-1 ring-copper/30" : ""
+      }`}
+    >
+      {children}
+    </div>
+  );
 }
 
 function Sidebar(
@@ -458,6 +506,7 @@ function Sidebar(
     onNewPage,
     onNewProject,
     onImportPage,
+    onMovePage,
     udbs,
     dbId,
     onOpenDb,
@@ -479,6 +528,7 @@ function Sidebar(
     onNewPage: (parentId: string | null) => void;
     onNewProject: () => void;
     onImportPage: () => void;
+    onMovePage: (id: string, parentId: string | null) => void;
     udbs: UdbMeta[];
     dbId: string | null;
     onOpenDb: (id: string) => void;
@@ -549,7 +599,45 @@ function Sidebar(
       return next;
     });
 
+  // drag a page row onto a project/story (or the UNFILED zone) to re-file it
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+  );
+  const [dragId, setDragId] = useState<string | null>(null);
+  const lastDragEnd = useRef(0);
+  // suppress the click that fires right after a drop
+  const openGuarded = (id: string) => {
+    if (Date.now() - lastDragEnd.current > 250) onOpenPage(id);
+  };
+  const onDragStart = (e: DragStartEvent) => setDragId(String(e.active.id));
+  const onDragEnd = (e: DragEndEvent) => {
+    setDragId(null);
+    lastDragEnd.current = Date.now();
+    if (!e.over) return;
+    const id = String(e.active.id);
+    const page = byId.get(id);
+    if (!page) return;
+    const target = e.over.id === "unfiled"
+      ? null
+      : String(e.over.id).slice("drop:".length);
+    if (target === (page.parent_id ?? null)) return; // already there
+    if (target) {
+      // cycle guard — server rejects too, this just skips the round-trip
+      for (
+        let a = byId.get(target);
+        a;
+        a = a.parent_id ? byId.get(a.parent_id) : undefined
+      ) {
+        if (a.id === id) return;
+      }
+      setExpanded((prev) => new Set(prev).add(target)); // reveal landing spot
+    }
+    onMovePage(id, target);
+  };
+  const dragged = dragId ? byId.get(dragId) : undefined;
+
   return (
+    <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
     <aside className="flex w-[240px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-line bg-sidebar px-3 pb-3 pt-4">
       <div className="mb-3 flex items-center gap-2.5 px-2">
         <LogoMark />
@@ -621,9 +709,10 @@ function Sidebar(
           onToggle={onToggle}
           current={view === "page" ? pageId : null}
           currentDb={view === "database" ? dbId : null}
-          onOpenPage={onOpenPage}
+          onOpenPage={openGuarded}
           onOpenDb={onOpenDb}
           onNewChild={(id) => onNewPage(id)}
+          meId={meId}
         />
       ))}
       <NewChip label="New project" indent={26} onClick={onNewProject} />
@@ -644,41 +733,45 @@ function Sidebar(
                 onToggle={onToggle}
                 current={view === "page" ? pageId : null}
                 currentDb={view === "database" ? dbId : null}
-                onOpenPage={onOpenPage}
+                onOpenPage={openGuarded}
                 onOpenDb={onOpenDb}
                 onNewChild={(id) => onNewPage(id)}
+                meId={meId}
               />
             ),
           )}
         </>
       )}
-      <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
-        UNFILED
-      </div>
-      {(childrenOf.get(null) ?? []).filter((p) =>
-        p.kind === "page" && !isSharedIn(p, meId)
-      ).map((
-        p,
-      ) => (
-        <PageNode
-          key={p.id}
-          p={p}
-          depth={0}
-          childrenOf={childrenOf}
-          dbsOf={dbsOf}
-          expanded={expanded}
-          onToggle={onToggle}
-          current={view === "page" ? pageId : null}
-          currentDb={view === "database" ? dbId : null}
-          onOpenPage={onOpenPage}
-          onOpenDb={onOpenDb}
-          onNewChild={(id) => onNewPage(id)}
-        />
-      ))}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <NewChip label="New page" indent={26} onClick={() => onNewPage(null)} />
-        <NewChip label="Import" indent={9} onClick={onImportPage} />
-      </div>
+      <UnfiledZone>
+        <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+          UNFILED
+        </div>
+        {(childrenOf.get(null) ?? []).filter((p) =>
+          p.kind === "page" && !isSharedIn(p, meId)
+        ).map((
+          p,
+        ) => (
+          <PageNode
+            key={p.id}
+            p={p}
+            depth={0}
+            childrenOf={childrenOf}
+            dbsOf={dbsOf}
+            expanded={expanded}
+            onToggle={onToggle}
+            current={view === "page" ? pageId : null}
+            currentDb={view === "database" ? dbId : null}
+            onOpenPage={openGuarded}
+            onOpenDb={onOpenDb}
+            onNewChild={(id) => onNewPage(id)}
+            meId={meId}
+          />
+        ))}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <NewChip label="New page" indent={26} onClick={() => onNewPage(null)} />
+          <NewChip label="Import" indent={9} onClick={onImportPage} />
+        </div>
+      </UnfiledZone>
       <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
         DATABASES
       </div>
@@ -751,6 +844,17 @@ function Sidebar(
         </button>
       </div>
     </aside>
+    <DragOverlay>
+      {dragged && (
+        <div className="flex w-fit items-center gap-1.5 rounded-md border border-line bg-sidebar px-2 py-1 text-[13px] shadow-lg">
+          <EntityIcon icon={dragged.icon} fallback={pageGlyph(dragged.kind)} />
+          <span className="max-w-[200px] truncate">
+            {dragged.title || "Untitled"}
+          </span>
+        </div>
+      )}
+    </DragOverlay>
+    </DndContext>
   );
 }
 
@@ -1178,6 +1282,11 @@ export function App() {
       refresh();
       openPage(r.id);
     });
+  // sidebar drag-and-drop: re-file a page under a project (null = unfile)
+  const movePageTo = (id: string, parentId: string | null) =>
+    movePage(id, { parent_id: parentId }).then(refresh).catch((e) =>
+      appConfirm(`Move failed: ${e?.message ?? "unknown error"}`, "OK")
+    );
 
   // Export the page subtree to a bundle file; flash the outcome on the button.
   const flashShare = (msg: string | null, hold = 2600) => {
@@ -1265,6 +1374,7 @@ export function App() {
         onNewPage={newPage}
         onNewProject={newProject}
         onImportPage={importPageFile}
+        onMovePage={movePageTo}
         udbs={udbs}
         dbId={dbId}
         onOpenDb={openDb}
