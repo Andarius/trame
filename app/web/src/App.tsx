@@ -1197,6 +1197,22 @@ export function App() {
     put("story", storyFilter.join(",") || null);
     history.replaceState(null, "", u);
   }, [view, pageId, dbId, clientId, pluginId, openId, drawerFull, group, storyFilter]);
+  // browser-tab title follows what's on screen (full session ticket > page/db/client/plugin view)
+  useEffect(() => {
+    const t = openId && drawerFull
+      ? board?.sessions.find((s) => s.id === openId)?.title
+      : view === "page"
+      ? pages.find((p) => p.id === pageId)?.title
+      : view === "database"
+      ? udbs.find((d) => d.id === dbId)?.name
+      : view === "client"
+      ? board?.projects.find((c) => c.id === clientId)?.name ??
+        pages.find((p) => p.id === clientId)?.title
+      : view === "plugin"
+      ? plugins.find((p) => p.id === pluginId)?.label
+      : null;
+    document.title = t ? `${t} — Trame` : "Trame";
+  }, [view, pageId, dbId, clientId, pluginId, openId, drawerFull, board, pages, udbs, plugins]);
   useEffect(() => {
     refresh();
     const t = setInterval(refresh, 5000);
@@ -1393,17 +1409,19 @@ export function App() {
                     <span key={c.id} className="flex items-center gap-1">
                       <button
                         type="button"
-                        className="max-w-[160px] truncate hover:text-ink-soft"
+                        className="flex max-w-[160px] items-center gap-1 hover:text-ink-soft"
                         onClick={() =>
                           openPage(c.id)}
                       >
-                        {c.title || "Untitled"}
+                        <EntityIcon icon={c.icon} className="shrink-0 text-[11px]" size={14} />
+                        <span className="truncate">{c.title || "Untitled"}</span>
                       </button>
                       <span className="text-ink-muted/50">/</span>
                     </span>
                   ))}
-                  <span className="truncate font-medium text-ink">
-                    {currentPage.title || "Untitled"}
+                  <span className="flex min-w-0 items-center gap-1 font-medium text-ink">
+                    <EntityIcon icon={currentPage.icon} className="shrink-0 text-[11px]" size={14} />
+                    <span className="truncate">{currentPage.title || "Untitled"}</span>
                   </span>
                 </div>
               )
@@ -1742,6 +1760,7 @@ export function App() {
                 clientId={clientId}
                 onOpenPage={openPage}
                 onOpenSession={(id) => openSession(id)}
+                onChanged={refresh}
               />
             )
             : <p className="p-6 text-ink-muted">No client selected.</p>)

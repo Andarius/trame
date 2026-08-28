@@ -1,17 +1,21 @@
-import type { BoardData } from "./api";
+import { useState } from "react";
+import { type BoardData, updatePage } from "./api";
 import { clientColor, inSubtree, pagesById, projectOf, statusStyle, StatusDot, storyOf, timeAgo } from "./ui";
+import { IconPicker } from "./udb/cells";
 
 // Overview for one client: its projects (each openable) with progress, plus any
 // client-tagged sessions that don't ladder up to one of those projects. All derived
 // from the board payload — no new endpoint.
 export function ClientView(
-  { board, clientId, onOpenPage, onOpenSession }: {
+  { board, clientId, onOpenPage, onOpenSession, onChanged }: {
     board: BoardData;
     clientId: string;
     onOpenPage: (id: string) => void;
     onOpenSession: (id: string) => void;
+    onChanged?: () => void;
   },
 ) {
+  const [iconOpen, setIconOpen] = useState(false);
   const byId = pagesById(board.pages);
   const client = board.projects.find((c) => c.id === clientId);
   if (!client) return <p className="p-6 text-ink-muted">Client not found.</p>;
@@ -43,7 +47,27 @@ export function ClientView(
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-6">
       <div className="flex items-center gap-2.5">
-        <span className="h-3 w-3 rounded-sm" style={{ background: col }} />
+        <div className="relative">
+          <button
+            type="button"
+            title="Set logo"
+            className="flex h-10 w-10 items-center justify-center rounded-md hover:bg-hover"
+            onClick={() => setIconOpen(true)}
+          >
+            {client.icon
+              ? /^(https?:|data:)/.test(client.icon)
+                ? <img src={client.icon} alt="" className="h-[34px] w-[34px] rounded-md object-contain" />
+                : <span className="text-[28px] leading-none">{client.icon}</span>
+              : <span className="h-3 w-3 rounded-sm" style={{ background: col }} />}
+          </button>
+          {iconOpen && (
+            <IconPicker
+              current={client.icon}
+              onPick={(icon) => updatePage(clientId, { icon }).then(() => onChanged?.())}
+              onClose={() => setIconOpen(false)}
+            />
+          )}
+        </div>
         <span className="text-xl font-semibold" style={{ color: col }}>{client.name}</span>
         <span className="text-[11.5px] text-ink-muted">
           {stories.length} {stories.length === 1 ? "story" : "stories"} · {totalSessions}{" "}
