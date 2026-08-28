@@ -108,11 +108,13 @@ First run generates the password and the CA/server certs, and binds to the hub's
 (re-applies the schema and restarts the API).
 
 ### 2. Each laptop
-Mint a device token on the hub, then point the app at the API:
+Mint a device token on the hub (`<node-id>` = the laptop's `TRACKER_NODE_ID`), then point the app at the API:
 ```bash
-ssh <hub> "docker exec tracker-api deno run -A --config /srv/hub/api/deno.json /srv/hub/api/main.ts mint <node-id>"
+# e.g. for the laptop whose TRACKER_NODE_ID is "mbp-14"
+ssh <hub> "docker exec tracker-api deno run -A --config /srv/hub/api/deno.json /srv/hub/api/main.ts mint mbp-14"
+# → prints the token ONCE (only its sha-256 is stored); re-run mint for a fresh one, revoke old rows in api_tokens
 ```
-Add to `~/.local/share/trame/settings.json` (chmod 600):
+Paste the URL + token in ⚙ Settings → Sync hub, or add to `~/.local/share/trame/settings.json` (chmod 600):
 ```json
 { "hubApi": "https://192.168.1.x:8443", "hubApiToken": "<minted token>" }
 ```
