@@ -1,7 +1,5 @@
-// Changeset sync through the hub API (phase 3, behind the syncViaAPI flag).
-// Behaviour-identical to the direct-Postgres path: same scan-based push (own-origin
-// rows past the local watermark), same LWW apply on pull — only the transport and
-// the pull ordering authority (server change_log rev, not updated_at) change.
+// Changeset sync through the hub API: scan-based push (own-origin rows past the
+// local watermark), LWW apply on pull, ordered by the server change_log rev.
 import { db } from "./db.ts";
 import { NODE_ID, TLS_DIR } from "./config.ts";
 import { ENTITIES, PROTOCOL_VERSION } from "../protocol/entities.ts";
@@ -58,6 +56,32 @@ async function applyChanges(
     applied++;
   }
   return applied;
+}
+
+// Probe a hub: /health for reachability + protocol, then an empty authenticated
+// /sync to verify the token. Nothing is persisted.
+export async function testHubApi(
+  api: { url: string; token: string },
+): Promise<{ ok: boolean; tls?: boolean; error?: string }> {
+  const client = httpClient();
+  try {
+    const res = await fetch(`${api.url}/health`, client ? { client } : {});
+    if (!res.ok) return { ok: false, error: `hub answered ${res.status}` };
+    const health = await res.json().catch(() => ({})) as { protocol?: number };
+    if (Number(health.protocol) !== PROTOCOL_VERSION) {
+      return {
+        ok: false,
+        error:
+          `protocol mismatch: hub speaks ${health.protocol}, this app ${PROTOCOL_VERSION}`,
+      };
+    }
+    await post(api, { cursor: 0, mutations: [], limit: 1 }, client);
+    return { ok: true, tls: api.url.startsWith("https:") };
+  } catch (e) {
+    return { ok: false, error: String((e as Error)?.message ?? e) };
+  } finally {
+    client?.close();
+  }
 }
 
 export async function syncOnceApi(

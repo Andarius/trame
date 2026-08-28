@@ -194,8 +194,8 @@ demo:
     set -euo pipefail
     dir=/tmp/trame-demo
     rm -rf "$dir"; mkdir -p "$dir/claude-projects"
-    # blank REMOTE_PG explicitly: just loads .env, and demo data must never reach a real hub
-    export TRACKER_REMOTE_PG= TRACKER_NODE_ID=demo TRACKER_UPDATE_CHECK=0
+    # blank hub API explicitly: just loads .env, and demo data must never reach a real hub
+    export TRACKER_HUB_API= TRACKER_HUB_API_TOKEN= TRACKER_NODE_ID=demo TRACKER_UPDATE_CHECK=0
     export TRACKER_PORT=8799 TRACKER_HOST=127.0.0.1
     export TRACKER_DATA_DIR="$dir/pglite" TRACKER_PORT_FILE="$dir/port.json"
     export TRACKER_SETTINGS_FILE="$dir/settings.json" TRACKER_OUTBOX="$dir/outbox.jsonl"

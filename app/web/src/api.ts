@@ -110,9 +110,9 @@ export type Settings = {
   starred: string[];
   htmlFilter: "smart" | "all";
   source: "settings" | "env";
-  remotePg: string; // password stripped server-side
-  remoteSource: "settings" | "env" | null;
-  remoteHasPassword: boolean;
+  hubApi: string; // the token never comes back to the UI
+  hubSource: "settings" | "env" | null;
+  hubHasToken: boolean;
   authorName: string;
   authorAvatar: string;
 };
@@ -124,8 +124,8 @@ export const patchSettings = (
     ignorePaths?: string[];
     starredPaths?: string[];
     htmlFilter?: "smart" | "all";
-    remotePg?: string;
-    remotePgPassword?: string;
+    hubApi?: string;
+    hubApiToken?: string;
     authorName?: string;
     authorAvatar?: string;
   },
@@ -276,11 +276,11 @@ export const syncNow = () =>
   fetch("/api/sync", { method: "POST" }).then((r) =>
     r.json() as Promise<{ pulled: number; pushed: number } | null>
   );
-export const testHub = (remotePg: string, remotePgPassword: string) =>
+export const testHub = (hubApi: string, hubApiToken: string) =>
   fetch("/api/hub/test", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ remotePg, remotePgPassword }),
+    body: JSON.stringify({ hubApi, hubApiToken }),
   }).then((r) =>
     r.json() as Promise<{ ok: boolean; tls?: boolean; error?: string }>
   );

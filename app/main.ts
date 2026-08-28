@@ -29,13 +29,13 @@ import {
 } from "./terminal.ts";
 import {
   deleteReportFile,
+  getHubApi,
   getLinkBase,
-  getRemotePg,
   getReportPaths,
   listFolder,
   readReportFile,
   resolveAllowedPath,
-  resolveRemotePg,
+  resolveHubApi,
   saveExploreSettings,
   scanReportFiles,
   writeReportFile,
@@ -65,7 +65,8 @@ import {
   updateStatus,
   upsertSession,
 } from "./db.ts";
-import { syncOnce, testRemote } from "./sync.ts";
+import { syncOnce } from "./sync.ts";
+import { testHubApi } from "./sync-api.ts";
 import { startRealtime } from "./realtime.ts";
 import { getIdentity, updateUserProfile } from "./identity.ts";
 import {
@@ -969,7 +970,7 @@ async function handler(req: Request): Promise<Response> {
   if (pathname === "/api/status") {
     return json({
       nodeId: NODE_ID,
-      remote: Boolean(await getRemotePg()),
+      remote: Boolean(await getHubApi()),
       lastSync,
       dataDir: DATA_DIR,
       desktop: DESKTOP,
@@ -998,12 +999,14 @@ async function handler(req: Request): Promise<Response> {
   // Probe a hub with (possibly unsaved) settings-form values — nothing is persisted.
   if (pathname === "/api/hub/test" && req.method === "POST") {
     const body = await req.json();
-    const url = await resolveRemotePg(
-      typeof body.remotePg === "string" ? body.remotePg : "",
-      typeof body.remotePgPassword === "string" ? body.remotePgPassword : "",
+    const api = await resolveHubApi(
+      typeof body.hubApi === "string" ? body.hubApi : "",
+      typeof body.hubApiToken === "string" ? body.hubApiToken : "",
     );
     return json(
-      url ? await testRemote(url) : { ok: false, error: "no hub configured" },
+      api
+        ? await testHubApi(api)
+        : { ok: false, error: "no hub URL + token configured" },
     );
   }
   if (pathname === "/api/import/claude/ignore" && req.method === "POST") {
@@ -1115,9 +1118,9 @@ async function handler(req: Request): Promise<Response> {
       htmlFilter: body.htmlFilter === "smart" || body.htmlFilter === "all"
         ? body.htmlFilter
         : undefined,
-      remotePg: typeof body.remotePg === "string" ? body.remotePg : undefined,
-      remotePgPassword: typeof body.remotePgPassword === "string"
-        ? body.remotePgPassword
+      hubApi: typeof body.hubApi === "string" ? body.hubApi : undefined,
+      hubApiToken: typeof body.hubApiToken === "string"
+        ? body.hubApiToken
         : undefined,
       authorName: typeof body.authorName === "string"
         ? body.authorName
@@ -1448,7 +1451,7 @@ try {
 await drainOutbox();
 runSync().catch(logSyncFailure);
 setInterval(() => runSync().catch(logSyncFailure), SYNC_INTERVAL_MS);
-// hub WS nudges (when syncViaApi is on): a nudge just runs the same sync early —
+// hub WS nudges (when a hub is configured): a nudge just runs the same sync early —
 // the poll above stays as the fallback when the socket is down
 startRealtime(() => runSync().catch(logSyncFailure));
 startPlugins();

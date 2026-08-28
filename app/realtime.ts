@@ -30,8 +30,8 @@ async function cursor(): Promise<number | null> {
   }
 }
 
-// Fire-and-forget: keeps one socket alive to the hub whenever API sync is enabled
-// (re-checked each cycle, so flipping syncViaApi applies without a restart), with
+// Fire-and-forget: keeps one socket alive to the hub whenever one is configured
+// (re-checked each cycle, so a settings change applies without a restart), with
 // exponential backoff + jitter on every failure path.
 export function startRealtime(onNudge: () => void): void {
   let attempt = 0;

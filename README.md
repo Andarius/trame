@@ -114,7 +114,7 @@ ssh <hub> "docker exec tracker-api deno run -A --config /srv/hub/api/deno.json /
 ```
 Add to `~/.local/share/trame/settings.json` (chmod 600):
 ```json
-{ "syncViaApi": true, "hubApi": "https://192.168.1.x:8443", "hubApiToken": "<minted token>" }
+{ "hubApi": "https://192.168.1.x:8443", "hubApiToken": "<minted token>" }
 ```
 Env (shell profile, or the project `.env` for `just`):
 ```bash

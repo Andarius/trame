@@ -335,10 +335,10 @@ export function SettingsModal(
   const [paths, setPaths] = useState<string[]>([]);
   const [ignore, setIgnore] = useState<string[]>([]);
   const [source, setSource] = useState<"settings" | "env">("settings");
-  const [remotePg, setRemotePg] = useState("");
-  const [remotePw, setRemotePw] = useState("");
-  const [remoteHasPw, setRemoteHasPw] = useState(false);
-  const [remoteSource, setRemoteSource] = useState<"settings" | "env" | null>(null);
+  const [hubUrl, setHubUrl] = useState("");
+  const [hubToken, setHubToken] = useState("");
+  const [hubHasToken, setHubHasToken] = useState(false);
+  const [hubSource, setHubSource] = useState<"settings" | "env" | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [exploreOpen, setExploreOpen] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
@@ -359,9 +359,9 @@ export function SettingsModal(
       // only prefill when saved here — an env-provided URL stays in the env
       // unless the user types one (mirrors the report-paths takeover behavior);
       // never clobber what the user already typed while this request was in flight
-      setRemotePg((cur) => cur || (s.remoteSource === "settings" ? s.remotePg : ""));
-      setRemoteHasPw(s.remoteSource === "settings" && s.remoteHasPassword);
-      setRemoteSource(s.remoteSource);
+      setHubUrl((cur) => cur || (s.hubSource === "settings" ? s.hubApi : ""));
+      setHubHasToken(s.hubSource === "settings" && s.hubHasToken);
+      setHubSource(s.hubSource);
       setLoaded(true);
     }).catch(() => setLoaded(true));
     getUpdate().then((u) => {
@@ -382,27 +382,13 @@ export function SettingsModal(
     applyUpdate().then((r) => setUpdState(r.ok ? "done" : "idle")).catch(() => setUpdState("idle"));
   };
 
-  // pasting the full db-deploy URL moves its password into the masked field
-  const onRemoteUrl = (v: string) => {
-    try {
-      const u = new URL(v.trim());
-      if (u.password) {
-        setRemotePw(decodeURIComponent(u.password));
-        u.password = "";
-        v = u.toString();
-      }
-    } catch { /* partial URL while typing */ }
-    setRemotePg(v);
-    setHubTest({ state: "idle" });
-  };
-
   const [hubTest, setHubTest] = useState<{ state: "idle" | "busy" | "ok" | "fail"; tls?: boolean; error?: string }>(
     { state: "idle" },
   );
   const runHubTest = () => {
     if (hubTest.state === "busy") return;
     setHubTest({ state: "busy" });
-    testHub(remotePg.trim(), remotePw.trim())
+    testHub(hubUrl.trim(), hubToken.trim())
       .then((r) => setHubTest(r.ok ? { state: "ok", tls: r.tls } : { state: "fail", error: r.error }))
       .catch((e) => setHubTest({ state: "fail", error: String(e) }));
   };
@@ -411,12 +397,12 @@ export function SettingsModal(
     patchSettings({
       reportPaths: paths.map((p) => p.trim()).filter(Boolean),
       ignorePaths: ignore.map((p) => p.trim()).filter(Boolean),
-      remotePg: remotePg.trim(),
-      remotePgPassword: remotePw.trim(), // blank = keep the stored one
+      hubApi: hubUrl.trim(),
+      hubApiToken: hubToken.trim(), // blank = keep the stored one
       authorName: authorName.trim(),
       authorAvatar: authorAvatar.trim(),
     }).then(() => {
-      if (remotePg.trim()) syncNow().catch(() => {}); // first sync right away
+      if (hubUrl.trim()) syncNow().catch(() => {}); // first sync right away
       onSaved();
       onClose();
     });
@@ -544,30 +530,32 @@ export function SettingsModal(
       <div className="h-px bg-line" />
       <div className="text-[12.5px] font-semibold">Sync hub</div>
       <p className="m-0 text-[11.5px] leading-relaxed text-ink-muted">
-        Postgres URL of the hub, printed by <code>just db-deploy</code>. mTLS client certs come
-        from <code>just db-cert</code>.{" "}
-        {remoteSource === "env"
-          ? "Currently coming from TRACKER_REMOTE_PG — saving a URL here takes over; empty keeps the env var."
-          : remoteSource === null
-          ? "Not configured — the app is local-only until a hub is set."
-          : "Saved here (settings.json); empty falls back to TRACKER_REMOTE_PG or local-only."}
+        Hub API URL and its device token (minted on the hub).{" "}
+        {hubSource === "env"
+          ? "Currently from TRACKER_HUB_API — saving here takes over."
+          : hubSource === null
+          ? "Not configured — local-only until set."
+          : "Saved in settings.json."}
       </p>
       <div className="flex gap-1.5">
         <input
           className={`${pill} min-w-0 flex-1 font-mono text-[11px]`}
-          placeholder="postgres://tracker@192.168.1.x:5433/tracker"
-          value={remotePg}
-          onChange={(e) => onRemoteUrl(e.target.value)}
+          placeholder="https://192.168.1.x:8443"
+          value={hubUrl}
+          onChange={(e) => {
+            setHubUrl(e.target.value);
+            setHubTest({ state: "idle" });
+          }}
           spellCheck={false}
         />
         <input
           type="password"
           className={`${pill} w-44 font-mono text-[11px]`}
-          placeholder={remoteHasPw ? "•••••• (saved)" : "password"}
-          title={remoteHasPw ? "a password is saved — type to replace it" : "the hub password (from its .env)"}
-          value={remotePw}
+          placeholder={hubHasToken ? "•••••• (saved)" : "device token"}
+          title={hubHasToken ? "a token is saved — type to replace it" : "the device token minted on the hub"}
+          value={hubToken}
           onChange={(e) => {
-            setRemotePw(e.target.value);
+            setHubToken(e.target.value);
             setHubTest({ state: "idle" });
           }}
         />
@@ -576,7 +564,7 @@ export function SettingsModal(
         <button
           type="button"
           className="rounded-md border border-chipline px-2 py-1 text-[11px] text-ink-muted hover:text-ink-soft disabled:opacity-40"
-          disabled={hubTest.state === "busy" || (!remotePg.trim() && remoteSource === null)}
+          disabled={hubTest.state === "busy" || (!hubUrl.trim() && hubSource === null)}
           onClick={runHubTest}
         >
           {hubTest.state === "busy" ? "Testing…" : "Test connection"}
