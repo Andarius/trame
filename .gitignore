@@ -40,3 +40,6 @@ docs-site/.astro/
 # local AI-tool config
 /.agents/
 /.codex/
+
+# personal Trame pre-push guard (core.hooksPath is .githooks, so it must live there)
+/.githooks/pre-push
