@@ -98,6 +98,13 @@ export function timeAgo(iso: string): string {
   return `${(d / 7) | 0}w ago`;
 }
 
+// uuidv7 ids embed their creation time (first 48 bits = unix ms); null for other versions
+export function uuid7Time(id: string): Date | null {
+  if (id[14] !== "7") return null;
+  const ms = parseInt(id.slice(0, 8) + id.slice(9, 13), 16);
+  return Number.isFinite(ms) ? new Date(ms) : null;
+}
+
 // Shift-click range: ids between the last-clicked anchor and `id`, or null when
 // there is no usable anchor (caller falls back to a single toggle).
 export function shiftRange(ordered: string[], anchorId: string | null, id: string): string[] | null {
@@ -160,7 +167,7 @@ export function Popover(
 export function Select(
   { value, options, onChange, placeholder, className, triggerStyle }: {
     value: string;
-    options: { value: string; label: string; dot?: string }[]; // dot = color swatch (project chips)
+    options: { value: string; label: string; dot?: string; icon?: string | null }[]; // dot = color swatch, icon = logo/emoji (project chips)
     onChange: (v: string) => void;
     placeholder?: string;
     className?: string; // trigger styling; defaults to the app's field look
@@ -171,6 +178,17 @@ export function Select(
   const current = options.find((o) => o.value === value);
   const dot = (color?: string) =>
     color && <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: color }} />;
+  // one fixed-width slot for every row so logos, dots and markerless rows keep their labels aligned
+  const slot = options.some((o) => o.icon) ? 15 : options.some((o) => o.dot) ? 7 : 0;
+  const marker = (o?: { dot?: string; icon?: string | null }) =>
+    slot === 0 ? null : (
+      <span
+        className="flex shrink-0 items-center justify-center"
+        style={{ width: slot, height: slot }}
+      >
+        {o?.icon ? <EntityIcon icon={o.icon} className="text-[11px]" size={slot} /> : dot(o?.dot)}
+      </span>
+    );
   return (
     <div className="relative">
       <button
@@ -182,7 +200,7 @@ export function Select(
         style={triggerStyle}
         onClick={() => setOpen(true)}
       >
-        {dot(current?.dot)}
+        {marker(current)}
         <span className={`flex-1 truncate ${current ? "" : "text-ink-muted/60"}`}>
           {current?.label ?? placeholder ?? "—"}
         </span>
@@ -200,7 +218,7 @@ export function Select(
                 setOpen(false);
               }}
             >
-              {dot(o.dot)}
+              {marker(o)}
               <span className="flex-1 truncate">{o.label}</span>
               {o.value === value && <span className="text-[10px] text-copper">✓</span>}
             </button>
@@ -372,13 +390,25 @@ export function DateInput(
 
 // Row/database icon: an emoji glyph, or an image when it looks like a URL / data URI.
 export function EntityIcon(
-  { icon, fallback, className }: { icon: string | null | undefined; fallback?: string; className?: string },
+  { icon, fallback, className, size }: {
+    icon: string | null | undefined;
+    fallback?: string;
+    className?: string;
+    size?: number; // px override for image icons (default 15)
+  },
 ) {
   if (!icon) {
     return fallback ? <span className={className}>{fallback}</span> : null;
   }
   if (/^(https?:|data:)/.test(icon)) {
-    return <img src={icon} alt="" className={`inline-block h-[15px] w-[15px] rounded-[3px] object-contain ${className ?? ""}`} />;
+    return (
+      <img
+        src={icon}
+        alt=""
+        style={size ? { width: size, height: size } : undefined}
+        className={`inline-block h-[15px] w-[15px] rounded-[3px] object-contain ${className ?? ""}`}
+      />
+    );
   }
   return <span className={className}>{icon}</span>;
 }

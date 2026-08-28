@@ -1036,7 +1036,29 @@ async function handler(req: Request): Promise<Response> {
     ) {
       await addEvent(id, body.summary, "track", typeof body.agent === "string" ? body.agent : null);
     }
-    return json({ id });
+    // Planned-work backlinks (plan/TODO pages) ride the same POST; dedupe by
+    // page+block so repeated tracking doesn't pile up chips.
+    if (Array.isArray(body.links) && body.links.length) {
+      const have = new Set(
+        (await linksForSession(id) as { page_id: string; block_id: string | null }[])
+          .map((l) => `${l.page_id}:${l.block_id ?? ""}`),
+      );
+      for (const l of body.links) {
+        if (typeof l?.page_id !== "string") continue;
+        if (have.has(`${l.page_id}:${l.block_id ?? ""}`)) continue;
+        await addSessionLink(id, l.page_id, l.block_id ?? null, l.anchor ?? "");
+      }
+    }
+    // Nudge every write path (skill, writer, MCP, raw curl): a specs-less card is
+    // fine for a work log but wrong for planned work — see track.md.
+    const pg = await db();
+    const specs = (await pg.query(`select specs from sessions where id=$1`, [id]))
+      .rows[0] as { specs: string | null } | undefined;
+    if (specs?.specs?.trim()) return json({ id });
+    return json({
+      id,
+      note: "card has no specs — if this is planned work (from a TODO/plan item), add specs plus links back to the plan and the TODO page",
+    });
   }
   const lm = pathname.match(/^\/api\/sessions\/([^/]+)\/links$/);
   if (lm && req.method === "POST") {

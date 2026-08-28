@@ -113,7 +113,8 @@ green|yellow|red|copper|gray); a \`mermaid\` fence renders as a diagram and othe
 fences highlight python/ts/js/bash/json/sql; PR/MR links become live PR chips,
 \`#123\` an issue ref, \`![alt](url)\` an inline image; GFM tables render as
 interactive cards. A leading \`# Title\` equal to the page title is dropped. The same
-\`{{tab}}\`/\`{{fold}}\` markers work in a session's \`specs\`.
+\`{{tab}}\`/\`{{fold}}\` markers work in a session's \`specs\`. No raw HTML or HTML
+entities — \`&middot;\` renders literally; write Unicode characters (·, —, …) directly.
 
 ## Sessions (the board)
 - **trame_session** — read ONE card the way the user sees it: project and story by name,
@@ -192,7 +193,16 @@ server.tool(
     specs: z.string().optional()
       .describe(
         "Markdown spec shown on the session ticket; omitting it never clears the existing spec. " +
-          "`## Title {{tab}}` headings render as a tab strip, `## Title {{fold}}` as a collapsible section",
+          "`## Title {{tab}}` headings render as a tab strip, `## Title {{fold}}` as a collapsible section. " +
+          "No raw HTML or entities (&middot; renders literally) — write Unicode characters directly",
+      ),
+    links: z.array(z.object({
+      page_id: z.string(),
+      block_id: z.string().optional(),
+      anchor: z.string().optional(),
+    })).optional()
+      .describe(
+        "Backlink chips shown above the specs (e.g. the plan page and the TODO page a planned-work card came from); deduped by page+block",
       ),
     pr_url: z.string().optional(),
     summary: z.string().optional(),
