@@ -54,6 +54,7 @@ import {
   drainOutbox,
   getBoard,
   getReport,
+  getSession,
   linksForSession,
   listEvents,
   listReports,
@@ -1054,6 +1055,12 @@ async function handler(req: Request): Promise<Response> {
     return json({ ok: true });
   }
   if (em) return json(await listEvents(em[1]));
+  // one resolved session card (project/story by name, links, worklog) — see getSession
+  const sm = pathname.match(/^\/api\/sessions\/([^/]+)$/);
+  if (sm && req.method === "GET") {
+    const s = await getSession(sm[1], Number(url.searchParams.get("events")) || 20);
+    return s ? json(s) : json({ error: "not found" }, 404);
+  }
   const dm = pathname.match(/^\/api\/sessions\/([^/]+)\/delete$/);
   if (dm && req.method === "POST") {
     await deleteSession(dm[1]);
