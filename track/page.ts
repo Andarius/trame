@@ -2,6 +2,8 @@
 //
 // Input: one JSON object, as argv[0] or on stdin:
 //   create: { title, markdown?, markdown_file?, parent_id?, parent_title?, icon? }
+//     Without parent_id/parent_title the page is filed under the project owning the
+//     current working directory; parent_id: null forces a root (Unfiled) page.
 //   update: { page_id|page_title, markdown|markdown_file, title?, icon? }
 //
 // Updates replace the page content in place; blocks whose trimmed text is unchanged
@@ -134,6 +136,13 @@ async function updatePage(input: Input, base: string): Promise<void> {
   );
 }
 
+// Where the page actually landed — the parent is resolved app-side when none is given.
+async function parentLabel(base: string, id: string): Promise<string> {
+  const pages = await request(base, "/api/pages") as (PageMeta & { parent_id: string | null })[];
+  const parentId = pages.find((p) => p.id === id)?.parent_id;
+  return pages.find((p) => p.id === parentId)?.title ?? "Unfiled";
+}
+
 async function createPage(input: Input, base: string): Promise<void> {
   let parentId = input.parent_id;
   if (input.parent_title) {
@@ -145,7 +154,9 @@ async function createPage(input: Input, base: string): Promise<void> {
   const body = {
     title: input.title,
     kind: "page",
-    parent_id: parentId ?? null,
+    // no parent given: the app files the page under this repo's project (explicit
+    // null still means a root page)
+    ...(parentId !== undefined ? { parent_id: parentId } : { repo_path: Deno.cwd() }),
     icon: input.icon ?? null,
     content: markdownToPageBlocks(markdown, input.title!),
   };
@@ -155,8 +166,9 @@ async function createPage(input: Input, base: string): Promise<void> {
     body: JSON.stringify(body),
   }) as { id: string };
 
+  const parent = await parentLabel(base, id);
   console.log(
-    `ok: page ${id} created in Trame (${input.title}) — ${base}/?page=${id}`,
+    `ok: page ${id} created in Trame (${input.title}) — filed under ${parent} — ${base}/?page=${id}`,
   );
 }
 
