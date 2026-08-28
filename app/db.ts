@@ -332,12 +332,22 @@ export async function deleteSession(id: string): Promise<void> {
   await pg.query(`update sessions set deleted=true, origin=$2, updated_at=now() where id=$1`, [id, NODE_ID]);
 }
 
-export async function listEvents(sessionId: string) {
+export async function listEvents(sessionId: string, limit?: number) {
   const pg = await db();
   return (await pg.query(
-    `select id, at, summary, kind, agent from session_events where session_id=$1 and not deleted order by at desc`,
-    [sessionId],
+    `select id, at, summary, kind, agent from session_events where session_id=$1 and not deleted
+     order by at desc${limit ? " limit $2" : ""}`,
+    limit ? [sessionId, limit] : [sessionId],
   )).rows;
+}
+
+export async function countEvents(sessionId: string): Promise<number> {
+  const pg = await db();
+  const row = (await pg.query(
+    `select count(*)::int as n from session_events where session_id=$1 and not deleted`,
+    [sessionId],
+  )).rows[0] as { n: number };
+  return row.n;
 }
 
 export async function addEvent(sessionId: string, summary: string, kind = "log", agent: string | null = null): Promise<void> {
@@ -372,6 +382,43 @@ export async function addSessionLink(
     [sessionId, pageId, blockId, anchor, NODE_ID],
   )).rows[0] as { id: string };
   return row.id;
+}
+
+// One session as the drawer shows it: the ids it joins (project, story) resolved to
+// names, plus the worklog and backlinks /api/board leaves out. Null when unknown/deleted.
+export async function getSession(id: string, eventLimit = 20) {
+  const pg = await db();
+  const s = (await pg.query(`select * from sessions where id=$1 and not deleted`, [id]))
+    .rows[0] as Record<string, unknown> | undefined;
+  if (!s) return null;
+  const one = async (pageId: unknown, kind?: string) => {
+    if (typeof pageId !== "string") return null;
+    return (await pg.query(
+      `select id, title, kind from pages where id=$1 and not deleted${kind ? ` and kind='${kind}'` : ""}`,
+      [pageId],
+    )).rows[0] ?? null;
+  };
+  const project = await one(s.client_id, "project") as { id: string; title: string } | null;
+  // the story slot accepts any page, not just kind='story' — matches the drawer's picker
+  const story = await one(s.page_id) as { id: string; title: string; kind: string } | null;
+  return {
+    id: s.id,
+    title: s.title,
+    status: s.status,
+    agent: s.agent,
+    repo_path: s.repo_path,
+    branch: s.branch,
+    pr_url: s.pr_url,
+    next_step: s.next_step,
+    specs: s.specs,
+    project: project && { id: project.id, name: project.title },
+    story,
+    links: await linksForSession(id),
+    activity: await listEvents(id, eventLimit),
+    activity_total: await countEvents(id),
+    last_touched: s.last_touched,
+    updated_at: s.updated_at,
+  };
 }
 
 export async function deleteSessionLink(id: string): Promise<void> {
