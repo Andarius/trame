@@ -17,17 +17,19 @@ Never use session-card fields as a substitute for a requested document or page r
      Trame renders Open lists as a highlighted callout at the top.
    - Trame renders GFM plus the page extensions below — use them instead of
      flattening structure into plain prose.
-2. Nest the page under the relevant project by default: use the parent the user named,
-   else the project of the current session/repo (`trame_board` lists projects; the
-   page writer accepts `parent_title`). Create a root page only for genuinely
-   cross-project documents — parentless pages land in the Unfiled inbox for manual
-   triage.
+2. Every page is nested. With no parent given, it files itself under the project that
+   owns the current working directory (the session on that repo path, else a project
+   named in it, else Side-projects) — so do not pass a parent unless the user named
+   one, or a specific page is the right home (`trame_board` lists projects and pages;
+   the page writer also accepts `parent_title`). Only a genuinely cross-project
+   document takes an explicit `parent_id: null`, which puts it in the Unfiled inbox.
 3. Prefer the `trame_create_page` MCP tool when available. Pass `title`, the complete
-   `markdown`, and optional `parent_id` or `icon`.
+   `markdown`, `repo_path` (your working directory, so it files itself), and optional
+   `parent_id` or `icon`.
 4. Otherwise pipe one JSON object to the shared writer at `__PAGE_WRITER__`:
 
    ```json
-   {"title":"Release plan","markdown":"# Release plan\n\nComplete document body","parent_id":null}
+   {"title":"Release plan","markdown":"# Release plan\n\nComplete document body"}
    ```
 
    ```bash
@@ -36,7 +38,8 @@ Never use session-card fields as a substitute for a requested document or page r
 
    Pass `markdown_file` instead of `markdown` when the content is already in a local
    file. Pass `parent_title` to nest under an exact, unique title.
-5. Report the created page title and ID or URL.
+5. Report the created page title, its parent project (the writer prints where it was
+   filed), and the ID or URL.
 
 ## Markdown dialect
 
