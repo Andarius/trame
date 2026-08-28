@@ -64,7 +64,8 @@ const server = new McpServer({ name: "trame", version: "0.1.0" });
 
 // One-call, self-describing map of what an agent can do with Trame — so discovery
 // doesn't depend on happening to read the right tool description. Keep it current
-// when tools or their semantics change.
+// when tools or their semantics change; the Markdown dialect is mirrored in
+// skills/trame-page/SKILL.md (self-sufficient for non-MCP writers) — edit both.
 const CAPABILITIES = `# Trame — capabilities for agents
 
 Trame is a local-first tracker (sessions, pages, databases) that syncs to a shared hub.
@@ -99,11 +100,14 @@ As an agent you can:
 ## Page Markdown dialect
 GFM plus: \`## Title {{tab}}\` headings group the blocks below into a tab strip
 (consecutive markers = one strip) and \`## Title {{fold}}\` into a collapsible section;
-\`- [ ]\`/\`- [x]\` become checkable todos (2 spaces per nesting level);
-bullets under a Completed/Done heading render as checks, under Open/Todo/Next/Pending/
-Blocked as open rings with a one-click toggle between the two; \`{{text}}\` is a pill
-(\`{{green:…}}\` tints it: green|yellow|red|copper|gray); a \`mermaid\` fence renders as a
-diagram; PR/MR links become live PR chips and \`#123\` an issue ref. The same
+\`- [ ]\`/\`- [x]\` become checkable todos (2 spaces per nesting level, max 4);
+bullets under a Completed/Done/Shipped heading render as checks, under
+Open/Todo/Next/Pending/Remaining/In progress/Blocked as open rings, with a one-click
+toggle between the two; \`{{text}}\` is a pill (\`{{green:…}}\` tints it:
+green|yellow|red|copper|gray); a \`mermaid\` fence renders as a diagram and other
+fences highlight python/ts/js/bash/json/sql; PR/MR links become live PR chips,
+\`#123\` an issue ref, \`![alt](url)\` an inline image; GFM tables render as
+interactive cards. A leading \`# Title\` equal to the page title is dropped. The same
 \`{{tab}}\`/\`{{fold}}\` markers work in a session's \`specs\`.
 
 ## Sessions (the board)
