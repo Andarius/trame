@@ -92,15 +92,19 @@ const PR_STATE_COLOR: Record<string, string> = {
   closed: "#e06c75",
   unknown: "#5a6172",
 };
-const prInfoCache = new Map<string, PrInfo>();
+// short TTL so merged/closed transitions and failed probes both recover
+const PR_INFO_TTL_MS = 60_000;
+const prInfoCache = new Map<string, { info: PrInfo; at: number }>();
 const prInfoPending = new Map<string, Promise<PrInfo>>();
 const getPrInfo = (url: string): Promise<PrInfo> => {
-  const done = prInfoCache.get(url);
-  if (done) return Promise.resolve(done);
+  const hit = prInfoCache.get(url);
+  if (hit && Date.now() - hit.at < PR_INFO_TTL_MS) {
+    return Promise.resolve(hit.info);
+  }
   let p = prInfoPending.get(url);
   if (!p) {
     p = prInfo(url).then((info) => {
-      prInfoCache.set(url, info);
+      prInfoCache.set(url, { info, at: Date.now() });
       prInfoPending.delete(url);
       return info;
     });
@@ -109,15 +113,15 @@ const getPrInfo = (url: string): Promise<PrInfo> => {
   return p;
 };
 
-// repo#42 for GitHub, proj!39 for GitLab (same parsing as the drawer's prLabel)
-function prChipLabel(url: string): string {
+// repo#42 for GitHub, proj!39 for GitLab; null when the URL has no PR/MR number
+function prChipLabel(url: string): string | null {
   try {
     const u = new URL(url);
     const mr = u.pathname.includes("/merge_requests/");
     const m = u.pathname.match(/\/([^/]+)\/(?:pull|-\/merge_requests)\/(\d+)/);
-    return m ? `${m[1]}${mr ? "!" : "#"}${m[2]}` : `${u.host}${u.pathname}`;
+    return m ? `${m[1]}${mr ? "!" : "#"}${m[2]}` : null;
   } catch {
-    return url;
+    return null;
   }
 }
 
@@ -149,7 +153,7 @@ function MergeMark() {
 
 export function PrChip({ url, label }: { url: string; label?: string }) {
   const [info, setInfo] = useState<PrInfo>(
-    prInfoCache.get(url) ?? { state: "unknown" },
+    prInfoCache.get(url)?.info ?? { state: "unknown" },
   );
   useEffect(() => {
     let alive = true;
@@ -158,7 +162,8 @@ export function PrChip({ url, label }: { url: string; label?: string }) {
       alive = false;
     };
   }, [url]);
-  const name = label ?? prChipLabel(url);
+  const parsed = prChipLabel(url);
+  const name = label ?? parsed ?? url.replace(/^https?:\/\//, "");
   const color = PR_STATE_COLOR[info.state] ?? PR_STATE_COLOR.unknown;
   return (
     <a
@@ -174,7 +179,10 @@ export function PrChip({ url, label }: { url: string; label?: string }) {
       className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-chipline bg-panel px-1.5 py-px align-[-1px] font-mono text-[0.82em] text-ink no-underline transition-colors hover:border-copper/60"
     >
       {url.includes("/-/merge_requests/") ? <MergeMark /> : <GitHubMark />}
-      <span className="shrink-0">{name}</span>
+      {/* parsed refs stay whole; free-text labels/URLs truncate in narrow rows */}
+      <span className={parsed || label ? "shrink-0" : "min-w-0 truncate"}>
+        {name}
+      </span>
       {info.title && info.title !== name && (
         <span className="max-w-[240px] truncate font-sans text-ink-muted">
           {info.title}

@@ -201,7 +201,6 @@ export const prInfo = (url: string) =>
   post("/api/pr-state", { url })
     .then((r) => r.json() as Promise<PrInfo>)
     .catch(() => ({ state: "unknown" } as PrInfo));
-export const prState = (url: string) => prInfo(url).then((d) => d.state);
 export const completePath = (path: string) =>
   fetch(`/api/fs/complete?path=${encodeURIComponent(path)}`)
     .then((r) => r.json() as Promise<{ dirs: string[] }>)
