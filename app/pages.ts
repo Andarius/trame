@@ -1,7 +1,7 @@
 // Pages (Notion-style): one nestable tree — kind: project | story | page.
 // The tree is returned flat (parent_id + sort_key) — the frontend assembles it and
 // tolerates orphans (sync can deliver a child before its parent).
-import { db } from "./db.ts";
+import { db, resolveHomeProject } from "./db.ts";
 import { NODE_ID } from "./config.ts";
 import { getIdentity } from "./identity.ts";
 import { midKey } from "./udb.ts";
@@ -100,10 +100,17 @@ export async function createPage(
     client_id?: string | null;
     story?: string;
     content?: unknown[];
+    repo_path?: string;
   },
 ): Promise<string> {
   const pg = await db();
-  const parentId = p.parent_id ?? null;
+  // An agent-created page (repo_path given, no parent) files itself under the repo's
+  // project; an explicit null parent still means root.
+  const parentId = p.parent_id !== undefined
+    ? p.parent_id
+    : p.repo_path
+    ? await resolveHomeProject(p.repo_path)
+    : null;
   const row = (await pg.query(
     `insert into pages
        (kind, title, icon, client_id, parent_id, sort_key, story, content, owner_id, origin)
