@@ -67,7 +67,7 @@ export async function getBoard() {
   // Project > Story > Session. "projects" = top-level Project pages (shape {id,name,color}
   // for the chip/sidebar); "stories" = Story pages (what sessions ladder to).
   const projects = (await pg.query(
-    `select id, title as name, color from pages where kind='project' and not deleted order by title`,
+    `select id, title as name, color, icon from pages where kind='project' and not deleted order by title`,
   )).rows;
   const stories = (await pg.query(`select * from pages where kind='story' and not deleted order by title`)).rows;
   const sessions = (await pg.query(`select * from sessions where not deleted order by last_touched desc`)).rows;

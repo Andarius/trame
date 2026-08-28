@@ -32,7 +32,7 @@ export type Story = {
   client_id: string | null;
   status: string;
 };
-export type Project = { id: string; name: string; color: string | null };
+export type Project = { id: string; name: string; color: string | null; icon: string | null };
 export type BoardPage = {
   id: string;
   parent_id: string | null;
@@ -528,6 +528,7 @@ export type PageMeta = {
 };
 export type PageDetail = PageMeta & {
   story: string;
+  updated_at: string;
   content: Block[];
   children: PageMeta[];
   databases: {

@@ -433,7 +433,7 @@ export function Drawer(
       className={rowVal}
       options={[
         { value: "", label: "none" },
-        ...board.projects.map((c) => ({ value: c.name, label: c.name, dot: clientColor(c.name, c.color) })),
+        ...board.projects.map((c) => ({ value: c.name, label: c.name, dot: clientColor(c.name, c.color), icon: c.icon })),
       ]}
       onChange={(v) => {
         setClient(v);
@@ -849,7 +849,7 @@ export function Drawer(
                               triggerStyle={{ background: `${c}24`, color: c }}
                               options={[
                                 { value: "", label: "none" },
-                                ...board.projects.map((p) => ({ value: p.name, label: p.name, dot: clientColor(p.name, p.color) })),
+                                ...board.projects.map((p) => ({ value: p.name, label: p.name, dot: clientColor(p.name, p.color), icon: p.icon })),
                               ]}
                               onChange={(v) => {
                                 setClient(v);

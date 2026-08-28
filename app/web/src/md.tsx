@@ -6,7 +6,7 @@
 // green|yellow|red|copper|gray — handy for table cells).
 // Underscore emphasis is intentionally NOT supported so snake_case survives.
 import { Fragment, type ReactNode, useEffect, useState } from "react";
-import { openInBrowser, prInfo, type PrInfo } from "./api";
+import { openInBrowser, type PrInfo, prInfo } from "./api";
 
 // ```mermaid fences render as diagrams. The lib (~1.5 MB) is dynamically imported so
 // pages without diagrams never load it. The svg-string injection is the one exception
@@ -84,7 +84,8 @@ function Link({ href, children }: { href: string; children: ReactNode }) {
 // chips (icon + repo#42 + title + state, ⧉ badge when stacked), matching the
 // session drawer's colors; info resolves lazily via /api/pr-state and is cached
 // module-wide so each URL fetches once.
-const PR_HREF = /^https?:\/\/[^\s<>)]+\/(?:pull|-\/merge_requests)\/\d+(?:[/?#][^\s<>)]*)?$/;
+const PR_HREF =
+  /^https?:\/\/[^\s<>)]+\/(?:pull|-\/merge_requests)\/\d+(?:[/?#][^\s<>)]*)?$/;
 const PR_STATE_COLOR: Record<string, string> = {
   open: "#7bd88f",
   draft: "#8b93a3",
@@ -129,8 +130,12 @@ function prChipLabel(url: string): string | null {
 function GitHubMark() {
   return (
     <svg
-      width="11" height="11" viewBox="0 0 16 16" fill="currentColor"
-      aria-hidden="true" className="shrink-0 text-ink-muted"
+      width="11"
+      height="11"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      aria-hidden="true"
+      className="shrink-0 text-ink-muted"
     >
       <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
     </svg>
@@ -139,9 +144,16 @@ function GitHubMark() {
 function MergeMark() {
   return (
     <svg
-      width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-      strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-      aria-hidden="true" className="shrink-0 text-ink-muted"
+      width="11"
+      height="11"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="shrink-0 text-ink-muted"
     >
       <circle cx="3.5" cy="3.5" r="1.8" />
       <circle cx="3.5" cy="12.5" r="1.8" />
@@ -485,12 +497,16 @@ export type ListVariant = "done" | "open";
 type TableOps = {
   onEdit?: (next: string) => void;
   onCommentRow?: (anchor: string) => void;
+  // how many visible comments anchor to this row — tints the row + pins its 💬
+  rowComments?: (anchor: string) => number;
   onMarkDone?: (item: string) => void;
   onMarkOpen?: (item: string) => void;
   onEditItem?: (item: string, next: string) => void;
   // session links on list items: resolver returns the chip for a linked item,
   // onLinkItem offers the hover 🔗 to create one
-  getItemLink?: (item: string) => { title: string; color: string; open: () => void } | null;
+  getItemLink?: (
+    item: string,
+  ) => { title: string; color: string; open: () => void } | null;
   onLinkItem?: (item: string) => void;
 };
 
@@ -510,7 +526,10 @@ function itemTrail(t: string, ops?: TableOps): ReactNode {
           }}
           className="ml-1 inline-flex max-w-[200px] shrink-0 items-center gap-1.5 self-center rounded-md border border-chipline/60 px-1.5 py-0.5 align-middle text-[10px] leading-none text-ink-muted transition-colors hover:border-copper/50 hover:text-copper"
         >
-          <span className="h-[6px] w-[6px] shrink-0 rounded-full" style={{ background: lk.color }} />
+          <span
+            className="h-[6px] w-[6px] shrink-0 rounded-full"
+            style={{ background: lk.color }}
+          />
           <span className="truncate">{lk.title}</span>
         </button>
       )}
@@ -637,6 +656,9 @@ function MdTable(
   );
   const [draft, setDraft] = useState("");
   const base = hdrIdx + 2;
+  // comment anchor for a row: its raw line, pipes stripped (see onCommentRow)
+  const anchorOf = (ri: number) =>
+    lines[base + ri].replaceAll("|", " ").trim().slice(0, 80);
 
   const apply = (rowLines: string[], nextSel: Set<number>) => {
     const next = [...lines];
@@ -750,7 +772,8 @@ function MdTable(
                         ? new Set(rows.map((_, idx) => idx))
                         : new Set(),
                     )}
-                  onMouseDown={(e) => e.stopPropagation()}
+                  onMouseDown={(e) =>
+                    e.stopPropagation()}
                 />
               </th>
             )}
@@ -768,120 +791,129 @@ function MdTable(
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, ri) => (
-            <tr
-              key={ri}
-              className={`group/row border-b border-line-soft/50 last:border-0 ${
-                sel.has(ri) ? "bg-copper/[0.06]" : ""
-              }`}
-            >
-              {editable && (
-                <td className="w-6 px-1 py-1.5 align-top">
-                  <input
-                    type="checkbox"
-                    title="Select row — shift-click ranges, ↑↓ move, Del remove"
-                    className={`h-3.5 w-3.5 accent-[#c98a63] ${
-                      sel.size
-                        ? ""
-                        : "opacity-0 group-hover/row:opacity-100"
-                    }`}
-                    checked={sel.has(ri)}
-                    readOnly
-                    // no text selection on shift-click; keep block select/clear out of it
-                    onMouseDown={(e) => {
-                      e.stopPropagation();
-                      if (e.shiftKey) e.preventDefault();
-                    }}
-                    // toggle in onClick (not onChange): change events have no shiftKey
-                    onClick={(e) => boxClick(ri, e)}
-                  />
-                </td>
-              )}
-              {r.map((c, ci) => (
-                <td
-                  key={ci}
-                  title={editable && !(editing?.ri === ri && editing?.ci === ci)
-                    ? "Double-click to edit"
-                    : undefined}
-                  onDoubleClick={(e) => {
-                    if (!editable) return;
-                    e.stopPropagation();
-                    document.getSelection()?.removeAllRanges();
-                    setEditing({ ri, ci });
-                    setDraft(c);
-                  }}
-                  className={`px-2.5 py-1.5 align-top text-ink-soft ${
-                    align[ci] ?? "text-left"
-                  }`}
-                >
-                  {editing?.ri === ri && editing?.ci === ci
-                    ? (
-                      <input
-                        autoFocus
-                        value={draft}
-                        onChange={(e) => setDraft(e.target.value)}
-                        onBlur={() => {
-                          if (editing?.ri === ri && editing?.ci === ci) {
-                            commitCell(ri, ci, draft, null);
-                          }
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            commitCell(ri, ci, draft, null);
-                          } else if (e.key === "Escape") {
-                            setEditing(null);
-                          } else if (e.key === "Tab") {
-                            e.preventDefault();
-                            const d = e.shiftKey ? -1 : 1;
-                            let nri = ri, nci = ci + d;
-                            if (nci >= r.length) {
-                              nri = ri + 1;
-                              nci = 0;
-                            } else if (nci < 0) {
-                              nri = ri - 1;
-                              nci = r.length - 1;
-                            }
-                            commitCell(
-                              ri,
-                              ci,
-                              draft,
-                              nri >= 0 && nri < rows.length
-                                ? { ri: nri, ci: nci }
-                                : null,
-                            );
-                          }
-                        }}
-                        className="w-full min-w-[80px] border-b border-copper/60 bg-transparent font-[inherit] text-ink outline-none"
-                      />
-                    )
-                    : renderInline(c)}
-                </td>
-              ))}
-              {editable && (
-                <td className="w-0 whitespace-nowrap px-1 py-1 align-top">
-                  {ops?.onCommentRow && (
-                    <button
-                      type="button"
-                      title="Comment on this row"
-                      onClick={(e) => {
+          {rows.map((r, ri) => {
+            const nComments = ops?.rowComments?.(anchorOf(ri)) ?? 0;
+            return (
+              <tr
+                key={ri}
+                className={`group/row border-b border-line-soft/50 last:border-0 ${
+                  sel.has(ri) || nComments ? "bg-copper/[0.06]" : ""
+                }`}
+              >
+                {editable && (
+                  <td className="w-6 px-1 py-1.5 align-top">
+                    <input
+                      type="checkbox"
+                      title="Select row — shift-click ranges, ↑↓ move, Del remove"
+                      className={`h-3.5 w-3.5 accent-[#c98a63] ${
+                        sel.size ? "" : "opacity-0 group-hover/row:opacity-100"
+                      }`}
+                      checked={sel.has(ri)}
+                      readOnly
+                      // no text selection on shift-click; keep block select/clear out of it
+                      onMouseDown={(e) => {
                         e.stopPropagation();
-                        ops.onCommentRow?.(
-                          lines[base + ri].replaceAll("|", " ").trim().slice(
-                            0,
-                            80,
-                          ),
-                        );
+                        if (e.shiftKey) e.preventDefault();
                       }}
-                      className="rounded px-1 text-[11px] text-ink-muted opacity-0 hover:bg-panel hover:text-copper group-hover/row:opacity-100"
-                    >
-                      💬
-                    </button>
-                  )}
-                </td>
-              )}
-            </tr>
-          ))}
+                      // toggle in onClick (not onChange): change events have no shiftKey
+                      onClick={(e) => boxClick(ri, e)}
+                    />
+                  </td>
+                )}
+                {r.map((c, ci) => (
+                  <td
+                    key={ci}
+                    title={editable &&
+                        !(editing?.ri === ri && editing?.ci === ci)
+                      ? "Double-click to edit"
+                      : undefined}
+                    onDoubleClick={(e) => {
+                      if (!editable) return;
+                      e.stopPropagation();
+                      document.getSelection()?.removeAllRanges();
+                      setEditing({ ri, ci });
+                      setDraft(c);
+                    }}
+                    className={`px-2.5 py-1.5 align-top text-ink-soft ${
+                      align[ci] ?? "text-left"
+                    }`}
+                  >
+                    {editing?.ri === ri && editing?.ci === ci
+                      ? (
+                        <input
+                          autoFocus
+                          value={draft}
+                          onChange={(e) => setDraft(e.target.value)}
+                          onBlur={() => {
+                            if (editing?.ri === ri && editing?.ci === ci) {
+                              commitCell(ri, ci, draft, null);
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              commitCell(ri, ci, draft, null);
+                            } else if (e.key === "Escape") {
+                              setEditing(null);
+                            } else if (e.key === "Tab") {
+                              e.preventDefault();
+                              const d = e.shiftKey ? -1 : 1;
+                              let nri = ri, nci = ci + d;
+                              if (nci >= r.length) {
+                                nri = ri + 1;
+                                nci = 0;
+                              } else if (nci < 0) {
+                                nri = ri - 1;
+                                nci = r.length - 1;
+                              }
+                              commitCell(
+                                ri,
+                                ci,
+                                draft,
+                                nri >= 0 && nri < rows.length
+                                  ? { ri: nri, ci: nci }
+                                  : null,
+                              );
+                            }
+                          }}
+                          className="w-full min-w-[80px] border-b border-copper/60 bg-transparent font-[inherit] text-ink outline-none"
+                        />
+                      )
+                      : renderInline(c)}
+                  </td>
+                ))}
+                {editable && (
+                  <td className="w-0 whitespace-nowrap px-1 py-1 align-top">
+                    {ops?.onCommentRow && (
+                      <button
+                        type="button"
+                        title={nComments
+                          ? `${nComments} comment${
+                            nComments > 1 ? "s" : ""
+                          } on this row — add another`
+                          : "Comment on this row"}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          ops.onCommentRow?.(anchorOf(ri));
+                        }}
+                        className={`flex items-center gap-0.5 rounded px-1 text-[11px] hover:bg-panel hover:text-copper ${
+                          nComments
+                            ? "text-copper"
+                            : "text-ink-muted opacity-0 group-hover/row:opacity-100"
+                        }`}
+                      >
+                        💬{nComments > 0 && (
+                          <span className="text-[10px] font-medium">
+                            {nComments}
+                          </span>
+                        )}
+                      </button>
+                    )}
+                  </td>
+                )}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -1123,6 +1155,7 @@ export function Markdown(
     listVariant,
     onEdit,
     onCommentRow,
+    rowComments,
     onMarkDone,
     onMarkOpen,
     onEditItem,
@@ -1134,10 +1167,13 @@ export function Markdown(
     listVariant?: ListVariant;
     onEdit?: (next: string) => void;
     onCommentRow?: (anchor: string) => void;
+    rowComments?: (anchor: string) => number;
     onMarkDone?: (item: string) => void;
     onMarkOpen?: (item: string) => void;
     onEditItem?: (item: string, next: string) => void;
-    getItemLink?: (item: string) => { title: string; color: string; open: () => void } | null;
+    getItemLink?: (
+      item: string,
+    ) => { title: string; color: string; open: () => void } | null;
     onLinkItem?: (item: string) => void;
   },
 ) {
@@ -1146,6 +1182,7 @@ export function Markdown(
       {renderBlocks(text, listVariant, {
         onEdit,
         onCommentRow,
+        rowComments,
         onMarkDone,
         onMarkOpen,
         onEditItem,

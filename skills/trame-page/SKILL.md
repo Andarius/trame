@@ -62,6 +62,8 @@ Never use session-card fields as a substitute for a requested document or page r
   `#123` as an issue ref, `![alt](url)` as an inline image.
 - **Tables** — GFM tables render as interactive cards (select/move/delete rows,
   comment on a row).
+- **No raw HTML** — HTML tags and entities (`&middot;`, `&nbsp;`, …) render literally;
+  write Unicode characters (·, —, …) directly.
 
 A leading `# Title` identical to the page title is dropped rather than rendered twice.
 

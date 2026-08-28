@@ -6,19 +6,18 @@ import {
   useState,
 } from "react";
 import {
+  addSessionLink,
   attachUdbToPage,
   type Block,
   type BoardData,
   createComment,
   createPage,
-  addSessionLink,
   createUdb,
   deleteComment,
   deletePage,
   getIdentity,
   getPage,
   getPresence,
-  type SessionLink,
   listComments,
   openInBrowser,
   type PageComment,
@@ -26,6 +25,7 @@ import {
   pingPresence,
   type Presence,
   type Session,
+  type SessionLink,
   type UdbMeta,
   updateComment,
   updatePage,
@@ -43,6 +43,7 @@ import {
   statusStyle,
   storyOf,
   timeAgo,
+  uuid7Time,
 } from "./ui";
 import { Markdown } from "./md";
 
@@ -112,7 +113,10 @@ const PILLS: { key: string; dot: string; hint: string }[] = [
 
 // pixel position of `index` inside a textarea (mirror-div technique), relative to
 // the textarea's top-left; y is the bottom of the caret's line
-function caretXY(el: HTMLTextAreaElement, index: number): { x: number; y: number } {
+function caretXY(
+  el: HTMLTextAreaElement,
+  index: number,
+): { x: number; y: number } {
   const div = document.createElement("div");
   const s = getComputedStyle(el);
   for (
@@ -160,7 +164,9 @@ function blocksToMarkdown(title: string, blocks: Block[]): string {
   for (const b of blocks) {
     if (b.type === "heading") lines.push(`## ${b.text}`);
     else if (b.type === "todo") {
-      lines.push(`${"  ".repeat(b.indent ?? 0)}- [${b.done ? "x" : " "}] ${b.text}`);
+      lines.push(
+        `${"  ".repeat(b.indent ?? 0)}- [${b.done ? "x" : " "}] ${b.text}`,
+      );
     } else if (b.type === "text") {
       lines.push(b.indent ? `${"  ".repeat(b.indent)}${b.text}` : b.text);
     }
@@ -195,6 +201,22 @@ const isAgent = (c: PageComment) => c.author_id === AGENT_AUTHOR_ID;
 // a reply is answered once a newer agent comment sits on the same block
 const answeredIn = (c: PageComment, blockComments: PageComment[]) =>
   blockComments.some((o) => isAgent(o) && o.updated_at > c.updated_at);
+
+// a table-row comment stores the row's pipe-stripped text (see MdTable 💬);
+// block-level anchors on a table keep the raw markdown, so pipes tell them apart
+const rowAnchorOf = (c: PageComment, blockText: string) =>
+  /^\s*\|/.test(blockText) && c.anchor && !c.anchor.includes("|")
+    ? c.anchor
+    : null;
+
+// "on row: …" quote above a comment so table-row comments name their target
+function RowNote({ text }: { text: string }) {
+  return (
+    <span className="truncate border-l-2 border-line pl-2 text-[11px] italic text-ink-muted/70">
+      on row: “{text}”
+    </span>
+  );
+}
 
 // Badges describe what the AGENT is doing about this human reply — the agent's name
 // is in the label so it never reads as if the human author is the one acting.
@@ -496,14 +518,18 @@ function CommentGutter(
         >
           <div className="flex flex-col gap-2">
             {visible.map((c) => (
-              <CommentItem
-                key={c.id}
-                c={c}
-                canEdit={Boolean(meId) && c.author_id === meId}
-                answered={answeredIn(c, comments)}
-                onUpdate={(patch) => ops.update(c.id, patch)}
-                onDelete={() => ops.remove(c.id)}
-              />
+              <div key={c.id} className="flex flex-col gap-1">
+                {rowAnchorOf(c, anchor) && (
+                  <RowNote text={rowAnchorOf(c, anchor) as string} />
+                )}
+                <CommentItem
+                  c={c}
+                  canEdit={Boolean(meId) && c.author_id === meId}
+                  answered={answeredIn(c, comments)}
+                  onUpdate={(patch) => ops.update(c.id, patch)}
+                  onDelete={() => ops.remove(c.id)}
+                />
+              </div>
             ))}
             {visible.length === 0 && (
               <span className="px-1 text-[11px] text-ink-muted/60">
@@ -602,7 +628,13 @@ const SI_MERMAID =
   "M23.99 2.115A12.223 12.223 0 0 0 12 10.149 12.223 12.223 0 0 0 .01 2.115a12.23 12.23 0 0 0 5.32 10.604 6.562 6.562 0 0 1 2.845 5.423v3.754h7.65v-3.754a6.561 6.561 0 0 1 2.844-5.423 12.223 12.223 0 0 0 5.32-10.604Z";
 
 const brandLogo = (d: string, color: string) => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill={color} aria-hidden="true">
+  <svg
+    width="12"
+    height="12"
+    viewBox="0 0 24 24"
+    fill={color}
+    aria-hidden="true"
+  >
     <path d={d} />
   </svg>
 );
@@ -829,7 +861,8 @@ function BlockEditor(
     while (start > 0 && inRun(blocks[start - 1])) start--;
     // the run must open on a same-level todo, not a dangling deeper block
     while (
-      start < i && !(blocks[start].type === "todo" && ind(blocks[start]) === lvl)
+      start < i &&
+      !(blocks[start].type === "todo" && ind(blocks[start]) === lvl)
     ) start++;
     while (end < blocks.length - 1 && inRun(blocks[end + 1])) end++;
     const groups: Block[][] = [];
@@ -912,7 +945,8 @@ function BlockEditor(
   // the Completed heading, stamped with a done pill; undoable via Ctrl+Z
   const markDone = (i: number, item: string) => {
     const d = new Date();
-    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")
+    const day = `${d.getFullYear()}-${
+      String(d.getMonth() + 1).padStart(2, "0")
     }-${String(d.getDate()).padStart(2, "0")}`;
     refileItem(
       i,
@@ -1158,9 +1192,13 @@ function BlockEditor(
     let group: number | null = null;
     let foldAt: number | null = null;
     const heads = new Map<number, { i: number; title: string }[]>();
-    const of = new Map<number, { kind: "tab" | "fold"; group: number; tab: number }>();
+    const of = new Map<
+      number,
+      { kind: "tab" | "fold"; group: number; tab: number }
+    >();
     blocks.forEach((b, i) => {
-      const m = isText(b) && b.type === "heading" && b.text.match(/\{\{(tab|fold)\}\}/i);
+      const m = isText(b) && b.type === "heading" &&
+        b.text.match(/\{\{(tab|fold)\}\}/i);
       if (m && m[1].toLowerCase() === "tab") {
         foldAt = null;
         if (group === null) {
@@ -1169,7 +1207,8 @@ function BlockEditor(
         }
         heads.get(group)!.push({
           i,
-          title: (b as TextBlock).text.replace(/\s*\{\{tab\}\}\s*/i, " ").trim(),
+          title: (b as TextBlock).text.replace(/\s*\{\{tab\}\}\s*/i, " ")
+            .trim(),
         });
         of.set(i, { kind: "tab", group, tab: heads.get(group)!.length - 1 });
       } else if (m) {
@@ -1203,15 +1242,21 @@ function BlockEditor(
               const title = (b as TextBlock).text
                 .replace(/\s*\{\{fold\}\}\s*/i, " ").trim();
               return (
-                <div key={bid0} className="my-1 overflow-hidden rounded-lg border border-line-soft">
+                <div
+                  key={bid0}
+                  className="my-1 overflow-hidden rounded-lg border border-line-soft"
+                >
                   <button
                     type="button"
                     title="double-click to rename"
                     className="flex w-full items-center gap-2 bg-panel px-3 py-2 text-left text-[13px] font-medium text-ink transition-colors hover:text-copper"
-                    onClick={() => setOpenFolds((m) => ({ ...m, [gid]: !open }))}
+                    onClick={() =>
+                      setOpenFolds((m) => ({ ...m, [gid]: !open }))}
                     onDoubleClick={() => setFocusIdx(i)}
                   >
-                    <span className="text-[10px] text-ink-muted">{open ? "▾" : "▸"}</span>
+                    <span className="text-[10px] text-ink-muted">
+                      {open ? "▾" : "▸"}
+                    </span>
                     {title || "untitled"}
                   </button>
                 </div>
@@ -1227,7 +1272,10 @@ function BlockEditor(
             if (isHead && !renaming) {
               if (i !== tm.group) return null;
               return (
-                <div key={bid0} className="flex gap-1 border-b border-line pb-0 pt-2">
+                <div
+                  key={bid0}
+                  className="flex gap-1 border-b border-line pb-0 pt-2"
+                >
                   {heads.map((h, ti) => (
                     <button
                       key={h.i}
@@ -1238,7 +1286,8 @@ function BlockEditor(
                           ? "border-copper font-medium text-copper"
                           : "border-transparent text-ink-muted hover:text-ink-soft"
                       }`}
-                      onClick={() => setActiveTabs((m) => ({ ...m, [gid]: ti }))}
+                      onClick={() =>
+                        setActiveTabs((m) => ({ ...m, [gid]: ti }))}
                       onDoubleClick={() => setFocusIdx(h.i)}
                     >
                       {h.title || "untitled"}
@@ -1278,12 +1327,10 @@ function BlockEditor(
         const filter = b.text.startsWith("/")
           ? b.text.slice(1).toLowerCase()
           : null;
-        const items = filter === null
-          ? []
-          : SLASH.filter((s) =>
-            // match the key too: "/todo" must find "To-do" despite the hyphen
-            s.key.includes(filter) || s.label.toLowerCase().includes(filter)
-          );
+        const items = filter === null ? [] : SLASH.filter((s) =>
+          // match the key too: "/todo" must find "To-do" despite the hyphen
+          s.key.includes(filter) || s.label.toLowerCase().includes(filter)
+        );
         const pillItems = pill?.i === i
           ? PILLS.filter((p) => p.key.startsWith(pill.query.toLowerCase()))
           : [];
@@ -1417,8 +1464,7 @@ function BlockEditor(
                   if (document.getSelection()?.isCollapsed === false) return;
                   // an inline image inside a text block selects instead of opening
                   // the raw markdown; clicks on the surrounding text still edit
-                  const onImg =
-                    (e.target as HTMLElement).tagName === "IMG";
+                  const onImg = (e.target as HTMLElement).tagName === "IMG";
                   if (isImage || isTable || isSnippet || onImg) {
                     return setSelectedId(bid);
                   }
@@ -1442,9 +1488,15 @@ function BlockEditor(
                 <Markdown
                   text={b.text}
                   listVariant={listVariant}
-                  onEdit={isTable ? (next) => set(i, { text: next }) : undefined}
+                  onEdit={isTable
+                    ? (next) => set(i, { text: next })
+                    : undefined}
                   onCommentRow={isTable && b.id
                     ? (anchor) => setRowPending({ id: b.id as string, anchor })
+                    : undefined}
+                  rowComments={isTable && b.id
+                    ? (anchor) =>
+                      visibleComments.filter((c) => c.anchor === anchor).length
                     : undefined}
                   onMarkDone={listVariant === "open"
                     ? (item) => markDone(i, item)
@@ -1454,7 +1506,9 @@ function BlockEditor(
                     : undefined}
                   onEditItem={(item, next) => editItem(i, item, next)}
                   getItemLink={(item) => {
-                    const l = links?.find((x) => x.block_id === b.id && x.anchor === item);
+                    const l = links?.find((x) =>
+                      x.block_id === b.id && x.anchor === item
+                    );
                     return l
                       ? {
                         title: l.session_title ?? "session",
@@ -1507,7 +1561,10 @@ function BlockEditor(
                       query: m[1],
                       x: Math.max(
                         0,
-                        Math.min(el.offsetLeft + p.x, el.offsetLeft + el.clientWidth - 210),
+                        Math.min(
+                          el.offsetLeft + p.x,
+                          el.offsetLeft + el.clientWidth - 210,
+                        ),
                       ),
                       y: el.offsetTop + p.y,
                     });
@@ -1519,7 +1576,10 @@ function BlockEditor(
                     .filter((f) => f.type.startsWith("image/"));
                   if (!files.length) return;
                   e.preventDefault();
-                  const before = b.text.slice(0, e.currentTarget.selectionStart);
+                  const before = b.text.slice(
+                    0,
+                    e.currentTarget.selectionStart,
+                  );
                   const after = b.text.slice(e.currentTarget.selectionEnd);
                   Promise.all(files.map((f) => uploadAsset(f))).then((rs) => {
                     const md = rs
@@ -1600,7 +1660,10 @@ function BlockEditor(
                       if (lvl > 0) set(i, { indent: lvl - 1 });
                     } else {
                       const prev = blocks.slice(0, i).filter(isText).at(-1);
-                      const max = Math.min(4, prev ? (prev.indent ?? 0) + 1 : 0);
+                      const max = Math.min(
+                        4,
+                        prev ? (prev.indent ?? 0) + 1 : 0,
+                      );
                       if (lvl < max) set(i, { indent: lvl + 1 });
                     }
                   } else if (e.key === "ArrowUp" && e.altKey) {
@@ -1703,7 +1766,11 @@ function BlockEditor(
                             .replace(/\n?\s*```\s*$/, ""),
                         ),
                     },
-                    { icon: "edit", title: "Edit", onClick: () => setFocusIdx(i) },
+                    {
+                      icon: "edit",
+                      title: "Edit",
+                      onClick: () => setFocusIdx(i),
+                    },
                     {
                       icon: "delete",
                       title: "Delete",
@@ -1764,7 +1831,11 @@ function BlockEditor(
               {b.type === "todo" && (
                 <CornerToolbar
                   actions={[
-                    { icon: "edit", title: "Edit", onClick: () => setFocusIdx(i) },
+                    {
+                      icon: "edit",
+                      title: "Edit",
+                      onClick: () => setFocusIdx(i),
+                    },
                     {
                       icon: "delete",
                       title: "Delete",
@@ -1814,14 +1885,18 @@ function BlockEditor(
             {inlineOpen && (
               <div className="my-1 ml-6 flex max-w-[480px] flex-col gap-1.5 border-l-2 border-copper/40 pl-3">
                 {visibleComments.map((c) => (
-                  <CommentItem
-                    key={c.id}
-                    c={c}
-                    canEdit={Boolean(meId) && c.author_id === meId}
-                    answered={answeredIn(c, blockComments)}
-                    onUpdate={(patch) => commentOps.update(c.id, patch)}
-                    onDelete={() => commentOps.remove(c.id)}
-                  />
+                  <div key={c.id} className="flex flex-col gap-1">
+                    {rowAnchorOf(c, b.text) && (
+                      <RowNote text={rowAnchorOf(c, b.text) as string} />
+                    )}
+                    <CommentItem
+                      c={c}
+                      canEdit={Boolean(meId) && c.author_id === meId}
+                      answered={answeredIn(c, blockComments)}
+                      onUpdate={(patch) => commentOps.update(c.id, patch)}
+                      onDelete={() => commentOps.remove(c.id)}
+                    />
+                  </div>
                 ))}
                 <AddNote
                   autoFocus={focusThread === b.id}
@@ -1859,7 +1934,9 @@ export function Page(
 ) {
   const [page, setPage] = useState<PageDetail | null>(null);
   // 🔗 on a list item: pick the session to link it to
-  const [linkPick, setLinkPick] = useState<{ blockId: string; item: string } | null>(null);
+  const [linkPick, setLinkPick] = useState<
+    { blockId: string; item: string } | null
+  >(null);
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [comments, setComments] = useState<PageComment[]>([]);
   const [showResolved, setShowResolved] = useState(false);
@@ -2224,7 +2301,9 @@ export function Page(
             <div className="relative">
               <button
                 type="button"
-                className="rounded-md p-1 text-[22px] leading-none transition-colors hover:bg-panel"
+                className={`rounded-md p-1 leading-none transition-colors hover:bg-panel ${
+                  isProject ? "text-[30px]" : "text-[22px]"
+                }`}
                 title="page icon"
                 onClick={() => setIconOpen(true)}
               >
@@ -2232,6 +2311,7 @@ export function Page(
                   icon={page.icon}
                   fallback={isProject ? "◎" : isStory ? "◇" : "□"}
                   className={page.icon ? "" : "text-ink-muted"}
+                  size={isProject ? 32 : 22}
                 />
               </button>
               {iconOpen && (
@@ -2292,6 +2372,27 @@ export function Page(
               <PresenceBar people={presence} />
             </div>
           </div>
+
+          {(() => {
+            const created = uuid7Time(page.id);
+            return (
+              <div className="-mt-2.5 flex items-center gap-1.5 px-1 text-[10.5px] text-ink-muted/70">
+                {created && (
+                  <span title={created.toLocaleString()}>
+                    Created {created.toLocaleDateString(undefined, {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  </span>
+                )}
+                {created && <span>·</span>}
+                <span title={new Date(page.updated_at).toLocaleString()}>
+                  Updated {timeAgo(page.updated_at)}
+                </span>
+              </div>
+            );
+          })()}
 
           {isStory && (
             <div className="flex items-center gap-3">
@@ -2443,14 +2544,17 @@ export function Page(
                 <div className="mb-1.5 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
                   LINK TO SESSION
                 </div>
-                <div className="mb-2 truncate rounded-md bg-panel px-2 py-1 text-[11.5px] text-ink-muted" title={linkPick.item}>
+                <div
+                  className="mb-2 truncate rounded-md bg-panel px-2 py-1 text-[11.5px] text-ink-muted"
+                  title={linkPick.item}
+                >
                   {linkPick.item}
                 </div>
                 <div className="flex max-h-72 flex-col gap-0.5 overflow-y-auto">
                   {[...board.sessions]
                     .sort((a, b) =>
                       (statusStyle(a.status).terminal ? 1 : 0) -
-                        (statusStyle(b.status).terminal ? 1 : 0)
+                      (statusStyle(b.status).terminal ? 1 : 0)
                     )
                     .map((sn) => (
                       <button
@@ -2472,9 +2576,13 @@ export function Page(
                           className="h-[7px] w-[7px] shrink-0 rounded-full"
                           style={{ background: statusStyle(sn.status).color }}
                         />
-                        <span className="min-w-0 flex-1 truncate">{sn.title}</span>
+                        <span className="min-w-0 flex-1 truncate">
+                          {sn.title}
+                        </span>
                         {sn.branch && (
-                          <span className="shrink-0 font-mono text-[10px] text-ink-muted">{sn.branch}</span>
+                          <span className="shrink-0 font-mono text-[10px] text-ink-muted">
+                            {sn.branch}
+                          </span>
                         )}
                       </button>
                     ))}
@@ -2650,15 +2758,20 @@ export function Page(
                   “{block.text || "…"}”
                 </button>
                 {list.map((c) => (
-                  <CommentItem
-                    key={c.id}
-                    c={c}
-                    canEdit={Boolean(meId) && c.author_id === meId}
-                    answered={answeredIn(c, list)}
-                    onUpdate={(patch) => commentOps.update(c.id, patch)}
-                    onDelete={() =>
-                      commentOps.remove(c.id)}
-                  />
+                  <div key={c.id} className="flex flex-col gap-1">
+                    {rowAnchorOf(c, block.text) && (
+                      <RowNote text={rowAnchorOf(c, block.text) as string} />
+                    )}
+                    <CommentItem
+                      c={c}
+                      canEdit={Boolean(meId) && c.author_id === meId}
+                      answered={answeredIn(c, list)}
+                      onUpdate={(patch) =>
+                        commentOps.update(c.id, patch)}
+                      onDelete={() =>
+                        commentOps.remove(c.id)}
+                    />
+                  </div>
                 ))}
                 <AddNote
                   onAdd={(body) =>
