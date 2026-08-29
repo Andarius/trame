@@ -413,7 +413,12 @@ export type InboxItem = {
 // unresolved, human-authored, and has an OLDER agent comment (a reply to the agent) —
 // exactly one per block, only when the newest comment is a human reply. Its status must
 // be absent, hash-stale (the human edited it), or stuck ≥ staleSecs (watcher crash).
-export async function listCommentInbox(staleSecs = 600): Promise<InboxItem[]> {
+export async function listCommentInbox(
+  staleSecs = 600,
+  // pages narrows to those page ids; all drops the requires-prior-agent-comment
+  // condition so first-contact human comments (no agent thread yet) surface too
+  opts?: { pages?: string[]; all?: boolean },
+): Promise<InboxItem[]> {
   const pg = await db();
   // self-heal: only drop status rows whose comment is hard-gone or deleted. "answered"
   // rows are kept — they're the terminal hash tombstone that stops re-answering. The
@@ -425,6 +430,17 @@ export async function listCommentInbox(staleSecs = 600): Promise<InboxItem[]> {
     [NODE_ID],
   );
 
+  const params: unknown[] = [AGENT_AUTHOR_ID, staleSecs];
+  let pageCond = "";
+  if (opts?.pages?.length) {
+    params.push(opts.pages);
+    pageCond = `and c.page_id = any($${params.length}::uuid[])`;
+  }
+  const agentThreadCond = opts?.all
+    ? ""
+    : `and exists (select 1 from page_comments a
+              where a.page_id=c.page_id and a.block_id=c.block_id and not a.deleted
+                and a.author_id=$1 and a.updated_at < c.updated_at)`;
   const candidates = (await pg.query(
     `with latest as (
        select distinct on (comment_id) comment_id, status, body_hash, updated_at
@@ -436,9 +452,8 @@ export async function listCommentInbox(staleSecs = 600): Promise<InboxItem[]> {
        left join latest s on s.comment_id = c.id
       where not c.deleted and not c.resolved
         and c.author_id is distinct from $1::uuid
-        and exists (select 1 from page_comments a
-              where a.page_id=c.page_id and a.block_id=c.block_id and not a.deleted
-                and a.author_id=$1 and a.updated_at < c.updated_at)
+        ${pageCond}
+        ${agentThreadCond}
         and not exists (select 1 from page_comments a
               where a.page_id=c.page_id and a.block_id=c.block_id and not a.deleted
                 and a.id <> c.id and a.updated_at > c.updated_at)
@@ -449,7 +464,7 @@ export async function listCommentInbox(staleSecs = 600): Promise<InboxItem[]> {
       -- updated_at is the app's LWW wall-clock; cross-device clock skew can affect
       -- ordering here (known limitation, same as the rest of the app)
       order by c.updated_at`,
-    [AGENT_AUTHOR_ID, staleSecs],
+    params,
   )).rows as Record<string, unknown>[];
 
   const items: InboxItem[] = [];

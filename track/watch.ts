@@ -12,8 +12,8 @@
 // pages — a crafted reply could coax the agent into leaking file contents into an answer.
 //
 //   deno run -A track/watch.ts [--agents codex,claude,glm] [--force-agent <id>]
-//                              [--interval 5] [--stale 600] [--once] [--dry-run]
-//                              [--cwd DIR]
+//                              [--page ID,ID] [--model ID] [--interval 5]
+//                              [--stale 600] [--once] [--dry-run] [--cwd DIR]
 //
 // --agents restricts which agents this run answers (default: all it can run). codex and
 // claude are built in; any other model id (glm, gemini, …) needs its own runner command:
@@ -42,6 +42,8 @@ type InboxItem = {
 
 type Flags = {
   agents: Set<AgentKind> | null; // null = any agent that has a runnable command
+  pages: Set<string> | null; // null = every page
+  model?: string; // forwarded to the built-in codex/claude runners
   forceAgent?: AgentKind;
   interval: number;
   stale: number;
@@ -53,6 +55,7 @@ type Flags = {
 function parseFlags(argv: string[]): Flags {
   const f: Flags = {
     agents: null,
+    pages: null,
     interval: 5,
     stale: 600,
     once: false,
@@ -65,6 +68,12 @@ function parseFlags(argv: string[]): Flags {
       f.agents = new Set(
         val().split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
       );
+    } else if (a === "--page") {
+      f.pages = new Set(
+        val().split(",").map((s) => s.trim()).filter(Boolean),
+      );
+    } else if (a === "--model") {
+      f.model = val().trim() || undefined;
     } else if (a === "--force-agent") {
       f.forceAgent = val().trim().toLowerCase();
       if (!f.forceAgent) throw new Error("--force-agent needs an agent id");
@@ -173,10 +182,12 @@ export function hasCommand(agent: AgentKind): boolean {
 }
 
 // program + args for an agent, with a `{}` placeholder for the prompt. When no env
-// override and no `{}`, the prompt is passed on stdin.
+// override and no `{}`, the prompt is passed on stdin. `model` applies only to the
+// built-in runners — an override command bakes in its own model flag.
 export function agentCommand(
   agent: AgentKind,
   prompt: string,
+  model?: string,
 ): { cmd: string; args: string[]; stdin: string | null } {
   const override = overrideFor(agent);
   if (override) {
@@ -190,7 +201,14 @@ export function agentCommand(
       cmd: "codex",
       // JSONL carries the final agent message and token usage. Keep the sandbox
       // explicit: comment text is untrusted and may attempt prompt injection.
-      args: ["exec", "--json", "--sandbox", "read-only", prompt],
+      args: [
+        "exec",
+        "--json",
+        "--sandbox",
+        "read-only",
+        ...(model ? ["--model", model] : []),
+        prompt,
+      ],
       stdin: null,
     };
   }
@@ -198,7 +216,13 @@ export function agentCommand(
     // --output-format json so we can report model + token usage; runAgent parses it
     return {
       cmd: "claude",
-      args: ["-p", prompt, "--output-format", "json"],
+      args: [
+        "-p",
+        prompt,
+        "--output-format",
+        "json",
+        ...(model ? ["--model", model] : []),
+      ],
       stdin: null,
     };
   }
@@ -400,8 +424,9 @@ async function runAgent(
   agent: AgentKind,
   prompt: string,
   cwd: string | undefined,
+  model?: string,
 ): Promise<AgentResult> {
-  const { cmd, args, stdin } = agentCommand(agent, prompt);
+  const { cmd, args, stdin } = agentCommand(agent, prompt, model);
   const explicitModel = modelFromArgs(args);
   const timeoutMs = Number(Deno.env.get("TRAME_WATCH_TIMEOUT") ?? "300") * 1000;
   const started = Date.now();
@@ -482,7 +507,7 @@ async function handle(
   for (let attempt = 1; attempt <= 3; attempt++) {
     let body: string, meta: AgentMeta;
     try {
-      ({ body, meta } = await runAgent(agent, prompt, flags.cwd));
+      ({ body, meta } = await runAgent(agent, prompt, flags.cwd, flags.model));
     } catch (e) {
       lastErr = e;
       console.error(
@@ -553,18 +578,74 @@ function watchedAgents(flags: Flags): string[] {
   );
 }
 
+type PageRow = { id: string; parent_id: string | null; title: string };
+
+const warnedSelectors = new Set<string>();
+
+// --page selectors → concrete page ids. A selector is a page id or an exact
+// (case-insensitive) title, and a match includes its whole subtree — so a project
+// name/id scopes the watcher to every page under it. Re-resolved each pass, so
+// renames and new subpages are picked up while running.
+async function resolvePages(
+  base: string,
+  selectors: Set<string>,
+): Promise<Set<string>> {
+  const pages = await api(base, "/api/pages") as PageRow[];
+  const out = new Set<string>();
+  for (const sel of selectors) {
+    const s = sel.toLowerCase();
+    const hits = pages.filter(
+      (p) => p.id === sel || p.title.trim().toLowerCase() === s,
+    );
+    if (!hits.length && !warnedSelectors.has(sel)) {
+      console.warn(`--page "${sel}" matches no page (by id or title)`);
+      warnedSelectors.add(sel);
+    }
+    for (const h of hits) out.add(h.id);
+  }
+  const children = new Map<string | null, PageRow[]>();
+  for (const p of pages) {
+    children.set(p.parent_id, [...(children.get(p.parent_id) ?? []), p]);
+  }
+  const stack = [...out];
+  while (stack.length) {
+    for (const c of children.get(stack.pop()!) ?? []) {
+      if (!out.has(c.id)) {
+        out.add(c.id);
+        stack.push(c.id);
+      }
+    }
+  }
+  return out;
+}
+
 async function pass(flags: Flags): Promise<boolean> {
   const base = readBase();
   if (!base) {
     console.warn("Trame app not running (no port file) — waiting…");
     return false;
   }
-  // presence heartbeat: show which agents are being watched, in every page's UI
+  // resolve --page selectors (ids or titles) to the covered page-id set; an
+  // unmatched-only scope resolves empty and fails closed (answers nothing)
+  let pageIds: Set<string> | null = null;
+  if (flags.pages) {
+    try {
+      pageIds = await resolvePages(base, flags.pages);
+    } catch (e) {
+      console.warn(`pages unreachable: ${(e as Error).message}`);
+      return false;
+    }
+  }
+  // presence heartbeat: which agents are watched — every page's UI, or only the
+  // --page ones when scoped
   for (const a of watchedAgents(flags)) {
     await api(base, "/api/presence", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ watcher: a }),
+      body: JSON.stringify({
+        watcher: a,
+        pages: pageIds ? [...pageIds] : undefined,
+      }),
     }).catch(() => {});
   }
   let inbox: InboxItem[];
@@ -579,6 +660,7 @@ async function pass(flags: Flags): Promise<boolean> {
   }
   const skipped = new Set<string>();
   const mine = inbox.filter((i) => {
+    if (pageIds && !pageIds.has(i.page.id)) return false;
     const target = flags.forceAgent ?? i.agent;
     if (flags.agents && !flags.agents.has(target)) return false;
     if (!hasCommand(target)) {
@@ -598,7 +680,31 @@ async function pass(flags: Flags): Promise<boolean> {
   return true;
 }
 
+const USAGE = `Answers human replies on agent comment threads in Trame.
+
+Usage: deno run -A track/watch.ts [options]
+
+Options:
+  --agents a,b       only answer these agents (default: all runnable)
+  --page P,P         only these pages + their subtrees; P is a page/project id or
+                     exact title (default: every page)
+  --model ID         model for the built-in codex/claude runners (default: CLI's own)
+  --force-agent ID   answer every thread as this agent
+  --interval SECS    poll interval (default: 5)
+  --stale SECS       re-surface stuck "answering…" after this long (default: 600)
+  --once             single pass, then exit
+  --dry-run          print prompts instead of running agents
+  --cwd DIR          working directory for the agent CLI
+  -h, --help         show this help
+
+Custom agents need TRAME_WATCH_<AGENT>_CMD ({} = prompt, else stdin).
+TRAME_WATCH_TIMEOUT caps a run in seconds (default: 300).`;
+
 async function main() {
+  if (Deno.args.includes("-h") || Deno.args.includes("--help")) {
+    console.log(USAGE);
+    return;
+  }
   const flags = parseFlags(Deno.args);
   if (flags.once) {
     await pass(flags);
