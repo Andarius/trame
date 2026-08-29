@@ -98,6 +98,36 @@ Deno.test("a human comment with no prior agent comment is not a candidate", asyn
   assertEquals(await inboxFor(id), undefined);
 });
 
+Deno.test("all mode surfaces first-contact comments, scoped by page", async () => {
+  const pageId = await createPage({ title: "watch-all" });
+  const pg = await db();
+  await pg.query(`update pages set content=$2 where id=$1`, [
+    pageId,
+    JSON.stringify([{ type: "text", text: "the section", id: "blk" }]),
+  ]);
+  const id = await createComment({
+    page_id: pageId,
+    block_id: "blk",
+    body: "please rework this section",
+  });
+  const find = (items: Awaited<ReturnType<typeof listCommentInbox>>) =>
+    items.find((i) => i.comment.id === id);
+  // the default inbox still requires a prior agent comment
+  assertEquals(find(await listCommentInbox()), undefined);
+  // all mode sees it, attributed to the default agent
+  const item = find(await listCommentInbox(600, { all: true }));
+  assert(item, "first-contact comment should surface in all mode");
+  assertEquals(item.agent, "claude");
+  // page filter: another page excludes it, its own page keeps it
+  assertEquals(
+    find(
+      await listCommentInbox(600, { all: true, pages: [crypto.randomUUID()] }),
+    ),
+    undefined,
+  );
+  assert(find(await listCommentInbox(600, { all: true, pages: [pageId] })));
+});
+
 Deno.test("an answered reply (newer agent comment) leaves the inbox", async () => {
   const { pageId, blockId, replyId } = await seedThread();
   assert(await inboxFor(replyId), "unanswered reply is a candidate");
@@ -306,6 +336,31 @@ Deno.test("the built-in Codex runner requests a JSONL event stream", () => {
   } finally {
     if (previous === undefined) Deno.env.delete("TRAME_WATCH_CODEX_CMD");
     else Deno.env.set("TRAME_WATCH_CODEX_CMD", previous);
+  }
+});
+
+Deno.test("--model reaches the built-in runners' args", () => {
+  const saved = {
+    codex: Deno.env.get("TRAME_WATCH_CODEX_CMD"),
+    claude: Deno.env.get("TRAME_WATCH_CLAUDE_CMD"),
+  };
+  Deno.env.delete("TRAME_WATCH_CODEX_CMD");
+  Deno.env.delete("TRAME_WATCH_CLAUDE_CMD");
+  try {
+    assertEquals(
+      agentCommand("codex", "p", "gpt-5-codex").args,
+      ["exec", "--json", "--sandbox", "read-only", "--model", "gpt-5-codex", "p"],
+    );
+    assertEquals(
+      agentCommand("claude", "p", "opus").args,
+      ["-p", "p", "--output-format", "json", "--model", "opus"],
+    );
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      const name = `TRAME_WATCH_${k.toUpperCase()}_CMD`;
+      if (v === undefined) Deno.env.delete(name);
+      else Deno.env.set(name, v);
+    }
   }
 });
 

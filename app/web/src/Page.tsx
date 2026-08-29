@@ -27,6 +27,7 @@ import {
   type Presence,
   type Session,
   type SessionLink,
+  startWatcher,
   type UdbMeta,
   updateComment,
   updatePage,
@@ -506,6 +507,64 @@ function PresenceBar({ people }: { people: Presence[] }) {
         </div>
       ))}
     </div>
+  );
+}
+
+// Ghosted avatar next to the presence stack: an agent with threads on this page but
+// no active watcher. Clicking asks the server to open the comment watcher in a
+// terminal; when none can open (headless/bundled build) the command is copied instead.
+function StartWatcherButton(
+  { agent, name, avatar, pageId }: {
+    agent: string;
+    name: string;
+    avatar: string;
+    pageId: string;
+  },
+) {
+  const [state, setState] = useState<"idle" | "starting" | "copied">("idle");
+  const start = async () => {
+    setState("starting");
+    try {
+      const r = await startWatcher(agent, pageId);
+      if (!r.launched) {
+        await navigator.clipboard?.writeText(r.cmd);
+        setState("copied");
+        setTimeout(() => setState("idle"), 2500);
+      }
+      // launched: stay "starting" until the watcher's heartbeat reaches presence
+      // and this button unmounts
+    } catch {
+      setState("idle");
+    }
+  };
+  const title = state === "copied"
+    ? "No terminal opened — command copied, paste it in a shell"
+    : state === "starting"
+    ? `Starting ${name} watcher…`
+    : `Start ${name} watcher`;
+  return (
+    <button
+      type="button"
+      title={title}
+      disabled={state === "starting"}
+      onClick={start}
+      className={`relative -ml-1.5 first:ml-0 ${
+        state === "starting" ? "" : "opacity-40 hover:opacity-90"
+      }`}
+    >
+      <img
+        src={avatar}
+        alt={name}
+        className={`h-6 w-6 rounded-full object-cover ring-2 ring-canvas ${
+          state === "starting" ? "" : "grayscale"
+        }`}
+      />
+      <span
+        className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-canvas ${
+          state === "starting" ? "animate-pulse bg-copper" : "bg-chipline"
+        }`}
+      />
+    </button>
   );
 }
 
@@ -2315,6 +2374,7 @@ export function Page(
     });
   const [flash, setFlash] = useState<string | null>(null);
   const flashTimer = useRef<number | undefined>(undefined);
+  const [idCopied, setIdCopied] = useState(false);
   const [meId, setMeId] = useState<string | null>(null);
   useEffect(() => {
     getIdentity().then((i) => setMeId(i.userId)).catch(() => {});
@@ -2716,7 +2776,37 @@ export function Page(
                 )}
               </div>
             )}
-            <div className="shrink-0 pl-1">
+            <div className="flex shrink-0 items-center gap-1.5 pl-1">
+              {(() => {
+                // agents with comments on this page but no live watcher heartbeat;
+                // watcher ids are watcher:<agent> or watcher:<agent>:<page> (scoped),
+                // and presence already filters scoped ones to this page
+                const watching = new Set(
+                  presence.filter((p) => p.kind === "watcher").map((p) =>
+                    p.id.split(":")[1]
+                  ),
+                );
+                const startable = new Map<string, PageComment>();
+                for (const c of comments) {
+                  const id = c.author.trim().toLowerCase();
+                  if (isAgent(c) && id && !watching.has(id)) {
+                    startable.set(id, c);
+                  }
+                }
+                return startable.size > 0 && (
+                  <div className="flex items-center">
+                    {[...startable].map(([id, c]) => (
+                      <StartWatcherButton
+                        key={id}
+                        agent={id}
+                        name={c.author}
+                        avatar={c.author_avatar}
+                        pageId={pageId}
+                      />
+                    ))}
+                  </div>
+                );
+              })()}
               <PresenceBar people={presence} />
             </div>
           </div>
@@ -2738,6 +2828,23 @@ export function Page(
                 <span title={new Date(page.updated_at).toLocaleString()}>
                   Updated {timeAgo(page.updated_at)}
                 </span>
+                <button
+                  type="button"
+                  title={`Copy page id: ${page.id}`}
+                  className={`ml-1 rounded-md border border-line-soft px-2 py-0.5 transition-colors ${
+                    idCopied
+                      ? "border-copper/50 text-copper"
+                      : "hover:bg-panel hover:text-ink-soft"
+                  }`}
+                  onClick={() => {
+                    navigator.clipboard?.writeText(page.id).then(() => {
+                      setIdCopied(true);
+                      setTimeout(() => setIdCopied(false), 1500);
+                    }).catch(() => {});
+                  }}
+                >
+                  {idCopied ? "copied ✓" : "copy id"}
+                </button>
               </div>
             );
           })()}

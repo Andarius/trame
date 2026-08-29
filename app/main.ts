@@ -282,6 +282,10 @@ const WEB_DIST = `${APP_ROOT}/web/dist`;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Free-form agent ids (codex, claude, glm, …) that reach presence keys and, for
+// /api/watcher/start, a shell command — so keep the charset strict.
+const AGENT_ID_RE = /^[a-z0-9][a-z0-9._-]{0,31}$/;
+
 // Run qdbus (Qt6 preferred), returning both streams so callers can inspect errors.
 async function qdbusRaw(
   args: string[],
@@ -1216,7 +1220,13 @@ async function handler(req: Request): Promise<Response> {
   }
   if (pathname === "/api/comments/inbox") {
     const stale = Number(url.searchParams.get("stale") ?? "600");
-    return json(await listCommentInbox(Number.isFinite(stale) ? stale : 600));
+    const pages = (url.searchParams.get("page") ?? "").split(",")
+      .map((s) => s.trim()).filter((s) => UUID_RE.test(s));
+    return json(await listCommentInbox(Number.isFinite(stale) ? stale : 600, {
+      pages: pages.length ? pages : undefined,
+      // mode=all: any pending human comment, not just replies on agent threads
+      all: url.searchParams.get("mode") === "all",
+    }));
   }
   if (pathname === "/api/comments") {
     const pageId = url.searchParams.get("page");
@@ -1246,15 +1256,24 @@ async function handler(req: Request): Promise<Response> {
   // ephemeral presence (device-local, not synced): who's on a page + active watchers
   if (pathname === "/api/presence" && req.method === "POST") {
     const b = await req.json();
-    if (b.watcher === "codex" || b.watcher === "claude") {
+    if (typeof b.watcher === "string" && AGENT_ID_RE.test(b.watcher)) {
       const a = agentIdentity(b.watcher);
-      touchPresence({
-        id: `watcher:${b.watcher}`,
-        kind: "watcher",
-        name: a.name,
-        avatar: a.avatar,
-        page_id: "*",
-      });
+      // no pages → global watcher ("*"); a --page-scoped watcher registers one
+      // entry per page so its badge only shows there
+      const pages: string[] = Array.isArray(b.pages)
+        ? b.pages.filter((p: unknown) =>
+          typeof p === "string" && UUID_RE.test(p)
+        )
+        : [];
+      for (const pid of pages.length ? pages : ["*"]) {
+        touchPresence({
+          id: pid === "*" ? `watcher:${b.watcher}` : `watcher:${b.watcher}:${pid}`,
+          kind: "watcher",
+          name: a.name,
+          avatar: a.avatar,
+          page_id: pid,
+        });
+      }
     } else {
       const me = await getIdentity();
       const page = String(b.page_id ?? "");
@@ -1272,6 +1291,51 @@ async function handler(req: Request): Promise<Response> {
   }
   if (pathname === "/api/presence") {
     return json(listPresence(url.searchParams.get("page") ?? ""));
+  }
+
+  // start the comment watcher for one agent, in a visible terminal (logs, Ctrl+C to
+  // stop). Best-effort like /api/resume: when nothing launches, the UI copies `cmd`.
+  if (pathname === "/api/watcher/start" && req.method === "POST") {
+    const b = await req.json();
+    const agent = String(b.agent ?? "").trim().toLowerCase();
+    if (!AGENT_ID_RE.test(agent)) return json({ error: "invalid agent" }, 400);
+    // optional page scope: the watcher only answers threads on this page
+    const page = typeof b.page === "string" && UUID_RE.test(b.page)
+      ? b.page
+      : null;
+    // optional model for the built-in codex/claude runners; reaches a shell
+    // command, so keep the charset strict
+    const model = typeof b.model === "string" && b.model ? b.model : null;
+    if (model && !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(model)) {
+      return json({ error: "invalid model" }, 400);
+    }
+    const root = `${APP_ROOT}/..`; // repo root — track/ is a sibling of app/
+    const cmd = `deno run -A track/watch.ts --agents ${agent}${
+      page ? ` --page ${page}` : ""
+    }${model ? ` --model ${model}` : ""}`;
+    const full = `cd ${shq(root)} && ${cmd}`;
+    // covered already if a global watcher runs, or one scoped to this same page
+    if (
+      listPresence(page ?? "").some((p) =>
+        p.id === `watcher:${agent}` ||
+        (page && p.id === `watcher:${agent}:${page}`)
+      )
+    ) {
+      return json({ ok: false, launched: false, cmd: full, reason: "already-watching" });
+    }
+    let hasScript = false;
+    try {
+      hasScript = Deno.statSync(`${root}/track/watch.ts`).isFile;
+    } catch {
+      // bundled desktop build without the repo checkout — fall back to copy
+    }
+    const launched = hasScript && spawnTerminal(root, cmd);
+    return json({
+      ok: launched,
+      launched,
+      cmd: full,
+      reason: launched ? undefined : hasScript ? "no-terminal" : "no-script",
+    });
   }
 
   // sharing (phase 7): grants live in page_shares and ride the normal sync

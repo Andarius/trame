@@ -514,6 +514,14 @@ export const getPresence = (pageId: string) =>
   fetch(`/api/presence?page=${pageId}`).then((r) =>
     r.json() as Promise<Presence[]>
   );
+export const startWatcher = (agent: string, pageId: string) =>
+  fetch("/api/watcher/start", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ agent, page: pageId }),
+  }).then((r) =>
+    r.json() as Promise<{ ok: boolean; launched: boolean; cmd: string }>
+  );
 export type PageMeta = {
   id: string;
   parent_id: string | null;

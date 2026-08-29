@@ -18,7 +18,7 @@ export function touchPresence(p: Presence): void {
   entries.set(p.id, { ...p, at: Date.now() });
 }
 
-// Everyone on this page plus every active (global) watcher, freshest wins.
+// Everyone on this page plus active watchers — global ("*") or scoped to this page.
 export function listPresence(pageId: string): Presence[] {
   const now = Date.now();
   const out: Presence[] = [];
@@ -27,7 +27,7 @@ export function listPresence(pageId: string): Presence[] {
       entries.delete(id);
       continue;
     }
-    if (e.kind === "watcher" || e.page_id === pageId) {
+    if (e.page_id === pageId || (e.kind === "watcher" && e.page_id === "*")) {
       const { at: _at, ...rest } = e;
       out.push(rest);
     }
