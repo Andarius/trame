@@ -1,4 +1,5 @@
 import {
+  type CSSProperties,
   Fragment,
   type KeyboardEvent as ReactKeyboardEvent,
   useEffect,
@@ -112,11 +113,11 @@ const PILLS: { key: string; dot: string; hint: string }[] = [
 ];
 
 // pixel position of `index` inside a textarea (mirror-div technique), relative to
-// the textarea's top-left; y is the bottom of the caret's line
+// the textarea's top-left; y is the bottom of the caret's line, top its top
 function caretXY(
   el: HTMLTextAreaElement,
   index: number,
-): { x: number; y: number } {
+): { x: number; y: number; top: number } {
   const div = document.createElement("div");
   const s = getComputedStyle(el);
   for (
@@ -145,9 +146,76 @@ function caretXY(
   div.appendChild(span);
   document.body.appendChild(div);
   const x = span.offsetLeft;
-  const y = span.offsetTop + span.offsetHeight;
+  const top = span.offsetTop;
+  const y = top + span.offsetHeight;
   div.remove();
-  return { x, y };
+  return { x, y, top };
+}
+
+// markdown delimiters behind the selection toolbar / shortcuts (see INLINE in md.tsx)
+const INLINE_DELIMS = {
+  bold: "**",
+  italic: "*",
+  strike: "~~",
+  code: "`",
+} as const;
+type InlineKind = keyof typeof INLINE_DELIMS;
+
+// Toggle the kind's delimiter around [start, end) — whitespace at the selection's
+// edges stays outside so the result still parses as emphasis. Returns the new
+// text plus the range to re-select.
+function toggleInline(
+  text: string,
+  start: number,
+  end: number,
+  kind: InlineKind,
+): { text: string; start: number; end: number } {
+  const d = INLINE_DELIMS[kind];
+  while (start < end && /\s/.test(text[start])) start++;
+  while (end > start && /\s/.test(text[end - 1])) end--;
+  const n = d.length;
+  const inner = text.slice(start, end);
+  if (inner.length >= 2 * n && inner.startsWith(d) && inner.endsWith(d)) {
+    return {
+      text: text.slice(0, start) + inner.slice(n, -n) + text.slice(end),
+      start,
+      end: end - 2 * n,
+    };
+  }
+  if (text.slice(start - n, start) === d && text.slice(end, end + n) === d) {
+    return {
+      text: text.slice(0, start - n) + inner + text.slice(end + n),
+      start: start - n,
+      end: end - n,
+    };
+  }
+  return {
+    text: `${text.slice(0, start)}${d}${inner}${d}${text.slice(end)}`,
+    start: start + n,
+    end: end + n,
+  };
+}
+
+// Wrap the selection as a markdown link: a selected URL becomes [](url) with the
+// caret in the label, anything else [sel]() with the caret in the parens.
+function linkify(
+  text: string,
+  start: number,
+  end: number,
+): { text: string; caret: number } {
+  while (start < end && /\s/.test(text[start])) start++;
+  while (end > start && /\s/.test(text[end - 1])) end--;
+  const inner = text.slice(start, end);
+  const isUrl = /^https?:\/\/\S+$/.test(inner);
+  return isUrl
+    ? {
+      text: `${text.slice(0, start)}[](${inner})${text.slice(end)}`,
+      caret: start + 1,
+    }
+    : {
+      text: `${text.slice(0, start)}[${inner}]()${text.slice(end)}`,
+      caret: end + 3,
+    };
 }
 
 type CommentOps = {
@@ -202,18 +270,28 @@ const isAgent = (c: PageComment) => c.author_id === AGENT_AUTHOR_ID;
 const answeredIn = (c: PageComment, blockComments: PageComment[]) =>
   blockComments.some((o) => isAgent(o) && o.updated_at > c.updated_at);
 
-// a table-row comment stores the row's pipe-stripped text (see MdTable 💬);
-// block-level anchors on a table keep the raw markdown, so pipes tell them apart
-const rowAnchorOf = (c: PageComment, blockText: string) =>
-  /^\s*\|/.test(blockText) && c.anchor && !c.anchor.includes("|")
-    ? c.anchor
+// Quote naming a comment's exact target inside its block: a table row (pipe-less
+// anchor on a pipe-table block, see MdTable 💬) or a text selection (anchor that
+// is a fragment of the block's current text). Block-level comments (anchor = the
+// whole block, or a stale fragment) get no quote.
+const anchorQuoteOf = (
+  c: PageComment,
+  blockText: string,
+): { label: string; text: string } | null => {
+  if (!c.anchor || c.anchor === blockText) return null;
+  if (/^\s*\|/.test(blockText)) {
+    return c.anchor.includes("|") ? null : { label: "on row", text: c.anchor };
+  }
+  return blockText.includes(c.anchor)
+    ? { label: "on", text: c.anchor }
     : null;
+};
 
-// "on row: …" quote above a comment so table-row comments name their target
-function RowNote({ text }: { text: string }) {
+// "on row: …" / "on: …" quote above a comment so it names its target
+function RowNote({ label, text }: { label: string; text: string }) {
   return (
     <span className="truncate border-l-2 border-line pl-2 text-[11px] italic text-ink-muted/70">
-      on row: “{text}”
+      {label}: “{text}”
     </span>
   );
 }
@@ -517,20 +595,21 @@ function CommentGutter(
           className="left-auto right-0 max-h-[60vh] w-[300px] overflow-y-auto p-2"
         >
           <div className="flex flex-col gap-2">
-            {visible.map((c) => (
-              <div key={c.id} className="flex flex-col gap-1">
-                {rowAnchorOf(c, anchor) && (
-                  <RowNote text={rowAnchorOf(c, anchor) as string} />
-                )}
-                <CommentItem
-                  c={c}
-                  canEdit={Boolean(meId) && c.author_id === meId}
-                  answered={answeredIn(c, comments)}
-                  onUpdate={(patch) => ops.update(c.id, patch)}
-                  onDelete={() => ops.remove(c.id)}
-                />
-              </div>
-            ))}
+            {visible.map((c) => {
+              const q = anchorQuoteOf(c, anchor);
+              return (
+                <div key={c.id} className="flex flex-col gap-1">
+                  {q && <RowNote label={q.label} text={q.text} />}
+                  <CommentItem
+                    c={c}
+                    canEdit={Boolean(meId) && c.author_id === meId}
+                    answered={answeredIn(c, comments)}
+                    onUpdate={(patch) => ops.update(c.id, patch)}
+                    onDelete={() => ops.remove(c.id)}
+                  />
+                </div>
+              );
+            })}
             {visible.length === 0 && (
               <span className="px-1 text-[11px] text-ink-muted/60">
                 No comments yet
@@ -758,6 +837,41 @@ function CornerToolbar(
   );
 }
 
+// Floating toolbar over a text selection (Notion-style). Anchored absolutely
+// inside the block row by default; the rendered-view variant passes fixed coords.
+function FormatBar(
+  { style, fixed, actions }: {
+    style: CSSProperties;
+    fixed?: boolean;
+    actions: { label: string; title: string; cls?: string; onClick: () => void }[];
+  },
+) {
+  return (
+    <div
+      // preventDefault keeps the selection (and textarea focus) while clicking
+      onMouseDown={(e) => e.preventDefault()}
+      className={`${
+        fixed ? "fixed" : "absolute"
+      } z-40 flex items-center gap-0.5 rounded-md border border-overlay-border bg-card p-0.5 shadow-lg shadow-black/40`}
+      style={style}
+    >
+      {actions.map((a) => (
+        <button
+          type="button"
+          key={a.title}
+          title={a.title}
+          onClick={a.onClick}
+          className={`flex h-6 min-w-6 items-center justify-center whitespace-nowrap rounded px-1 text-[12px] text-ink-soft hover:bg-panel hover:text-ink ${
+            a.cls ?? ""
+          }`}
+        >
+          {a.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function BlockEditor(
   {
     blocks,
@@ -808,11 +922,111 @@ function BlockEditor(
   const [pillSel, setPillSel] = useState(0);
   // block currently in raw-textarea edit mode (Notion-style: click to edit, blur to render)
   const [activeId, setActiveId] = useState<string | null>(null);
+  // non-collapsed selection inside a block textarea → floating format toolbar
+  // (px anchor is relative to the block row, like the pill menu)
+  const [sel, setSel] = useState<
+    { i: number; start: number; end: number; x: number; y: number } | null
+  >(null);
+  // non-collapsed selection over rendered markdown → fixed-position comment bar
+  const [viewSel, setViewSel] = useState<
+    { id: string; text: string; x: number; y: number } | null
+  >(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  const syncSel = (i: number, el: HTMLTextAreaElement) => {
+    const { selectionStart: s, selectionEnd: e } = el;
+    if (s === e) return setSel((cur) => (cur && cur.i === i ? null : cur));
+    const p = caretXY(el, s);
+    setSel({
+      i,
+      start: s,
+      end: e,
+      x: Math.max(
+        0,
+        Math.min(el.offsetLeft + p.x, el.offsetLeft + el.clientWidth - 230),
+      ),
+      y: el.offsetTop + p.top,
+    });
+  };
+  // Formatting edits mutate the DOM textarea first (value + selection, in one
+  // synchronous step) and then sync React state to the same text: the commit
+  // sees a matching DOM value and leaves the node alone, so the caret can never
+  // be stale — a chained shortcut right after is safe.
+  const applyInline = (i: number, kind: InlineKind) => {
+    const el = refs.current[i];
+    const b = blocks[i];
+    if (!el || !isText(b)) return;
+    const r = toggleInline(el.value, el.selectionStart, el.selectionEnd, kind);
+    el.value = r.text;
+    el.setSelectionRange(r.start, r.end);
+    grow(el);
+    set(i, { text: r.text });
+    syncSel(i, el);
+  };
+  const applyLink = (i: number) => {
+    const el = refs.current[i];
+    const b = blocks[i];
+    if (!el || !isText(b) || el.selectionStart === el.selectionEnd) return;
+    const r = linkify(el.value, el.selectionStart, el.selectionEnd);
+    el.value = r.text;
+    el.setSelectionRange(r.caret, r.caret);
+    grow(el);
+    set(i, { text: r.text });
+    setSel(null);
+  };
+  // 💬 on an edit-mode selection: open the pending composer with it as anchor
+  const commentSel = (i: number) => {
+    const el = refs.current[i];
+    const b = blocks[i];
+    if (!el || !isText(b) || !b.id) return;
+    const anchor = b.text.slice(el.selectionStart, el.selectionEnd).trim();
+    if (anchor) setPendingNote({ id: b.id, anchor: anchor.slice(0, 300) });
+    setSel(null);
+  };
+
+  // selection over rendered markdown (no textarea focused) → comment bar above it
+  useEffect(() => {
+    const sync = () => {
+      const s = document.getSelection();
+      if (!s || s.isCollapsed || s.rangeCount === 0) return setViewSel(null);
+      if (document.activeElement?.tagName === "TEXTAREA") return; // edit-mode path
+      const range = s.getRangeAt(0);
+      const at = (n: Node) => n instanceof Element ? n : n.parentElement;
+      const row = at(range.startContainer)?.closest("[data-block-id]");
+      if (!row || !rootRef.current?.contains(row)) return setViewSel(null);
+      const text = s.toString().trim().slice(0, 300);
+      if (!text) return setViewSel(null);
+      const r = range.getBoundingClientRect();
+      setViewSel({
+        id: row.getAttribute("data-block-id") as string,
+        text,
+        x: r.left + r.width / 2,
+        y: r.top,
+      });
+    };
+    // show only once the drag ends (after the click's own selection handling);
+    // selectionchange just hides a bar whose selection collapsed
+    const up = () => setTimeout(sync, 0);
+    const change = () => {
+      const s = document.getSelection();
+      if (!s || s.isCollapsed) setViewSel(null);
+    };
+    document.addEventListener("mouseup", up);
+    document.addEventListener("selectionchange", change);
+    document.addEventListener("scroll", sync, true);
+    return () => {
+      document.removeEventListener("mouseup", up);
+      document.removeEventListener("selectionchange", change);
+      document.removeEventListener("scroll", sync, true);
+    };
+  }, []);
 
   useEffect(() => {
     if (focusIdx === null) return;
     const el = refs.current[focusIdx];
-    if (el) {
+    // already-focused: this is a re-run on a later blocks change (the null reset
+    // hasn't committed yet) — stealing the caret would clobber a live selection
+    if (el && document.activeElement !== el) {
       el.focus();
       el.setSelectionRange(el.value.length, el.value.length);
     }
@@ -1050,8 +1264,9 @@ function BlockEditor(
     document.addEventListener("mouseup", up);
     return () => document.removeEventListener("mouseup", up);
   }, [dragIdx, overIdx, blocks]);
-  // a table row picked as comment target (💬 on row hover), awaiting its body
-  const [rowPending, setRowPending] = useState(
+  // a comment target picked in place (💬 on a table row or a text selection),
+  // awaiting its body
+  const [pendingNote, setPendingNote] = useState(
     null as { id: string; anchor: string } | null,
   );
   // clicking an image selects its block (ring) instead of opening the markdown;
@@ -1225,7 +1440,28 @@ function BlockEditor(
   })();
 
   return (
-    <div className="flex flex-col">
+    <div ref={rootRef} className="flex flex-col">
+      {viewSel && (
+        <FormatBar
+          fixed
+          style={{
+            left: viewSel.x,
+            top: viewSel.y - 6,
+            transform: "translate(-50%, -100%)",
+          }}
+          actions={[
+            {
+              label: "💬 Comment",
+              title: "Comment on selection",
+              onClick: () => {
+                setPendingNote({ id: viewSel.id, anchor: viewSel.text });
+                setViewSel(null);
+                document.getSelection()?.removeAllRanges();
+              },
+            },
+          ]}
+        />
+      )}
       {blocks.map((b, i) => {
         // section groups: strip/accordion on the marked heading, hide inactive blocks
         const tm = tabMeta.of.get(i);
@@ -1492,7 +1728,7 @@ function BlockEditor(
                     ? (next) => set(i, { text: next })
                     : undefined}
                   onCommentRow={isTable && b.id
-                    ? (anchor) => setRowPending({ id: b.id as string, anchor })
+                    ? (anchor) => setPendingNote({ id: b.id as string, anchor })
                     : undefined}
                   rowComments={isTable && b.id
                     ? (anchor) =>
@@ -1542,7 +1778,11 @@ function BlockEditor(
                 }}
                 className={`w-full resize-none overflow-hidden border-none py-1 outline-none placeholder:text-ink-muted/40 ${editCls}`}
                 onFocus={() => setActiveId(bid)}
-                onBlur={() => setActiveId((cur) => (cur === bid ? null : cur))}
+                onBlur={() => {
+                  setActiveId((cur) => (cur === bid ? null : cur));
+                  setSel((cur) => (cur && cur.i === i ? null : cur));
+                }}
+                onSelect={(e) => syncSel(i, e.currentTarget)}
                 onChange={(e) => {
                   set(i, { text: e.target.value });
                   grow(e.target);
@@ -1590,6 +1830,27 @@ function BlockEditor(
                   });
                 }}
                 onKeyDown={(e) => {
+                  // formatting shortcuts wrap/unwrap the selection in markdown
+                  if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+                    const k = e.key.toLowerCase();
+                    const kind = k === "b"
+                      ? "bold"
+                      : k === "i"
+                      ? "italic"
+                      : k === "e"
+                      ? "code"
+                      : k === "s" && e.shiftKey
+                      ? "strike"
+                      : null;
+                    if (kind) {
+                      e.preventDefault();
+                      return applyInline(i, kind);
+                    }
+                    if (k === "k") {
+                      e.preventDefault();
+                      return applyLink(i);
+                    }
+                  }
                   if (menuIdx === i && items.length) {
                     if (e.key === "ArrowDown") {
                       e.preventDefault();
@@ -1745,6 +2006,55 @@ function BlockEditor(
                   ))}
                 </Popover>
               )}
+              {sel?.i === i && (
+                <FormatBar
+                  style={{
+                    left: sel.x,
+                    top: sel.y - 6,
+                    transform: "translateY(-100%)",
+                  }}
+                  actions={[
+                    {
+                      label: "B",
+                      title: "Bold (Ctrl+B)",
+                      cls: "font-bold",
+                      onClick: () => applyInline(i, "bold"),
+                    },
+                    {
+                      label: "I",
+                      title: "Italic (Ctrl+I)",
+                      cls: "italic",
+                      onClick: () => applyInline(i, "italic"),
+                    },
+                    {
+                      label: "S",
+                      title: "Strikethrough (Ctrl+Shift+S)",
+                      cls: "line-through",
+                      onClick: () => applyInline(i, "strike"),
+                    },
+                    {
+                      label: "</>",
+                      title: "Code (Ctrl+E)",
+                      cls: "font-mono !text-[10.5px]",
+                      onClick: () => applyInline(i, "code"),
+                    },
+                    {
+                      label: "🔗",
+                      title: "Link (Ctrl+K)",
+                      cls: "!text-[10.5px]",
+                      onClick: () => applyLink(i),
+                    },
+                    ...(b.id
+                      ? [{
+                        label: "💬",
+                        title: "Comment on selection",
+                        cls: "!text-[10.5px]",
+                        onClick: () => commentSel(i),
+                      }]
+                      : []),
+                  ]}
+                />
+              )}
               {isSnippet && (
                 <CornerToolbar
                   chip={b.text.match(/^\s*```\s*([\w+#-]*)/)?.[1] ?? ""}
@@ -1859,16 +2169,16 @@ function BlockEditor(
                 />
               </div>
             </div>
-            {rowPending?.id === bid && (
+            {pendingNote?.id === bid && (
               <div className="my-1 ml-6 flex max-w-[480px] flex-col gap-1.5 rounded-md border border-copper/40 bg-panel p-2">
                 <div className="flex items-start justify-between gap-2 text-[10.5px] text-ink-muted">
                   <span className="min-w-0 truncate">
-                    on row: “{rowPending.anchor}”
+                    {isTable ? "on row" : "on"}: “{pendingNote.anchor}”
                   </span>
                   <button
                     type="button"
                     className="shrink-0 hover:text-ink"
-                    onClick={() => setRowPending(null)}
+                    onClick={() => setPendingNote(null)}
                   >
                     ×
                   </button>
@@ -1876,28 +2186,29 @@ function BlockEditor(
                 <AddNote
                   autoFocus
                   onAdd={(body) => {
-                    commentOps.add(bid, rowPending?.anchor ?? "", body);
-                    setRowPending(null);
+                    commentOps.add(bid, pendingNote?.anchor ?? "", body);
+                    setPendingNote(null);
                   }}
                 />
               </div>
             )}
             {inlineOpen && (
               <div className="my-1 ml-6 flex max-w-[480px] flex-col gap-1.5 border-l-2 border-copper/40 pl-3">
-                {visibleComments.map((c) => (
-                  <div key={c.id} className="flex flex-col gap-1">
-                    {rowAnchorOf(c, b.text) && (
-                      <RowNote text={rowAnchorOf(c, b.text) as string} />
-                    )}
-                    <CommentItem
-                      c={c}
-                      canEdit={Boolean(meId) && c.author_id === meId}
-                      answered={answeredIn(c, blockComments)}
-                      onUpdate={(patch) => commentOps.update(c.id, patch)}
-                      onDelete={() => commentOps.remove(c.id)}
-                    />
-                  </div>
-                ))}
+                {visibleComments.map((c) => {
+                  const q = anchorQuoteOf(c, b.text);
+                  return (
+                    <div key={c.id} className="flex flex-col gap-1">
+                      {q && <RowNote label={q.label} text={q.text} />}
+                      <CommentItem
+                        c={c}
+                        canEdit={Boolean(meId) && c.author_id === meId}
+                        answered={answeredIn(c, blockComments)}
+                        onUpdate={(patch) => commentOps.update(c.id, patch)}
+                        onDelete={() => commentOps.remove(c.id)}
+                      />
+                    </div>
+                  );
+                })}
                 <AddNote
                   autoFocus={focusThread === b.id}
                   onAdd={(body) => commentOps.add(b.id as string, b.text, body)}
@@ -2757,22 +3068,23 @@ export function Page(
                 >
                   “{block.text || "…"}”
                 </button>
-                {list.map((c) => (
-                  <div key={c.id} className="flex flex-col gap-1">
-                    {rowAnchorOf(c, block.text) && (
-                      <RowNote text={rowAnchorOf(c, block.text) as string} />
-                    )}
-                    <CommentItem
-                      c={c}
-                      canEdit={Boolean(meId) && c.author_id === meId}
-                      answered={answeredIn(c, list)}
-                      onUpdate={(patch) =>
-                        commentOps.update(c.id, patch)}
-                      onDelete={() =>
-                        commentOps.remove(c.id)}
-                    />
-                  </div>
-                ))}
+                {list.map((c) => {
+                  const q = anchorQuoteOf(c, block.text);
+                  return (
+                    <div key={c.id} className="flex flex-col gap-1">
+                      {q && <RowNote label={q.label} text={q.text} />}
+                      <CommentItem
+                        c={c}
+                        canEdit={Boolean(meId) && c.author_id === meId}
+                        answered={answeredIn(c, list)}
+                        onUpdate={(patch) =>
+                          commentOps.update(c.id, patch)}
+                        onDelete={() =>
+                          commentOps.remove(c.id)}
+                      />
+                    </div>
+                  );
+                })}
                 <AddNote
                   onAdd={(body) =>
                     commentOps.add(block.id as string, block.text, body)}
