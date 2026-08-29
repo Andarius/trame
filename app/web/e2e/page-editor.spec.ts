@@ -15,6 +15,7 @@ const TITLES = [
   "Editor paste e2e",
   "Editor pill e2e",
   "Editor live e2e",
+  "Editor list split e2e",
 ];
 
 // retry-safe: wipe our fixture pages so a re-run starts clean
@@ -162,4 +163,30 @@ test("pasting an image uploads it and renders on blur", async ({ page, request }
   const img = page.locator(`img[alt="image"]`);
   await expect(img).toBeVisible();
   expect(await img.evaluate((el) => (el as HTMLImageElement).naturalWidth)).toBe(1);
+});
+
+test("Enter in a rendered list item splits it and keeps typing flowing", async ({ page, request }) => {
+  const id = await newPage(request, "Editor list split e2e", [
+    { id: "blk-list", type: "text", text: "- alpha\n- beta" },
+  ]);
+  await page.goto(`/?view=page&page=${id}`);
+  // click the item text → single-line editor with the caret at the end
+  await page.locator("li", { hasText: "alpha" }).locator("span.cursor-text").click();
+  const item = page.locator("li textarea");
+  await expect(item).toHaveValue("alpha");
+  await page.keyboard.press("Enter"); // split at end → fresh empty item, editor open
+  await expect(item).toHaveValue("");
+  await page.keyboard.type("gamma");
+  await page.keyboard.press("Enter"); // commits gamma, opens the next fresh item
+  await expect(item).toHaveValue("");
+  await page.keyboard.press("Escape"); // exit — the dangling empty item is dropped
+  await expect(item).not.toBeVisible();
+  await expect
+    .poll(async () => {
+      const p = await (await request.get(`/api/pages/${id}`)).json() as {
+        content: { text: string }[];
+      };
+      return p.content[0]?.text;
+    })
+    .toBe("- alpha\n- gamma\n- beta");
 });

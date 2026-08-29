@@ -63,10 +63,10 @@ test("deleting the project removes the subtree from the sidebar", async ({ page 
   await page.locator("aside").getByRole("button", { name: /Pages Project/ }).first().click();
   await page.getByRole("button", { name: "Delete", exact: true }).first().click();
   await page.getByRole("button", { name: "Delete", exact: true }).last().click(); // confirm dialog
-  // scope to the sidebar: the board card's project chip also matches /Pages Project/,
-  // and a 2-element strict violation throws immediately instead of polling to zero
-  await expect(page.locator("aside").getByRole("button", { name: /Pages Project/ })).not.toBeVisible();
-  await expect(page.locator("aside").getByRole("button", { name: /Nested notes/ })).not.toBeVisible();
+  // scope to the sidebar (the board card's project chip also matches); count-based
+  // because a draggable story row carries role=button on the row div too
+  await expect(page.locator("aside").getByRole("button", { name: /Pages Project/ })).toHaveCount(0);
+  await expect(page.locator("aside").getByRole("button", { name: /Nested notes/ })).toHaveCount(0);
 });
 
 test("attaching a session to a plain page promotes it to a project", async ({ page, request }) => {

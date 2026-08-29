@@ -216,9 +216,24 @@ export async function movePage(
   } else {
     key = await endKey(pg, parentId ?? null);
   }
+  // a story's client_id mirrors its project (see resolveStory/promoteToProject) —
+  // re-homing it must retarget the chip too, not leave it on the old project
+  const proj = parentId
+    ? (await pg.query(
+      `with recursive up as (
+         select id, parent_id, kind, 0 as d from pages where id=$1 and not deleted
+         union all
+         select p.id, p.parent_id, p.kind, up.d+1 from pages p
+           join up on p.id = up.parent_id where not p.deleted
+       ) select id from up where kind='project' order by d limit 1`,
+      [parentId],
+    )).rows[0] as { id: string } | undefined
+    : undefined;
   await pg.query(
-    `update pages set parent_id=$2, sort_key=$3, origin=$4, updated_at=now() where id=$1`,
-    [id, parentId, key, NODE_ID],
+    `update pages set parent_id=$2, sort_key=$3,
+       client_id = case when kind='story' then $5 else client_id end,
+       origin=$4, updated_at=now() where id=$1`,
+    [id, parentId, key, NODE_ID, proj?.id ?? null],
   );
 }
 

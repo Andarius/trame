@@ -358,14 +358,16 @@ function PageNode(
   const open = expanded.has(p.id);
   const active = p.id === current;
   const sharedIn = isSharedIn(p, meId);
-  const canDrag = p.kind === "page" && !sharedIn;
-  const canDrop = (p.kind === "project" || p.kind === "story") && !sharedIn;
+  const canDrag = (p.kind === "page" || p.kind === "story") && !sharedIn;
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } =
-    useDraggable({ id: p.id, disabled: !canDrag });
-  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    useDraggable({ id: p.id, disabled: !canDrag, data: { kind: p.kind } });
+  const { setNodeRef: setDropRef, isOver, active: dragged } = useDroppable({
     id: `drop:${p.id}`,
-    disabled: !canDrop,
   });
+  // pages file under projects or stories; stories only re-home across projects
+  const draggedKind = dragged?.data.current?.kind as string | undefined;
+  const canDrop = !sharedIn && (p.kind === "project" ||
+    (p.kind === "story" && draggedKind !== "story"));
   return (
     <>
       <div
@@ -380,7 +382,7 @@ function PageNode(
             : "text-ink-muted hover:text-ink-soft"
         }${canDrag ? " touch-none active:cursor-grabbing" : ""}${
           isDragging ? " opacity-40" : ""
-        }${isOver ? " bg-copper/10 ring-1 ring-copper/40" : ""}`}
+        }${isOver && canDrop ? " bg-copper/10 ring-1 ring-copper/40" : ""}`}
         style={{ paddingLeft: 8 + depth * 14 }}
       >
         <button
@@ -622,6 +624,10 @@ function Sidebar(
       : String(e.over.id).slice("drop:".length);
     if (target === (page.parent_id ?? null)) return; // already there
     if (target) {
+      // droppables stay live for the hover state — enforce what accepts what here:
+      // pages land on projects or stories, stories only on projects
+      const tk = byId.get(target)?.kind;
+      if (tk !== "project" && !(tk === "story" && page.kind === "page")) return;
       // cycle guard — server rejects too, this just skips the round-trip
       for (
         let a = byId.get(target);
