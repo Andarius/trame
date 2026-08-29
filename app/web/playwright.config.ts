@@ -1,9 +1,37 @@
 import { defineConfig } from "@playwright/test";
+import { execSync } from "node:child_process";
 
 // E2E against the real Deno backend (PGlite included) in a fully isolated sandbox:
 // data dir, port file, and settings all point at E2E_DIR so tests never touch real state.
 const E2E_DIR = process.env.TRAME_E2E_DIR ?? "/tmp/trame-e2e";
-const PORT = Number(process.env.TRAME_E2E_PORT ?? 8790);
+
+// first free port at or above `start` — an unrelated service on the default port
+// must not kill the run (config code must be sync, hence the child probe)
+const freePort = (start: number): number =>
+  Number(
+    execSync(
+      `node -e '
+        const net = require("net");
+        const free = (p) => new Promise((r) => {
+          const s = net.createServer();
+          s.once("error", () => r(false));
+          s.listen(p, "127.0.0.1", () => s.close(() => r(true)));
+        });
+        (async () => {
+          for (let p = ${start}; p < ${start} + 20; p++) {
+            if (await free(p)) { console.log(p); return; }
+          }
+          process.exit(1);
+        })();
+      '`,
+    ).toString().trim(),
+  );
+
+const PORT = process.env.TRAME_E2E_PORT
+  ? Number(process.env.TRAME_E2E_PORT)
+  : freePort(8790);
+// global-setup (same process) reads the env, not this module — keep them agreeing
+process.env.TRAME_E2E_PORT = String(PORT);
 
 export default defineConfig({
   testDir: "./e2e",

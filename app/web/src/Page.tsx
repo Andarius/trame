@@ -3,7 +3,6 @@ import {
   Fragment,
   type KeyboardEvent as ReactKeyboardEvent,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -949,35 +948,29 @@ function BlockEditor(
       y: el.offsetTop + p.top,
     });
   };
-  // selection to restore once a formatting edit re-renders the textarea; layout
-  // effect so a chained shortcut can't land while the caret is still stale
-  const pendingSel = useRef<{ i: number; start: number; end: number } | null>(
-    null,
-  );
-  useLayoutEffect(() => {
-    const p = pendingSel.current;
-    if (!p) return;
-    pendingSel.current = null;
-    const el = refs.current[p.i];
-    if (!el) return;
-    el.focus();
-    el.setSelectionRange(p.start, p.end);
-    if (p.start !== p.end) syncSel(p.i, el);
-  }, [blocks]);
+  // Formatting edits mutate the DOM textarea first (value + selection, in one
+  // synchronous step) and then sync React state to the same text: the commit
+  // sees a matching DOM value and leaves the node alone, so the caret can never
+  // be stale — a chained shortcut right after is safe.
   const applyInline = (i: number, kind: InlineKind) => {
     const el = refs.current[i];
     const b = blocks[i];
     if (!el || !isText(b)) return;
-    const r = toggleInline(b.text, el.selectionStart, el.selectionEnd, kind);
-    pendingSel.current = { i, start: r.start, end: r.end };
+    const r = toggleInline(el.value, el.selectionStart, el.selectionEnd, kind);
+    el.value = r.text;
+    el.setSelectionRange(r.start, r.end);
+    grow(el);
     set(i, { text: r.text });
+    syncSel(i, el);
   };
   const applyLink = (i: number) => {
     const el = refs.current[i];
     const b = blocks[i];
     if (!el || !isText(b) || el.selectionStart === el.selectionEnd) return;
-    const r = linkify(b.text, el.selectionStart, el.selectionEnd);
-    pendingSel.current = { i, start: r.caret, end: r.caret };
+    const r = linkify(el.value, el.selectionStart, el.selectionEnd);
+    el.value = r.text;
+    el.setSelectionRange(r.caret, r.caret);
+    grow(el);
     set(i, { text: r.text });
     setSel(null);
   };
@@ -1031,7 +1024,9 @@ function BlockEditor(
   useEffect(() => {
     if (focusIdx === null) return;
     const el = refs.current[focusIdx];
-    if (el) {
+    // already-focused: this is a re-run on a later blocks change (the null reset
+    // hasn't committed yet) — stealing the caret would clobber a live selection
+    if (el && document.activeElement !== el) {
       el.focus();
       el.setSelectionRange(el.value.length, el.value.length);
     }
