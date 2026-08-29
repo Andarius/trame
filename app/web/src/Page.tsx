@@ -1182,16 +1182,23 @@ function BlockEditor(
       `- ${item.replace(/\s*\{\{green:done [^}]*\}\}\s*$/, "")}`,
       false,
     );
+  // item of a fresh split whose editor opens on mount (block id + item text)
+  const [autoItem, setAutoItem] = useState<
+    { id: string; item: string } | null
+  >(null);
   // inline single-line edit from a rendered list item — replaces just that line
-  // (clearing it removes the item); undoable via Ctrl+Z
+  // (clearing it, or leaving a split's fresh item empty, removes it); undoable
+  // via Ctrl+Z
   const editItem = (i: number, item: string, next: string) => {
+    setAutoItem(null);
     const cur = blocks[i];
-    if (!isText(cur) || next === item) return;
+    if (!isText(cur) || (next === item && next.trim() !== "")) return;
     const re = /^(\s*(?:[-*+]|\d+\.)\s+)(.*)$/;
     const lines = cur.text.split("\n");
     const li = lines.findIndex((l) => l.match(re)?.[2] === item);
     if (li < 0) return;
-    snapshot();
+    // dropping a still-empty split item is cleanup, not an undo step
+    if (item.trim() || next.trim()) snapshot();
     if (next.trim()) lines[li] = lines[li].match(re)![1] + next;
     else lines.splice(li, 1);
     const text = lines.join("\n");
@@ -1199,6 +1206,31 @@ function BlockEditor(
       text.trim()
         ? blocks.map((b, j) => (j === i ? { ...b, text } as Block : b))
         : blocks.filter((_, j) => j !== i),
+    );
+  };
+  // Enter inside a rendered list item: split it at the caret and open the new
+  // item's editor; Enter on an empty item exits (drops the dangling line)
+  const splitItem = (i: number, item: string, before: string, after: string) => {
+    const cur = blocks[i];
+    if (!isText(cur)) return;
+    const re = /^(\s*(?:[-*+]|\d+\.)\s+)(.*)$/;
+    const lines = cur.text.split("\n");
+    const li = lines.findIndex((l) => l.match(re)?.[2] === item);
+    if (li < 0) return;
+    snapshot();
+    if (!item && !before.trim() && !after.trim()) {
+      setAutoItem(null);
+      lines.splice(li, 1);
+    } else {
+      const prefix = lines[li].match(re)![1];
+      lines.splice(li, 1, prefix + before, prefix + after);
+      setAutoItem((isText(cur) && cur.id) ? { id: cur.id, item: after } : null);
+    }
+    onChange(
+      blocks.map((
+        b,
+        j,
+      ) => (j === i ? { ...b, text: lines.join("\n") } as Block : b)),
     );
   };
   // Alt+↑ / Alt+↓ — swap the focused block with its neighbor
@@ -1741,6 +1773,11 @@ function BlockEditor(
                     ? (item) => markOpen(i, item)
                     : undefined}
                   onEditItem={(item, next) => editItem(i, item, next)}
+                  onSplitItem={(item, before, after) =>
+                    splitItem(i, item, before, after)}
+                  autoEditItem={autoItem && autoItem.id === b.id
+                    ? autoItem.item
+                    : undefined}
                   getItemLink={(item) => {
                     const l = links?.find((x) =>
                       x.block_id === b.id && x.anchor === item

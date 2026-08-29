@@ -122,14 +122,17 @@ test("image click selects the block; item click edits just that line", async ({ 
     ),
   ).toBe("**Second task** — some detail");
 
-  // commit an edit with Enter — only that line changes
+  // Enter commits the edit and opens a fresh item below; Escape drops it
   await page.keyboard.press("Control+a");
   await page.keyboard.type("**Second task** — edited");
   await page.keyboard.press("Enter");
+  await expect(page.locator("li textarea")).toHaveValue(""); // fresh item open
+  await page.keyboard.press("Escape");
+  await expect(page.locator("li textarea")).not.toBeVisible();
   await expect(rows.nth(1)).toContainText("Second task — edited");
   await expect(rows.nth(1)).toContainText("Verify start.sh");
 
-  // Ctrl+Z reverts the line edit
+  // Ctrl+Z reverts the line edit (the dropped empty item is not an undo step)
   await page.keyboard.press("Control+z");
   await expect(rows.nth(1)).toContainText("Second task — some detail");
 });

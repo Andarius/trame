@@ -502,6 +502,10 @@ type TableOps = {
   onMarkDone?: (item: string) => void;
   onMarkOpen?: (item: string) => void;
   onEditItem?: (item: string, next: string) => void;
+  // Enter inside the item editor: split the item at the caret into two lines
+  onSplitItem?: (item: string, before: string, after: string) => void;
+  // item text whose editor opens on mount (the fresh half of a split)
+  autoEditItem?: string;
   // session links on list items: resolver returns the chip for a linked item,
   // onLinkItem offers the hover 🔗 to create one
   getItemLink?: (
@@ -554,14 +558,25 @@ function itemTrail(t: string, ops?: TableOps): ReactNode {
 // click a list item's text to edit just that line in place (page editor only) —
 // Enter/blur commits, Escape cancels; links/images/buttons inside keep their clicks
 function EditableItem(
-  { raw, onCommit, children }: {
+  { raw, onCommit, onSplit, startEditing, children }: {
     raw: string;
     onCommit: (next: string) => void;
+    // Enter splits at the caret instead of committing (page editor lists)
+    onSplit?: (before: string, after: string) => void;
+    startEditing?: boolean;
     children: ReactNode;
   },
 ) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(raw);
+  // list items are index-keyed, so a split reuses a neighbor's instance for the
+  // fresh item — open the editor on the prop flip, not just on mount
+  useEffect(() => {
+    if (startEditing) {
+      setVal(raw);
+      setEditing(true);
+    }
+  }, [startEditing]);
   const grow = (el: HTMLTextAreaElement) => {
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight}px`;
@@ -602,12 +617,17 @@ function EditableItem(
       onKeyDown={(e) => {
         if (e.key === "Enter") {
           e.preventDefault();
+          const el = e.currentTarget;
           setEditing(false);
-          onCommit(val);
+          if (onSplit) {
+            onSplit(val.slice(0, el.selectionStart), val.slice(el.selectionEnd));
+          } else onCommit(val);
         }
         if (e.key === "Escape") {
           e.stopPropagation();
           setEditing(false);
+          // reverts the draft; committing raw also removes an empty split item
+          onCommit(raw);
         }
       }}
       onBlur={() => {
@@ -626,7 +646,14 @@ function itemContent(
 ): ReactNode {
   return ops?.onEditItem
     ? (
-      <EditableItem raw={t} onCommit={(next) => ops.onEditItem!(t, next)}>
+      <EditableItem
+        raw={t}
+        startEditing={ops.autoEditItem !== undefined && ops.autoEditItem === t}
+        onCommit={(next) => ops.onEditItem!(t, next)}
+        onSplit={ops.onSplitItem
+          ? (before, after) => ops.onSplitItem!(t, before, after)
+          : undefined}
+      >
         {renderInline(t)}
       </EditableItem>
     )
@@ -1159,6 +1186,8 @@ export function Markdown(
     onMarkDone,
     onMarkOpen,
     onEditItem,
+    onSplitItem,
+    autoEditItem,
     getItemLink,
     onLinkItem,
   }: {
@@ -1171,6 +1200,8 @@ export function Markdown(
     onMarkDone?: (item: string) => void;
     onMarkOpen?: (item: string) => void;
     onEditItem?: (item: string, next: string) => void;
+    onSplitItem?: (item: string, before: string, after: string) => void;
+    autoEditItem?: string;
     getItemLink?: (
       item: string,
     ) => { title: string; color: string; open: () => void } | null;
@@ -1186,6 +1217,8 @@ export function Markdown(
         onMarkDone,
         onMarkOpen,
         onEditItem,
+        onSplitItem,
+        autoEditItem,
         getItemLink,
         onLinkItem,
       })}
