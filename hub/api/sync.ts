@@ -23,6 +23,53 @@ import {
 
 const DEFAULT_LIMIT = 500;
 
+// A node that hasn't pulled a project yet re-creates it by title (resolveClient is
+// find-or-create against the local DB only) — dedupe here, the sync choke point.
+// Winner: earliest first-seen in change_log (absent = older than the log horizon).
+async function mergeDuplicateProjects(tx: Q): Promise<void> {
+  const dups = await tx.query(
+    `with dup as (
+       select p.id, p.title,
+              (select min(rev) from change_log c
+                where c.entity='pages' and c.row_id=p.id) as first_rev
+         from pages p
+        where p.kind='project' and not p.deleted and p.title <> ''
+          and exists (select 1 from pages q
+                       where q.kind='project' and not q.deleted
+                         and q.title=p.title and q.id <> p.id)
+     )
+     select id, title from dup
+      order by title, (first_rev is not null), first_rev, id`,
+  ) as { id: string; title: string }[];
+  const winner = new Map<string, string>();
+  for (const d of dups) {
+    const w = winner.get(d.title);
+    if (!w) {
+      winner.set(d.title, d.id);
+      continue;
+    }
+    // origin 'hub': replicas apply the change but never push it back
+    for (
+      const [table, col] of [
+        ["pages", "client_id"],
+        ["pages", "parent_id"],
+        ["sessions", "client_id"],
+        ["reports", "client_id"],
+      ]
+    ) {
+      await tx.query(
+        `update ${table} set ${col}=$1, updated_at=now(), origin='hub'
+          where ${col}=$2 and not deleted`,
+        [w, d.id],
+      );
+    }
+    await tx.query(
+      `update pages set deleted=true, updated_at=now(), origin='hub' where id=$1`,
+      [d.id],
+    );
+  }
+}
+
 async function applyMutations(
   db: DB,
   mutations: Mutation[],
@@ -67,6 +114,17 @@ async function applyMutations(
           mutationId: m.mutationId,
           reason: String((e as Error)?.message ?? e).slice(0, 300),
         });
+      }
+    }
+    if (mutations.some((m) => m.entity === "pages" && m.value?.kind === "project")) {
+      // savepoint: a merge failure must never reject the pushed batch
+      await tx.query(`savepoint merge`);
+      try {
+        await mergeDuplicateProjects(tx);
+        await tx.query(`release savepoint merge`);
+      } catch (e) {
+        await tx.query(`rollback to savepoint merge`);
+        console.error("project dedupe failed:", e);
       }
     }
   });
