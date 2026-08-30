@@ -193,3 +193,73 @@ Deno.test("incremental pull returns coalesced changes and hard-delete tombstones
   const idle = await sync({ cursor: body.nextCursor, mutations: [] });
   assertEquals(((await idle.json()) as SyncResponse).changes.length, 0);
 });
+
+Deno.test("a same-title project from a second node merges into the incumbent", async () => {
+  const OLD = "00000000-0000-4000-8000-0000000000c1";
+  const DUP = "00000000-0000-4000-8000-0000000000c2";
+  const STORY = "00000000-0000-4000-8000-0000000000c3";
+  const SESS = "00000000-0000-4000-8000-0000000000c4";
+  const proj = (id: string, updatedAt: string) => {
+    const p = page(id, "Obitrain", updatedAt);
+    p.value.kind = "project";
+    return p;
+  };
+  await sync({ cursor: null, mutations: [proj(OLD, "2026-07-17T10:00:00Z")] });
+
+  // a fresh node re-creates the project and tracks a story + session under it
+  const story = page(STORY, "RN upgrade", "2026-07-17T11:00:00Z");
+  story.value.kind = "story";
+  story.value.client_id = DUP as never;
+  story.value.parent_id = DUP as never;
+  const sess = {
+    mutationId: `test:sessions:${SESS}:1`,
+    entity: "sessions",
+    id: SESS,
+    op: "upsert",
+    value: {
+      id: SESS,
+      title: "s1",
+      status: "active",
+      client_id: DUP,
+      page_id: STORY,
+      repo_path: null,
+      branch: null,
+      next_step: null,
+      specs: null,
+      pr_url: null,
+      summary: "",
+      claude_id: null,
+      agent: null,
+      last_touched: "2026-07-17T11:00:00Z",
+      origin: "mac-test",
+      updated_at: "2026-07-17T11:00:00Z",
+      deleted: false,
+    },
+  };
+  const res = await sync({
+    cursor: null,
+    mutations: [proj(DUP, "2026-07-17T11:00:00Z"), story, sess],
+  });
+  const body = await res.json() as SyncResponse;
+  assertEquals(body.rejectedMutations, []);
+
+  const dup = (await pg.query(
+    `select deleted, origin from pages where id=$1`,
+    [DUP],
+  )).rows[0] as { deleted: boolean; origin: string };
+  assertEquals(dup, { deleted: true, origin: "hub" });
+  const st = (await pg.query(
+    `select client_id, parent_id from pages where id=$1`,
+    [STORY],
+  )).rows[0] as { client_id: string; parent_id: string };
+  assertEquals(st, { client_id: OLD, parent_id: OLD });
+  const se = (await pg.query(
+    `select client_id from sessions where id=$1`,
+    [SESS],
+  )).rows[0] as { client_id: string };
+  assertEquals(se.client_id, OLD);
+  const live = (await pg.query(
+    `select id from pages where kind='project' and title='Obitrain' and not deleted`,
+  )).rows;
+  assertEquals(live, [{ id: OLD }]);
+});

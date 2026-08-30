@@ -137,6 +137,11 @@ Properties:
   client clock ever decides delivery order.
 - **Rejected mutations are UI state** — the app shows "couldn't sync (forbidden/stale)", it does
   not discard the edit silently.
+- **Project dedupe on push** — a node that hasn't pulled a project yet re-creates it by title
+  (`resolveClient` is find-or-create against the local DB only). When a push contains a
+  `kind='project'` page, the server merges live same-title projects into the earliest-seen one
+  (first `change_log` rev; absent = older than the log horizon): references repoint, the loser is
+  tombstoned, and the merge propagates as ordinary changes with `origin='hub'`.
 
 The realtime channel never carries data — it only says "there are changes ≥ revision N"; the client
 then does a normal durable `/sync`.
