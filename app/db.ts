@@ -3,6 +3,7 @@
 import { PGlite } from "@electric-sql/pglite";
 import { v5 } from "@std/uuid";
 import { APP_ROOT, DATA_DIR, NODE_ID, OUTBOX } from "./config.ts";
+import { markdownToPageBlocks, pageBlocksToMarkdown } from "./page-markdown.ts";
 import { midKey } from "./udb.ts";
 
 // Memoize a single init PROMISE so concurrent callers all await the same fully-initialized
@@ -23,6 +24,7 @@ async function openPg(): Promise<PGlite> {
   // on its own memoized promise) so any first db touch, not just server startup, claims.
   const { claimDevice } = await import("./identity.ts");
   await claimDevice(pg).catch(console.error);
+  await backfillSpecsPages(pg).catch(console.error);
   await Deno.writeTextFile(OK_MARKER, "1"); // init completed — dir is real data from now on
   return pg;
 }
@@ -171,6 +173,79 @@ async function promoteToProject(pageId: string, clientId: string | null): Promis
   );
 }
 
+// Deterministic per-session spec-page id: independent nodes find-or-create the SAME
+// row, so whole-row LWW converges without coordination (same trick as statusId).
+const SPECS_NS = "b2f6c1d8-4e5a-4b7c-8f1d-2a9e6c3b0d47";
+export const specsPageId = (sessionId: string) =>
+  v5.generate(SPECS_NS, new TextEncoder().encode(sessionId));
+
+// Find-or-create the session's spec page: a subpage of the story (fallback: the
+// project page, else detached), titled after the session. Resurrects a deleted one.
+export async function ensureSpecsPage(sessionId: string): Promise<string> {
+  const pg = await db();
+  const s = (await pg.query(
+    `select title, client_id, page_id, specs_page_id from sessions where id=$1 and not deleted`,
+    [sessionId],
+  )).rows[0] as {
+    title: string;
+    client_id: string | null;
+    page_id: string | null;
+    specs_page_id: string | null;
+  } | undefined;
+  if (!s) throw new Error(`unknown session ${sessionId}`);
+  if (s.specs_page_id) {
+    const live = (await pg.query(`select 1 from pages where id=$1 and not deleted`, [s.specs_page_id])).rows[0];
+    if (live) return s.specs_page_id;
+  }
+  const id = await specsPageId(sessionId);
+  await pg.query(
+    `insert into pages (id, kind, title, client_id, parent_id, origin, owner_id)
+     values ($1,'page',$2,$3,$4,$5,${OWNER_ID_SQL(5)})
+     on conflict (id) do update set deleted=false, origin=$5, updated_at=now()
+     where pages.deleted`,
+    [id, `Specs — ${s.title}`, s.client_id, s.page_id ?? s.client_id, NODE_ID],
+  );
+  await pg.query(
+    `update sessions set specs_page_id=$2, origin=$3, updated_at=now() where id=$1`,
+    [sessionId, id, NODE_ID],
+  );
+  return id;
+}
+
+// Guarded backfill of pre-protocol-4 specs text into spec pages. Deterministic page
+// AND block ids so every node converges; remove with the dead specs column later.
+// Exported for tests only — the app runs it once per boot from openPg.
+export async function backfillSpecsPages(pg: PGlite): Promise<void> {
+  const rows = (await pg.query(
+    `select id, title, client_id, page_id, specs from sessions
+      where specs_page_id is null and coalesce(specs,'') <> '' and not deleted`,
+  )).rows as {
+    id: string;
+    title: string;
+    client_id: string | null;
+    page_id: string | null;
+    specs: string;
+  }[];
+  for (const s of rows) {
+    const blocks = markdownToPageBlocks(s.specs);
+    for (let i = 0; i < blocks.length; i++) {
+      blocks[i].id = await v5.generate(SPECS_NS, new TextEncoder().encode(`${s.id}:${i}`));
+    }
+    const pageId = await specsPageId(s.id);
+    await pg.query(
+      `insert into pages (id, kind, title, client_id, parent_id, content, origin, owner_id)
+       values ($1,'page',$2,$3,$4,$5,$6,${OWNER_ID_SQL(6)})
+       on conflict (id) do nothing`,
+      [pageId, `Specs — ${s.title}`, s.client_id, s.page_id ?? s.client_id, JSON.stringify(blocks), NODE_ID],
+    );
+    await pg.query(
+      `update sessions set specs_page_id=$2, origin=$3, updated_at=now() where id=$1`,
+      [s.id, pageId, NODE_ID],
+    );
+  }
+  if (rows.length) console.log(`backfilled ${rows.length} session spec page(s)`);
+}
+
 // Columns are user-editable, but the session default, the importers and the tracking
 // skills all still emit fixed keys ('active'…) — park an unknown one on a surviving
 // column, else the card renders in no column at all.
@@ -223,17 +298,16 @@ export async function upsertSession(s: Record<string, unknown>): Promise<string>
   // Transcript linkage: null never clobbers (UI edits omit it); a fresh value wins.
   await pg.query(
     `insert into sessions
-       (id,title,status,client_id,page_id,repo_path,branch,next_step,pr_url,summary,claude_id,agent,specs,last_touched,origin,updated_at)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$12,$13,$14,now(),$11,now())
+       (id,title,status,client_id,page_id,repo_path,branch,next_step,pr_url,summary,claude_id,agent,last_touched,origin,updated_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$12,$13,now(),$11,now())
      on conflict (id) do update set
        title=$2,status=$3,client_id=$4,page_id=$5,repo_path=$6,branch=$7,
        next_step=$8,pr_url=$9,summary=$10,claude_id=coalesce($12,sessions.claude_id),
        agent=coalesce($13,sessions.agent),
-       specs=coalesce($14,sessions.specs),
        last_touched=now(),origin=$11,updated_at=now()`,
     [id, s.title, await resolveStatusKey(pg, s.status), s.client_id ?? null, s.page_id ?? null,
       s.repo_path ?? null, s.branch ?? null, s.next_step ?? null, s.pr_url ?? null, s.summary ?? "", NODE_ID,
-      s.claude_id ?? null, s.agent ?? null, typeof s.specs === "string" ? s.specs : null],
+      s.claude_id ?? null, s.agent ?? null],
   );
   return id;
 }
@@ -424,6 +498,11 @@ export async function getSession(id: string, eventLimit = 20) {
   const project = await one(s.client_id, "project") as { id: string; title: string } | null;
   // the story slot accepts any page, not just kind='story' — matches the drawer's picker
   const story = await one(s.page_id) as { id: string; title: string; kind: string } | null;
+  // specs are read-only here, rendered from the spec page; write via ensureSpecsPage
+  const specPage = typeof s.specs_page_id === "string"
+    ? (await pg.query(`select content from pages where id=$1 and not deleted`, [s.specs_page_id]))
+      .rows[0] as { content: unknown[] } | undefined
+    : undefined;
   return {
     id: s.id,
     title: s.title,
@@ -433,7 +512,8 @@ export async function getSession(id: string, eventLimit = 20) {
     branch: s.branch,
     pr_url: s.pr_url,
     next_step: s.next_step,
-    specs: s.specs,
+    specs_page_id: s.specs_page_id ?? null,
+    specs: specPage ? pageBlocksToMarkdown(specPage.content ?? []) : null,
     project: project && { id: project.id, name: project.title },
     story,
     links: await linksForSession(id),

@@ -16,9 +16,20 @@ const WRITERS: Record<string, string> = {
   __TRACK_WRITER__: `${root}track/track.ts`,
   __PAGE_WRITER__: `${root}track/page.ts`,
   __COMMENT_WRITER__: `${root}track/comment.ts`,
+  __PAGE_WATCH__: `${root}track/page-watch.ts`,
+};
+
+// shared doc fragments inlined into both the command and the skill
+const FRAGMENTS: Record<string, string> = {
+  __TRACK_FIELDS__: (await Deno.readTextFile(
+    `${root}skills/trame-track/fields.md`,
+  )).trimEnd(),
 };
 
 function patch(text: string): string {
+  for (const [placeholder, body] of Object.entries(FRAGMENTS)) {
+    text = text.replaceAll(placeholder, body);
+  }
   for (const [placeholder, path] of Object.entries(WRITERS)) {
     text = text.replaceAll(placeholder, path);
   }

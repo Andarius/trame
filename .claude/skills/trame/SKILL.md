@@ -23,7 +23,8 @@ impossible, and writes should go through the outbox writer instead (see Writes).
 |---|---|
 | `GET /api/status` | `{nodeId, remote, lastSync, version, dataDir, desktop}` |
 | `GET /api/board` | everything at once: `{projects, stories, sessions, pages, statuses}` |
-| `GET /api/sessions/<id>` | one card resolved: project/story **by name**, branch, PR, next_step, specs, `links`, `activity` (worklog, newest first; `?events=N`) |
+| `GET /api/sessions/<id>` | one card resolved: project/story **by name**, branch, PR, next_step, `specs_page_id` + read-only `specs` markdown (rendered from the spec page), `links`, `activity` (worklog, newest first; `?events=N`) |
+| `POST /api/sessions/<id>/specs-page` | find-or-create the card's spec page (a subpage of its story) → `{page_id}`; write specs by updating that page |
 | `GET /api/sessions/<id>/events` | worklog `[{at, kind, summary}]` (kind: log, import, …) |
 | `GET /api/pages` | page tree (flat list; `parent_id`, `kind: project\|story\|page`) |
 | `GET /api/pages/<id>` | one page with content blocks and its sessions |

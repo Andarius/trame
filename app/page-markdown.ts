@@ -19,6 +19,28 @@ const block = (
   id: crypto.randomUUID(),
 });
 
+// Inverse of markdownToPageBlocks, for agent reads of a page (e.g. a session's spec
+// page). Structural blocks (database/subpage/folder/html) have no text and are skipped.
+export function pageBlocksToMarkdown(blocks: unknown[]): string {
+  const parts: string[] = [];
+  let prevTodo = false;
+  for (const raw of blocks) {
+    const b = raw as Partial<PageTextBlock> & { type?: string };
+    if (b.type === "todo") {
+      const line = `${"  ".repeat(b.indent ?? 0)}- [${b.done ? "x" : " "}] ${b.text ?? ""}`;
+      // consecutive todos stay one list; blank lines only between other blocks
+      if (prevTodo) parts[parts.length - 1] += `\n${line}`;
+      else parts.push(line);
+      prevTodo = true;
+      continue;
+    }
+    prevTodo = false;
+    if (b.type === "heading") parts.push(`## ${b.text ?? ""}`);
+    else if (b.type === "text" && typeof b.text === "string") parts.push(b.text);
+  }
+  return parts.length ? `${parts.join("\n\n")}\n` : "";
+}
+
 // Convert the Markdown subset that has native Trame blocks. Everything else stays
 // in text blocks, so list, code-fence, link, and inline-formatting syntax is never
 // discarded even though the page editor does not have dedicated block types.

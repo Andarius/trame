@@ -4,7 +4,9 @@
 // Offline fallback: append to the outbox; the app drains it on next launch.
 //
 // Input: one JSON object, as argv[0] or on stdin. Shape:
-//   { title, status?, client?, objective?, repo_path?, branch?, next_step?, specs?, links?, pr_url?, summary? }
+//   { title, status?, client?, objective?, repo_path?, branch?, next_step?, links?, pr_url?, summary? }
+// Specs live on the session's spec page — write them with the page writer
+// (track/page.ts) using { session_id } after tracking.
 import { CLAUDE_MAP, OUTBOX, PORT_FILE } from "../app/config.ts";
 
 type Input = {
@@ -15,7 +17,6 @@ type Input = {
   repo_path?: string;
   branch?: string;
   next_step?: string;
-  specs?: string; // markdown ticket spec; omit to leave the existing one untouched
   links?: { page_id: string; block_id?: string; anchor?: string }[]; // backlink chips (plan/TODO pages)
   pr_url?: string;
   summary?: string;
@@ -67,8 +68,9 @@ async function main() {
       signal: AbortSignal.timeout(4000),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-    const { id, note } = await res.json();
+    const { id, note, specs_page_id } = await res.json();
     console.log(`ok: session ${id} tracked in Trame (${inp.status ?? "active"} — ${inp.title})`);
+    if (specs_page_id) console.log(`specs page: ${specs_page_id}`);
     if (note) console.log(`note: ${note}`);
   } catch (e) {
     const dir = OUTBOX.replace(/\/[^/]+$/, "");

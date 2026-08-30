@@ -5,6 +5,8 @@
 //     Without parent_id/parent_title the page is filed under the project owning the
 //     current working directory; parent_id: null forces a root (Unfiled) page.
 //   update: { page_id|page_title, markdown|markdown_file, title?, icon? }
+//   specs:  { session_id, markdown|markdown_file } — find-or-create the session's
+//     spec page, then update it in place like any page.
 //
 // Updates replace the page content in place; blocks whose trimmed text is unchanged
 // keep their ids so attached comments stay anchored (see app/page-merge.ts).
@@ -25,6 +27,7 @@ type Input = {
   icon?: string | null;
   page_id?: string;
   page_title?: string;
+  session_id?: string;
 };
 
 type PageMeta = {
@@ -43,6 +46,15 @@ async function readInput(): Promise<Input> {
   }
   if (input.page_id && input.page_title) {
     throw new Error("use page_id or page_title, not both");
+  }
+  if (input.session_id) {
+    if (input.page_id || input.page_title || input.parent_id !== undefined || input.parent_title) {
+      throw new Error("session_id is exclusive with page/parent targets");
+    }
+    if (input.markdown === undefined && !input.markdown_file) {
+      throw new Error("session_id requires markdown or markdown_file");
+    }
+    return input;
   }
   const updating = Boolean(input.page_id || input.page_title);
   if (updating) {
@@ -184,7 +196,12 @@ async function main() {
   }
   const base = `http://127.0.0.1:${port}`;
 
-  if (input.page_id || input.page_title) await updatePage(input, base);
+  if (input.session_id) {
+    const { page_id } = await request(base, `/api/sessions/${input.session_id}/specs-page`, {
+      method: "POST",
+    }) as { page_id: string };
+    await updatePage({ ...input, page_id }, base);
+  } else if (input.page_id || input.page_title) await updatePage(input, base);
   else await createPage(input, base);
 }
 

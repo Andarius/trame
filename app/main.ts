@@ -52,6 +52,7 @@ import {
   deleteSessionLink,
   deleteStatus,
   drainOutbox,
+  ensureSpecsPage,
   getBoard,
   getReport,
   getSession,
@@ -99,6 +100,8 @@ import {
   updatePage,
 } from "./pages.ts";
 import { exportPage, importPage } from "./share.ts";
+import { markdownToPageBlocks } from "./page-markdown.ts";
+import { mergePageBlocks } from "./page-merge.ts";
 import { agentIdentity } from "./agent-comments.ts";
 import { listPresence, touchPresence } from "./presence.ts";
 import {
@@ -1056,16 +1059,40 @@ async function handler(req: Request): Promise<Response> {
         await addSessionLink(id, l.page_id, l.block_id ?? null, l.anchor ?? "");
       }
     }
+    // Legacy shim (protocol 4): old outbox lines / stale skills still send a specs
+    // markdown string — route it into the spec page instead of losing it.
+    let deprecation: string | undefined;
+    if (typeof body.specs === "string" && body.specs.trim()) {
+      const pid = await ensureSpecsPage(id);
+      const page = await getPage(pid) as { content?: unknown[] } | null;
+      await updatePage(pid, {
+        content: mergePageBlocks(page?.content ?? [], markdownToPageBlocks(body.specs)),
+      });
+      deprecation =
+        "specs field is deprecated — write the spec page via the page writer/trame_update_page with {session_id}";
+    }
     // Nudge every write path (skill, writer, MCP, raw curl): a specs-less card is
     // fine for a work log but wrong for planned work — see track.md.
     const pg = await db();
-    const specs = (await pg.query(`select specs from sessions where id=$1`, [id]))
-      .rows[0] as { specs: string | null } | undefined;
-    if (specs?.specs?.trim()) return json({ id });
-    return json({
-      id,
-      note: "card has no specs — if this is planned work (from a TODO/plan item), add specs plus links back to the plan and the TODO page",
-    });
+    const s = (await pg.query(`select specs_page_id from sessions where id=$1`, [id]))
+      .rows[0] as { specs_page_id: string | null } | undefined;
+    const spec = s?.specs_page_id
+      ? (await pg.query(
+        `select 1 from pages where id=$1 and not deleted and content::text <> '[]'`,
+        [s.specs_page_id],
+      )).rows[0]
+      : undefined;
+    const note = deprecation ??
+      (spec
+        ? undefined
+        : 'card has no specs page — if this is planned work (from a TODO/plan item), write one with the page writer/trame_update_page using {"session_id": "' +
+          id +
+          '"} plus links back to the plan and the TODO page');
+    return json({ id, specs_page_id: s?.specs_page_id ?? null, ...(note ? { note } : {}) });
+  }
+  const spm = pathname.match(/^\/api\/sessions\/([^/]+)\/specs-page$/);
+  if (spm && req.method === "POST") {
+    return json({ page_id: await ensureSpecsPage(spm[1]) });
   }
   const lm = pathname.match(/^\/api\/sessions\/([^/]+)\/links$/);
   if (lm && req.method === "POST") {

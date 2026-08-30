@@ -15,11 +15,13 @@ Deno.test("getSession resolves the card the drawer shows", async () => {
     addEvent,
     addSessionLink,
     deleteSession,
+    ensureSpecsPage,
     getSession,
     resolveClient,
     upsertSession,
   } = await import("./db.ts");
-  const { createPage } = await import("./pages.ts");
+  const { createPage, updatePage } = await import("./pages.ts");
+  const { markdownToPageBlocks } = await import("./page-markdown.ts");
 
   const clientId = await resolveClient("Acme");
   const storyId = await createPage({ title: "Ship the thing", kind: "story", parent_id: clientId });
@@ -31,7 +33,10 @@ Deno.test("getSession resolves the card the drawer shows", async () => {
     repo_path: "/repos/acme-api",
     branch: "feat/auth",
     next_step: "wire the callback",
-    specs: "## Goal {{fold}}\nToken exchange",
+  });
+  const specsPageId = await ensureSpecsPage(id);
+  await updatePage(specsPageId, {
+    content: markdownToPageBlocks("## Goal {{fold}}\nToken exchange"),
   });
   await addSessionLink(id, storyId, null, "Ship the thing");
   for (const s of ["first", "second", "third"]) {
@@ -44,6 +49,7 @@ Deno.test("getSession resolves the card the drawer shows", async () => {
   assertEquals((card.story as { title: string }).title, "Ship the thing");
   assertEquals(card.branch, "feat/auth");
   assertEquals(card.next_step, "wire the callback");
+  assertEquals(card.specs_page_id, specsPageId);
   assert(String(card.specs).includes("Token exchange"));
   assertEquals((card.links as { anchor: string }[]).map((l) => l.anchor), [
     "Ship the thing",

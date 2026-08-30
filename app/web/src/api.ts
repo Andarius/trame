@@ -18,7 +18,7 @@ export type Session = {
   repo_path: string | null;
   branch: string | null;
   next_step: string | null;
-  specs: string | null;
+  specs_page_id: string | null;
   pr_url: string | null;
   summary: string;
   last_touched: string;
@@ -181,6 +181,11 @@ export const uploadAsset = (file: Blob) =>
 
 export const saveSession = (s: Record<string, unknown>) =>
   post("/api/sessions", s);
+// find-or-create the session's spec page (deterministic id server-side)
+export const ensureSpecsPage = (id: string) =>
+  post(`/api/sessions/${id}/specs-page`, {}).then((r) =>
+    r.json() as Promise<{ page_id: string }>
+  );
 export const deleteSession = (id: string) =>
   post(`/api/sessions/${id}/delete`, {});
 export const addLog = (id: string, summary: string) =>

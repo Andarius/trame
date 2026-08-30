@@ -225,7 +225,7 @@ Deno.test("a same-title project from a second node merges into the incumbent", a
       repo_path: null,
       branch: null,
       next_step: null,
-      specs: null,
+      specs_page_id: null,
       pr_url: null,
       summary: "",
       claude_id: null,
