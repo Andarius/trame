@@ -27,6 +27,7 @@ stateDiagram-v2
 | `summary`, `pr_url` | What happened, where it landed. |
 | `agent`, `claude_id` | Which agent, and the link back to its transcript. |
 | `page_id` | Where it sits in the tree (next section). |
+| `specs_page_id` | The card's spec page — a lazily created subpage of its story with the full block editor and comments. Note: spec pages follow page ACL (subtree-shareable on the hub), while the session row itself stays member-only. |
 
 ## One tree, everything attached
 

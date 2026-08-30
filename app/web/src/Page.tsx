@@ -50,11 +50,11 @@ import {
 import { Markdown } from "./md";
 
 // Stable block id so a comment survives edits/reorders of the surrounding text.
-const genId = () => crypto.randomUUID().slice(0, 8);
+export const genId = () => crypto.randomUUID().slice(0, 8);
 const isTextType = (t: Block["type"]) =>
   t === "text" || t === "heading" || t === "todo";
 // Backfill ids on text blocks that predate them; `changed` tells the caller to persist.
-function ensureIds(blocks: Block[]): { blocks: Block[]; changed: boolean } {
+export function ensureIds(blocks: Block[]): { blocks: Block[]; changed: boolean } {
   let changed = false;
   const out = blocks.map((b) => {
     if (isTextType(b.type) && !("id" in b && b.id)) {
@@ -219,7 +219,7 @@ function linkify(
     };
 }
 
-type CommentOps = {
+export type CommentOps = {
   add: (blockId: string, anchor: string, body: string) => void;
   update: (id: string, patch: { body?: string; resolved?: boolean }) => void;
   remove: (id: string) => void;
@@ -227,7 +227,7 @@ type CommentOps = {
 
 // Serialize the page (title + text blocks) to Markdown for "select all → copy".
 // Structural blocks (database/subpage/folder/html) have no text and are skipped.
-function blocksToMarkdown(title: string, blocks: Block[]): string {
+export function blocksToMarkdown(title: string, blocks: Block[]): string {
   const lines: string[] = [];
   if (title.trim()) lines.push(`# ${title.trim()}`, "");
   for (const b of blocks) {
@@ -931,7 +931,7 @@ function FormatBar(
   );
 }
 
-function BlockEditor(
+export function BlockEditor(
   {
     blocks,
     onChange,
@@ -2375,6 +2375,8 @@ export function Page(
   const [flash, setFlash] = useState<string | null>(null);
   const flashTimer = useRef<number | undefined>(undefined);
   const [idCopied, setIdCopied] = useState(false);
+  const [mdOpen, setMdOpen] = useState(false);
+  const [mdCopied, setMdCopied] = useState(false);
   const [meId, setMeId] = useState<string | null>(null);
   useEffect(() => {
     getIdentity().then((i) => setMeId(i.userId)).catch(() => {});
@@ -2845,9 +2847,63 @@ export function Page(
                 >
                   {idCopied ? "copied ✓" : "copy id"}
                 </button>
+                <button
+                  type="button"
+                  title="show this page as Markdown"
+                  className="rounded-md border border-line-soft px-2 py-0.5 transition-colors hover:bg-panel hover:text-ink-soft"
+                  onClick={() => setMdOpen(true)}
+                >
+                  markdown
+                </button>
               </div>
             );
           })()}
+
+          {mdOpen && (
+            <div
+              className="fixed inset-0 z-50 flex items-start justify-center bg-black/45 pt-[10vh]"
+              onClick={() => setMdOpen(false)}
+            >
+              <div
+                className="flex max-h-[76vh] w-[min(760px,90vw)] flex-col gap-3 overflow-hidden rounded-xl border border-overlay-border bg-panel-modal p-5 shadow-2xl shadow-black/50"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-medium tracking-[0.8px] text-ink-muted/80">
+                    MARKDOWN
+                  </span>
+                  <span className="flex-1" />
+                  <button
+                    type="button"
+                    className={`rounded-md border border-line-soft px-2 py-0.5 text-[11px] transition-colors ${
+                      mdCopied ? "border-copper/50 text-copper" : "text-ink-muted hover:bg-panel hover:text-ink-soft"
+                    }`}
+                    onClick={() => {
+                      navigator.clipboard
+                        ?.writeText(blocksToMarkdown(page.title, blocksRef.current))
+                        .then(() => {
+                          setMdCopied(true);
+                          setTimeout(() => setMdCopied(false), 1500);
+                        }).catch(() => {});
+                    }}
+                  >
+                    {mdCopied ? "copied ✓" : "copy"}
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-md px-1.5 py-0.5 text-[13px] text-ink-muted transition-colors hover:bg-panel hover:text-ink"
+                    title="close"
+                    onClick={() => setMdOpen(false)}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <pre className="overflow-auto whitespace-pre-wrap rounded-md border border-line-soft bg-panel px-3 py-2 font-mono text-[12px] leading-relaxed text-ink">
+                  {blocksToMarkdown(page.title, blocksRef.current)}
+                </pre>
+              </div>
+            </div>
+          )}
 
           {isStory && (
             <div className="flex items-center gap-3">
@@ -3095,7 +3151,13 @@ export function Page(
               <button
                 type="button"
                 key={c.id}
-                className="flex items-center gap-2 rounded-md px-1.5 py-1 text-left text-[13px] text-ink-soft hover:bg-panel"
+                className={`flex items-center gap-2 rounded-md px-1.5 py-1 text-left text-[13px] text-ink-soft hover:bg-panel${
+                  c.status === "done"
+                    ? " opacity-60"
+                    : c.status === "archived"
+                    ? " opacity-40"
+                    : ""
+                }`}
                 onClick={() => onOpenPage(c.id)}
               >
                 <EntityIcon
@@ -3110,6 +3172,11 @@ export function Page(
                 <span className={c.title ? "" : "text-ink-muted/60 italic"}>
                   {c.title || "Untitled"}
                 </span>
+                {c.status === "archived" && (
+                  <span className="text-[10.5px] text-ink-muted/60">
+                    archived
+                  </span>
+                )}
               </button>
             ))}
             <button

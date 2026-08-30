@@ -88,6 +88,11 @@ instead (next section).
 
    `markdown` works instead of `markdown_file`; structural blocks (embedded HTML,
    databases, subpages) are preserved automatically.
+
+   A session's SPECS are a page too: pass `session_id` (instead of
+   `page_id`/`page_title`) and the writer finds or creates the card's spec page — a
+   subpage of its story — then updates it the same way. The MCP equivalent is
+   `trame_update_page` with `session_id`.
 5. Report the page URL and how many block ids were kept (the writer prints it).
 
 ## Add page comments

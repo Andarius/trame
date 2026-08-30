@@ -128,7 +128,7 @@ test("double-click on a board card opens the drawer full screen", async ({ page,
   await expect(page.getByTitle("collapse to side panel")).toBeVisible();
 });
 
-test("expanded ticket: journal pane and editable persistent specs", async ({ page, request }) => {
+test("expanded ticket: journal pane and page-backed specs", async ({ page, request }) => {
   await seed(request);
   await page.goto("/?view=list");
   await page.getByText("chip session e2e").dblclick();
@@ -136,42 +136,21 @@ test("expanded ticket: journal pane and editable persistent specs", async ({ pag
   await expect(page.getByText("JOURNAL", { exact: true })).toBeVisible();
   await expect(page.getByPlaceholder(/Log what happened/)).toBeVisible();
 
+  // "add specs" creates the spec page lazily and mounts the block editor
   await page.getByRole("button", { name: /add specs/ }).click();
-  await page.keyboard.type("first spec item\n- second spec item");
-  await page.getByText("SPECS", { exact: true }).click(); // blur commits
-  await expect(page.getByText("first spec item")).toBeVisible();
-  await expect(page.getByText("second spec item")).toBeVisible();
+  const editor = page.getByPlaceholder(/type \/ for blocks/);
+  await editor.fill("first spec item");
+  await page.waitForTimeout(1200); // > the 800ms autosave debounce
 
-  // survives a reload — the URL restores the drawer already full screen
+  // survives a reload — the specs live on the spec page now
   await page.reload();
-  await expect(page.getByText("second spec item")).toBeVisible();
-
-  // only "## Title {{fold}}" headings fold; plain ## headings render normally
-  await page.getByTitle("edit raw markdown").click();
-  await page.keyboard.type(
-    "\n## Plain notes\n- visible note\n## ELI5 {{fold}}\n- folded detail",
+  await expect(page.getByPlaceholder(/type \/ for blocks/)).toHaveValue(
+    "first spec item",
   );
-  await page.getByText("SPECS", { exact: true }).click(); // blur commits
-  await expect(page.getByText("visible note")).toBeVisible();
-  await expect(page.getByRole("button", { name: /Plain notes/ })).not.toBeVisible();
-  await expect(page.getByRole("button", { name: /ELI5/ })).toBeVisible();
-  await expect(page.getByText("folded detail")).not.toBeVisible();
-  await page.getByRole("button", { name: /ELI5/ }).click();
-  await expect(page.getByText("folded detail")).toBeVisible();
-  // the preamble stays always visible alongside the sections
-  await expect(page.getByText("second spec item")).toBeVisible();
 
-  // {{tab}} sections group into a tab strip; one tab visible at a time
-  await page.getByTitle("edit raw markdown").click();
-  await page.keyboard.type(
-    "\n## Tab A {{tab}}\n- alpha item\n## Tab B {{tab}}\n- beta item",
-  );
-  await page.getByText("SPECS", { exact: true }).click();
-  await expect(page.getByText("alpha item")).toBeVisible();
-  await expect(page.getByText("beta item")).not.toBeVisible();
-  await page.getByRole("button", { name: "Tab B" }).click();
-  await expect(page.getByText("beta item")).toBeVisible();
-  await expect(page.getByText("alpha item")).not.toBeVisible();
+  // "open as page" closes the drawer and lands on the spec page proper
+  await page.getByRole("button", { name: /open as page/ }).click();
+  await expect(page.getByPlaceholder("Untitled")).toHaveValue(/chip session e2e/);
 });
 
 test("item 🔗 links a session; chips render on both sides", async ({ page, request }) => {

@@ -1,6 +1,6 @@
 ---
-allowed-tools: Bash(pwd), Bash(git branch:*), Bash(git remote:*), Bash(git rev-parse:*), Bash(deno run:*), Bash(curl:*), Bash(cat:*)
-description: Log or update the current Claude Code session in Trame (the local session tracker)
+allowed-tools: Bash(pwd), Bash(git branch:*), Bash(git remote:*), Bash(deno run:*), Bash(curl:*), Bash(cat:*)
+description: Log or update the current coding-agent session in Trame (the local session tracker)
 ---
 
 ## Context
@@ -10,56 +10,39 @@ description: Log or update the current Claude Code session in Trame (the local s
 - Git remote: !`git remote get-url origin 2>/dev/null || echo ""`
 - Trame instance: !`cat ~/.local/share/trame/port.json 2>/dev/null || echo "(app not running — writes will queue to the outbox)"`
 - Known clients: !`echo "${TRACKER_CLIENTS:-}"`
-- Argument: `$ARGUMENTS`
 
 ## What this does
 
-Records the current session as a card in **Trame** (`~/Projects/trame`). The writer
-POSTs to the running app (upserts by repo+branch among open sessions, resolves client/objective by
-name, logs the summary as a worklog event); if the app is closed it queues to the offline outbox.
-The writer also attaches the Claude session UUID (recorded per-cwd by the UserPromptSubmit hook
-`track/claude-hook.ts`) so the card gets a working Resume button.
+Keeps track of the task this session is working on in **Trame** — a Jira-like board of
+projects, stories, and session cards, for following progress and reviewing work. The writer
+upserts by repo+branch among open sessions (queuing to the offline outbox if the app is
+closed) and attaches the agent's session UUID so the card gets a working Resume button.
 
-## Argument grammar
+## Writer fields
 
-`$ARGUMENTS` optional. First word = action; rest = free-text note.
-- *(empty)* / `log` → status **active**
-- `paused` / `blocked` / `done` `[note]` → set that status
-- `list` → **read-only**: show open sessions across all projects
+Compose from THIS conversation (do not ask the user).
 
-## Client mapping (from working dir)
+__TRACK_FIELDS__
 
-If the working-dir path contains one of the **Known clients** listed above (as `/<Client>/`),
-use that name as the client; otherwise **Side-projects**. (Configure the list via the
-`TRACKER_CLIENTS` env var, e.g. `TRACKER_CLIENTS="Acme,Globex"`.)
+## Steps
 
-## Steps for `list`
-
-1. Read the port from `~/.local/share/trame/port.json`, then `curl -s http://127.0.0.1:<port>/api/board`.
-2. Print open (non-done) sessions as a compact table — **Title · Status · Client · Objective · Next step** — grouped by objective. Do not write anything.
-
-## Steps for tracking (all other actions)
-
-1. Resolve **status** from the action word (default `active`).
-2. Resolve **client** from the working dir mapping.
-3. From THIS conversation, compose (do not ask the user):
-   - `title` — `<repo-basename> — <short topic>`
-   - `next_step` — one imperative line (the very next thing to do on resume); fold in any note from `$ARGUMENTS`
-   - `objective` — the bigger goal this session serves (found-or-created by name server-side); omit if genuinely unclear
-   - `summary` — worklog entry, 1–3 lines, PR-description style: lead with the outcome
-     (what this session delivered or established), not how. Do include decisions made and
-     dead-ends worth remembering ("X fails because Y") — the diff can't show them and
-     resume needs them. No implementation narration; name a file only if resuming starts there.
-   - `pr_url` — only if evident
-   - `specs` — ONLY when the user asked to set/update the session's spec: the full
-     markdown spec shown on the ticket. Omitting the key never clears the existing spec. A
-     `## Title {{fold}}` heading renders as a collapsible section on the ticket —
-     use it for long explainers (ELI5s, background) so the working spec stays on
-     top; consecutive `## Title {{tab}}` headings render as a tab strip.
-4. Build one JSON object with keys:
-   `title, status, client, objective, repo_path (=working dir), branch, next_step, pr_url, summary` (+ `specs` when updating it)
-5. Pipe it to the writer:
+1. Compose the writer fields above and pipe them as one JSON object to the writer:
    ```bash
    echo '<json>' | deno run -A __TRACK_WRITER__
    ```
-6. Report one line from the writer output: tracked/queued, title, status, and the `next_step` you wrote.
+   ```jsonc
+   {
+     "title": "obi-chart — fix legend overflow",
+     "status": "active",
+     "client": "Obitrain",
+     "objective": "Chart v2 polish",
+     "repo_path": "/home/julien/Projects/Obitrain/obi-chart",
+     "branch": "fix/legend-overflow",
+     "next_step": "Re-run the chart e2e suite after the flex fix",
+     "pr_url": "https://github.com/obitrain/obi-chart/pull/42",
+     "summary": "Legend no longer overflows narrow panels; flex-wrap was a dead-end (breaks export).",
+     "links": [{ "page_id": "<plan-page-id>" }]
+   }
+   ```
+2. If a spec is evident, write the spec page (see **Specs** above) with the writer output's session id.
+3. Report one line from the writer output: tracked/queued, title, status, and the `next_step` you wrote.

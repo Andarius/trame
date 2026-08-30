@@ -112,8 +112,9 @@ toggle between the two; \`{{text}}\` is a pill (\`{{green:…}}\` tints it:
 green|yellow|red|copper|gray); a \`mermaid\` fence renders as a diagram and other
 fences highlight python/ts/js/bash/json/sql; PR/MR links become live PR chips,
 \`#123\` an issue ref, \`![alt](url)\` an inline image; GFM tables render as
-interactive cards. A leading \`# Title\` equal to the page title is dropped. The same
-\`{{tab}}\`/\`{{fold}}\` markers work in a session's \`specs\`. No raw HTML or HTML
+interactive cards. A leading \`# Title\` equal to the page title is dropped. A session's
+specs are a page too (a subpage of the card's story) — write them with
+\`trame_update_page\` passing \`{session_id}\`. No raw HTML or HTML
 entities — \`&middot;\` renders literally; write Unicode characters (·, —, …) directly.
 
 ## Sessions (the board)
@@ -148,7 +149,7 @@ server.tool(
 
 server.tool(
   "trame_session",
-  "Read ONE work session — the card the user sees in the app: project and story by name (not raw ids), status, repo path, branch, PR, next step, specs, backlink chips and the activity worklog. Accepts a session id or a Trame URL the user pasted (`…/?session=<id>`); a `?page=<id>` link with no session returns that page's sessions instead. Use this instead of scanning trame_board when you have a specific card or link.",
+  "Read ONE work session — the card the user sees in the app: project and story by name (not raw ids), status, repo path, branch, PR, next step, specs (rendered read-only from the spec page; write via trame_update_page with session_id), backlink chips and the activity worklog. Accepts a session id or a Trame URL the user pasted (`…/?session=<id>`); a `?page=<id>` link with no session returns that page's sessions instead. Use this instead of scanning trame_board when you have a specific card or link.",
   {
     session: z.string().describe(
       "Session id, or a pasted Trame URL (…/?session=<id>&full=1 or …/?page=<id>)",
@@ -181,7 +182,7 @@ server.tool(
 
 server.tool(
   "trame_track",
-  "Create or update a session (upserts by repo_path+branch among open sessions). Client and objective are names — they are resolved or created.",
+  "Create or update a session (upserts by repo_path+branch among open sessions). Client and objective are names — they are resolved or created. Specs live on the session's spec page: write them with trame_update_page {session_id} after tracking (the response returns specs_page_id).",
   {
     title: z.string(),
     status: z.enum(["active", "paused", "blocked", "done"]).optional(),
@@ -190,12 +191,6 @@ server.tool(
     repo_path: z.string().optional(),
     branch: z.string().optional(),
     next_step: z.string().optional(),
-    specs: z.string().optional()
-      .describe(
-        "Markdown spec shown on the session ticket; omitting it never clears the existing spec. " +
-          "`## Title {{tab}}` headings render as a tab strip, `## Title {{fold}}` as a collapsible section. " +
-          "No raw HTML or entities (&middot; renders literally) — write Unicode characters directly",
-      ),
     links: z.array(z.object({
       page_id: z.string(),
       block_id: z.string().optional(),
@@ -274,10 +269,11 @@ server.tool(
 
 server.tool(
   "trame_update_page",
-  "Replace a Trame page's content from Markdown IN PLACE (full new content, not a diff). Blocks whose text is unchanged keep their ids, so inline comments stay attached; comments on changed blocks detach to their quoted snapshot. Use for revising a page you authored (e.g. a plan revision) — reply to the comments you are addressing BEFORE updating. Structural blocks (html/database/subpage) are preserved. Optional title renames the page. See trame_capabilities for the page Markdown dialect.",
+  "Replace a Trame page's content from Markdown IN PLACE (full new content, not a diff). Blocks whose text is unchanged keep their ids, so inline comments stay attached; comments on changed blocks detach to their quoted snapshot. Use for revising a page you authored (e.g. a plan revision) — reply to the comments you are addressing BEFORE updating. Structural blocks (html/database/subpage) are preserved. Optional title renames the page. Pass session_id (instead of page_id/page_title) to write a session's SPECS: the spec page is found or created, then updated the same way. See trame_capabilities for the page Markdown dialect.",
   {
     page_id: z.string().optional(),
     page_title: z.string().optional(),
+    session_id: z.string().optional(),
     markdown: z.string(),
     title: z.string().optional(),
   },
@@ -285,11 +281,15 @@ server.tool(
     args: {
       page_id?: string;
       page_title?: string;
+      session_id?: string;
       markdown: string;
       title?: string;
     },
   ) => {
-    const pageId = await resolvePageId(args);
+    const pageId = args.session_id
+      ? (await post(`/api/sessions/${args.session_id}/specs-page`, {}) as { page_id: string })
+        .page_id
+      : await resolvePageId(args);
     const page = await api(`/api/pages/${pageId}`) as {
       title: string;
       content?: unknown[];

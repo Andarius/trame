@@ -17,7 +17,8 @@ import {
   type Status,
 } from "./api";
 import { appConfirm, clientColor, pageOptions, Popover, Select, StatusDot, timeAgo } from "./ui";
-import { Markdown, PrChip } from "./md";
+import { PrChip } from "./md";
+import { SpecsEditor } from "./SpecsEditor";
 
 // How the Resume button places the session; the last pick is the default, persisted.
 const RESUME_MODES: { mode: ResumeMode; label: string; hint: string }[] = [
@@ -32,7 +33,6 @@ const RESUME_DONE: Record<ResumeMode, string> = {
 };
 
 const sectionLbl = "text-[10px] font-medium tracking-[0.8px] text-ink-muted/70";
-const SPECS_PLACEHOLDER = "- what this session must deliver\n- constraints, links, done-when…";
 const rowLbl = "shrink-0 pt-[5px] text-[11px] text-ink-muted";
 
 // journal attribution: which coding agent produced a track/import entry.
@@ -57,42 +57,6 @@ function AgentMark({ agent }: { agent: string }) {
         <path d={m.path} />
       </g>
     </svg>
-  );
-}
-
-// tab strip for consecutive "## Title {{tab}}" spec sections
-function SpecTabs(
-  { tabs, onEditItem }: {
-    tabs: { heading: string; body: string }[];
-    onEditItem: (item: string, next: string) => void;
-  },
-) {
-  const [active, setActive] = useState(0);
-  const cur = tabs[Math.min(active, tabs.length - 1)];
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex gap-1 border-b border-line">
-        {tabs.map((t, i) => (
-          <button
-            key={i}
-            type="button"
-            className={`-mb-px border-b-2 px-3 py-1.5 text-[12.5px] transition-colors ${
-              i === active
-                ? "border-copper font-medium text-copper"
-                : "border-transparent text-ink-muted hover:text-ink-soft"
-            }`}
-            onClick={() => setActive(i)}
-          >
-            {t.heading}
-          </button>
-        ))}
-      </div>
-      <Markdown
-        text={cur.body}
-        className="text-[13px] leading-relaxed"
-        onEditItem={onEditItem}
-      />
-    </div>
   );
 }
 
@@ -138,10 +102,6 @@ export function Drawer(
   const [nextStep, setNextStep] = useState(session.next_step ?? "");
   const [prUrl, setPrUrl] = useState(session.pr_url ?? "");
   const [prNew, setPrNew] = useState("");
-  // ticket spec (markdown) — shown and edited in the expanded view only
-  const [specs, setSpecs] = useState(session.specs ?? "");
-  const [specsEditing, setSpecsEditing] = useState(false);
-  const specsRef = useRef<HTMLTextAreaElement>(null);
   // JS auto-grow: field-sizing:content isn't supported in the desktop WebKitGTK webview,
   // so long next-steps would clip. Size the textarea to its content by hand.
   const [expanded, setExpanded] = useState(defaultExpanded ?? false);
@@ -238,7 +198,6 @@ export function Drawer(
       repo_path: session.repo_path,
       branch: branch || undefined,
       next_step: nextStep || undefined,
-      specs,
       pr_url: prUrl || undefined,
       summary: session.summary,
       no_event: true,
@@ -266,31 +225,6 @@ export function Drawer(
     if (await appConfirm(`Delete session "${session.title}"?`)) {
       deleteSession(session.id).then(onClose).then(onSaved);
     }
-  };
-
-  const growSpecs = () => {
-    const el = specsRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  };
-  useEffect(() => {
-    if (!specsEditing) return;
-    growSpecs();
-    const el = specsRef.current;
-    el?.setSelectionRange(el.value.length, el.value.length);
-  }, [specsEditing]);
-  // per-line edit from the rendered spec list (same contract as the page editor)
-  const editSpecItem = (item: string, next: string) => {
-    const re = /^(\s*(?:[-*+]|\d+\.)\s+)(.*)$/;
-    const lines = specs.split("\n");
-    const li = lines.findIndex((l) => l.match(re)?.[2] === item);
-    if (li < 0 || next === item) return;
-    if (next.trim()) lines[li] = lines[li].match(re)![1] + next;
-    else lines.splice(li, 1);
-    const text = lines.join("\n");
-    setSpecs(text);
-    commit({ specs: text });
   };
 
   useEffect(() => {
@@ -447,7 +381,12 @@ export function Drawer(
       className={rowVal}
       options={[
         { value: "", label: "none" },
-        ...pageOptions(board.stories, board.pages ?? []),
+        // keep the currently attached story listed even when archived —
+        // Select falls back to the placeholder if its value has no option
+        ...pageOptions(
+          board.stories.filter((s) => s.status !== "archived" || s.id === pageId),
+          board.pages ?? [],
+        ),
       ]}
       onChange={(v) => {
         setPageId(v);
@@ -581,47 +520,6 @@ export function Drawer(
     </div>
   );
 
-  // Explicit opt-in sectioning (fence-aware): "## Title {{fold}}" starts a
-  // collapsible section, "## Title {{tab}}" a tab — consecutive tabs group into
-  // one strip. Plain ## headings render normally, so agents writing ordinary
-  // markdown never hide things by accident. Everything above the first marked
-  // heading stays visible. Open/active state is a local convenience.
-  const specSections = (() => {
-    const lines = specs.split("\n");
-    const out: { heading: string | null; kind: "fold" | "tab" | null; body: string[] }[] = [
-      { heading: null, kind: null, body: [] },
-    ];
-    let fenced = false;
-    for (const l of lines) {
-      if (/^\s*```/.test(l)) fenced = !fenced;
-      const h = !fenced && l.match(/^##\s+(.*)$/);
-      const kind = h && h[1].match(/\{\{(fold|tab)\}\}/i);
-      if (h && kind) {
-        out.push({
-          heading: h[1].replace(/\s*\{\{(fold|tab)\}\}\s*/i, " ").trim(),
-          kind: kind[1].toLowerCase() as "fold" | "tab",
-          body: [],
-        });
-      } else out.at(-1)!.body.push(l);
-    }
-    return out;
-  })();
-  const [openSecs, setOpenSecs] = useState<Set<string>>(() => {
-    try {
-      return new Set(JSON.parse(localStorage.getItem(`trame:specsOpen:${session.id}`) ?? "[]"));
-    } catch {
-      return new Set();
-    }
-  });
-  const toggleSec = (h: string) =>
-    setOpenSecs((cur) => {
-      const next = new Set(cur);
-      if (next.has(h)) next.delete(h);
-      else next.add(h);
-      localStorage.setItem(`trame:specsOpen:${session.id}`, JSON.stringify([...next]));
-      return next;
-    });
-
   const linkedRow = links.length > 0 && (
     <div className="flex flex-col gap-1.5">
       <span className="text-[11px] text-ink-muted">Linked</span>
@@ -659,125 +557,6 @@ export function Drawer(
           </span>
         ))}
       </div>
-    </div>
-  );
-
-  const specsSection = (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <span className={sectionLbl}>SPECS</span>
-        <span className="flex-1" />
-        {!specsEditing && specs.trim() && (
-          <button type="button"
-            title="edit raw markdown"
-            className="rounded-md px-1.5 py-0.5 text-[12px] text-ink-muted transition-colors hover:bg-panel hover:text-ink"
-            onClick={() => setSpecsEditing(true)}
-          >
-            ✏️
-          </button>
-        )}
-      </div>
-      {specsEditing
-        ? (
-          <textarea
-            ref={specsRef}
-            autoFocus
-            rows={3}
-            className="w-full resize-none overflow-hidden rounded-md border border-chipline bg-panel px-3 py-2 font-mono text-[12px] leading-relaxed text-ink outline-none placeholder:font-sans placeholder:text-ink-muted/60"
-            value={specs}
-            onChange={(e) => {
-              setSpecs(e.target.value);
-              growSpecs();
-            }}
-            onBlur={() => {
-              setSpecsEditing(false);
-              if (specs !== (session.specs ?? "")) commit({ specs });
-            }}
-            placeholder={SPECS_PLACEHOLDER}
-          />
-        )
-        : specs.trim()
-        ? (
-          <>
-            {(() => {
-              const els: ReactNode[] = [];
-              for (let i = 0; i < specSections.length;) {
-                const sec = specSections[i];
-                if (sec.kind === "tab") {
-                  const group: { heading: string; body: string }[] = [];
-                  while (i < specSections.length && specSections[i].kind === "tab") {
-                    group.push({
-                      heading: specSections[i].heading ?? "",
-                      body: specSections[i].body.join("\n"),
-                    });
-                    i++;
-                  }
-                  els.push(<SpecTabs key={`tabs-${i}`} tabs={group} onEditItem={editSpecItem} />);
-                  continue;
-                }
-                if (sec.heading === null) {
-                  const text = sec.body.join("\n");
-                  if (text.trim()) {
-                    els.push(
-                      <Markdown
-                        key={i}
-                        text={text}
-                        className="text-[13px] leading-relaxed"
-                        onEditItem={editSpecItem}
-                      />,
-                    );
-                  }
-                  i++;
-                  continue;
-                }
-                els.push(
-                  <div key={i} className="overflow-hidden rounded-lg border border-line-soft">
-                    <button type="button"
-                      className="flex w-full items-center gap-2 bg-panel px-3 py-2 text-left text-[12.5px] font-medium text-ink transition-colors hover:text-copper"
-                      onClick={() => toggleSec(sec.heading!)}
-                    >
-                      <span className="text-[10px] text-ink-muted">
-                        {openSecs.has(sec.heading!) ? "▾" : "▸"}
-                      </span>
-                      {sec.heading}
-                    </button>
-                    {openSecs.has(sec.heading!) && (
-                      <div className="px-3.5 pb-3 pt-2">
-                        <Markdown
-                          text={sec.body.join("\n")}
-                          className="text-[13px] leading-relaxed"
-                          onEditItem={editSpecItem}
-                        />
-                      </div>
-                    )}
-                  </div>,
-                );
-                i++;
-              }
-              return els;
-            })()}
-            <button type="button"
-              className="w-fit rounded-md border border-dashed border-chipline px-3 py-1.5 text-[12px] text-ink-muted/70 transition-colors hover:border-copper/60 hover:text-copper"
-              onClick={() => {
-                setSpecs(`${specs.replace(/\n*$/, "")}\n- `);
-                setSpecsEditing(true);
-              }}
-            >
-              ＋ add a spec…
-            </button>
-          </>
-        )
-        : (
-          <button type="button"
-            className="rounded-md border border-dashed border-chipline px-3 py-2 text-left text-[12.5px] text-ink-muted/70 transition-colors hover:border-copper/60 hover:text-copper"
-            onClick={() => {
-              setSpecs("- ");
-              setSpecsEditing(true);
-            }}
-          >
-            ＋ add specs…
-          </button>
-        )}
     </div>
   );
 
@@ -878,7 +657,17 @@ export function Drawer(
                 </div>
               </div>
               {linkedRow}
-              <div className="max-w-[760px]">{specsSection}</div>
+              <div className="max-w-[760px]">
+                <SpecsEditor
+                  sessionId={session.id}
+                  specsPageId={session.specs_page_id}
+                  onLinked={onSaved}
+                  onOpenPage={(id) => {
+                    onOpenPage?.(id);
+                    onClose();
+                  }}
+                />
+              </div>
             </div>
           </div>
           <div className="flex flex-col border-t border-line bg-panel min-[1000px]:min-h-0 min-[1000px]:w-[408px] min-[1000px]:border-l min-[1000px]:border-t-0">

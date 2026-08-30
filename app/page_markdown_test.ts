@@ -1,5 +1,5 @@
 import { assertEquals, assertMatch } from "@std/assert";
-import { markdownToPageBlocks } from "./page-markdown.ts";
+import { markdownToPageBlocks, pageBlocksToMarkdown } from "./page-markdown.ts";
 
 const withoutIds = (blocks: ReturnType<typeof markdownToPageBlocks>) =>
   blocks.map(({ id: _id, ...block }) => block);
@@ -63,4 +63,30 @@ Deno.test("a non-matching leading H1 remains content", () => {
       { type: "text", text: "Body" },
     ],
   );
+});
+
+Deno.test("pageBlocksToMarkdown round-trips through markdownToPageBlocks", () => {
+  const markdown = `Intro paragraph.
+
+## Checklist
+
+- [x] Ship writer
+- [ ] Install skill
+  - [ ] on the mac
+
+\`\`\`ts
+const answer = 42;
+
+console.log(answer);
+\`\`\`
+`;
+  const blocks = markdownToPageBlocks(markdown);
+  const rendered = pageBlocksToMarkdown(blocks);
+  assertEquals(withoutIds(markdownToPageBlocks(rendered)), withoutIds(blocks));
+  // structural blocks are skipped, never serialized
+  assertEquals(
+    pageBlocksToMarkdown([{ type: "subpage", page_id: "x" }, { type: "heading", text: "Goal" }]),
+    "## Goal\n",
+  );
+  assertEquals(pageBlocksToMarkdown([]), "");
 });

@@ -2,7 +2,8 @@
 // the laptop app (app/sync.ts) and the hub API (hub/api). Order matters: referenced
 // tables come before their referrers (no FKs, but pulls apply in this order).
 // v3: dropped the frozen `clients` entity and the `objective_id` columns.
-export const PROTOCOL_VERSION = 3;
+// v4: sessions specs text column replaced by specs_page_id (specs are pages).
+export const PROTOCOL_VERSION = 4;
 
 export const ENTITIES = [
   {
@@ -106,7 +107,7 @@ export const ENTITIES = [
       "repo_path",
       "branch",
       "next_step",
-      "specs",
+      "specs_page_id",
       "pr_url",
       "summary",
       "claude_id",

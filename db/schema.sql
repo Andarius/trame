@@ -324,6 +324,9 @@ update session_events set agent = 'claude'
 where agent is null and kind <> 'log' and at < '2026-08-25';
 
 alter table sessions add column if not exists page_id uuid references pages (id);
+-- specs live on the spec page as of protocol 4; the text column is dead but kept for
+-- the TS backfill in app/db.ts — drop both in a later release.
+alter table sessions add column if not exists specs_page_id uuid references pages (id);
 alter table reports add column if not exists page_id uuid references pages (id);
 alter table udb_databases add column if not exists page_id uuid references pages (id);
 
@@ -482,7 +485,8 @@ comment on table sessions is 'Coding-agent work sessions — the kanban cards. U
 comment on column sessions.status is 'active | paused | blocked | done — the board columns.';
 comment on column sessions.page_id is 'The anchor: the page this session ladders up to. Attaching promotes a plain page to kind=''story''. Story/project are derived by walking the tree up from it.';
 comment on column sessions.next_step is 'One imperative line — what to do next.';
-comment on column sessions.specs is 'Human-written spec for the session (markdown).';
+comment on column sessions.specs is 'Dead since protocol 4 (kept for the backfill) — specs live on the spec page.';
+comment on column sessions.specs_page_id is 'The session''s spec page (deterministic id, lazily created subpage of the story).';
 comment on column sessions.claude_id is 'LEGACY NAME: Claude Code or Codex transcript UUID. Imported cards also carry it as their id.';
 comment on column sessions.agent is 'Transcript provider: claude or codex. Null on older/manual cards; resume detects legacy Claude imports.';
 comment on column sessions.summary is 'Last "what happened" blurb; also written to session_events as the worklog.';
