@@ -8,6 +8,7 @@ import trackSkillOpenai from "../skills/trame-track/agents/openai.yaml" with {
   type: "text",
 };
 import pageSkill from "../skills/trame-page/SKILL.md" with { type: "text" };
+import * as p from "@clack/prompts";
 import { SETUP_HELP } from "./help.ts";
 
 export const EMBEDS = { trackCmd, trackSkill, trackSkillOpenai, pageSkill };
@@ -76,6 +77,58 @@ export async function setup(plan: SetupPlan): Promise<void> {
   }
 }
 
+// same picker as scripts/install-track.ts, for a bare `tramecli setup` on a TTY
+async function chooseInteractive(
+  home: string,
+): Promise<{ claude: boolean; skillDirs: string[] } | null> {
+  p.intro(" tramecli setup ");
+  const choice = await p.multiselect<"claude" | "codex" | "other">({
+    message: "Which coding agents should Trame configure?",
+    options: [
+      {
+        value: "claude",
+        label: "Claude Code",
+        hint: "the /trame:track slash command and the trame-page skill",
+      },
+      {
+        value: "codex",
+        label: "Codex",
+        hint: "the $trame-track and $trame-page skills in ~/.agents/skills",
+      },
+      {
+        value: "other",
+        label: "Other agent",
+        hint: "any LLM agent CLI that reads an Agent Skills directory",
+      },
+    ],
+    initialValues: ["claude"],
+    required: true,
+  });
+  if (p.isCancel(choice)) {
+    p.cancel("Setup cancelled.");
+    return null;
+  }
+  const skillDirs: string[] = [];
+  if (choice.includes("codex")) skillDirs.push(`${home}/.agents/skills`);
+  if (choice.includes("other")) {
+    const dirs = await p.text({
+      message: "Skills directory of that agent (comma-separated for several)",
+      placeholder: "~/.gemini/skills",
+      validate: (v) => v?.trim() ? undefined : "at least one directory",
+    });
+    if (p.isCancel(dirs)) {
+      p.cancel("Setup cancelled.");
+      return null;
+    }
+    skillDirs.push(
+      ...String(dirs).split(",").map((v) =>
+        v.trim().replace(/^~\//, `${home}/`)
+      ).filter(Boolean),
+    );
+  }
+  return { claude: choice.includes("claude"), skillDirs };
+}
+
 export async function run(argv: string[]): Promise<number> {
   const home = Deno.env.get("HOME");
   if (!home) {
@@ -100,12 +153,20 @@ export async function run(argv: string[]): Promise<number> {
       return 2;
     }
   }
-  if (!claude && !skillDirs.length) {
-    console.error(SETUP_HELP);
-    return 2;
+  const interactive = !claude && !skillDirs.length;
+  if (interactive) {
+    if (!Deno.stdout.isTerminal()) {
+      console.error(SETUP_HELP);
+      return 2;
+    }
+    const picked = await chooseInteractive(home);
+    if (!picked) return 1;
+    claude = picked.claude;
+    skillDirs.push(...picked.skillDirs);
   }
   const invocation = await resolveInvocation(home);
   await setup({ claude, skillDirs, home, invocation });
   console.log(`writer binary: ${invocation}`);
+  if (interactive) p.outro("Trame agent integrations installed.");
   return 0;
 }

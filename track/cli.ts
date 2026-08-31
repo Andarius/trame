@@ -1,6 +1,7 @@
 // tramecli — the compiled agent CLI (deno task compile:cli). One binary wraps the
 // track/ writers so agents need neither deno nor this checkout; --help carries the
 // composition conventions from track/help.ts (the single source of truth).
+import pc from "picocolors";
 import { PORT_FILE } from "../app/config.ts";
 import { main as trackMain } from "./track.ts";
 import { main as pageMain } from "./page.ts";
@@ -59,8 +60,15 @@ export function boardRows(board: Board) {
     }));
 }
 
-// Open sessions grouped by story; a status column marked terminal (done, …) hides its cards.
-export function formatBoard(board: Board): string {
+const STATUS_TINT: Record<string, (s: string) => string> = {
+  active: pc.green,
+  paused: pc.yellow,
+  blocked: pc.red,
+};
+
+// Open sessions grouped by story; a status column marked terminal (done, …) hides its
+// cards. color=true tints for a terminal (list gates it on TTY, off for --json/pipes).
+export function formatBoard(board: Board, color = false): string {
   const terminal = new Set(
     board.statuses.filter((s) => s.terminal).map((s) => s.key),
   );
@@ -74,11 +82,15 @@ export function formatBoard(board: Board): string {
     const key = (s.page_id && storyTitle.get(s.page_id)) ?? "(no story)";
     groups.set(key, [...groups.get(key) ?? [], s]);
   }
-  return [...groups].map(([story, sessions]) =>
-    `${story}\n` +
+  const story = (t: string) => color ? pc.bold(t) : t;
+  const status = (k: string) =>
+    color ? (STATUS_TINT[k] ?? pc.cyan)(`[${k}]`) : `[${k}]`;
+  const next = (t: string) => color ? pc.dim(t) : t;
+  return [...groups].map(([title, sessions]) =>
+    `${story(title)}\n` +
     sessions.map((s) =>
-      `  [${s.status}] ${s.title}${s.branch ? ` (${s.branch})` : ""}${
-        s.next_step ? ` — next: ${s.next_step}` : ""
+      `  ${status(s.status)} ${s.title}${s.branch ? ` (${s.branch})` : ""}${
+        s.next_step ? next(` — next: ${s.next_step}`) : ""
       }`
     ).join("\n")
   ).join("\n");
@@ -98,7 +110,11 @@ async function list(json: boolean): Promise<void> {
   });
   if (!res.ok) throw new Error(`/api/board → HTTP ${res.status}`);
   const board = await res.json() as Board;
-  console.log(json ? JSON.stringify(boardRows(board)) : formatBoard(board));
+  console.log(
+    json
+      ? JSON.stringify(boardRows(board))
+      : formatBoard(board, Deno.stdout.isTerminal()),
+  );
 }
 
 export async function run(argv: string[]): Promise<number> {
