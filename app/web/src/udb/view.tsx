@@ -380,22 +380,6 @@ export const newSummaryTab = (props: UdbProp[]): ViewTab => {
 };
 
 const key = (dbId: string) => `trame:udbtabs:${dbId}`;
-// migration chain: udbtabs ← udbview (single config) ← udbsort (single sort)
-function legacyView(dbId: string): ViewConfig {
-  try {
-    const v = JSON.parse(
-      localStorage.getItem(`trame:udbview:${dbId}`) ?? "null",
-    );
-    if (v && Array.isArray(v.sorts) && Array.isArray(v.filters)) return v;
-    const old = JSON.parse(
-      localStorage.getItem(`trame:udbsort:${dbId}`) ?? "null",
-    );
-    if (old && typeof old.propId === "string") {
-      return { sorts: [old], filters: [] };
-    }
-  } catch { /* fall through */ }
-  return emptyConfig();
-}
 // validate an untrusted tabs bundle (localStorage OR the server `views` column); null = not usable
 export function parseTabs(raw: unknown): ViewTabs | null {
   const v = raw as { tabs?: unknown; active?: unknown } | null;
@@ -426,13 +410,12 @@ export function loadTabs(dbId: string): ViewTabs {
     );
     if (parsed) return parsed;
   } catch { /* fall through */ }
-  const tab = newTab("Table", legacyView(dbId));
+  const tab = newTab("Table", emptyConfig());
   return { tabs: [tab], active: tab.id };
 }
 export const saveTabs = (dbId: string, v: ViewTabs) => {
   if (isDefaultTabs(v)) localStorage.removeItem(key(dbId));
   else localStorage.setItem(key(dbId), JSON.stringify(v));
-  localStorage.removeItem(`trame:udbview:${dbId}`); // superseded by the tabs key
 };
 
 // UI

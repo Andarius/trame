@@ -100,8 +100,6 @@ import {
   updatePage,
 } from "./pages.ts";
 import { exportPage, importPage } from "./share.ts";
-import { markdownToPageBlocks } from "./page-markdown.ts";
-import { mergePageBlocks } from "./page-merge.ts";
 import { agentIdentity } from "./agent-comments.ts";
 import { listPresence, touchPresence } from "./presence.ts";
 import {
@@ -792,7 +790,7 @@ async function handler(req: Request): Promise<Response> {
         } | undefined;
       repo = row?.repo_path;
       // Imported cards carry the transcript UUID as id; skill-tracked cards store it
-      // in the legacy-named claude_id column. cid flows into a shell command, so it
+      // in the claude_id column. cid flows into a shell command, so it
       // must be a UUID like id — guard against a poisoned/synced claude_id value.
       cid = row?.claude_id && UUID_RE.test(row.claude_id) ? row.claude_id : id;
       // Home device = the node that imported it (its transcript lives there).
@@ -1059,18 +1057,6 @@ async function handler(req: Request): Promise<Response> {
         await addSessionLink(id, l.page_id, l.block_id ?? null, l.anchor ?? "");
       }
     }
-    // Legacy shim (protocol 4): old outbox lines / stale skills still send a specs
-    // markdown string — route it into the spec page instead of losing it.
-    let deprecation: string | undefined;
-    if (typeof body.specs === "string" && body.specs.trim()) {
-      const pid = await ensureSpecsPage(id);
-      const page = await getPage(pid) as { content?: unknown[] } | null;
-      await updatePage(pid, {
-        content: mergePageBlocks(page?.content ?? [], markdownToPageBlocks(body.specs)),
-      });
-      deprecation =
-        "specs field is deprecated — write the spec page via the page writer/trame_update_page with {session_id}";
-    }
     // Nudge every write path (skill, writer, MCP, raw curl): a specs-less card is
     // fine for a work log but wrong for planned work — see track.md.
     const pg = await db();
@@ -1082,10 +1068,9 @@ async function handler(req: Request): Promise<Response> {
         [s.specs_page_id],
       )).rows[0]
       : undefined;
-    const note = deprecation ??
-      (spec
-        ? undefined
-        : 'card has no specs page — if this is planned work (from a TODO/plan item), write one with the page writer/trame_update_page using {"session_id": "' +
+    const note = spec
+      ? undefined
+      : ('card has no specs page — if this is planned work (from a TODO/plan item), write one with the page writer/trame_update_page using {"session_id": "' +
           id +
           '"} plus links back to the plan and the TODO page');
     return json({ id, specs_page_id: s?.specs_page_id ?? null, ...(note ? { note } : {}) });

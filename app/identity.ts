@@ -70,8 +70,7 @@ export async function getIdentity(): Promise<Identity> {
   };
 }
 
-// Update the synced profile of this device's user (a genuine user action — this one
-// rides the sync, unlike the schema backfills). No-op while the device is unclaimed.
+// Update the synced profile of this device's user. No-op while the device is unclaimed.
 export async function updateUserProfile(
   patch: { name?: string; avatar?: string },
 ): Promise<void> {

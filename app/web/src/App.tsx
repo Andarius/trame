@@ -490,7 +490,7 @@ function PageNode(
 }
 
 // A root page owned by another hub user reached us via a share — group it apart.
-// Ownerless pages (legacy rows, dev mode) count as mine.
+// Ownerless pages (dev mode, unclaimed device) count as mine.
 function isSharedIn(p: PageMeta, meId: string | null): boolean {
   return meId != null && p.owner_id != null && p.owner_id !== meId;
 }

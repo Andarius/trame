@@ -15,7 +15,7 @@ export type CommentInput = {
   block_text?: string;
   body: string;
   agent?: AgentKind;
-  // footer stats; model defaults to the agent id server-side — only pass numbers you measured
+  // footer stats; model is always required, and claude/codex must send in/out/ms too
   meta?: { model?: string; in?: number; out?: number; ms?: number };
   // comment being answered: marked "answering" before the reply, "answered" after
   in_reply_to?: string;
@@ -31,6 +31,15 @@ async function readInput(argv: string[]): Promise<Input> {
   return JSON.parse(raw) as Input;
 }
 
+// The agent actually writing: an explicit id, else the harness we run under.
+export function resolveAgent(input: Pick<Input, "agent">): string {
+  return input.agent ?? (Deno.env.get("CODEX_THREAD_ID") ? "codex" : "claude");
+}
+
+// Harnesses that surface their own usage — they have no excuse for a bare footer.
+const STATS_REQUIRED = new Set(["claude", "codex"]);
+const STATS: ("in" | "out" | "ms")[] = ["in", "out", "ms"];
+
 function validate(input: Input): Input {
   if (!input.body?.trim()) throw new Error("body is required");
   if (Boolean(input.page_id) === Boolean(input.page_title)) {
@@ -41,6 +50,20 @@ function validate(input: Input): Input {
   }
   // agent is the id of the model actually writing — any id is allowed (codex/claude
   // are branded, others get a generated avatar). Attribute the real model.
+  const agent = resolveAgent(input);
+  if (!input.meta?.model?.trim()) {
+    throw new Error(
+      "meta.model is required — the exact model id you run as (e.g. claude-opus-5, gpt-5.6-sol)",
+    );
+  }
+  for (const k of STATS_REQUIRED.has(agent) ? STATS : []) {
+    if (typeof input.meta[k] !== "number") {
+      throw new Error(
+        `meta.${k} is required for ${agent} — pass the run's own ` +
+          `${k === "ms" ? "elapsed time in ms" : `${k}put tokens`}, measured not guessed`,
+      );
+    }
+  }
   return { ...input, body: input.body.trim() };
 }
 
@@ -98,8 +121,7 @@ export async function addComment(
 
   const page = await request(base, `/api/pages/${pageId}`) as PageDetail;
   const target = resolveCommentBlock(page.content, input);
-  const agent = input.agent ??
-    (Deno.env.get("CODEX_THREAD_ID") ? "codex" : "claude");
+  const agent = resolveAgent(input);
   if (input.in_reply_to) {
     await setStatus(base, input.in_reply_to, "answering", agent);
   }

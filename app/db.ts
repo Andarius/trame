@@ -3,7 +3,7 @@
 import { PGlite } from "@electric-sql/pglite";
 import { v5 } from "@std/uuid";
 import { APP_ROOT, DATA_DIR, NODE_ID, OUTBOX } from "./config.ts";
-import { markdownToPageBlocks, pageBlocksToMarkdown } from "./page-markdown.ts";
+import { pageBlocksToMarkdown } from "./page-markdown.ts";
 import { midKey } from "./udb.ts";
 
 // Memoize a single init PROMISE so concurrent callers all await the same fully-initialized
@@ -24,7 +24,6 @@ async function openPg(): Promise<PGlite> {
   // on its own memoized promise) so any first db touch, not just server startup, claims.
   const { claimDevice } = await import("./identity.ts");
   await claimDevice(pg).catch(console.error);
-  await backfillSpecsPages(pg).catch(console.error);
   await Deno.writeTextFile(OK_MARKER, "1"); // init completed — dir is real data from now on
   return pg;
 }
@@ -34,14 +33,10 @@ export function db(): Promise<PGlite> {
     _pg = (async () => {
       // PGlite data dirs are not portable across major PG versions (0.5.x = PG 18).
       // Check BEFORE any open/recovery so an old dir is never opened in place or
-      // mistaken for a half-initialized one and wiped. PG 16 dirs (pre-0.2.0 builds)
-      // are migrated automatically — packaged apps can't run the repo task.
+      // mistaken for a half-initialized one and wiped.
       const pgVersion = await Deno.readTextFile(`${DATA_DIR}/PG_VERSION`).then((s) => s.trim()).catch(() => null);
-      if (pgVersion === "16") {
-        const { migrateDataDir } = await import("./migrate.ts");
-        await migrateDataDir();
-      } else if (pgVersion && pgVersion !== "18") {
-        throw new Error(`data dir ${DATA_DIR} is Postgres ${pgVersion} format — cannot open or migrate it`);
+      if (pgVersion && pgVersion !== "18") {
+        throw new Error(`data dir ${DATA_DIR} is Postgres ${pgVersion} format — this build needs 18`);
       }
       // PGlite's mkdir isn't recursive — ensure the parent exists first.
       await Deno.mkdir(DATA_DIR.replace(/\/[^/]+\/?$/, ""), { recursive: true }).catch(() => {});
@@ -86,7 +81,7 @@ const PALETTE = ["#7a9ee7", "#b590e7", "#c98a63", "#7bd88f", "#e3c567"];
 
 // owner_id for page inserts, resolved from the origin param already in the statement
 // (a subquery, not identity.ts, to keep db.ts free of an import cycle). Null while
-// the device is unclaimed — the schema backfill covers pre-identity rows.
+// the device is unclaimed.
 const OWNER_ID_SQL = (originParam: number) =>
   `(select user_id from devices where node_id=$${originParam} and not deleted limit 1)`;
 
@@ -212,40 +207,6 @@ export async function ensureSpecsPage(sessionId: string): Promise<string> {
   return id;
 }
 
-// Guarded backfill of pre-protocol-4 specs text into spec pages. Deterministic page
-// AND block ids so every node converges; remove with the dead specs column later.
-// Exported for tests only — the app runs it once per boot from openPg.
-export async function backfillSpecsPages(pg: PGlite): Promise<void> {
-  const rows = (await pg.query(
-    `select id, title, client_id, page_id, specs from sessions
-      where specs_page_id is null and coalesce(specs,'') <> '' and not deleted`,
-  )).rows as {
-    id: string;
-    title: string;
-    client_id: string | null;
-    page_id: string | null;
-    specs: string;
-  }[];
-  for (const s of rows) {
-    const blocks = markdownToPageBlocks(s.specs);
-    for (let i = 0; i < blocks.length; i++) {
-      blocks[i].id = await v5.generate(SPECS_NS, new TextEncoder().encode(`${s.id}:${i}`));
-    }
-    const pageId = await specsPageId(s.id);
-    await pg.query(
-      `insert into pages (id, kind, title, client_id, parent_id, content, origin, owner_id)
-       values ($1,'page',$2,$3,$4,$5,$6,${OWNER_ID_SQL(6)})
-       on conflict (id) do nothing`,
-      [pageId, `Specs — ${s.title}`, s.client_id, s.page_id ?? s.client_id, JSON.stringify(blocks), NODE_ID],
-    );
-    await pg.query(
-      `update sessions set specs_page_id=$2, origin=$3, updated_at=now() where id=$1`,
-      [s.id, pageId, NODE_ID],
-    );
-  }
-  if (rows.length) console.log(`backfilled ${rows.length} session spec page(s)`);
-}
-
 // Columns are user-editable, but the session default, the importers and the tracking
 // skills all still emit fixed keys ('active'…) — park an unknown one on a surviving
 // column, else the card renders in no column at all.
@@ -260,8 +221,7 @@ async function resolveStatusKey(pg: PGlite, key: unknown): Promise<string> {
 
 export async function upsertSession(s: Record<string, unknown>): Promise<string> {
   const pg = await db();
-  // claude_id is the legacy database column; the public writer uses agent_id
-  // for either Claude or Codex.
+  // claude_id is the column name; the public writer says agent_id (Claude or Codex).
   s.claude_id ??= s.agent_id;
   if (s.claude_id && !s.agent) s.agent = "claude";
   // Accept human names (from the CLI/MCP) and resolve them to ids.
@@ -270,8 +230,6 @@ export async function upsertSession(s: Record<string, unknown>): Promise<string>
   if (typeof s.objective === "string" && !s.page_id) {
     s.page_id = await resolveObjective(s.objective, (s.client_id as string) ?? null);
   }
-  // pre-teardown callers (old outbox lines, old CLI) may still send objective_id
-  s.page_id ??= s.objective_id;
   // project = a page that has sessions: attaching promotes a plain page (one-way)
   if (s.page_id) await promoteToProject(s.page_id as string, (s.client_id as string) ?? null);
   // One coding-agent transcript maps to one card, regardless of import vs skill tracking.

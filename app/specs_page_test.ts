@@ -50,30 +50,3 @@ Deno.test("ensureSpecsPage: deterministic subpage of the story, idempotent, resu
 
   await assertRejects(() => ensureSpecsPage(crypto.randomUUID()), Error, "unknown session");
 });
-
-Deno.test("backfillSpecsPages converts legacy specs text once, idempotently", async () => {
-  const { backfillSpecsPages, db, specsPageId, upsertSession } = await import("./db.ts");
-  const { getPage } = await import("./pages.ts");
-  const pg = await db();
-
-  const id = await upsertSession({ title: "legacy", repo_path: "/repos/legacy" });
-  // simulate a pre-protocol-4 row: specs text, no spec page yet
-  await pg.query(`update sessions set specs=$2, specs_page_id=null where id=$1`, [
-    id,
-    "## Goal\nToken exchange\n\n- [ ] wire the callback",
-  ]);
-
-  await backfillSpecsPages(pg);
-  const pid = await specsPageId(id);
-  const page = await getPage(pid) as unknown as { content: { type: string; text?: string; id: string }[] };
-  assertEquals(page.content.map((b) => b.type), ["heading", "text", "todo"]);
-  assertEquals(page.content[2].text, "wire the callback");
-
-  // running again must not duplicate or rewrite (guard: specs_page_id set)
-  const before = JSON.stringify(page.content);
-  await backfillSpecsPages(pg);
-  const again = await getPage(pid) as unknown as { content: unknown[] };
-  assertEquals(JSON.stringify(again.content), before);
-  // block ids are deterministic — a second node would produce identical rows
-  assertEquals(new Set(page.content.map((b) => b.id)).size, page.content.length);
-});

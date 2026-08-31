@@ -486,6 +486,8 @@ async function refetchBody(
   }
 }
 
+const dryLogged = new Set<string>();
+
 async function handle(
   base: string,
   item: InboxItem,
@@ -493,13 +495,17 @@ async function handle(
 ): Promise<void> {
   const agent = flags.forceAgent ?? item.agent;
   const { id } = item.comment;
-  await setStatus(base, id, "seen", agent);
   const prompt = buildPrompt({ ...item, agent });
   if (flags.dryRun) {
-    console.log(`[dry-run] would answer ${id} as ${agent}:\n${prompt}\n`);
+    // a dry run writes nothing, so the item keeps surfacing — log it once
+    if (!dryLogged.has(id)) {
+      dryLogged.add(id);
+      console.log(`[dry-run] would answer ${id} as ${agent}:\n${prompt}\n`);
+    }
     return;
   }
 
+  await setStatus(base, id, "seen", agent);
   await setStatus(base, id, "answering", agent);
 
   // Retry generation only; the answer is POSTed at most once per successful run.

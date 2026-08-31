@@ -1,18 +1,16 @@
 #!/usr/bin/env bash
-# DESCRIPTION: Generate the hub's TLS material (private CA, server cert, per-laptop
-#   client certs). Runs in the deploy dir on the hub (called by deploy.sh) and in
+# DESCRIPTION: Generate the hub's TLS material (private CA + server cert, served by
+#   the hub API). Runs in the deploy dir on the hub (called by deploy.sh) and in
 #   hub/ locally (called by `just db`). Idempotent: existing keys/certs are kept.
 #   Layout (relative to cwd):
-#     ca/     ca.key ca.crt clients/<node>.{key,crt}  — never mounted; CA key stays here
-#     certs/  ca.crt server.crt server.key            — mounted into the container
+#     ca/     ca.key ca.crt                 — never mounted; the CA key stays here
+#     certs/  ca.crt server.crt server.key  — mounted into the container
 # USAGE: gen-certs.sh init <lan-ip> [dns-name...]   CA + server cert if missing
-#        gen-certs.sh client <node-id>              issue a laptop client cert
 # EXAMPLES:
 #   ./gen-certs.sh init 192.168.1.x "$(hostname)"
-#   ./gen-certs.sh client mbp-14
 set -euo pipefail
 
-case "${1:?usage: gen-certs.sh init|client ...}" in
+case "${1:?usage: gen-certs.sh init <lan-ip> [dns-name...]}" in
 init)
   ip="${2:?usage: gen-certs.sh init <lan-ip> [dns-name...]}"
   shift 2
@@ -42,23 +40,8 @@ init)
   fi
   cp -f ca/ca.crt certs/ca.crt
   ;;
-client)
-  node="${2:?usage: gen-certs.sh client <node-id>}"
-  mkdir -p ca/clients
-  if [ -f "ca/clients/$node.crt" ]; then
-    echo "client cert for '$node' already exists (rm ca/clients/$node.* to reissue)"
-    exit 0
-  fi
-  openssl req -newkey rsa:2048 -nodes -keyout "ca/clients/$node.key" \
-    -out "ca/clients/$node.csr" -subj "/CN=$node"
-  openssl x509 -req -in "ca/clients/$node.csr" -CA ca/ca.crt -CAkey ca/ca.key \
-    -CAcreateserial -days 1825 -out "ca/clients/$node.crt"
-  rm "ca/clients/$node.csr"
-  chmod 600 "ca/clients/$node.key"
-  echo "issued client cert for '$node'"
-  ;;
 *)
-  echo "unknown mode: $1 (want init|client)" >&2
+  echo "unknown mode: $1 (want init)" >&2
   exit 1
   ;;
 esac

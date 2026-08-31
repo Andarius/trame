@@ -46,11 +46,9 @@ const ignoredKey = (source: AgentSource, id: string) => `${source}:${id}`;
 async function loadIgnored(): Promise<Set<string>> {
   try {
     const s = JSON.parse(await Deno.readTextFile(SETTINGS_FILE));
-    const generic = Array.isArray(s.sessionIgnored) ? s.sessionIgnored as string[] : [];
-    const legacy = Array.isArray(s.claudeIgnored)
-      ? (s.claudeIgnored as string[]).map((id) => ignoredKey("claude", id))
-      : [];
-    return new Set([...generic, ...legacy]);
+    return new Set(
+      Array.isArray(s.sessionIgnored) ? s.sessionIgnored as string[] : [],
+    );
   } catch {
     return new Set();
   }
@@ -66,11 +64,6 @@ export async function setSessionIgnored(
     const key = ignoredKey(source, sessionId);
     ignored ? set.add(key) : set.delete(key);
     settings.sessionIgnored = [...set];
-    // loadIgnored still merges the pre-0.4 claudeIgnored array — drop the id there too,
-    // or the next scan would re-hide what we just unignored.
-    if (!ignored && source === "claude" && Array.isArray(settings.claudeIgnored)) {
-      settings.claudeIgnored = (settings.claudeIgnored as string[]).filter((id) => id !== sessionId);
-    }
   });
   return { ignored };
 }

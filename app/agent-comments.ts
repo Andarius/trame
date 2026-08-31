@@ -3,8 +3,7 @@
 // branded avatar; anything else gets a generated initial avatar.
 export type AgentKind = string;
 
-// Reserved author_id for agent/external comments. Null means "legacy pre-identity
-// row" and gets claimed by the schema.sql single-user backfill — agents must not.
+// Reserved author_id for agent/external comments: an agent is never a real user.
 export const AGENT_AUTHOR_ID = "00000000-0000-4000-8000-0000000000aa";
 
 // Brand paths pinned from Simple Icons: OpenAI v15.0.0 (removed in later releases)

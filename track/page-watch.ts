@@ -110,6 +110,15 @@ async function lastHumanActivity(base: string, pages: string[]): Promise<number>
   return newest;
 }
 
+// Badge writes are advisory — a failing one must never break the watch loop.
+// "seen" keeps the item in the inbox (it is a display ack); "answering" claims it.
+const setStatus = (base: string, id: string, status: string, agent: string) =>
+  api(base, `/api/comments/${id}/agent-status`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ status, agent }),
+  }).catch(() => {});
+
 // A standalone `tramecli answer` covering every page would answer the same threads
 // as this session — say so rather than double-answering silently.
 async function warnOnGlobalWatcher(base: string, page: string, agent: string) {
@@ -144,6 +153,7 @@ export async function main(argv: string[] = Deno.args) {
     `watching page(s) ${f.pages.join(",")} for ${f.agent} feedback ` +
       `(every ${f.interval}s, quiet ${f.quiet}s)…`,
   );
+  const acked = new Set<string>(); // comments already marked seen this run
   for (;;) {
     const base = readBase();
     if (base) {
@@ -159,8 +169,20 @@ export async function main(argv: string[] = Deno.args) {
         ) as InboxItem[];
         const mine = inbox.filter((i) => i.agent === f.agent);
         if (mine.length) {
+          // "✓ saw this" the moment we pick it up, so the quiet window isn't dead
+          // air on the page. Once per comment — a write per pass is sync churn.
+          for (const i of mine) {
+            if (acked.has(i.comment.id)) continue;
+            acked.add(i.comment.id);
+            await setStatus(base, i.comment.id, "seen", f.agent);
+          }
           const sinceMs = Date.now() - await lastHumanActivity(base, f.pages);
           if (sinceMs > f.quiet * 1000) {
+            // handing off to the session that composes the reply: claim the threads
+            // so "⟳ answering…" pulses and a global watcher can't double-answer
+            for (const i of mine) {
+              await setStatus(base, i.comment.id, "answering", f.agent);
+            }
             console.log(
               `${mine.length} pending comment(s) — feedback ready:\n` +
                 JSON.stringify(

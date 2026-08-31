@@ -46,7 +46,7 @@ export async function mintToken(db: Q, nodeId: string): Promise<string> {
 export type Caller = { nodeId: string; userId: string | null };
 
 // Bearer token → device, then devices → user (the actor stamped into change_log).
-// A claimed device may still map to no user during coexistence — that's fine.
+// A claimed device may still map to no user — that's fine.
 export async function verifyToken(
   db: DB,
   token: string,

@@ -154,32 +154,14 @@ create index if not exists page_comments_page on page_comments (page_id);
 alter table page_comments add column if not exists author text not null default '';
 alter table page_comments add column if not exists author_avatar text not null default '';
 
--- Identity links (hub-API migration, phase 1). author/author_avatar stay as the
--- denormalized write-time snapshot; author_id/owner_id are the durable identity.
+-- Identity links: author/author_avatar stay as the denormalized write-time
+-- snapshot; author_id/owner_id are the durable identity.
 alter table page_comments add column if not exists author_id uuid;   -- no FK: LWW pull order
 alter table pages add column if not exists owner_id uuid;            -- creating user; no FK
 
 -- Optional generation stats on an agent answer (comment watcher): JSON string
 -- {model, in, out, ms}. Null on human comments. Rendered as a dim footer.
 alter table page_comments add column if not exists meta text;
-
--- Backfill to the seeded user (sole user today). Agent comments are exempt: they
--- carry the reserved sentinel 00000000-0000-4000-8000-0000000000aa, never null.
--- Fills nulls only and deliberately
--- leaves updated_at/origin untouched: every replica runs this same deterministic
--- backfill locally, so nothing rides the sync and no node claims the rows as its own.
--- Guarded to the single-user era (same rule as the startup device claim) so a second
--- user's not-yet-attributed rows are never misassigned by a later re-run.
--- (pages backfill sits after the legacy pages migrations below, to catch their copies.)
--- Legacy agent comments predate the sentinel: they carry author_id null and the display
--- name is the only signal, so claim the canonical agent names to the sentinel first.
-update page_comments set author_id = '00000000-0000-4000-8000-0000000000aa'
-where author_id is null and author in ('Codex', 'Claude');
-update page_comments set author_id = '00000000-0000-4000-8000-000000000101'
-where author_id is null and (
-  select count(*) from users
-  where not deleted
-) = 1;
 
 -- Watcher status for human replies on agent threads (comment watcher). One row per
 -- watched reply, written ONLY by the watcher daemon — deliberately not columns on
@@ -311,80 +293,23 @@ create table if not exists udb_links (
 create index if not exists udb_links_from on udb_links (prop_id, from_row);
 create index if not exists udb_links_to on udb_links (prop_id, to_row);
 
--- Coding-agent linkage. claude_id keeps its legacy name for a compatible migration,
--- but stores either a Claude or Codex transcript UUID; agent identifies the provider.
+-- Coding-agent linkage. claude_id stores either a Claude or Codex transcript UUID
+-- (the name predates Codex support); agent identifies the provider.
 alter table sessions add column if not exists claude_id uuid;
 alter table sessions add column if not exists agent text;
-alter table sessions add column if not exists specs text;
--- one-time backfill: rows that predate the agent column were all Claude-tracked.
--- Date-bounded so rows written after the column landed are never restamped.
-update sessions set agent = 'claude'
-where agent is null and updated_at < '2026-08-25';
-update session_events set agent = 'claude'
-where agent is null and kind <> 'log' and at < '2026-08-25';
-
 alter table sessions add column if not exists page_id uuid references pages (id);
--- specs live on the spec page as of protocol 4; the text column is dead but kept for
--- the TS backfill in app/db.ts — drop both in a later release.
 alter table sessions add column if not exists specs_page_id uuid references pages (id);
+-- specs are a page (protocol 4); the text column that preceded it is gone.
+alter table sessions drop column if exists specs;
 alter table reports add column if not exists page_id uuid references pages (id);
 alter table udb_databases add column if not exists page_id uuid references pages (id);
 
--- Legacy teardown (objectives were folded into pages with the SAME ids by earlier
--- releases). One last conditional backfill for straggler DBs, then drop the column —
--- a no-op on fresh installs and on DBs already torn down.
-do $$
-begin
-  if to_regclass('objectives') is not null then
-    alter table sessions drop constraint if exists sessions_objective_id_fkey;
-    alter table reports drop constraint if exists reports_objective_id_fkey;
-    insert into pages (id, kind, title, story, client_id, status, origin, updated_at, deleted)
-    select id, 'project', title, story, client_id, status, origin, updated_at, deleted
-    from objectives
-    on conflict (id) do nothing;
-  end if;
-  if exists (select 1 from information_schema.columns
-             where table_name = 'sessions' and column_name = 'objective_id') then
-    update sessions set page_id = objective_id
-    where page_id is null and objective_id is not null;
-    alter table sessions drop column objective_id;
-  end if;
-  if exists (select 1 from information_schema.columns
-             where table_name = 'reports' and column_name = 'objective_id') then
-    update reports set page_id = objective_id
-    where page_id is null and objective_id is not null;
-    alter table reports drop column objective_id;
-  end if;
-end $$;
-
--- Project → Story fold (clients became top-level kind='project' pages with the SAME
--- ids, former project pages became kind='story' under them). Same teardown pattern:
--- one last conditional fold for stragglers, then drop both frozen tables.
+-- Projects and stories are pages: client_id survives only as a denormalized
+-- pointer, with no table behind it.
 alter table pages add column if not exists color text;
 alter table pages drop constraint if exists pages_client_id_fkey;
 alter table sessions drop constraint if exists sessions_client_id_fkey;
 alter table reports drop constraint if exists reports_client_id_fkey;
-do $$
-begin
-  if to_regclass('clients') is not null then
-    insert into pages (id, kind, title, color, origin, updated_at, deleted)
-    select id, 'project', name, color, origin, updated_at, deleted
-    from clients
-    on conflict (id) do nothing;
-    update pages set kind = 'story', parent_id = coalesce(parent_id, client_id)
-    where kind = 'project' and client_id is not null and id not in (select id from clients);
-  end if;
-end $$;
-drop table if exists objectives;  -- before clients: its client_id FK references it
-drop table if exists clients;
-
--- Identity backfill for pages — after the legacy migrations so their copies are covered
--- in the same pass. Same rules and single-user guard as the page_comments backfill above.
-update pages set owner_id = '00000000-0000-4000-8000-000000000101'
-where owner_id is null and (
-  select count(*) from users
-  where not deleted
-) = 1;
 
 -- Local-only sync bookkeeping (harmless if it also exists on the hub).
 create table if not exists sync_state (
@@ -398,19 +323,18 @@ insert into sync_state (id) values (1) on conflict do nothing;
 -- watermarks so either transport can take over without a re-pull storm.
 alter table sync_state add column if not exists api_cursor bigint;
 
--- Change log (hub-API migration, phase 2). Per-replica, NOT synced. One mechanism,
--- three jobs: rev is the future pull cursor (server-issued, monotonic — client clocks
--- never order delivery), the triggers capture every write in the same transaction
--- (on the hub: coexistence capture of legacy direct-SQL pushes; locally: the durable
--- outbox source), and NOTIFY 'changes' is the future WS-nudge fan-out signal.
+-- Change log. Per-replica, NOT synced. One mechanism, three jobs: rev is the pull
+-- cursor (server-issued, monotonic — client clocks never order delivery), the triggers
+-- capture every write in the same transaction (locally: the durable outbox source),
+-- and NOTIFY 'changes' is the WS-nudge fan-out signal.
 create table if not exists change_log (
   rev bigint generated always as identity primary key,
   entity text not null,               -- table name
   row_id uuid not null,
   op text not null,                   -- upsert | delete (soft-deletes log as delete)
   at timestamptz not null default now(),
-  actor uuid,                         -- users.id; null until the API sets trame.actor (phase 3)
-  source text                         -- 'api' | … ; null = legacy direct SQL / local write
+  actor uuid,                         -- users.id; null unless the API set trame.actor
+  source text                         -- 'api' on a hub write; null on a local PGlite write
 );
 
 create or replace function trame_log_change() returns trigger
@@ -485,10 +409,9 @@ comment on table sessions is 'Coding-agent work sessions — the kanban cards. U
 comment on column sessions.status is 'active | paused | blocked | done — the board columns.';
 comment on column sessions.page_id is 'The anchor: the page this session ladders up to. Attaching promotes a plain page to kind=''story''. Story/project are derived by walking the tree up from it.';
 comment on column sessions.next_step is 'One imperative line — what to do next.';
-comment on column sessions.specs is 'Dead since protocol 4 (kept for the backfill) — specs live on the spec page.';
 comment on column sessions.specs_page_id is 'The session''s spec page (deterministic id, lazily created subpage of the story).';
-comment on column sessions.claude_id is 'LEGACY NAME: Claude Code or Codex transcript UUID. Imported cards also carry it as their id.';
-comment on column sessions.agent is 'Transcript provider: claude or codex. Null on older/manual cards; resume detects legacy Claude imports.';
+comment on column sessions.claude_id is 'Claude Code or Codex transcript UUID (the name predates Codex). Imported cards also carry it as their id.';
+comment on column sessions.agent is 'Transcript provider: claude or codex. Null on manual cards.';
 comment on column sessions.summary is 'Last "what happened" blurb; also written to session_events as the worklog.';
 comment on column sessions.last_touched is 'Activity clock for board ordering (distinct from updated_at, the LWW clock).';
 
@@ -523,11 +446,11 @@ comment on column udb_links.prop_id is 'The OWNER-side relation property (config
 comment on column udb_links.from_row is 'Row in the owner property''s database.';
 comment on column udb_links.to_row is 'Row in the target database.';
 
-comment on table change_log is 'Per-replica write log (NOT synced), trigger-fed in the mutation''s own txn. rev = the future server pull cursor; hub side captures legacy direct-SQL pushes during coexistence; local side is the durable outbox source. Compacted to 30 days on every schema run.';
+comment on table change_log is 'Per-replica write log (NOT synced), trigger-fed in the mutation''s own txn. rev = the server pull cursor; local side is the durable outbox source. Compacted to 30 days on every schema run.';
 comment on column change_log.rev is 'Monotonic, replica-issued. The ordering authority for the future changeset /sync — never a client clock.';
 comment on column change_log.op is 'upsert | delete. Soft-deletes (deleted=true) log as delete; readers of the log never need the LWW envelope.';
 comment on column change_log.actor is 'users.id of the writer; null until the API stamps trame.actor (phase 3+).';
-comment on column change_log.source is 'Write channel (''api'' once it exists); null = legacy direct SQL or a local PGlite write.';
+comment on column change_log.source is 'Write channel: ''api'' on a hub write, null on a local PGlite write.';
 
 comment on table sync_state is 'Local-only LWW watermarks (singleton id=1). Stores the max updated_at actually seen, not now() — robust to clock skew.';
 comment on column sync_state.last_pulled_at is 'Remote-clock watermark: pull fetches remote rows newer than this.';

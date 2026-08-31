@@ -31,9 +31,11 @@ $ARGUMENTS
       answering then answered:
 
       ```bash
-      echo '{"page_id":"<page id>","block_id":"<block id>","body":"…","agent":"claude","in_reply_to":"<comment_id>","meta":{"model":"<the real model id running this session>"}}' | tramecli comment
+      echo '{"page_id":"<page id>","block_id":"<block id>","body":"…","agent":"claude","in_reply_to":"<comment_id>","meta":{"model":"<the real model id running this session>","in":<input tokens>,"out":<output tokens>,"ms":<elapsed ms>}}' | tramecli comment
       ```
 
+      `meta` is mandatory for claude and codex — model id plus this reply's own token
+      counts and elapsed time, read from the harness, never guessed.
       Keep replies short and concrete — they render in a small comment box.
    2. **Comments are the default — and the only — response.** Touch the page content
       ONLY when a comment explicitly asks for a content change, and then only revise
