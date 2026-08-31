@@ -6,7 +6,7 @@ import { StdioServerTransport } from "npm:@modelcontextprotocol/sdk@^1.12/server
 import { z } from "npm:zod@^3.24";
 import { PORT_FILE } from "../app/config.ts";
 import { HTML_BLOCK_MAX_BYTES } from "../protocol/html.ts";
-import { PAGE_DIALECT } from "../track/help.ts";
+import { PAGE_DIALECT, TODO_SYNTAX } from "../track/help.ts";
 // the page/comment tools delegate to the tramecli writers, so both surfaces share
 // one implementation (markdown conversion, block merge, resolution, attribution)
 import { writePage } from "../track/page.ts";
@@ -107,6 +107,10 @@ As an agent you can:
 
 ## Page Markdown dialect
 ${PAGE_DIALECT}
+
+## Todo lines
+${TODO_SYNTAX}
+
 A session's specs are a page too (a subpage of the card's story) — write them with
 \`trame_update_page\` passing \`{session_id}\`.
 

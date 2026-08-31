@@ -17,6 +17,7 @@
 import { PORT_FILE } from "../app/config.ts";
 import { markdownToPageBlocks } from "../app/page-markdown.ts";
 import { mergePageBlocks } from "../app/page-merge.ts";
+import { stampTodoMarks } from "../app/todo-marks.ts";
 
 export type PageInput = {
   title?: string;
@@ -140,9 +141,10 @@ async function updatePage(input: Input, base: string): Promise<PageResult> {
     : input.markdown ?? "";
   const title = input.title ?? page.title;
   const existing = page.content ?? [];
-  const content = mergePageBlocks(
-    existing,
-    markdownToPageBlocks(markdown, title),
+  // stamp after the merge: the merge carries old marks forward, the stamp then
+  // settles completed_at against the `done` the markdown just asserted
+  const content = stampTodoMarks(
+    mergePageBlocks(existing, markdownToPageBlocks(markdown, title)),
   );
   // count only text blocks: structural blocks are always preserved
   const textId = (b: unknown): string | null => {
@@ -196,7 +198,7 @@ async function createPage(input: Input, base: string): Promise<PageResult> {
       ? { parent_id: parentId }
       : { repo_path: input.repo_path ?? Deno.cwd() }),
     icon: input.icon ?? null,
-    content: markdownToPageBlocks(markdown, input.title!),
+    content: stampTodoMarks(markdownToPageBlocks(markdown, input.title!)),
   };
   const { id } = await request(base, "/api/pages", {
     method: "POST",

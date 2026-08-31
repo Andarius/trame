@@ -1,4 +1,5 @@
 import type { PageTextBlock } from "./page-markdown.ts";
+import { carryMarks, stripMarks } from "./todo-marks.ts";
 
 type AnyBlock = Record<string, unknown>;
 
@@ -10,28 +11,32 @@ const isTextLike = (b: unknown): b is AnyBlock =>
 
 // Replace a page's textual content with markdown-derived blocks, reusing the id of
 // every block whose trimmed text is unchanged so attached comments stay anchored.
-// Matching ignores block type; duplicate texts pair up in document order. Non-text
-// blocks (database/subpage/folder/html/...) are never dropped: each re-attaches
-// after the nearest preceding text block whose id survived (page head otherwise).
+// Matching ignores block type and {{trame:...}} marks, so a rewrite that drops the
+// marks still pairs up — and the surviving block keeps them. Duplicate texts pair
+// in document order. Non-text blocks (database/subpage/folder/html/...) are never
+// dropped: each re-attaches after the nearest preceding text block whose id
+// survived (page head otherwise).
 export function mergePageBlocks(
   existing: unknown[],
   next: PageTextBlock[],
 ): unknown[] {
-  const pool = new Map<string, string[]>();
+  const pool = new Map<string, { id: string; text: string }[]>();
   for (const b of existing) {
     if (!isTextLike(b)) continue;
     if (typeof b.text !== "string" || typeof b.id !== "string") continue;
-    const key = b.text.trim();
-    const ids = pool.get(key);
-    if (ids) ids.push(b.id);
-    else pool.set(key, [b.id]);
+    const key = stripMarks(b.text).trim();
+    const prev = pool.get(key);
+    if (prev) prev.push({ id: b.id, text: b.text });
+    else pool.set(key, [{ id: b.id, text: b.text }]);
   }
 
-  // next is authoritative for order, type, done, indent; only ids are reused
-  const merged = next.map((b) => ({
-    ...b,
-    id: pool.get(b.text.trim())?.shift() ?? b.id,
-  }));
+  // next is authoritative for order, type, done, indent; ids and marks are reused
+  const merged = next.map((b) => {
+    const prev = pool.get(stripMarks(b.text).trim())?.shift();
+    return prev
+      ? { ...b, id: prev.id, text: carryMarks(prev.text, b.text) }
+      : b;
+  });
 
   const survived = new Set(merged.map((b) => b.id));
   const groups = new Map<string | null, unknown[]>();

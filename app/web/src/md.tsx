@@ -212,6 +212,14 @@ export function PrChip({ url, label }: { url: string; label?: string }) {
   );
 }
 
+// {{trame:key=value}} marks — dates the app keeps on todos. Rendered as quiet
+// chips; the raw form is still there in the textarea while the block is edited.
+const MARK_LABELS: Record<string, string> = {
+  created_at: "added",
+  completed_at: "done",
+  updated_at: "edited",
+};
+
 // {{text}} pills — an optional known-color prefix ({{green:done}}) tints them; any
 // other "word:" stays part of the text. Full class strings so Tailwind sees them.
 const PILL_COLORS: Record<string, string> = {
@@ -281,6 +289,31 @@ const INLINE: [RegExp, (m: RegExpMatchArray, k: number) => ReactNode][] = [
   [
     /^(https?:\/\/[^\s<>)]+)/,
     (m, k) => <Link key={k} href={m[1]}>{m[1]}</Link>,
+  ],
+  // marks before the generic pill, which would print them as literal gray text
+  [
+    /^\{\{trame:([a-z_][a-z0-9_]*)=([^{}\n]*)\}\}/,
+    (m, k) => {
+      // updated_at is a capped day list: the chip shows the latest, the title the run
+      const days = m[2].split(",").map((d) => d.trim()).filter(Boolean);
+      const many = m[1] === "updated_at" && days.length > 1;
+      return (
+        <span
+          key={k}
+          title={many
+            ? `${days.length} edits, ${days[0]} → ${days.at(-1)}`
+            : `${m[1]} ${m[2]}`}
+          className={`ml-1 inline-block whitespace-nowrap rounded-md px-1.5 py-px font-mono text-[0.78em] ${
+            m[1] === "completed_at"
+              ? "bg-active/15 text-active"
+              : "text-ink-muted"
+          }`}
+        >
+          {MARK_LABELS[m[1]] ?? m[1]} {days.at(-1) ?? m[2]}
+          {many && <span className="opacity-60">{` ×${days.length}`}</span>}
+        </span>
+      );
+    },
   ],
   [
     /^\{\{([^{}\n]+?)\}\}/,

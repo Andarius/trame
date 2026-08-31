@@ -49,6 +49,23 @@ fences, live PR chips, interactive tables; no raw HTML or entities. Run
 `tramecli page --help` for the full dialect before composing, and use the
 extensions instead of flattening structure into plain prose.
 
+## Todo lines
+
+Todos carry their dates inline as `{{trame:created_at=…}}`, `{{trame:completed_at=…}}`
+and `{{trame:updated_at=…}}` marks at the end of the line:
+
+```markdown
+- [ ] Rotate the reader keys {{trame:created_at=2026-08-20}} {{trame:updated_at=2026-08-25,2026-08-30}}
+- [x] Ship the writers {{trame:created_at=2026-08-19}} {{trame:completed_at=2026-08-28}}
+```
+
+`updated_at` is a comma-separated day list, deduped and capped at the 5 most recent.
+
+Write a mark when you know the real date; otherwise omit it and Trame stamps what is
+missing. A mark you wrote is never overwritten, and marks you leave out of a rewrite
+are carried over from the stored page — so an update need not repeat dates it did not
+change. `tramecli page --help` has the full rules.
+
 ## Update a page
 
 Use only for revising a page this agent (or its workflow) authored — e.g. publishing
