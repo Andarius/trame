@@ -6,6 +6,53 @@ export type PageTextBlock = {
   id: string;
 };
 
+// The structural blocks the dialect can express. A folder block's whole payload is
+// a path and a view, so one line carries it; blocks with a body (html) do not fit.
+export type PageFolderBlock = {
+  type: "folder";
+  path: string;
+  view: FolderView;
+  id: string;
+};
+
+export type PageBlock = PageTextBlock | PageFolderBlock;
+
+export type FolderView = "list" | "gallery";
+
+const FOLDER_VIEWS: FolderView[] = ["list", "gallery"];
+const DEFAULT_FOLDER_VIEW: FolderView = "list";
+
+// A line that is nothing but `{{trame:folder=<path>}}`, optionally followed by
+// `{{trame:view=<list|gallery>}}`.
+const FOLDER_LINE =
+  /^\s*\{\{trame:folder=([^{}\n]*)\}\}(?:[ \t]*\{\{trame:view=([^{}\n]*)\}\})?\s*$/;
+
+export const isFolderBlock = (b: unknown): b is PageFolderBlock =>
+  typeof b === "object" && b !== null &&
+  (b as PageFolderBlock).type === "folder";
+
+function folderLine(line: string): PageFolderBlock | null {
+  const m = line.match(FOLDER_LINE);
+  if (!m) return null;
+  const path = m[1].trim();
+  if (!path) return null; // an empty path would render as a dead block
+  const view = FOLDER_VIEWS.find((v) => v === m[2]?.trim());
+  return {
+    type: "folder",
+    path,
+    view: view ?? DEFAULT_FOLDER_VIEW,
+    id: crypto.randomUUID(),
+  };
+}
+
+// The default view is left implicit, so the common case stays a single mark.
+export function folderMarkup(b: PageFolderBlock): string {
+  const view = b.view && b.view !== DEFAULT_FOLDER_VIEW
+    ? ` {{trame:view=${b.view}}}`
+    : "";
+  return `{{trame:folder=${b.path}}}${view}`;
+}
+
 const block = (
   type: PageTextBlock["type"],
   text: string,
@@ -20,12 +67,18 @@ const block = (
 });
 
 // Inverse of markdownToPageBlocks, for agent reads of a page (e.g. a session's spec
-// page). Structural blocks (database/subpage/folder/html) have no text and are skipped.
+// page). Folder blocks round-trip as their one line; the other structural blocks
+// (database/subpage/html) have no text form and are skipped.
 export function pageBlocksToMarkdown(blocks: unknown[]): string {
   const parts: string[] = [];
   let prevTodo = false;
   for (const raw of blocks) {
     const b = raw as Partial<PageTextBlock> & { type?: string };
+    if (isFolderBlock(raw)) {
+      prevTodo = false;
+      if (raw.path) parts.push(folderMarkup(raw));
+      continue;
+    }
     if (b.type === "todo") {
       const line = `${"  ".repeat(b.indent ?? 0)}- [${b.done ? "x" : " "}] ${b.text ?? ""}`;
       // consecutive todos stay one list; blank lines only between other blocks
@@ -47,9 +100,9 @@ export function pageBlocksToMarkdown(blocks: unknown[]): string {
 export function markdownToPageBlocks(
   markdown: string,
   pageTitle = "",
-): PageTextBlock[] {
+): PageBlock[] {
   const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
-  const out: PageTextBlock[] = [];
+  const out: PageBlock[] = [];
   let buf: string[] = [];
   let inFence = false;
   let firstContent = true;
@@ -71,6 +124,14 @@ export function markdownToPageBlocks(
       flush();
       buf.push(line);
       inFence = true;
+      firstContent = false;
+      continue;
+    }
+
+    const folder = folderLine(line);
+    if (folder) {
+      flush();
+      out.push(folder);
       firstContent = false;
       continue;
     }
