@@ -124,3 +124,51 @@ Deno.test("a mark the rewrite states wins over the stored one", () => {
   assertEquals(out[0].text, "Ship it {{trame:created_at=2026-01-01}}");
   assertEquals(out[0].id, "b1");
 });
+
+const folder = (path: string, id: string) => ({
+  type: "folder",
+  path,
+  view: "list",
+  id,
+});
+
+Deno.test("a rewrite carrying the folder line reuses the block instead of adding one", () => {
+  const out = mergePageBlocks(
+    [
+      { type: "heading", text: "Artefacts", id: "b1" },
+      folder("~/reports", "b2"),
+    ],
+    markdownToPageBlocks(
+      "## Artefacts\n\n{{trame:folder=~/reports}} {{trame:view=gallery}}",
+    ),
+  );
+  assertEquals(out, [
+    { type: "heading", text: "Artefacts", id: "b1" },
+    { type: "folder", path: "~/reports", view: "gallery", id: "b2" },
+  ]);
+});
+
+Deno.test("an edited path keeps the block's id and drops the stale folders", () => {
+  const out = mergePageBlocks(
+    [folder("~/old", "b1"), folder("~/gone", "b2")],
+    markdownToPageBlocks("{{trame:folder=~/new}}"),
+  );
+  assertEquals(out, [{
+    type: "folder",
+    path: "~/new",
+    view: "list",
+    id: "b1",
+  }]);
+});
+
+Deno.test("a rewrite with no folder line leaves the page's folders in place", () => {
+  const out = mergePageBlocks(
+    [
+      { type: "heading", text: "Artefacts", id: "b1" },
+      folder("~/reports", "b2"),
+    ],
+    markdownToPageBlocks("## Artefacts\n\nNothing to see."),
+  );
+  assertEquals(out.length, 3);
+  assertEquals(out[1], folder("~/reports", "b2"));
+});

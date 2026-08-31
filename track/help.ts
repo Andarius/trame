@@ -25,7 +25,10 @@ toggle between the two; \`{{text}}\` is a pill (\`{{green:…}}\` tints it:
 green|yellow|red|copper|gray); a \`mermaid\` fence renders as a diagram and other
 fences highlight python/ts/js/bash/json/sql; PR/MR links become live PR chips,
 \`#123\` an issue ref, \`![alt](url)\` an inline image; GFM tables render as
-interactive cards. A leading \`# Title\` equal to the page title is dropped. No raw
+interactive cards; a line that is only \`{{trame:folder=<path>}}\` becomes a live
+listing of that directory (\`{{trame:view=gallery}}\` after it shows HTML files as
+thumbnails) — the path must sit under one of Trame's Explore roots, or the block
+lists nothing. A leading \`# Title\` equal to the page title is dropped. No raw
 HTML or HTML entities — \`&middot;\` renders literally; write Unicode characters
 (·, —, …) directly.`;
 

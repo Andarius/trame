@@ -85,8 +85,63 @@ console.log(answer);
   assertEquals(withoutIds(markdownToPageBlocks(rendered)), withoutIds(blocks));
   // structural blocks are skipped, never serialized
   assertEquals(
-    pageBlocksToMarkdown([{ type: "subpage", page_id: "x" }, { type: "heading", text: "Goal" }]),
+    pageBlocksToMarkdown([{ type: "subpage", page_id: "x" }, {
+      type: "heading",
+      text: "Goal",
+    }]),
     "## Goal\n",
   );
   assertEquals(pageBlocksToMarkdown([]), "");
+});
+
+Deno.test("a lone {{trame:folder=...}} line becomes a folder block", () => {
+  assertEquals(
+    withoutIds(markdownToPageBlocks(
+      `## Artefacts
+
+{{trame:folder=~/LLMS/Soren/compliance}}
+
+{{trame:folder=./reports}} {{trame:view=gallery}}`,
+    )),
+    [
+      { type: "heading", text: "Artefacts" },
+      { type: "folder", path: "~/LLMS/Soren/compliance", view: "list" },
+      { type: "folder", path: "./reports", view: "gallery" },
+    ],
+  );
+});
+
+Deno.test("a folder mark that is not a whole line stays text", () => {
+  assertEquals(
+    withoutIds(markdownToPageBlocks(
+      `Files live in {{trame:folder=~/reports}}.
+
+{{trame:folder=}}
+
+\`\`\`md
+{{trame:folder=~/reports}}
+\`\`\``,
+    )),
+    [
+      { type: "text", text: "Files live in {{trame:folder=~/reports}}." },
+      { type: "text", text: "{{trame:folder=}}" },
+      { type: "text", text: "```md\n{{trame:folder=~/reports}}\n```" },
+    ],
+  );
+});
+
+Deno.test("folder blocks round-trip, the default view staying implicit", () => {
+  const markdown =
+    "## Artefacts\n\n{{trame:folder=~/reports}} {{trame:view=gallery}}\n";
+  const blocks = markdownToPageBlocks(markdown);
+  assertEquals(pageBlocksToMarkdown(blocks), markdown);
+  assertEquals(
+    pageBlocksToMarkdown([{ type: "folder", path: "~/reports", view: "list" }]),
+    "{{trame:folder=~/reports}}\n",
+  );
+  // a half-configured block (the editor creates one with an empty path) has no line
+  assertEquals(
+    pageBlocksToMarkdown([{ type: "folder", path: "", view: "list" }]),
+    "",
+  );
 });
