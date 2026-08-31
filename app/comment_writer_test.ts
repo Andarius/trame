@@ -51,6 +51,7 @@ Deno.test("comment writer resolves page and block text and detects Codex", async
       page_title: "Release plan",
       block_text: "safely",
       body: "Clarify the rollback criterion.",
+      meta: { model: "gpt-5.6-sol", in: 12894, out: 512, ms: 8300 },
     });
     const out = await new Deno.Command(Deno.execPath(), {
       args: ["run", "-A", "../track/comment.ts", input],
@@ -71,10 +72,61 @@ Deno.test("comment writer resolves page and block text and detects Codex", async
       anchor: "Ship the first release safely.",
       body: "Clarify the rollback criterion.",
       agent: "codex",
+      meta: { model: "gpt-5.6-sol", in: 12894, out: 512, ms: 8300 },
     });
   } finally {
     await server.shutdown();
     await Deno.remove(tmp, { recursive: true });
+  }
+});
+
+// claude and codex both surface their own usage, so a bare footer is a bug, not a limit.
+Deno.test("meta.model is always required; claude and codex must send stats too", async () => {
+  let listening!: (port: number) => void;
+  const ready = new Promise<number>((resolve) => listening = resolve);
+  const server = Deno.serve(
+    { hostname: "127.0.0.1", port: 0, onListen: ({ port }) => listening(port) },
+    (req) =>
+      new Response(
+        JSON.stringify(
+          new URL(req.url).pathname === "/api/comments"
+            ? { id: "comment-9" }
+            : {
+              id: "page-1",
+              title: "Release plan",
+              content: [{ type: "text", text: "Ship it.", id: "block-1" }],
+            },
+        ),
+        { headers: { "content-type": "application/json" } },
+      ),
+  );
+
+  try {
+    const base = `http://127.0.0.1:${await ready}`;
+    const post = (agent: string, meta?: Record<string, unknown>) =>
+      addComment(
+        { page_id: "page-1", block_id: "block-1", body: "Answered.", agent, meta },
+        base,
+      );
+    const cases: [string, string | undefined, Record<string, unknown> | undefined][] = [
+      ["claude with no meta", "meta.model is required", undefined],
+      ["claude missing token counts", "meta.in is required", { model: "claude-opus-5" }],
+      ["codex missing elapsed time", "meta.ms is required", {
+        model: "gpt-5.6-sol",
+        in: 10,
+        out: 5,
+      }],
+      // an agent whose harness hides its usage may still comment with the model alone
+      ["glm with model only", undefined, { model: "glm-5" }],
+    ];
+    for (const [name, wanted, meta] of cases) {
+      const agent = name.startsWith("codex") ? "codex" : name.startsWith("glm") ? "glm" : "claude";
+      const err = await post(agent, meta).then(() => null, (e: Error) => e.message);
+      if (wanted) assertStringIncludes(err ?? "", wanted, name);
+      else assertEquals(err, null, name);
+    }
+  } finally {
+    await server.shutdown();
   }
 });
 
@@ -117,6 +169,7 @@ Deno.test("in_reply_to brackets the reply with answering/answered", async () => 
       body: "Answered.",
       agent: "claude",
       in_reply_to: "comment-1",
+      meta: { model: "claude-opus-5", in: 4210, out: 118, ms: 5400 },
     }, base);
     assertEquals(res.id, "comment-2");
     assertEquals(calls, ["answering", "post", "answered"]);

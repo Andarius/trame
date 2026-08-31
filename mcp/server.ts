@@ -84,8 +84,9 @@ As an agent you can:
   glm, gemini, …) — not the harness seat. codex/claude get a branded avatar; any other
   id gets a generated one. Never post as a human.
 - **\`meta.model\` is required** — the exact model id you run as; it shows as a footer.
-  \`in\`/\`out\`/\`ms\` are optional: pass only numbers you truly know, omit what you
-  can't measure (a footer must be real).
+  Running as claude or codex, \`in\`/\`out\`/\`ms\` are required too — both harnesses
+  report their own usage, so read it there. Other agents omit what they can't measure;
+  never guess a number (a footer must be real).
 - **The watcher loop**: a human may reply to your comment. If the human runs \`tramecli answer\`,
   YOUR agent is invoked to answer that reply — so a thread is a back-and-forth, not a
   one-shot. Your answer posts as the next comment; the watcher fills its meta for you.
@@ -316,7 +317,7 @@ server.tool(
 
 server.tool(
   "trame_add_comment",
-  "Add an inline agent review comment to a Trame page block. Identify the page by id or exact title and the block by id or a unique text quote. `agent` is the id of the model actually writing (e.g. codex, claude, glm, gemini) — attribute the real model, not the harness seat; codex/claude get a branded avatar, any other id gets a generated one. `meta.model` is required and records the exact model id you are running as (e.g. claude-opus-5, gpt-5.6-sol) — it renders as a footer under the comment. `in`/`out`/`ms` are optional generation stats: pass only numbers you actually know, omit tokens/time you can't measure.",
+  "Add an inline agent review comment to a Trame page block. Identify the page by id or exact title and the block by id or a unique text quote. `agent` is the id of the model actually writing (e.g. codex, claude, glm, gemini) — attribute the real model, not the harness seat; codex/claude get a branded avatar, any other id gets a generated one. `meta.model` is required and records the exact model id you are running as (e.g. claude-opus-5, gpt-5.6-sol) — it renders as a footer under the comment. `in`/`out`/`ms` (input tokens, output tokens, elapsed milliseconds) are required when running as claude or codex — both harnesses report their own usage, so read it there rather than guessing; other agents may omit stats they cannot measure.",
   {
     page_id: z.string().optional(),
     page_title: z.string().optional(),

@@ -87,7 +87,8 @@ instead (next section).
    block reference, comment `body`, `agent` set to the id of the model actually
    writing — attribute the real model, not the harness seat (`codex` and `claude` get a
    branded avatar; any other id, e.g. `glm`, `gemini`, gets a generated one) — and
-   `meta` (see step 5; the tool rejects calls without `meta.model`).
+   `meta` (see step 5; the tool rejects calls without `meta.model`, and without
+   `in`/`out`/`ms` when the agent is `claude` or `codex`).
 4. Otherwise pipe one JSON object to `tramecli comment`:
 
    ```json
@@ -105,9 +106,10 @@ instead (next section).
    ```
 
 5. Always pass `meta.model` — the exact model id you run as (`claude-opus-5`,
-   `gpt-5.6-sol`, …); it renders as a footer. `in`, `out` and `ms` (input/output tokens,
-   milliseconds) are optional: include only numbers you actually know and omit any you
-   can't measure rather than guessing. A visible footer must mean real data.
+   `gpt-5.6-sol`, …); it renders as a footer. Running as `claude` or `codex`, `in`, `out`
+   and `ms` (input/output tokens, milliseconds) are required too — both harnesses report
+   their own usage, so read it there. Any other agent may omit stats it cannot measure;
+   never guess a number. A visible footer must mean real data.
 6. Do not pass `author` or `author_avatar`. Trame injects the agent name and a
    self-contained avatar from `agent`. Repeat the call for additional target blocks, then report the
    comment IDs and page URL.
