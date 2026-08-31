@@ -24,3 +24,5 @@ fi
 snap_file="$(ls "${tmp}"/*.snap | head -n1)"
 echo "Installing ${snap_file}..."
 sudo snap install --dangerous --classic "${snap_file}"
+# bare `tramecli` for agents (snap exposes apps as trame.<app>)
+sudo snap alias trame.tramecli tramecli || echo "snap alias failed — use trame.tramecli" >&2

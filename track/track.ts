@@ -25,8 +25,8 @@ type Input = {
   agent_id?: string;
 };
 
-async function readInput(): Promise<Input> {
-  const arg = Deno.args[0];
+async function readInput(argv: string[]): Promise<Input> {
+  const arg = argv[0];
   if (arg) return JSON.parse(arg);
   return JSON.parse(await new Response(Deno.stdin.readable).text());
 }
@@ -36,16 +36,21 @@ async function readInput(): Promise<Input> {
 // /trame:track, so anything older belongs to a previous session.
 async function claudeIdFor(cwd: string): Promise<string | undefined> {
   try {
-    const map = JSON.parse(await Deno.readTextFile(CLAUDE_MAP)) as
-      Record<string, { id: string; at: string }>;
+    const map = JSON.parse(await Deno.readTextFile(CLAUDE_MAP)) as Record<
+      string,
+      { id: string; at: string }
+    >;
     const e = map[cwd];
     if (e && Date.now() - Date.parse(e.at) < 3600_000) return e.id;
   } catch { /* hook not installed / no map yet */ }
   return undefined;
 }
 
-async function main() {
-  const inp = await readInput();
+export async function main(
+  argv: string[] = Deno.args,
+  opts: { json?: boolean } = {},
+) {
+  const inp = await readInput(argv);
   // Codex exposes the current resumable thread UUID directly. Claude needs the
   // UserPromptSubmit sidecar hook because slash commands do not receive its id.
   const codexId = Deno.env.get("CODEX_THREAD_ID");
@@ -69,17 +74,40 @@ async function main() {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
     const { id, note, specs_page_id } = await res.json();
-    console.log(`ok: session ${id} tracked in Trame (${inp.status ?? "active"} — ${inp.title})`);
+    if (opts.json) {
+      console.log(JSON.stringify({ id, specs_page_id, note }));
+      return;
+    }
+    console.log(
+      `ok: session ${id} tracked in Trame (${
+        inp.status ?? "active"
+      } — ${inp.title})`,
+    );
     if (specs_page_id) console.log(`specs page: ${specs_page_id}`);
     if (note) console.log(`note: ${note}`);
   } catch (e) {
     const dir = OUTBOX.replace(/\/[^/]+$/, "");
     await Deno.mkdir(dir, { recursive: true }).catch(() => {});
-    await Deno.writeTextFile(OUTBOX, JSON.stringify(inp) + "\n", { append: true });
+    await Deno.writeTextFile(OUTBOX, JSON.stringify(inp) + "\n", {
+      append: true,
+    });
+    if (opts.json) {
+      console.log(
+        JSON.stringify({ queued: true, error: (e as Error).message }),
+      );
+      return;
+    }
     console.log(
-      `Trame app not reachable (${(e as Error).message}) — queued to outbox, applied on next app launch`,
+      `Trame app not reachable (${
+        (e as Error).message
+      }) — queued to outbox, applied on next app launch`,
     );
   }
 }
 
-main();
+if (import.meta.main) {
+  main().catch((e) => {
+    console.error(`error: ${(e as Error).message}`);
+    Deno.exit(1);
+  });
+}

@@ -74,13 +74,13 @@ jobs:
         include:
           - runner: ubuntu-latest
             target: linux-x64
-            tasks: "bundle bundle:deb"
-            assets: "dist/linux/Trame.AppImage dist/linux/trame.deb"
+            tasks: "bundle bundle:deb compile:cli"
+            assets: "dist/linux/Trame.AppImage dist/linux/trame.deb dist/tramecli"
           # pinned: macos-latest flips to macOS 26 from 2026-06 — repin deliberately
           - runner: macos-15
             target: macos-arm64
-            tasks: "bundle:mac"
-            assets: "dist/macos/Trame.dmg"
+            tasks: "bundle:mac compile:cli"
+            assets: "dist/macos/Trame.dmg dist/tramecli"
           # macos-x64 (Intel) dropped: modern Macs are Apple Silicon, and the
           # macos-15-intel runner hits a flaky hdiutil ENOSPC (APFS container quirk,
           # runner being deprecated). Re-add a matrix entry if Intel support is needed.
@@ -116,7 +116,11 @@ jobs:
         run: |
           for asset in ${{ matrix.assets }}; do
             base="$(basename "${asset}")"
-            named="${base%.*}-${RELEASE_TAG}-${{ matrix.target }}.${base##*.}"
+            if [[ "${base}" == *.* ]]; then
+              named="${base%.*}-${RELEASE_TAG}-${{ matrix.target }}.${base##*.}"
+            else
+              named="${base}-${RELEASE_TAG}-${{ matrix.target }}"
+            fi
             cp "${asset}" "${named}"
             gh release upload "${RELEASE_TAG}" "${named}" --repo "${GH_REPO}" --clobber
           done
@@ -143,6 +147,9 @@ jobs:
 
       - name: Build app bundle
         run: cd app && deno task bundle:dir
+
+      - name: Build tramecli into the bundle
+        run: cd app && deno task compile:cli && cp ../dist/tramecli ../dist/linux/trame/tramecli
 
       - name: Build snap
         uses: snapcore/action-build@3bdaa03e1ba6bf59a65f84a751d943d549a54e79 # v1.3.0

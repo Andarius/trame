@@ -37,8 +37,8 @@ type PageMeta = {
 
 type PageDetail = PageMeta & { content?: unknown[] };
 
-async function readInput(): Promise<Input> {
-  const arg = Deno.args[0];
+async function readInput(argv: string[]): Promise<Input> {
+  const arg = argv[0];
   const raw = arg || await new Response(Deno.stdin.readable).text();
   const input = JSON.parse(raw) as Input;
   if (input.markdown !== undefined && input.markdown_file) {
@@ -184,8 +184,8 @@ async function createPage(input: Input, base: string): Promise<void> {
   );
 }
 
-async function main() {
-  const input = await readInput();
+export async function main(argv: string[] = Deno.args) {
+  const input = await readInput(argv);
   let port: number;
   try {
     port = JSON.parse(await Deno.readTextFile(PORT_FILE)).port;

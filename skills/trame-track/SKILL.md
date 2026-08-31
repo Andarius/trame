@@ -8,31 +8,23 @@ description: Log, update, pause, block, complete, or list coding-agent work sess
 If the user asks for a page, document, note, plan, or write-up rather than a
 session card, use `$trame-page` instead.
 
-Use the shared writer at
-`__TRACK_WRITER__`. It posts to the running
-Trame app or queues locally when the app is closed. In Codex, the writer reads
-`CODEX_THREAD_ID` automatically so the card can resume this exact session.
+Trame tracks work as a board of projects, stories, and session cards. The writer
+is the `__TRAMECLI__` binary: it posts to the running app or queues to an offline
+outbox when it is closed, and in Codex reads `CODEX_THREAD_ID` automatically so
+the card can resume this exact session.
 
 Interpret an optional first argument as the action:
 
 - Empty or `log`: status `active`.
 - `paused`, `blocked`, or `done`: use that status; treat the remaining text as a note.
-- `list`: read the port from `~/.local/share/trame/port.json`, GET
-  `/api/board`, and print open sessions grouped by story. Do not write.
+- `list`: run `__TRAMECLI__ list`. Do not write.
 
 For tracking actions:
 
-1. Read the current working directory and Git branch.
-2. Compose the writer fields below from the current conversation without asking.
-3. Pipe them as one JSON object to:
-
-   ```bash
-   deno run -A __TRACK_WRITER__
-   ```
-
-4. Report whether the writer tracked or queued the session, plus its title,
-   status, and next step.
-
-## Writer fields
-
-__TRACK_FIELDS__
+1. Run `__TRAMECLI__ track --help` for the writer contract and the field conventions.
+2. Read the current working directory and Git branch, compose every field from THIS
+   conversation (do not ask the user), and pipe one JSON object to `__TRAMECLI__ track`.
+3. If a spec is evident, write the spec page with the session id from the writer
+   output (`__TRAMECLI__ page`, see its `--help`).
+4. Report one line from the writer output: tracked/queued, title, status, and the
+   `next_step` you wrote.

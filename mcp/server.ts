@@ -9,6 +9,7 @@ import { markdownToPageBlocks } from "../app/page-markdown.ts";
 import { mergePageBlocks } from "../app/page-merge.ts";
 import { resolveCommentBlock } from "../app/agent-comments.ts";
 import { HTML_BLOCK_MAX_BYTES } from "../protocol/html.ts";
+import { PAGE_DIALECT } from "../track/help.ts";
 import { parseSessionRef } from "./session_url.ts";
 
 async function appPort(): Promise<number> {
@@ -68,8 +69,8 @@ const server = new McpServer({ name: "trame", version: "0.1.0" });
 
 // One-call, self-describing map of what an agent can do with Trame — so discovery
 // doesn't depend on happening to read the right tool description. Keep it current
-// when tools or their semantics change; the Markdown dialect is mirrored in
-// skills/trame-page/SKILL.md (self-sufficient for non-MCP writers) — edit both.
+// when tools or their semantics change; the Markdown dialect comes from
+// track/help.ts (shared with tramecli --help).
 const CAPABILITIES = `# Trame — capabilities for agents
 
 Trame is a local-first tracker (sessions, pages, databases) that syncs to a shared hub.
@@ -84,7 +85,7 @@ As an agent you can:
 - **\`meta.model\` is required** — the exact model id you run as; it shows as a footer.
   \`in\`/\`out\`/\`ms\` are optional: pass only numbers you truly know, omit what you
   can't measure (a footer must be real).
-- **The watcher loop**: a human may reply to your comment. If the human runs \`just watch\`,
+- **The watcher loop**: a human may reply to your comment. If the human runs \`tramecli answer\`,
   YOUR agent is invoked to answer that reply — so a thread is a back-and-forth, not a
   one-shot. Your answer posts as the next comment; the watcher fills its meta for you.
 
@@ -103,19 +104,9 @@ As an agent you can:
 - **trame_report** — publish a self-contained HTML report to the Explore view.
 
 ## Page Markdown dialect
-GFM plus: \`## Title {{tab}}\` headings group the blocks below into a tab strip
-(consecutive markers = one strip) and \`## Title {{fold}}\` into a collapsible section;
-\`- [ ]\`/\`- [x]\` become checkable todos (2 spaces per nesting level, max 4);
-bullets under a Completed/Done/Shipped heading render as checks, under
-Open/Todo/Next/Pending/Remaining/In progress/Blocked as open rings, with a one-click
-toggle between the two; \`{{text}}\` is a pill (\`{{green:…}}\` tints it:
-green|yellow|red|copper|gray); a \`mermaid\` fence renders as a diagram and other
-fences highlight python/ts/js/bash/json/sql; PR/MR links become live PR chips,
-\`#123\` an issue ref, \`![alt](url)\` an inline image; GFM tables render as
-interactive cards. A leading \`# Title\` equal to the page title is dropped. A session's
-specs are a page too (a subpage of the card's story) — write them with
-\`trame_update_page\` passing \`{session_id}\`. No raw HTML or HTML
-entities — \`&middot;\` renders literally; write Unicode characters (·, —, …) directly.
+${PAGE_DIALECT}
+A session's specs are a page too (a subpage of the card's story) — write them with
+\`trame_update_page\` passing \`{session_id}\`.
 
 ## Sessions (the board)
 - **trame_session** — read ONE card the way the user sees it: project and story by name,
@@ -154,7 +145,9 @@ server.tool(
     session: z.string().describe(
       "Session id, or a pasted Trame URL (…/?session=<id>&full=1 or …/?page=<id>)",
     ),
-    events: z.number().optional().describe("Worklog entries to return, newest first (default 20)"),
+    events: z.number().optional().describe(
+      "Worklog entries to return, newest first (default 20)",
+    ),
   },
   async ({ session, events }: { session: string; events?: number }) => {
     const ref = parseSessionRef(session);
@@ -168,15 +161,22 @@ server.tool(
       // the link pointed at a page, not a card — hand back the cards anchored to it
       const page = await api(`/api/pages/${ref.id}`) as Record<string, unknown>;
       return text({
-        note: "URL had no ?session= — returning the page and the sessions anchored to it",
+        note:
+          "URL had no ?session= — returning the page and the sessions anchored to it",
         page: { id: page.id, title: page.title, kind: page.kind },
         sessions: page.sessions ?? [],
       });
     }
     const q = events ? `?events=${events}` : "";
-    const card = await api(`/api/sessions/${ref.id}${q}`) as Record<string, unknown>;
+    const card = await api(`/api/sessions/${ref.id}${q}`) as Record<
+      string,
+      unknown
+    >;
     // hand back a link the user can click, even when called with a bare id
-    return text({ ...card, url: `http://127.0.0.1:${await appPort()}/?session=${ref.id}&full=1` });
+    return text({
+      ...card,
+      url: `http://127.0.0.1:${await appPort()}/?session=${ref.id}&full=1`,
+    });
   },
 );
 
@@ -287,7 +287,9 @@ server.tool(
     },
   ) => {
     const pageId = args.session_id
-      ? (await post(`/api/sessions/${args.session_id}/specs-page`, {}) as { page_id: string })
+      ? (await post(`/api/sessions/${args.session_id}/specs-page`, {}) as {
+        page_id: string;
+      })
         .page_id
       : await resolvePageId(args);
     const page = await api(`/api/pages/${pageId}`) as {
@@ -502,4 +504,8 @@ server.tool(
   async () => text(await post("/api/sync", {})),
 );
 
-await server.connect(new StdioServerTransport());
+export async function serve() {
+  await server.connect(new StdioServerTransport());
+}
+
+if (import.meta.main) await serve();
