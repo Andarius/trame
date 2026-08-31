@@ -54,3 +54,58 @@ Deno.test("a session whose status was deleted lands on a surviving column", asyn
   assert(keys.includes(card.status), `card landed on a live column, got "${card.status}"`);
   assertEquals(card.status, "paused"); // first surviving non-terminal
 });
+
+// Regression: one Claude session that works several branches in a row. The claude_id
+// lookup ran before the repo+branch one, with no branch or status filter, so every
+// track call landed on the card of the previous branch — retitling it, moving its
+// branch, and reviving it if the user had already marked it done.
+Deno.test("one transcript across branches gets one card per branch", async () => {
+  const { getBoard, setSessionStatus, upsertSession } = await import("./db.ts");
+  const claude = crypto.randomUUID();
+  const repo = "/tmp/repo-multi-branch";
+
+  const first = await upsertSession({
+    title: "card A",
+    claude_id: claude,
+    repo_path: repo,
+    branch: "feat/a",
+  });
+  const second = await upsertSession({
+    title: "card B",
+    claude_id: claude,
+    repo_path: repo,
+    branch: "feat/b",
+  });
+  assert(first !== second, "a second branch earns its own card");
+
+  // same branch again still updates in place rather than piling up cards
+  assertEquals(
+    await upsertSession({
+      title: "card A, revised",
+      claude_id: claude,
+      repo_path: repo,
+      branch: "feat/a",
+    }),
+    first,
+  );
+
+  const sessions = () =>
+    getBoard().then((b) =>
+      (b.sessions as { id: string; title: string; branch: string; status: string }[])
+        .filter((s) => s.id === first || s.id === second)
+    );
+  const before = await sessions();
+  assertEquals(before.find((s) => s.id === first)!.branch, "feat/a", "card A kept its branch");
+  assertEquals(before.find((s) => s.id === second)!.title, "card B");
+
+  // a finished card is not pulled back by the next track from the same transcript
+  await setSessionStatus(first, "done");
+  const third = await upsertSession({
+    title: "card C",
+    claude_id: claude,
+    repo_path: repo,
+    branch: "feat/a",
+  });
+  assert(third !== first, "a done card stays done instead of being resurrected");
+  assertEquals((await sessions()).find((s) => s.id === first)!.status, "done");
+});

@@ -232,12 +232,18 @@ export async function upsertSession(s: Record<string, unknown>): Promise<string>
   }
   // project = a page that has sessions: attaching promotes a plain page (one-way)
   if (s.page_id) await promoteToProject(s.page_id as string, (s.client_id as string) ?? null);
-  // One coding-agent transcript maps to one card, regardless of import vs skill tracking.
+  // One coding-agent transcript maps to one card, regardless of import vs skill tracking —
+  // but only within a branch and among open cards. A session that moves on to another
+  // branch earns its own card instead of retitling the one it just finished, and a card
+  // the user marked done is never resurrected. An unbranched card (a fresh import) still
+  // adopts the first branch it is tracked with.
   if (!s.id && s.claude_id) {
     const hit = (await pg.query(
       `select id from sessions where (claude_id=$1 or id=$1) and not deleted
+         and status not in (select key from statuses where terminal and not deleted)
+         and ($2 = '' or coalesce(branch,'') in ('', $2))
        order by last_touched desc limit 1`,
-      [s.claude_id],
+      [s.claude_id, (s.branch as string) ?? ""],
     )).rows[0] as { id: string } | undefined;
     if (hit) s.id = hit.id;
   }
