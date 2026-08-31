@@ -5,11 +5,12 @@ import { McpServer } from "npm:@modelcontextprotocol/sdk@^1.12/server/mcp.js";
 import { StdioServerTransport } from "npm:@modelcontextprotocol/sdk@^1.12/server/stdio.js";
 import { z } from "npm:zod@^3.24";
 import { PORT_FILE } from "../app/config.ts";
-import { markdownToPageBlocks } from "../app/page-markdown.ts";
-import { mergePageBlocks } from "../app/page-merge.ts";
-import { resolveCommentBlock } from "../app/agent-comments.ts";
 import { HTML_BLOCK_MAX_BYTES } from "../protocol/html.ts";
 import { PAGE_DIALECT } from "../track/help.ts";
+// the page/comment tools delegate to the tramecli writers, so both surfaces share
+// one implementation (markdown conversion, block merge, resolution, attribution)
+import { writePage } from "../track/page.ts";
+import { addComment } from "../track/comment.ts";
 import { parseSessionRef } from "./session_url.ts";
 
 async function appPort(): Promise<number> {
@@ -245,25 +246,12 @@ server.tool(
       icon?: string;
     },
   ) => {
-    const res = await post("/api/pages", {
-      title,
-      kind: "page",
-      // no parent given: the app files the page under the repo's project
-      ...(parent_id ? { parent_id } : { repo_path: repo_path ?? Deno.cwd() }),
-      icon: icon ?? null,
-      content: markdownToPageBlocks(markdown ?? "", title),
-    }) as Record<string, unknown>;
-    // say where it landed — the parent is resolved app-side when none is given
-    const pages = await api("/api/pages") as {
-      id: string;
-      parent_id: string | null;
-      title: string;
-    }[];
-    const parentId = pages.find((p) => p.id === res.id)?.parent_id;
-    return text({
-      ...res,
-      filed_under: pages.find((p) => p.id === parentId)?.title ?? "Unfiled",
-    });
+    const res = await writePage(
+      { title, markdown, ...(parent_id ? { parent_id } : {}), repo_path, icon },
+      `http://127.0.0.1:${await appPort()}`,
+    );
+    if (res.action !== "created") throw new Error("expected a page creation");
+    return text({ id: res.id, filed_under: res.parent });
   },
 );
 
@@ -286,25 +274,11 @@ server.tool(
       title?: string;
     },
   ) => {
-    const pageId = args.session_id
-      ? (await post(`/api/sessions/${args.session_id}/specs-page`, {}) as {
-        page_id: string;
-      })
-        .page_id
-      : await resolvePageId(args);
-    const page = await api(`/api/pages/${pageId}`) as {
-      title: string;
-      content?: unknown[];
-    };
-    const content = mergePageBlocks(
-      page.content ?? [],
-      markdownToPageBlocks(args.markdown, args.title ?? page.title),
-    );
-    await post(`/api/pages/${pageId}`, {
-      content,
-      ...(args.title ? { title: args.title } : {}),
-    });
-    return text({ page_id: pageId });
+    if (!args.session_id && !args.page_id && !args.page_title) {
+      throw new Error("use page_id, page_title, or session_id");
+    }
+    const res = await writePage(args, `http://127.0.0.1:${await appPort()}`);
+    return text({ page_id: res.id });
   },
 );
 
@@ -368,25 +342,8 @@ server.tool(
       meta: { model: string; in?: number; out?: number; ms?: number };
     },
   ) => {
-    if (args.block_id && args.block_text) {
-      throw new Error("use block_id or block_text, not both");
-    }
-    const pageId = await resolvePageId(args);
-    const page = await api(`/api/pages/${pageId}`) as {
-      id: string;
-      content: unknown[];
-    };
-    const target = resolveCommentBlock(page.content, args);
-    return text(
-      await post("/api/comments", {
-        page_id: page.id,
-        block_id: target.id,
-        anchor: target.text,
-        body: args.body,
-        agent: args.agent,
-        meta: args.meta,
-      }),
-    );
+    const res = await addComment(args, `http://127.0.0.1:${await appPort()}`);
+    return text({ id: res.id });
   },
 );
 
