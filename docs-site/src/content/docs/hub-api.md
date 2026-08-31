@@ -1,4 +1,8 @@
-# Hub API server — design
+---
+title: "Hub API server — design"
+sidebar:
+  label: "Hub API"
+---
 
 Status: **phases 1–7 shipped** (identity, change_log, API `/sync`, coexistence capture, WS nudges, direct-PG cutover, per-page ACLs) — only page-content CRDT (step 8) remains ·
 Supersedes: laptops talking directly to hub Postgres over mTLS ·
