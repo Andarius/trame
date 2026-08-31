@@ -1364,20 +1364,28 @@ async function handler(req: Request): Promise<Response> {
     await revokeShare(shr[1]);
     return json({ ok: true });
   }
-  if (pathname === "/api/links" && req.method === "POST") {
+  // page share links live under /api/page-links — /api/links/:id/delete belongs
+  // to session links above and would shadow a same-path delete here
+  if (pathname === "/api/page-links" && req.method === "POST") {
     const body = await req.json();
     const { id, token } = await createLink(String(body.page_id));
     const base = await getLinkBase();
     return json({ id, url: base ? `${base}/l/${token}` : null, token });
   }
-  if (pathname === "/api/links") {
+  if (pathname === "/api/page-links") {
     const pageId = url.searchParams.get("page");
+    const base = await getLinkBase();
+    const links = pageId ? await listLinks(pageId) : [];
     return json({
-      base: await getLinkBase(),
-      links: pageId ? await listLinks(pageId) : [],
+      base,
+      links: links.map((l) => ({
+        id: l.id,
+        updated_at: l.updated_at,
+        url: base && l.token ? `${base}/l/${l.token}` : null,
+      })),
     });
   }
-  const lnk = pathname.match(/^\/api\/links\/([^/]+)\/delete$/);
+  const lnk = pathname.match(/^\/api\/page-links\/([^/]+)\/delete$/);
   if (lnk && req.method === "POST") {
     await revokeLink(lnk[1]);
     return json({ ok: true });

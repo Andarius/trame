@@ -32,7 +32,12 @@ export type Story = {
   client_id: string | null;
   status: string;
 };
-export type Project = { id: string; name: string; color: string | null; icon: string | null };
+export type Project = {
+  id: string;
+  name: string;
+  color: string | null;
+  icon: string | null;
+};
 export type BoardPage = {
   id: string;
   parent_id: string | null;
@@ -192,9 +197,19 @@ export const addLog = (id: string, summary: string) =>
   post(`/api/sessions/${id}/events`, { summary });
 export const updateObjective = (id: string, patch: Record<string, unknown>) =>
   post(`/api/objectives/${id}`, patch);
+// the public link viewer (hub /l/<token>) has no /api — degrade gracefully there
+const isLinkView = () =>
+  Boolean((globalThis as { __TRAME_LINK__?: unknown }).__TRAME_LINK__);
+
 // Open in the system browser (the desktop webview has no window.open).
 // target: app-relative path ("/report/…") or an absolute http(s) URL.
-export const openInBrowser = (target: string) => post("/api/open", { target });
+export const openInBrowser = (target: string) => {
+  if (isLinkView()) {
+    globalThis.open(target, "_blank", "noopener");
+    return Promise.resolve(new Response());
+  }
+  return post("/api/open", { target });
+};
 export type PrInfo = {
   state: string;
   title?: string;
@@ -203,7 +218,10 @@ export type PrInfo = {
   stack?: string;
 };
 export const prInfo = (url: string) =>
-  post("/api/pr-state", { url })
+  isLinkView() ? Promise.resolve({ state: "unknown" } as PrInfo) : post(
+    "/api/pr-state",
+    { url },
+  )
     .then((r) => r.json() as Promise<PrInfo>)
     .catch(() => ({ state: "unknown" } as PrInfo));
 export const completePath = (path: string) =>
@@ -567,12 +585,15 @@ export type SessionLink = {
   session_status?: Status;
 };
 export const getSessionLinks = (id: string) =>
-  fetch(`/api/sessions/${id}/links`).then((r) => r.json() as Promise<SessionLink[]>);
+  fetch(`/api/sessions/${id}/links`).then((r) =>
+    r.json() as Promise<SessionLink[]>
+  );
 export const addSessionLink = (
   sessionId: string,
   l: { page_id: string; block_id?: string | null; anchor?: string },
 ) => post(`/api/sessions/${sessionId}/links`, l);
-export const deleteSessionLink = (id: string) => post(`/api/links/${id}/delete`, {});
+export const deleteSessionLink = (id: string) =>
+  post(`/api/links/${id}/delete`, {});
 
 export const listPages = () =>
   fetch("/api/pages").then((r) => r.json() as Promise<PageMeta[]>);
@@ -731,15 +752,17 @@ export const setShare = (
 ) => post("/api/shares", s).then((r) => r.json() as Promise<{ id: string }>);
 export const revokeShare = (id: string) => post(`/api/shares/${id}/delete`, {});
 
-// Public share links (read-only browser view; token shown once at creation).
-export type PageLink = { id: string; updated_at: string };
+// Public share links (read-only browser view). `url` is null when the link was
+// created on another device (the raw token only lives where it was minted) or
+// when linkBase isn't configured.
+export type PageLink = { id: string; updated_at: string; url: string | null };
 export const createShareLink = (pageId: string) =>
-  post("/api/links", { page_id: pageId }).then((r) =>
+  post("/api/page-links", { page_id: pageId }).then((r) =>
     r.json() as Promise<{ id: string; url: string | null; token: string }>
   );
 export const listShareLinks = (pageId: string) =>
-  fetch(`/api/links?page=${pageId}`).then((r) =>
+  fetch(`/api/page-links?page=${pageId}`).then((r) =>
     r.json() as Promise<{ base: string | null; links: PageLink[] }>
   );
 export const revokeShareLink = (id: string) =>
-  post(`/api/links/${id}/delete`, {});
+  post(`/api/page-links/${id}/delete`, {});

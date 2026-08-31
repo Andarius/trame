@@ -6,7 +6,7 @@ type HtmlB = Extract<Block, { type: "html" }>;
 // mirrors protocol/html.ts (the web bundle can't import outside web/src)
 const MAX_HTML_BYTES = 512 * 1024;
 const MAX_DATA_BYTES = 64 * 1024;
-const BRIDGE =
+export const BRIDGE =
   `<style>:root{--trame-bg:#0f1115;--trame-card:#181b22;--trame-ink:#e6e9ef;--trame-muted:#9aa3b2;--trame-accent:#c98a63;--trame-line:#2a2f3a}</style>` +
   `<script>(function(){` +
   `window.trame={send:function(d){parent.postMessage({trame:"data",data:d},"*")}};` +
