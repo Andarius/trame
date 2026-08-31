@@ -410,8 +410,10 @@ export type InboxItem = {
 // Human replies on agent threads that still need an answer. A candidate is the
 // NEWEST non-deleted comment on its block (no newer comment of any author), and is
 // unresolved, human-authored, and has an OLDER agent comment (a reply to the agent) —
-// exactly one per block, only when the newest comment is a human reply. Its status must
-// be absent, hash-stale (the human edited it), or stuck ≥ staleSecs (watcher crash).
+// exactly one per block, only when the newest comment is a human reply. Only "answering"
+// claims a candidate (until it goes stale ≥ staleSecs — a watcher crash); "seen" is the
+// display ack a poller writes at pickup and keeps it listed, since a long-running watcher
+// re-reads its own inbox. A hash-stale status (the human edited) re-surfaces regardless.
 export async function listCommentInbox(
   staleSecs = 600,
   // pages narrows to those page ids; all drops the requires-prior-agent-comment
@@ -457,8 +459,9 @@ export async function listCommentInbox(
               where a.page_id=c.page_id and a.block_id=c.block_id and not a.deleted
                 and a.id <> c.id and a.updated_at > c.updated_at)
         and (s.comment_id is null
+             or s.status = 'seen'
              or s.body_hash is distinct from md5(c.body)
-             or (s.status in ('seen','answering')
+             or (s.status = 'answering'
                  and s.updated_at < now() - make_interval(secs => $2)))
       -- updated_at is the app's LWW wall-clock; cross-device clock skew can affect
       -- ordering here (known limitation, same as the rest of the app)

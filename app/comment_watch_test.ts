@@ -211,10 +211,12 @@ Deno.test("reopening an answered reply with unchanged text does not requeue it",
   );
 });
 
-Deno.test("status lifecycle: seen (fresh) drops out, body edit re-triggers, stale re-surfaces", async () => {
+Deno.test("status lifecycle: seen stays listed, body edit re-triggers, stale re-surfaces", async () => {
   const { replyId } = await seedThread();
+  // "seen" is the pickup badge, not a claim: a watcher that marks it then keeps
+  // polling its own inbox during the quiet window must still find the item
   await setCommentAgentStatus(replyId, { status: "seen", agent: "codex" });
-  assertEquals(await inboxFor(replyId), undefined, "fresh seen → handled");
+  assert(await inboxFor(replyId), "fresh seen → still pending");
 
   await updateComment(replyId, { body: "human reply, edited" });
   assert(await inboxFor(replyId), "body edit → re-triggers (hash differs)");
@@ -235,7 +237,7 @@ Deno.test("status lifecycle: seen (fresh) drops out, body edit re-triggers, stal
 
 Deno.test("resolve / reopen without a body edit does not re-trigger", async () => {
   const { replyId } = await seedThread();
-  await setCommentAgentStatus(replyId, { status: "seen", agent: "codex" });
+  await setCommentAgentStatus(replyId, { status: "answered", agent: "codex" });
   await updateComment(replyId, { resolved: true });
   assertEquals(await inboxFor(replyId), undefined, "resolved → excluded");
   await updateComment(replyId, { resolved: false });
