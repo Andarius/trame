@@ -32,12 +32,11 @@ Deno.test("writes append to change_log in order: upsert, upsert, delete", async 
   assert(log[0].rev < log[1].rev && log[1].rev < log[2].rev, "rev is monotonic");
 });
 
-Deno.test("foreign-origin upserts are captured too (coexistence)", async () => {
+Deno.test("foreign-origin upserts are captured too", async () => {
   const { db } = await import("./db.ts");
   const pg = await db();
 
-  // what a hub receives from a legacy direct-SQL client / a laptop from a pull
-  // (owner_id set so the schema re-run in the last test doesn't backfill — and log — it)
+  // what a laptop writes when it pulls a row another node wrote
   await pg.query(
     `insert into pages (id, title, origin, owner_id)
      values ('00000000-0000-4000-8000-00000000cccc','pulled','other-node','00000000-0000-4000-8000-000000000101')`,

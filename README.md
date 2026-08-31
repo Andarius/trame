@@ -56,7 +56,7 @@ hub/docker-compose.yml     the hub: Postgres (docker-network only) + the Deno AP
 hub/api/                   the API: device tokens, changeset /sync, per-page ACLs, WSS nudges, public /l/* pages
 hub/deploy.sh              deploy the hub over ssh (~/Apps/tracker) — `just db-deploy`
 hub/gen-certs.sh           private CA + server certs, runs on the hub (called by deploy)
-hub/issue-cert.sh          fetch the hub's ca.crt so this laptop trusts the API's TLS — `just db-cert`
+hub/fetch-ca.sh            fetch the hub's ca.crt so this laptop trusts the API's TLS — `just hub-ca`
 hub/pg_hba.conf            Postgres auth rules: local + docker network only, anything else rejected
 app/                       Deno-desktop app
   main.ts                  window + in-process HTTP (serves UI + /api), startup sync loop
@@ -103,7 +103,7 @@ Claude session hook (step 4) still need the manual steps below.
 ### 1. The hub
 ```bash
 just db-deploy       # ssh: copies compose+schema+hba+api to ~/Apps/tracker, creates .env+certs, starts it
-just db-cert         # per laptop: fetch ca.crt (trusts the API's TLS)
+just hub-ca          # per laptop: fetch ca.crt (trusts the API's TLS)
 ```
 First run generates the password and the CA/server certs, and binds to the hub's LAN IP
 (never 0.0.0.0). Postgres itself has **no host port** — laptops talk to the Deno API on
@@ -254,7 +254,7 @@ that spawns a terminal).
 
 ## How sync works
 - **Transport**: HTTPS to the Deno API on `:8443` (TLS terminated by the API with the hub's
-  private-CA cert — `just db-cert` fetches the CA once per laptop). Every request carries a
+  private-CA cert — `just hub-ca` fetches the CA once per laptop). Every request carries a
   **per-device bearer token**, minted on the hub and stored sha-256 at rest, revocable.
   Postgres itself has no host port — the API is the only way in.
 - **Changesets**: `POST /sync` sends local mutations since a cursor and returns

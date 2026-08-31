@@ -172,10 +172,6 @@ export async function saveExploreSettings(
         delete settings.hubApiToken;
       }
     }
-    // legacy direct-Postgres sync keys — gone since the hub became an API
-    delete settings.remotePg;
-    delete settings.remotePgPassword;
-    delete settings.syncViaApi;
   });
   cache = null; // rescan with the new config
 }

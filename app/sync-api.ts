@@ -6,7 +6,7 @@ import { ENTITIES, PROTOCOL_VERSION } from "../protocol/entities.ts";
 import { lwwSoftDelete, lwwUpsert, toParam } from "../protocol/lww.ts";
 import type { Change, Mutation, SyncResponse } from "../protocol/types.ts";
 
-// Trust the hub's private CA (fetched by `just db-cert`) for the API's TLS too.
+// Trust the hub's private CA (fetched by `just hub-ca`) for the API's TLS too.
 function httpClient(): Deno.HttpClient | undefined {
   try {
     return Deno.createHttpClient({

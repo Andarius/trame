@@ -9,7 +9,7 @@ services:
       POSTGRES_DB: tracker
       POSTGRES_USER: tracker
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-    # mTLS: gen-certs.sh must have populated ./certs before first start (deploy.sh / `just db` do).
+    # TLS: gen-certs.sh must have populated ./certs before first start (deploy.sh / `just db` do).
     command:
       - -c
       - ssl=on
@@ -18,12 +18,9 @@ services:
       - -c
       - ssl_key_file=/etc/tracker-tls/server.key
       - -c
-      - ssl_ca_file=/etc/tracker-tls/ca.crt
-      - -c
       - hba_file=/etc/tracker-hba.conf
     # No host port: laptops sync through tracker-api (the auth boundary); Postgres is
-    # reachable only on the docker network. Legacy direct-PG topology: add back
-    #   ports: ["${TRACKER_BIND:-127.0.0.1}:${TRACKER_PORT:-5433}:5432"]
+    # reachable only on the docker network.
     volumes:
       # postgres:18 moved PGDATA to a version subdir — mount the parent, not .../data
       - tracker-db-data:/var/lib/postgresql

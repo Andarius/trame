@@ -218,7 +218,7 @@ export function AgentSessions(
       s.title.toLowerCase().includes(query));
 
   // an imported (or /trame:track-created) card carries this transcript's uuid as
-  // its own id, or in the legacy claude_id column — either way, jump straight to it
+  // its own id, or in the claude_id column — either way, jump straight to it
   const cardFor = (s: ClaudeSession) =>
     board.sessions.find((row) =>
       row.id === s.claudeId || row.claude_id === s.claudeId

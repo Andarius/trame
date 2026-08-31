@@ -11,7 +11,7 @@ export const NODE_ID = Deno.env.get("TRACKER_NODE_ID") ?? Deno.hostname();
 // `just dev`/`just serve` both run from app/, so cwd = app/.
 export const APP_ROOT = Deno.env.get("TRACKER_APP_ROOT") ?? Deno.cwd();
 
-// Client TLS material for the hub (ca.crt) — fetched by `just db-cert`.
+// The hub's CA (ca.crt) — fetched by `just hub-ca`.
 export const TLS_DIR = Deno.env.get("TRACKER_TLS_DIR") ?? `${dataHome}/trame/certs`;
 
 export const DATA_DIR = Deno.env.get("TRACKER_DATA_DIR") ?? `${dataHome}/trame/pglite`;

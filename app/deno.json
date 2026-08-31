@@ -24,7 +24,6 @@
     "serve": "deno run -A main.ts",
     "test": "deno test -A",
     "sync": "deno run -A sync.ts once",
-    "migrate:pg18": "deno run -A migrate-pg18.ts",
     "web:dev": "cd web && npm install && npm run dev",
     "web:build": "cd web && npm install && npm run build && cd .. && deno run -A ../scripts/gen-embed.ts"
   },

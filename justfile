@@ -24,10 +24,10 @@ db:
 db-deploy host=env_var_or_default('TRACKER_HUB_HOST', 'hub'):
     hub/deploy.sh {{ host }}
 
-# Issue + fetch this laptop's client cert from the hub (the CA key never leaves it)
+# Fetch the hub's ca.crt so this laptop trusts the hub API's TLS
 [group('infra')]
-db-cert node_id=env_var_or_default('TRACKER_NODE_ID', `hostname`) host=env_var_or_default('TRACKER_HUB_HOST', 'hub'):
-    hub/issue-cert.sh {{ node_id }} {{ host }}
+hub-ca host=env_var_or_default('TRACKER_HUB_HOST', 'hub'):
+    hub/fetch-ca.sh {{ host }}
 
 # Any docker compose command against the local hub: `just infra down`, `just infra logs -f`, `just infra ps`…
 [group('infra')]

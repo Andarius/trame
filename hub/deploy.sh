@@ -60,7 +60,7 @@ echo "schema.sql applied"
 docker restart tracker-api > /dev/null
 echo "tracker-api restarted"
 echo "hub ready — laptops sync through the API: https://$TRACKER_BIND:8443"
-echo "per laptop: fetch the CA once (just db-cert), mint a device token:"
+echo "per laptop: fetch the CA once (just hub-ca), mint a device token:"
 echo "  docker exec tracker-api deno run -A --config /srv/hub/api/deno.json /srv/hub/api/main.ts mint <node-id>"
-echo "then set syncViaApi/hubApi/hubApiToken in the laptop's settings.json"
+echo "then set hubApi/hubApiToken in the laptop's settings.json"
 REMOTE

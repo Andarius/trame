@@ -79,8 +79,7 @@ Deno.test("agent comments use canonical attribution without a user id", async ()
     author_id: string | null;
   };
   assertEquals(c.author, "Codex");
-  // reserved sentinel, not null — the schema backfill claims null rows for the
-  // local user on every start and must never re-claim agent comments
+  // the reserved sentinel, never a real user id
   const { AGENT_AUTHOR_ID } = await import("./agent-comments.ts");
   assertEquals(c.author_id, AGENT_AUTHOR_ID);
   assert(
@@ -139,48 +138,6 @@ Deno.test("page creators stamp owner_id", async () => {
     )
   );
   for (const o of owners) assertEquals(o.owner_id, SEED_USER);
-});
-
-Deno.test("schema re-run backfills null ids without touching updated_at or seeds", async () => {
-  const { db } = await import("./db.ts");
-  const { APP_ROOT } = await import("./config.ts");
-  const pg = await db();
-
-  await pg.query(
-    `insert into pages (id, title, origin) values ('00000000-0000-4000-8000-00000000aaaa','pre-identity','elsewhere')`,
-  );
-  await pg.query(
-    `insert into page_comments (id, page_id, block_id, body, author_id, origin)
-     values ('00000000-0000-4000-8000-00000000bbbb','00000000-0000-4000-8000-00000000aaaa','b','kept','00000000-0000-4000-8000-000000000999','elsewhere')`,
-  );
-  const before = (await pg.query(
-    `select updated_at from pages where id='00000000-0000-4000-8000-00000000aaaa'`,
-  )).rows[0] as { updated_at: string };
-
-  await pg.exec(await Deno.readTextFile(`${APP_ROOT}/../db/schema.sql`));
-
-  const page = (await pg.query(
-    `select owner_id, updated_at from pages where id='00000000-0000-4000-8000-00000000aaaa'`,
-  )).rows[0] as { owner_id: string; updated_at: string };
-  assertEquals(page.owner_id, SEED_USER, "null owner backfilled");
-  assertEquals(
-    page.updated_at,
-    before.updated_at,
-    "backfill never bumps the LWW clock",
-  );
-
-  const comment = (await pg.query(
-    `select author_id from page_comments where id='00000000-0000-4000-8000-00000000bbbb'`,
-  )).rows[0] as { author_id: string };
-  assertEquals(
-    comment.author_id,
-    "00000000-0000-4000-8000-000000000999",
-    "set ids are never overwritten",
-  );
-
-  const users = (await pg.query(`select count(*)::int as n from users`))
-    .rows[0] as { n: number };
-  assertEquals(users.n, 1, "seed insert stays idempotent");
 });
 
 // The "added a column to schema.sql but forgot app/sync.ts" failure mode is silent —

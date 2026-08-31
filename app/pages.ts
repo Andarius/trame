@@ -294,8 +294,7 @@ export async function createComment(
 ): Promise<string> {
   const pg = await db();
   const me = await getIdentity();
-  // agents (Codex, Claude, …) get the reserved AGENT_AUTHOR_ID so the schema
-  // backfill never re-claims their comments for the local user
+  // agents (Codex, Claude, …) get the reserved AGENT_AUTHOR_ID: never a real user
   const agent = p.agent ? agentIdentity(p.agent) : null;
   const author = agent?.name ?? p.author?.trim();
   // agent footers always name a model; blank models fall back to the agent id
