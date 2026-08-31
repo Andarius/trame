@@ -2,10 +2,8 @@
 // page has answerable human feedback — run it in the background from an agent session;
 // the harness re-invokes the session when it exits, which then answers and restarts it.
 //
-//   tramecli watch [--page <id-or-title[,…]>] [--agent claude] [--interval 10]
+//   tramecli watch --page <id-or-title[,…]> [--agent claude] [--interval 10]
 //                  [--quiet 45] [--stale 600]
-//
-// No --page: the `page_id` in ./.plan-trame.json.
 //
 // Each pass: POST /api/presence (badge TTL is 20s — keep --interval below that), then
 // GET /api/comments/inbox?page&mode=all filtered to --agent. Exits 0 once items exist
@@ -17,11 +15,10 @@ import { resolvePages } from "./watch.ts";
 
 const USAGE = `Waits for human feedback on a Trame page, then exits (0 = feedback ready).
 
-Usage: tramecli watch [--page <id-or-title[,…]>] [options]
+Usage: tramecli watch --page <id-or-title[,…]> [options]
 
 Options:
   --page P,P       pages to watch, by id or exact title, subpages included
-                   (default: page_id from ./.plan-trame.json)
   --agent ID       answer as this agent (default: claude)
   --interval SECS  poll + presence heartbeat cadence (default: 10, keep < 20)
   --quiet SECS     required quiet period after the last human comment (default: 45)
@@ -49,23 +46,10 @@ function parseFlags(argv: string[]): Flags {
     else if (a === "--stale") f.stale = Number(val());
     else throw new Error(`unknown flag: ${a}`);
   }
-  if (!f.pages.length) f.pages = planPages();
   if (!f.pages.length) {
-    throw new Error(
-      "no page to watch — pass --page <id-or-title>, or run from a project with .plan-trame.json",
-    );
+    throw new Error("no page to watch — pass --page <id-or-title>");
   }
   return f;
-}
-
-// Fallback selector: the plan page recorded by /trame:plan-export.
-function planPages(): string[] {
-  try {
-    const id = JSON.parse(Deno.readTextFileSync(".plan-trame.json")).page_id;
-    return id ? [String(id)] : [];
-  } catch {
-    return [];
-  }
 }
 
 function readBase(): string | null {
