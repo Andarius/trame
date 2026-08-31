@@ -26,14 +26,14 @@ Never use session-card fields as a substitute for a requested document or page r
 3. Prefer the `trame_create_page` MCP tool when available. Pass `title`, the complete
    `markdown`, `repo_path` (your working directory, so it files itself), and optional
    `parent_id` or `icon`.
-4. Otherwise pipe one JSON object to the shared writer at `__PAGE_WRITER__`:
+4. Otherwise pipe one JSON object to `__TRAMECLI__ page`:
 
    ```json
    {"title":"Release plan","markdown":"# Release plan\n\nComplete document body"}
    ```
 
    ```bash
-   deno run -A __PAGE_WRITER__
+   echo '<json>' | __TRAMECLI__ page
    ```
 
    Pass `markdown_file` instead of `markdown` when the content is already in a local
@@ -43,29 +43,11 @@ Never use session-card fields as a substitute for a requested document or page r
 
 ## Markdown dialect
 
-- **Section markers** — `## Title {{tab}}` groups the blocks below it into a tab;
-  consecutive `{{tab}}` headings form one strip. `## Title {{fold}}` is a standalone
-  collapsible section, collapsed by default. A fold ends a tab group and vice versa
-  (same dialect as the session-ticket spec).
-- **Todos** — `- [ ]` / `- [x]` become native checkable todo blocks; two leading spaces
-  per nesting level (max 4).
-- **Status lists** — plain bullets take their style from the nearest heading above:
-  `Completed`/`Done`/`Shipped` renders green checks, `Open`/`Todo`/`Next`/`Pending`/
-  `Remaining`/`In progress`/`Blocked` renders copper rings, each with a one-click
-  toggle that moves the item to the other list.
-- **Pills** — `{{text}}` is a neutral chip, `{{green:text}}` tints it
-  (green|yellow|red|copper|gray) — useful for status or category tags in table cells.
-- **Diagrams** — a fenced block tagged `mermaid` renders as a diagram.
-- **Code** — fences are syntax-highlighted for python/ts/js/bash/json/sql; the language
-  label shows on the card.
-- **Links** — a GitHub/GitLab PR or MR URL renders as a live PR chip (title + state),
-  `#123` as an issue ref, `![alt](url)` as an inline image.
-- **Tables** — GFM tables render as interactive cards (select/move/delete rows,
-  comment on a row).
-- **No raw HTML** — HTML tags and entities (`&middot;`, `&nbsp;`, …) render literally;
-  write Unicode characters (·, —, …) directly.
-
-A leading `# Title` identical to the page title is dropped rather than rendered twice.
+Trame renders GFM plus page extensions — `{{tab}}`/`{{fold}}` section headings,
+checkable todos, status lists, `{{color:pills}}`, mermaid diagrams, highlighted code
+fences, live PR chips, interactive tables; no raw HTML or entities. Run
+`__TRAMECLI__ page --help` for the full dialect before composing, and use the
+extensions instead of flattening structure into plain prose.
 
 ## Update a page
 
@@ -80,7 +62,7 @@ instead (next section).
    block that the update may remove.
 3. Prefer the `trame_update_page` MCP tool when available: `page_id` or exact
    `page_title`, plus `markdown`. Pass `title` only to rename the page.
-4. Otherwise pipe one JSON object to `__PAGE_WRITER__`:
+4. Otherwise pipe one JSON object to `__TRAMECLI__ page`:
 
    ```json
    {"page_id":"0199…","markdown_file":"/path/to/revised.md"}
@@ -106,7 +88,7 @@ instead (next section).
    writing — attribute the real model, not the harness seat (`codex` and `claude` get a
    branded avatar; any other id, e.g. `glm`, `gemini`, gets a generated one) — and
    `meta` (see step 5; the tool rejects calls without `meta.model`).
-4. Otherwise pipe one JSON object to `__COMMENT_WRITER__`:
+4. Otherwise pipe one JSON object to `__TRAMECLI__ comment`:
 
    ```json
    {
@@ -119,7 +101,7 @@ instead (next section).
    ```
 
    ```bash
-   deno run -A __COMMENT_WRITER__
+   echo '<json>' | __TRAMECLI__ comment
    ```
 
 5. Always pass `meta.model` — the exact model id you run as (`claude-opus-5`,

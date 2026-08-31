@@ -25,8 +25,8 @@ type Input = {
   agent_id?: string;
 };
 
-async function readInput(): Promise<Input> {
-  const arg = Deno.args[0];
+async function readInput(argv: string[]): Promise<Input> {
+  const arg = argv[0];
   if (arg) return JSON.parse(arg);
   return JSON.parse(await new Response(Deno.stdin.readable).text());
 }
@@ -44,8 +44,8 @@ async function claudeIdFor(cwd: string): Promise<string | undefined> {
   return undefined;
 }
 
-async function main() {
-  const inp = await readInput();
+export async function main(argv: string[] = Deno.args) {
+  const inp = await readInput(argv);
   // Codex exposes the current resumable thread UUID directly. Claude needs the
   // UserPromptSubmit sidecar hook because slash commands do not receive its id.
   const codexId = Deno.env.get("CODEX_THREAD_ID");
@@ -82,4 +82,9 @@ async function main() {
   }
 }
 
-main();
+if (import.meta.main) {
+  main().catch((e) => {
+    console.error(`error: ${(e as Error).message}`);
+    Deno.exit(1);
+  });
+}

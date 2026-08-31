@@ -17,6 +17,9 @@ platforms:
 apps:
   trame:
     command: opt/trame/trame
+  # exposed as `trame.tramecli`; snap-install-release.sh aliases it to bare `tramecli`
+  tramecli:
+    command: opt/trame/tramecli
 
 parts:
   trame:

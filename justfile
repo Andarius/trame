@@ -124,7 +124,7 @@ fmt-check-sql:
 # Type check the entry graphs
 [group('dev')]
 check:
-    cd app && deno check main.ts ../track/track.ts ../track/page.ts ../track/comment.ts ../track/watch.ts ../mcp/server.ts
+    cd app && deno check main.ts ../track/track.ts ../track/page.ts ../track/comment.ts ../track/watch.ts ../track/cli.ts ../mcp/server.ts
 
 # The hub API is its own Deno project (own deps) — check/test/lint it too (matches CI)
 [group('dev')]

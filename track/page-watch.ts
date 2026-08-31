@@ -14,7 +14,7 @@ import { AGENT_AUTHOR_ID } from "../app/agent-comments.ts";
 
 const USAGE = `Waits for human feedback on a Trame page, then exits (0 = feedback ready).
 
-Usage: deno run -A track/page-watch.ts --page <id[,id]> [options]
+Usage: tramecli watch --page <id[,id]> [options]
 
 Options:
   --page ID,ID     page ids to watch (required)
@@ -91,12 +91,12 @@ async function lastHumanActivity(base: string, pages: string[]): Promise<number>
   return newest;
 }
 
-async function main() {
-  if (Deno.args.includes("-h") || Deno.args.includes("--help")) {
+export async function main(argv: string[] = Deno.args) {
+  if (argv.includes("-h") || argv.includes("--help")) {
     console.log(USAGE);
     return;
   }
-  const f = parseFlags(Deno.args);
+  const f = parseFlags(argv);
   console.log(
     `watching page(s) ${f.pages.join(",")} for ${f.agent} feedback ` +
       `(every ${f.interval}s, quiet ${f.quiet}s)…`,

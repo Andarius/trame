@@ -9,6 +9,7 @@ import { markdownToPageBlocks } from "../app/page-markdown.ts";
 import { mergePageBlocks } from "../app/page-merge.ts";
 import { resolveCommentBlock } from "../app/agent-comments.ts";
 import { HTML_BLOCK_MAX_BYTES } from "../protocol/html.ts";
+import { PAGE_DIALECT } from "../track/help.ts";
 import { parseSessionRef } from "./session_url.ts";
 
 async function appPort(): Promise<number> {
@@ -68,8 +69,8 @@ const server = new McpServer({ name: "trame", version: "0.1.0" });
 
 // One-call, self-describing map of what an agent can do with Trame — so discovery
 // doesn't depend on happening to read the right tool description. Keep it current
-// when tools or their semantics change; the Markdown dialect is mirrored in
-// skills/trame-page/SKILL.md (self-sufficient for non-MCP writers) — edit both.
+// when tools or their semantics change; the Markdown dialect comes from
+// track/help.ts (shared with tramecli --help).
 const CAPABILITIES = `# Trame — capabilities for agents
 
 Trame is a local-first tracker (sessions, pages, databases) that syncs to a shared hub.
@@ -103,19 +104,9 @@ As an agent you can:
 - **trame_report** — publish a self-contained HTML report to the Explore view.
 
 ## Page Markdown dialect
-GFM plus: \`## Title {{tab}}\` headings group the blocks below into a tab strip
-(consecutive markers = one strip) and \`## Title {{fold}}\` into a collapsible section;
-\`- [ ]\`/\`- [x]\` become checkable todos (2 spaces per nesting level, max 4);
-bullets under a Completed/Done/Shipped heading render as checks, under
-Open/Todo/Next/Pending/Remaining/In progress/Blocked as open rings, with a one-click
-toggle between the two; \`{{text}}\` is a pill (\`{{green:…}}\` tints it:
-green|yellow|red|copper|gray); a \`mermaid\` fence renders as a diagram and other
-fences highlight python/ts/js/bash/json/sql; PR/MR links become live PR chips,
-\`#123\` an issue ref, \`![alt](url)\` an inline image; GFM tables render as
-interactive cards. A leading \`# Title\` equal to the page title is dropped. A session's
-specs are a page too (a subpage of the card's story) — write them with
-\`trame_update_page\` passing \`{session_id}\`. No raw HTML or HTML
-entities — \`&middot;\` renders literally; write Unicode characters (·, —, …) directly.
+${PAGE_DIALECT}
+A session's specs are a page too (a subpage of the card's story) — write them with
+\`trame_update_page\` passing \`{session_id}\`.
 
 ## Sessions (the board)
 - **trame_session** — read ONE card the way the user sees it: project and story by name,

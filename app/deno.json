@@ -20,6 +20,7 @@
     "bundle:deb": "TRACKER_DESKTOP=1 deno desktop -A --compress --output ../dist/linux/trame.deb main.ts",
     "bundle:dir": "TRACKER_DESKTOP=1 deno desktop -A --output ../dist/linux/trame main.ts",
     "bundle:mac": "TRACKER_DESKTOP=1 deno desktop -A --output ../dist/macos/Trame.dmg main.ts",
+    "compile:cli": "deno compile -A -o ../dist/tramecli ../track/cli.ts",
     "serve": "deno run -A main.ts",
     "test": "deno test -A",
     "sync": "deno run -A sync.ts once",

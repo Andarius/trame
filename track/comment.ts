@@ -22,8 +22,8 @@ type Input = {
 type PageMeta = { id: string; title: string };
 type PageDetail = PageMeta & { content: unknown[] };
 
-async function readInput(): Promise<Input> {
-  const arg = Deno.args[0];
+async function readInput(argv: string[]): Promise<Input> {
+  const arg = argv[0];
   const raw = arg || await new Response(Deno.stdin.readable).text();
   const input = JSON.parse(raw) as Input;
   if (!input.body?.trim()) throw new Error("body is required");
@@ -57,8 +57,8 @@ async function request(
   return res.json();
 }
 
-async function main() {
-  const input = await readInput();
+export async function main(argv: string[] = Deno.args) {
+  const input = await readInput(argv);
   let port: number;
   try {
     port = JSON.parse(await Deno.readTextFile(PORT_FILE)).port;

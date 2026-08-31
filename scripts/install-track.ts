@@ -11,7 +11,7 @@ if (!home) {
 
 const AGENTS_SKILLS_DIR = `${home}/.agents/skills`; // shared Agent Skills dir (Codex & friends)
 
-// installed copies must point at THIS checkout's writers
+// legacy per-writer placeholders (docs not yet migrated to __TRAMECLI__)
 const WRITERS: Record<string, string> = {
   __TRACK_WRITER__: `${root}track/track.ts`,
   __PAGE_WRITER__: `${root}track/page.ts`,
@@ -19,17 +19,36 @@ const WRITERS: Record<string, string> = {
   __PAGE_WATCH__: `${root}track/page-watch.ts`,
 };
 
-// shared doc fragments inlined into both the command and the skill
-const FRAGMENTS: Record<string, string> = {
-  __TRACK_FIELDS__: (await Deno.readTextFile(
-    `${root}skills/trame-track/fields.md`,
-  )).trimEnd(),
-};
+// The tramecli binary the installed docs invoke: prefer one on PATH (bare or the
+// snap-exposed name), else compile it from this checkout.
+async function resolveTramecli(): Promise<string> {
+  for (const name of ["tramecli", "trame.tramecli"]) {
+    const found = await new Deno.Command("which", {
+      args: [name],
+      stdout: "null",
+      stderr: "null",
+    }).output();
+    if (found.success) return name;
+  }
+  const dest = `${home}/.local/share/trame/bin/tramecli`;
+  await Deno.mkdir(dest.replace(/\/[^/]+$/, ""), { recursive: true });
+  console.log("no tramecli on PATH — compiling it from this checkout…");
+  const res = await new Deno.Command("deno", {
+    args: ["compile", "-A", "-o", dest, `${root}track/cli.ts`],
+    stdout: "null",
+  }).output();
+  if (!res.success) {
+    throw new Error(
+      `deno compile failed: ${new TextDecoder().decode(res.stderr)}`,
+    );
+  }
+  return dest;
+}
+
+let tramecli: string | null = null;
 
 function patch(text: string): string {
-  for (const [placeholder, body] of Object.entries(FRAGMENTS)) {
-    text = text.replaceAll(placeholder, body);
-  }
+  text = text.replaceAll("__TRAMECLI__", tramecli!);
   for (const [placeholder, path] of Object.entries(WRITERS)) {
     text = text.replaceAll(placeholder, path);
   }
@@ -181,6 +200,8 @@ const plan = interactive ? await chooseInteractive() : {
 };
 
 if (plan) {
+  tramecli = await resolveTramecli();
+  console.log(`writer binary: ${tramecli}`);
   if (plan.claude) await installClaude();
   for (const dir of new Set(plan.skillDirs)) await installSkills(dir);
   if (interactive) p.outro("Trame agent integrations installed.");
