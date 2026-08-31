@@ -146,8 +146,10 @@ Commands:
   page       create/update a page, or write a session's specs (JSON on stdin)
   comment    add an inline agent comment to a page block (JSON on stdin)
   watch      wait for human feedback on page(s); exits 0 when feedback is ready
+  answer     daemon: auto-answer human replies on agent comment threads
   list       print open sessions grouped by story
   setup      install the agent command/skills embedded in this binary
+  mcp        serve the Trame MCP server on stdio
   --version  print the CLI version (the app's is at GET /api/status)
 
 The Trame app must be running (it writes its port to the port file); only

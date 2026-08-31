@@ -73,10 +73,12 @@ app/                       Deno-desktop app
   presence.ts              ephemeral "who's here" registry (viewers + active watchers; not synced)
   web/                     React swimlane board (Vite)
 mcp/server.ts              Trame MCP server (stdio): board, pages, comments, html blocks, reports, sync
+track/cli.ts               tramecli — the compiled agent CLI (writers + list/answer/setup/mcp)
+track/help.ts              the agent contract strings: CLI --help, MCP capabilities, stub stamping
 track/track.ts             the /trame:track session writer (app or outbox)
 track/page.ts              the $trame-page writer (Markdown → atomic page create)
 track/comment.ts           agent page comments (title/quote resolution + attribution)
-track/watch.ts             the comment watcher — agents auto-answer human replies (`just watch`)
+track/watch.ts             the comment watcher — agents auto-answer human replies (`tramecli answer`)
 track/claude-hook.ts       UserPromptSubmit hook: records cwd → Claude session id for track.ts
 bin/quickstart.sh          curl-able laptop setup: clone + packaged app + agent integrations
 commands/trame/track.md    the /trame:track slash command — install with `just install-cmd`
@@ -137,15 +139,30 @@ deno task dev           # opens the desktop window (Deno 2.9+)
 
 ### 4. Wire session tracking
 
-Choose Claude Code, Codex, or both from one installer:
-```bash
-just install-track
-```
-Use the arrow keys to choose an agent and Enter to confirm.
+Agents talk to Trame through **`tramecli`**, one compiled binary that wraps the
+writers (`track`, `page`, `comment`, `watch`, `list`) — its `--help` carries the
+full agent contract, including the field-composition conventions:
 
-For non-interactive setup, use `just install-cmd` for Claude Code (slash command +
-trame-page skill) or `just install-skill` for Codex. Any other agent CLI that reads
-an Agent Skills directory works too:
+```bash
+tramecli --help          # commands overview
+tramecli track --help    # the writer contract agents compose against
+tramecli list            # open sessions grouped by story (--json for jq)
+```
+
+It ships in the snap (aliased to `tramecli` by `bin/snap-install-release.sh`) and as
+a per-platform release asset. With the binary on PATH, install the agent docs from
+it — no checkout or deno needed:
+
+```bash
+tramecli setup                   # interactive target picker
+tramecli setup --claude --codex  # non-interactive; also --skills-dir ~/.gemini/skills
+```
+
+From a dev checkout, `just install-track` (interactive), `just install-cmd`
+(Claude Code) or `just install-skill` (Codex) do the same and additionally install
+the extra command files; without a `tramecli` on PATH they compile one from the
+checkout into `~/.local/share/trame/bin/`. Any other agent CLI that reads an Agent
+Skills directory works too:
 ```bash
 deno run --config app/deno.json -A scripts/install-track.ts --skills-dir ~/.gemini/skills
 ```
@@ -155,20 +172,14 @@ for sessions, and `$trame-page` to create or comment on standalone Trame pages.
 Codex exposes `CODEX_THREAD_ID`, so the session writer automatically links the card
 to the current resumable session; no hook is needed.
 
-For Claude Code, install the slash command:
-
-`/trame:track` is a Claude Code slash command that records the current session as a card on
-the board — it reads the repo, branch, and a one-line note from the conversation and writes
-straight to your local PGlite (syncing to the hub when online, else queued in the outbox).
-Install it into Claude Code (the recipe rewrites the writer path for your checkout —
-don't copy the file by hand):
-```bash
-just install-cmd
-```
-Then from any repo: `/trame:track` to log the session, or
-`/trame:track paused|blocked|done "note"` to set its status with a note.
-The recipe also installs the `trame-page` skill into `~/.claude/skills/` — Claude Code
-picks it up automatically when you ask to save a document, note, or plan as a Trame page.
+In Claude Code, `/trame:track` records the current session as a card on the board — it
+reads the repo, branch, and a one-line note from the conversation and writes straight to
+your local PGlite (syncing to the hub when online, else queued in the outbox). From any
+repo: `/trame:track` to log the session, or `/trame:track paused|blocked|done "note"` to
+set its status with a note. Setup also installs the `trame-page` skill into
+`~/.claude/skills/` — picked up automatically when you ask to save a document, note, or
+plan as a Trame page. (Setup stamps the docs with the binary's invocation — don't copy
+the files by hand.)
 
 For the card's **Resume** button to work, the writer needs the Claude session UUID — slash
 commands can't see their own session id, so a `UserPromptSubmit` hook records it per-cwd into
@@ -189,7 +200,7 @@ imported from the app's Claude Code + Codex dialog carry the UUID as their id an
 ### 5. Page comments & the agent watcher
 
 Any page block can hold a thread of inline comments. Agents leave review comments with the
-`trame_add_comment` MCP tool or the `just comment` writer (identify the page by title, the
+`trame_add_comment` MCP tool or `tramecli comment` (identify the page by title, the
 block by a unique text quote). `agent` is the id of the model actually writing — **Codex**
 and **Claude** get a branded avatar, any other model id (`glm`, `gemini`, …) gets a generated
 one — so the author is honest, not forced to a harness seat. Agent comments stay out of your
@@ -198,7 +209,7 @@ own author identity.
 ```bash
 # an agent leaving a comment (JSON as arg or on stdin)
 echo '{"page_title":"Release plan","block_text":"Ship the first release",
-       "body":"Clarify the rollback criterion.","agent":"codex"}' | just comment
+       "body":"Clarify the rollback criterion.","agent":"codex"}' | tramecli comment
 ```
 
 Reply to an agent's comment in the UI and the **watcher** closes the loop: it marks your
@@ -206,10 +217,10 @@ reply *seen*, shows *"Claude is answering…"*, runs the thread's agent to compo
 and posts it — with a `model · tokens · seconds` footer. Run it in its own terminal:
 
 ```bash
-just watch                          # answer any thread whose agent it can run
-just watch --cwd ~/Projects/some-repo   # let the agent read that repo when answering (read-only)
-just watch --agents claude          # only handle Claude threads
-just watch --once --dry-run         # one pass, print prompts without answering
+tramecli answer                     # answer any thread whose agent it can run
+tramecli answer --cwd ~/Projects/some-repo  # let the agent read that repo when answering (read-only)
+tramecli answer --agents claude     # only handle Claude threads
+tramecli answer --once --dry-run    # one pass, print prompts without answering
 ```
 
 The CLI runs read-only, but the thread text is attacker-controllable on a shared page and is
@@ -226,7 +237,7 @@ giving it a runner via `TRAME_WATCH_<AGENT>_CMD` — e.g. `TRAME_WATCH_GLM_CMD="
 overrides the built-ins, e.g. `TRAME_WATCH_CLAUDE_CMD="claude -p {} --output-format json --model haiku"`.
 
 The top of each page shows a **presence** stack (Notion-style avatars): you while the page is
-open, plus every agent a running `just watch` is covering (copper ring). It's device-local and
+open, plus every agent a running `tramecli answer` is covering (copper ring). It's device-local and
 ephemeral — never synced — so avatars fade ~20s after a tab closes or the watcher stops.
 
 ### 6. Plugins (optional)
@@ -286,8 +297,8 @@ apps and attaches them to the [release](https://github.com/Andarius/trame/releas
 
 | Platform | Assets | First launch |
 | :--- | :--- | :--- |
-| **Linux** | `Trame.AppImage`, `trame.deb`, `.snap` (classic) | snap: `bin/snap-install-release.sh` → `snap install --dangerous --classic` |
-| **macOS** | `Trame.dmg` (Apple Silicon) | ad-hoc signed — right-click → **Open**, or `xattr -dr com.apple.quarantine /Applications/Trame.app` |
+| **Linux** | `Trame.AppImage`, `trame.deb`, `.snap` (classic), `tramecli-<tag>-linux-x64` | snap: `bin/snap-install-release.sh` → `snap install --dangerous --classic` (aliases `trame.tramecli` → `tramecli`) |
+| **macOS** | `Trame.dmg` (Apple Silicon), `tramecli-<tag>-macos-arm64` | ad-hoc signed — right-click → **Open**, or `xattr -dr com.apple.quarantine /Applications/Trame.app` |
 
 > Proper macOS signing/notarization needs an Apple Developer identity in
 > `desktop.macos.codesignIdentity`.

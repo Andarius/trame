@@ -682,7 +682,7 @@ async function pass(flags: Flags): Promise<boolean> {
 
 const USAGE = `Answers human replies on agent comment threads in Trame.
 
-Usage: deno run -A track/watch.ts [options]
+Usage: tramecli answer [options]
 
 Options:
   --agents a,b       only answer these agents (default: all runnable)
@@ -700,12 +700,12 @@ Options:
 Custom agents need TRAME_WATCH_<AGENT>_CMD ({} = prompt, else stdin).
 TRAME_WATCH_TIMEOUT caps a run in seconds (default: 300).`;
 
-async function main() {
-  if (Deno.args.includes("-h") || Deno.args.includes("--help")) {
+export async function main(argv: string[] = Deno.args) {
+  if (argv.includes("-h") || argv.includes("--help")) {
     console.log(USAGE);
     return;
   }
-  const flags = parseFlags(Deno.args);
+  const flags = parseFlags(argv);
   if (flags.once) {
     await pass(flags);
     return;

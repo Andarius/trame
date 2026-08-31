@@ -29,15 +29,10 @@ db-deploy host=env_var_or_default('TRACKER_HUB_HOST', 'hub'):
 db-cert node_id=env_var_or_default('TRACKER_NODE_ID', `hostname`) host=env_var_or_default('TRACKER_HUB_HOST', 'hub'):
     hub/issue-cert.sh {{ node_id }} {{ host }}
 
-# Stop the Postgres hub
+# Any docker compose command against the local hub: `just infra down`, `just infra logs -f`, `just infra ps`…
 [group('infra')]
-db-down:
-    docker compose -f hub/docker-compose.yml down
-
-# Tail the Postgres hub logs
-[group('infra')]
-db-logs:
-    docker compose -f hub/docker-compose.yml logs -f
+infra *args:
+    docker compose -f hub/docker-compose.yml "$@"
 
 # psql into the hub over ssh (Postgres has no host port since the API cutover)
 [group('infra')]
@@ -131,34 +126,16 @@ check:
 check-hub:
     cd hub/api && deno check main.ts && deno test -A && deno lint
 
-# Run the Trame MCP server on stdio (for `claude mcp add trame -- deno run -A .../mcp/server.ts`)
-[group('dev')]
-mcp:
-    deno run -A mcp/server.ts
-
 # Lint + format-check + type check + unit tests (app + hub)
 [group('dev')]
 ci: lint fmt-check-sql check test check-hub
 
-# Run the session writer (JSON as arg or on stdin)
+# Compile tramecli into dist/tramecli — everything agent-facing lives in that binary
+# (track/page/comment/watch/answer/list/setup/mcp); dev checkouts without one on PATH
+# get it compiled by the install recipes below.
 [group('track')]
-track *args:
-    deno run --allow-all track/track.ts "$@"
-
-# Create a Trame page (JSON as arg or on stdin)
-[group('track')]
-page *args:
-    deno run --allow-all track/page.ts "$@"
-
-# Add an agent comment to a Trame page (JSON as arg or on stdin)
-[group('track')]
-comment *args:
-    deno run --allow-all track/comment.ts "$@"
-
-# Watch agent threads and auto-answer human replies (codex/claude)
-[group('track')]
-watch *args:
-    deno run --allow-all track/watch.ts "$@"
+compile-cli:
+    cd app && deno task compile:cli
 
 # Install the /trame:track slash command + trame-page skill into ~/.claude
 [group('setup')]

@@ -7,7 +7,10 @@ import { main as trackMain } from "./track.ts";
 import { main as pageMain } from "./page.ts";
 import { main as commentMain } from "./comment.ts";
 import { main as watchMain } from "./page-watch.ts";
+import { main as answerMain } from "./watch.ts";
 import { run as setupRun } from "./setup.ts";
+// static: a dynamic import of the npm MCP SDK dies silently under deno compile
+import { serve as mcpServe } from "../mcp/server.ts";
 import {
   COMMENT_HELP,
   LIST_HELP,
@@ -151,6 +154,12 @@ export async function run(argv: string[]): Promise<number> {
     case "watch": // handles its own --help
       await watchMain(rest);
       return 0;
+    case "answer": // handles its own --help
+      await answerMain(rest);
+      return 0;
+    case "mcp": // stdio MCP server; serves until stdin closes
+      await mcpServe();
+      return 0;
     case "list":
       if (wantsHelp) console.log(LIST_HELP);
       else await list(json);
@@ -169,7 +178,10 @@ export async function run(argv: string[]): Promise<number> {
 
 if (import.meta.main) {
   try {
-    Deno.exit(await run(Deno.args));
+    const code = await run(Deno.args);
+    // no exit on success: `mcp` keeps serving until stdin closes, and an explicit
+    // Deno.exit here would kill it right after connect resolves
+    if (code !== 0) Deno.exit(code);
   } catch (e) {
     console.error(`error: ${(e as Error).message}`);
     Deno.exit(1);

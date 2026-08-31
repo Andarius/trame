@@ -85,7 +85,7 @@ As an agent you can:
 - **\`meta.model\` is required** — the exact model id you run as; it shows as a footer.
   \`in\`/\`out\`/\`ms\` are optional: pass only numbers you truly know, omit what you
   can't measure (a footer must be real).
-- **The watcher loop**: a human may reply to your comment. If the human runs \`just watch\`,
+- **The watcher loop**: a human may reply to your comment. If the human runs \`tramecli answer\`,
   YOUR agent is invoked to answer that reply — so a thread is a back-and-forth, not a
   one-shot. Your answer posts as the next comment; the watcher fills its meta for you.
 
@@ -145,7 +145,9 @@ server.tool(
     session: z.string().describe(
       "Session id, or a pasted Trame URL (…/?session=<id>&full=1 or …/?page=<id>)",
     ),
-    events: z.number().optional().describe("Worklog entries to return, newest first (default 20)"),
+    events: z.number().optional().describe(
+      "Worklog entries to return, newest first (default 20)",
+    ),
   },
   async ({ session, events }: { session: string; events?: number }) => {
     const ref = parseSessionRef(session);
@@ -159,15 +161,22 @@ server.tool(
       // the link pointed at a page, not a card — hand back the cards anchored to it
       const page = await api(`/api/pages/${ref.id}`) as Record<string, unknown>;
       return text({
-        note: "URL had no ?session= — returning the page and the sessions anchored to it",
+        note:
+          "URL had no ?session= — returning the page and the sessions anchored to it",
         page: { id: page.id, title: page.title, kind: page.kind },
         sessions: page.sessions ?? [],
       });
     }
     const q = events ? `?events=${events}` : "";
-    const card = await api(`/api/sessions/${ref.id}${q}`) as Record<string, unknown>;
+    const card = await api(`/api/sessions/${ref.id}${q}`) as Record<
+      string,
+      unknown
+    >;
     // hand back a link the user can click, even when called with a bare id
-    return text({ ...card, url: `http://127.0.0.1:${await appPort()}/?session=${ref.id}&full=1` });
+    return text({
+      ...card,
+      url: `http://127.0.0.1:${await appPort()}/?session=${ref.id}&full=1`,
+    });
   },
 );
 
@@ -278,7 +287,9 @@ server.tool(
     },
   ) => {
     const pageId = args.session_id
-      ? (await post(`/api/sessions/${args.session_id}/specs-page`, {}) as { page_id: string })
+      ? (await post(`/api/sessions/${args.session_id}/specs-page`, {}) as {
+        page_id: string;
+      })
         .page_id
       : await resolvePageId(args);
     const page = await api(`/api/pages/${pageId}`) as {
@@ -493,4 +504,8 @@ server.tool(
   async () => text(await post("/api/sync", {})),
 );
 
-await server.connect(new StdioServerTransport());
+export async function serve() {
+  await server.connect(new StdioServerTransport());
+}
+
+if (import.meta.main) await serve();
