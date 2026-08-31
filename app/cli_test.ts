@@ -1,6 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { boardRows, formatBoard, run } from "../track/cli.ts";
-import { EMBEDS, setup } from "../track/setup.ts";
+import { ensureOnPath, EMBEDS, setup } from "../track/setup.ts";
 import {
   COMMENT_HELP,
   OVERVIEW,
@@ -10,11 +10,12 @@ import {
   VERSION,
 } from "../track/help.ts";
 
-Deno.test("cli version matches app/deno.json", async () => {
+Deno.test("cli version is the package version, stamped with the build when compiled", async () => {
   const { version } = JSON.parse(
     await Deno.readTextFile(new URL("./deno.json", import.meta.url)),
   );
-  assertEquals(VERSION, version);
+  const stamp = Deno.env.get("TRAME_BUILD"); // baked in by scripts/build-cli.ts
+  assertEquals(VERSION, stamp ? `${version}+${stamp}` : version);
 });
 
 // the help text IS the agent contract — a refactor must not drop the conventions
@@ -146,6 +147,44 @@ Deno.test("boardRows flattens open sessions for --json", () => {
     next_step: "merge it",
     pr_url: null,
   }]);
+});
+
+// Regression: setup used to skip linking whenever SOME `tramecli` answered, so a
+// stale copy kept serving old code behind freshly installed docs.
+Deno.test("setup relinks tramecli at this build, and flags one shadowing it", async () => {
+  const tmp = await Deno.makeTempDir({ prefix: "trame-onpath-test-" });
+  const path = Deno.env.get("PATH") ?? "";
+  try {
+    const home = `${tmp}/home`;
+    const self = `${tmp}/build/tramecli`;
+    await Deno.mkdir(`${tmp}/build`, { recursive: true });
+    await Deno.mkdir(`${home}/.local/bin`, { recursive: true });
+    await Deno.writeTextFile(self, "#!/bin/sh\n", { mode: 0o755 });
+    // the stale copy this fix is about: on PATH, answering to the name, months old
+    await Deno.writeTextFile(`${home}/.local/bin/tramecli`, "old build", {
+      mode: 0o755,
+    });
+    const sys = "/usr/bin:/bin"; // `which` lives there; the real ~/.local/bin must not
+    Deno.env.set("PATH", `${home}/.local/bin:${sys}`);
+
+    assertEquals(await ensureOnPath(home, self), null, "no warning");
+    const dest = `${home}/.local/bin/tramecli`;
+    assertEquals((await Deno.lstat(dest)).isSymlink, true, "copy → symlink");
+    assertEquals(await Deno.realPath(dest), await Deno.realPath(self));
+    assertEquals(await ensureOnPath(home, self), null, "idempotent");
+
+    // another tramecli earlier on PATH wins the name — say so instead of lying
+    await Deno.mkdir(`${tmp}/shadow`, { recursive: true });
+    await Deno.writeTextFile(`${tmp}/shadow/tramecli`, "other", { mode: 0o755 });
+    Deno.env.set("PATH", `${tmp}/shadow:${home}/.local/bin:${sys}`);
+    assertStringIncludes(
+      await ensureOnPath(home, self) ?? "",
+      `${tmp}/shadow/tramecli`,
+    );
+  } finally {
+    Deno.env.set("PATH", path);
+    await Deno.remove(tmp, { recursive: true });
+  }
 });
 
 Deno.test("setup embeds call the bare binary and install everywhere", async () => {

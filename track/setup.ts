@@ -26,36 +26,51 @@ export type SetupPlan = {
   home: string;
 };
 
-async function onPath(name: string): Promise<boolean> {
+// Where a bare `tramecli` resolves right now, symlinks followed (null = nowhere).
+async function onPath(name: string): Promise<string | null> {
   const res = await new Deno.Command("which", {
     args: [name],
-    stdout: "null",
+    stdout: "piped",
     stderr: "null",
   }).output();
-  return res.success;
+  if (!res.success) return null;
+  const hit = new TextDecoder().decode(res.stdout).trim();
+  return await Deno.realPath(hit).catch(() => hit);
 }
 
-// The docs call the bare `tramecli`, so make it resolve: self-link into ~/.local/bin
-// when it is not already on PATH. Returns the warning to print when it still is not.
-export async function ensureOnPath(home: string): Promise<string | null> {
-  if (await onPath("tramecli")) return null;
-  const self = Deno.execPath();
+// The docs call the bare `tramecli`, so point that name at THIS binary — every time.
+// Skipping the link when some `tramecli` already answers is how a machine ends up
+// running a months-old copy behind freshly installed docs, and the version string
+// can't catch it: it tracks releases, not builds. Returns a warning to print, if any.
+export async function ensureOnPath(
+  home: string,
+  self = Deno.execPath(),
+): Promise<string | null> {
   if (self.endsWith("/deno") || self.endsWith("deno.exe")) {
     throw new Error(
       "running from source — compile first (`just setup`, or `deno task compile:cli`)",
     );
   }
+  self = await Deno.realPath(self).catch(() => self);
   const dest = `${home}/.local/bin/tramecli`;
-  try {
-    await Deno.mkdir(`${home}/.local/bin`, { recursive: true });
-    await Deno.remove(dest).catch(() => {});
-    await Deno.symlink(self, dest);
-    console.log(`linked ${dest} → ${self}`);
-  } catch (e) {
-    return `could not link ${dest} (${(e as Error).message}) — put ${self} on PATH as \`tramecli\``;
+  if (await Deno.realPath(dest).catch(() => null) !== self) {
+    try {
+      await Deno.mkdir(`${home}/.local/bin`, { recursive: true });
+      await Deno.remove(dest).catch(() => {});
+      await Deno.symlink(self, dest);
+      console.log(`linked ${dest} → ${self}`);
+    } catch (e) {
+      return `could not link ${dest} (${(e as Error).message}) — put ${self} on PATH as \`tramecli\``;
+    }
   }
-  if (await onPath("tramecli")) return null;
-  return `${dest} is not on PATH — add ~/.local/bin to it, or the installed docs cannot call \`tramecli\``;
+  const found = await onPath("tramecli");
+  if (!found) {
+    return `${dest} is not on PATH — add ~/.local/bin to it, or the installed docs cannot call \`tramecli\``;
+  }
+  if (found !== self) {
+    return `\`tramecli\` still resolves to ${found}, ahead of ${dest} on PATH — remove it, or agents keep running that build instead of this one`;
+  }
+  return null;
 }
 
 async function write(path: string, text: string) {
