@@ -8,7 +8,7 @@
 import { PORT_FILE } from "../app/config.ts";
 import { type AgentKind, resolveCommentBlock } from "../app/agent-comments.ts";
 
-type Input = {
+export type CommentInput = {
   page_id?: string;
   page_title?: string;
   block_id?: string;
@@ -18,6 +18,7 @@ type Input = {
   // footer stats; model defaults to the agent id server-side — only pass numbers you measured
   meta?: { model?: string; in?: number; out?: number; ms?: number };
 };
+type Input = CommentInput;
 
 type PageMeta = { id: string; title: string };
 type PageDetail = PageMeta & { content: unknown[] };
@@ -25,7 +26,10 @@ type PageDetail = PageMeta & { content: unknown[] };
 async function readInput(argv: string[]): Promise<Input> {
   const arg = argv[0];
   const raw = arg || await new Response(Deno.stdin.readable).text();
-  const input = JSON.parse(raw) as Input;
+  return JSON.parse(raw) as Input;
+}
+
+function validate(input: Input): Input {
   if (!input.body?.trim()) throw new Error("body is required");
   if (Boolean(input.page_id) === Boolean(input.page_title)) {
     throw new Error("use exactly one of page_id or page_title");
@@ -57,18 +61,13 @@ async function request(
   return res.json();
 }
 
-export async function main(argv: string[] = Deno.args) {
-  const input = await readInput(argv);
-  let port: number;
-  try {
-    port = JSON.parse(await Deno.readTextFile(PORT_FILE)).port;
-  } catch {
-    throw new Error(
-      "Trame app is not running (no port file). Start it with `just dev` or `just serve`.",
-    );
-  }
-  const base = `http://127.0.0.1:${port}`;
-
+// The one comment entrypoint, shared by the CLI and the MCP server: resolves the
+// page by title, the block by id or unique quote, then posts with attribution.
+export async function addComment(
+  raw: Input,
+  base: string,
+): Promise<{ id: string; agent: string; page: PageMeta }> {
+  const input = validate(raw);
   let pageId = input.page_id;
   if (input.page_title) {
     const pages = await request(base, "/api/pages") as PageMeta[];
@@ -99,9 +98,24 @@ export async function main(argv: string[] = Deno.args) {
       meta: input.meta,
     }),
   }) as { id: string };
+  return { id, agent, page: { id: page.id, title: page.title } };
+}
 
+export async function main(argv: string[] = Deno.args) {
+  const input = await readInput(argv);
+  let port: number;
+  try {
+    port = JSON.parse(await Deno.readTextFile(PORT_FILE)).port;
+  } catch {
+    throw new Error(
+      "Trame app is not running (no port file). Start it with `just dev` or `just serve`.",
+    );
+  }
+  const base = `http://127.0.0.1:${port}`;
+
+  const res = await addComment(input, base);
   console.log(
-    `ok: ${agent} comment ${id} added to Trame (${page.title}) — ${base}/?page=${page.id}`,
+    `ok: ${res.agent} comment ${res.id} added to Trame (${res.page.title}) — ${base}/?page=${res.page.id}`,
   );
 }
 

@@ -18,7 +18,7 @@ import { PORT_FILE } from "../app/config.ts";
 import { markdownToPageBlocks } from "../app/page-markdown.ts";
 import { mergePageBlocks } from "../app/page-merge.ts";
 
-type Input = {
+export type PageInput = {
   title?: string;
   markdown?: string;
   markdown_file?: string;
@@ -28,7 +28,21 @@ type Input = {
   page_id?: string;
   page_title?: string;
   session_id?: string;
+  // create only: the repo whose project the page files under when no parent is
+  // given (defaults to the current working directory)
+  repo_path?: string;
 };
+type Input = PageInput;
+
+export type PageResult =
+  | { action: "created"; id: string; title: string; parent: string }
+  | {
+    action: "updated";
+    id: string;
+    title: string;
+    kept: number;
+    total: number;
+  };
 
 type PageMeta = {
   id: string;
@@ -40,7 +54,10 @@ type PageDetail = PageMeta & { content?: unknown[] };
 async function readInput(argv: string[]): Promise<Input> {
   const arg = argv[0];
   const raw = arg || await new Response(Deno.stdin.readable).text();
-  const input = JSON.parse(raw) as Input;
+  return JSON.parse(raw) as Input;
+}
+
+function validate(input: Input): Input {
   if (input.markdown !== undefined && input.markdown_file) {
     throw new Error("use markdown or markdown_file, not both");
   }
@@ -48,7 +65,10 @@ async function readInput(argv: string[]): Promise<Input> {
     throw new Error("use page_id or page_title, not both");
   }
   if (input.session_id) {
-    if (input.page_id || input.page_title || input.parent_id !== undefined || input.parent_title) {
+    if (
+      input.page_id || input.page_title || input.parent_id !== undefined ||
+      input.parent_title
+    ) {
       throw new Error("session_id is exclusive with page/parent targets");
     }
     if (input.markdown === undefined && !input.markdown_file) {
@@ -110,7 +130,7 @@ async function resolveByTitle(
   return matches[0].id;
 }
 
-async function updatePage(input: Input, base: string): Promise<void> {
+async function updatePage(input: Input, base: string): Promise<PageResult> {
   const pageId = input.page_title
     ? await resolveByTitle(base, input.page_title, "page")
     : input.page_id!;
@@ -120,7 +140,10 @@ async function updatePage(input: Input, base: string): Promise<void> {
     : input.markdown ?? "";
   const title = input.title ?? page.title;
   const existing = page.content ?? [];
-  const content = mergePageBlocks(existing, markdownToPageBlocks(markdown, title));
+  const content = mergePageBlocks(
+    existing,
+    markdownToPageBlocks(markdown, title),
+  );
   // count only text blocks: structural blocks are always preserved
   const textId = (b: unknown): string | null => {
     const { type, id } = (b ?? {}) as { type?: unknown; id?: unknown };
@@ -143,19 +166,20 @@ async function updatePage(input: Input, base: string): Promise<void> {
       ...(input.icon !== undefined ? { icon: input.icon } : {}),
     }),
   });
-  console.log(
-    `ok: page ${pageId} updated in Trame (${title}) — kept ${kept} of ${oldIds.size} block ids — ${base}/?page=${pageId}`,
-  );
+  return { action: "updated", id: pageId, title, kept, total: oldIds.size };
 }
 
 // Where the page actually landed — the parent is resolved app-side when none is given.
 async function parentLabel(base: string, id: string): Promise<string> {
-  const pages = await request(base, "/api/pages") as (PageMeta & { parent_id: string | null })[];
+  const pages = await request(
+    base,
+    "/api/pages",
+  ) as (PageMeta & { parent_id: string | null })[];
   const parentId = pages.find((p) => p.id === id)?.parent_id;
   return pages.find((p) => p.id === parentId)?.title ?? "Unfiled";
 }
 
-async function createPage(input: Input, base: string): Promise<void> {
+async function createPage(input: Input, base: string): Promise<PageResult> {
   let parentId = input.parent_id;
   if (input.parent_title) {
     parentId = await resolveByTitle(base, input.parent_title, "parent");
@@ -168,7 +192,9 @@ async function createPage(input: Input, base: string): Promise<void> {
     kind: "page",
     // no parent given: the app files the page under this repo's project (explicit
     // null still means a root page)
-    ...(parentId !== undefined ? { parent_id: parentId } : { repo_path: Deno.cwd() }),
+    ...(parentId !== undefined
+      ? { parent_id: parentId }
+      : { repo_path: input.repo_path ?? Deno.cwd() }),
     icon: input.icon ?? null,
     content: markdownToPageBlocks(markdown, input.title!),
   };
@@ -179,9 +205,25 @@ async function createPage(input: Input, base: string): Promise<void> {
   }) as { id: string };
 
   const parent = await parentLabel(base, id);
-  console.log(
-    `ok: page ${id} created in Trame (${input.title}) — filed under ${parent} — ${base}/?page=${id}`,
-  );
+  return { action: "created", id, title: input.title!, parent };
+}
+
+// The one write entrypoint, shared by the CLI and the MCP server: validates, routes
+// session_id → the card's spec page, then updates or creates.
+export async function writePage(raw: Input, base: string): Promise<PageResult> {
+  const input = validate(raw);
+  if (input.session_id) {
+    const { page_id } = await request(
+      base,
+      `/api/sessions/${input.session_id}/specs-page`,
+      {
+        method: "POST",
+      },
+    ) as { page_id: string };
+    return await updatePage({ ...input, page_id }, base);
+  }
+  if (input.page_id || input.page_title) return await updatePage(input, base);
+  return await createPage(input, base);
 }
 
 export async function main(argv: string[] = Deno.args) {
@@ -196,13 +238,16 @@ export async function main(argv: string[] = Deno.args) {
   }
   const base = `http://127.0.0.1:${port}`;
 
-  if (input.session_id) {
-    const { page_id } = await request(base, `/api/sessions/${input.session_id}/specs-page`, {
-      method: "POST",
-    }) as { page_id: string };
-    await updatePage({ ...input, page_id }, base);
-  } else if (input.page_id || input.page_title) await updatePage(input, base);
-  else await createPage(input, base);
+  const res = await writePage(input, base);
+  if (res.action === "created") {
+    console.log(
+      `ok: page ${res.id} created in Trame (${res.title}) — filed under ${res.parent} — ${base}/?page=${res.id}`,
+    );
+  } else {
+    console.log(
+      `ok: page ${res.id} updated in Trame (${res.title}) — kept ${res.kept} of ${res.total} block ids — ${base}/?page=${res.id}`,
+    );
+  }
 }
 
 if (import.meta.main) {
