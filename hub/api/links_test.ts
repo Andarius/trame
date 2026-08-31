@@ -1,8 +1,11 @@
 // The public link viewer on PGlite: scope, revocation, and what must never leak.
+// Pages render client-side; the server ships a sanitized JSON payload + the
+// viewer bundle, so the tests check the payload and the asset routes.
 import { assert, assertEquals } from "@std/assert";
 import { PGlite } from "@electric-sql/pglite";
 import type { Q } from "./db.ts";
 import { createLinkApp } from "./links.ts";
+import { LINK_ENTRY } from "./link-embed.ts";
 
 function q(pg: PGlite): Q {
   return {
@@ -33,7 +36,7 @@ const PRIVATE = "00000000-0000-4000-8000-0000000000f3";
 const DB_ID = "00000000-0000-4000-8000-0000000000f4";
 await pg.query(
   `insert into pages (id, title, story, content, origin) values
-   ($1, 'Roadmap', 'the plan', '[{"type":"heading","text":"Q3"},{"type":"todo","text":"ship links","done":true},{"type":"text","text":"hello <world>"},{"type":"html","html":"<h1>Widget</h1><script>alert(1)</script>","height":222,"data":{"secret":"PICKED"}}]', 't'),
+   ($1, 'Roadmap', 'the plan', '[{"type":"heading","text":"Q3 {{tab}}"},{"type":"todo","text":"ship links","done":true},{"type":"text","text":"hello </script><b>world</b>"},{"type":"folder","path":"/home/me/secret-dir"},{"type":"subpage","page_id":"00000000-0000-4000-8000-0000000000f2"},{"type":"subpage","page_id":"00000000-0000-4000-8000-0000000000f3"},{"type":"html","html":"<h1>Widget</h1>","height":222,"data":{"secret":"PICKED"}}]', 't'),
    ($2, 'Sub Plan', '', '[]', 't'),
    ($3, 'Secret Page', '', '[]', 't')`,
   [ROOT, SUB, PRIVATE],
@@ -63,40 +66,60 @@ await pg.query(
 
 const app = createLinkApp(q(pg));
 
-Deno.test("a valid link renders the page, its blocks, database and sub-page link", async () => {
+// deno-lint-ignore no-explicit-any
+async function payloadOf(path: string): Promise<any> {
+  const html = await (await app.request(path)).text();
+  const m = html.match(/window\.__TRAME_LINK__ = (.*);<\/script>/);
+  assert(m, "shell carries the injected payload");
+  return JSON.parse(m[1]); // JSON.parse decodes the < escapes back to <
+}
+
+Deno.test("a valid link ships the page payload, database and viewer entry", async () => {
   const res = await app.request(`/l/${TOKEN}`);
   assertEquals(res.status, 200);
   const html = await res.text();
-  assert(html.includes("Roadmap"));
-  assert(html.includes("Q3"));
-  assert(html.includes("☑ ship links"));
-  assert(html.includes("hello &lt;world&gt;"), "content is escaped");
-  assert(html.includes("first task"), "attached database rendered");
-  assert(html.includes(`/l/${TOKEN}/p/${SUB}`), "sub-page navigable");
+  assert(html.includes(`/l/assets/${LINK_ENTRY.js}`), "viewer bundle loaded");
+  const p = await payloadOf(`/l/${TOKEN}`);
+  assertEquals(p.page.title, "Roadmap");
+  assertEquals(p.blocks[0], { type: "heading", text: "Q3 {{tab}}" });
+  assertEquals(p.blocks[1], { type: "todo", text: "ship links", done: true });
+  assertEquals(p.databases[DB_ID].rows[0].vals[PROP], "first task");
+  assertEquals(p.attached, [DB_ID]);
+  assertEquals(p.children, [{ id: SUB, title: "Sub Plan", icon: null }]);
+  assertEquals(p.subpages[SUB].title, "Sub Plan");
 });
 
-Deno.test("html blocks render as sandboxed iframes, never raw in the page DOM", async () => {
+Deno.test("page content can never break out of the inline script", async () => {
   const html = await (await app.request(`/l/${TOKEN}`)).text();
-  assert(html.includes('sandbox="allow-scripts"'));
-  assert(
-    html.includes("&lt;h1&gt;Widget&lt;/h1&gt;"),
-    "doc escaped into srcdoc",
-  );
-  assert(!html.includes("<h1>Widget</h1>"), "doc never injected raw");
-  assert(html.includes("height:222px"), "pinned height honored");
-  assert(html.includes("data-pinned"), "pinned blocks opt out of auto-height");
-  assert(html.includes("window.trame"), "bridge injected");
-  assert(!html.includes("PICKED"), "persisted block data never rendered");
+  assert(!html.includes("</script><b>"), "every < in content is escaped");
+  const p = await payloadOf(`/l/${TOKEN}`);
+  assertEquals(p.blocks[2].text, "hello </script><b>world</b>");
 });
 
-Deno.test("comments and out-of-scope pages never appear", async () => {
+Deno.test("private fields never leak into the payload", async () => {
   const html = await (await app.request(`/l/${TOKEN}`)).text();
-  assert(!html.includes("INTERNAL COMMENT"));
-  assert(!html.includes("Secret Page"));
+  assert(!html.includes("PICKED"), "html block data stripped");
+  assert(!html.includes("secret-dir"), "folder blocks (local paths) stripped");
+  assert(!html.includes("INTERNAL COMMENT"), "comments never appear");
+  assert(!html.includes("Secret Page"), "out-of-scope subpage blocks dropped");
+  const p = await payloadOf(`/l/${TOKEN}`);
+  const sub = p.blocks.filter((b: { type: string }) => b.type === "subpage");
+  assertEquals(sub.length, 1, "only the in-scope subpage block survives");
+});
+
+Deno.test("viewer assets are served with types and immutable caching", async () => {
+  const res = await app.request(`/l/assets/${LINK_ENTRY.js}`);
+  assertEquals(res.status, 200);
+  assert(res.headers.get("content-type")!.includes("javascript"));
+  assert(res.headers.get("cache-control")!.includes("immutable"));
+  await res.body?.cancel();
+  assertEquals((await app.request("/l/assets/nope.js")).status, 404);
 });
 
 Deno.test("sub-page renders in scope; a page outside the subtree 404s", async () => {
-  assertEquals((await app.request(`/l/${TOKEN}/p/${SUB}`)).status, 200);
+  const p = await payloadOf(`/l/${TOKEN}/p/${SUB}`);
+  assertEquals(p.page.title, "Sub Plan");
+  assertEquals(p.isRoot, false);
   assertEquals((await app.request(`/l/${TOKEN}/p/${PRIVATE}`)).status, 404);
 });
 

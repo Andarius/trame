@@ -572,7 +572,8 @@ export async function revokeShare(id: string): Promise<void> {
   );
 }
 
-// Public share links: token minted here (shown once), only its hash is stored/synced.
+// Public share links: token minted here; only its hash syncs to the hub. The raw
+// token also lands in a local-only column so this device can re-show the URL.
 export async function createLink(
   pageId: string,
 ): Promise<{ id: string; token: string }> {
@@ -589,18 +590,20 @@ export async function createLink(
   ).join("");
   const pg = await db();
   const row = (await pg.query(
-    `insert into page_links (page_id, token_hash, origin) values ($1,$2,$3) returning id`,
-    [pageId, hash, NODE_ID],
+    `insert into page_links (page_id, token_hash, token, origin) values ($1,$2,$3,$4) returning id`,
+    [pageId, hash, token, NODE_ID],
   )).rows[0] as { id: string };
   return { id: row.id, token };
 }
 
-export async function listLinks(pageId: string) {
+export async function listLinks(
+  pageId: string,
+): Promise<{ id: string; token: string | null; updated_at: string }[]> {
   const pg = await db();
   return (await pg.query(
-    `select id, updated_at from page_links where page_id=$1 and not deleted order by updated_at`,
+    `select id, token, updated_at from page_links where page_id=$1 and not deleted order by updated_at`,
     [pageId],
-  )).rows;
+  )).rows as { id: string; token: string | null; updated_at: string }[];
 }
 
 export async function revokeLink(id: string): Promise<void> {

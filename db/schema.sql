@@ -105,8 +105,8 @@ create index if not exists page_shares_user on page_shares (user_id);
 
 -- Public share links: a capability URL for a read-only browser view of a page's
 -- subtree, served by the hub's separate public listener (no account, no app).
--- Only the sha-256 of the token is stored (and synced); the raw link is shown once
--- at creation. Soft-delete revokes it. Comments are never rendered on link views.
+-- Only the sha-256 of the token is stored (and synced); soft-delete revokes it.
+-- Comments are never rendered on link views.
 create table if not exists page_links (
   id uuid primary key default uuidv7(),
   page_id uuid not null,   -- no FK: LWW pull order
@@ -117,6 +117,9 @@ create table if not exists page_links (
 );
 create index if not exists page_links_page on page_links (page_id);
 create index if not exists page_links_token on page_links (token_hash);
+-- raw token, kept only on the creating device so the app can re-show the URL;
+-- not a wire column (protocol/entities.ts) — never synced, stays null on the hub
+alter table page_links add column if not exists token text;
 
 -- Devices: NODE_ID -> user mapping ("which user am I" for a node). Rows are claimed
 -- at app startup with id = uuidv5(node_id) so concurrent claims converge on one row

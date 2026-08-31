@@ -24,7 +24,9 @@ export function ShareModal(
   const [picked, setPicked] = useState("");
   const [role, setRole] = useState<"viewer" | "editor">("editor");
   const [linkFlash, setLinkFlash] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const reload = () => {
     listShares(pageId).then(setShares);
@@ -33,7 +35,10 @@ export function ShareModal(
   useEffect(() => {
     listUsers().then(setUsers);
     reload();
-    return () => clearTimeout(flashTimer.current);
+    return () => {
+      clearTimeout(flashTimer.current);
+      clearTimeout(copiedTimer.current);
+    };
   }, [pageId]);
 
   const flash = (msg: string) => {
@@ -41,6 +46,12 @@ export function ShareModal(
     setLinkFlash(msg);
     flashTimer.current = setTimeout(() => setLinkFlash(null), 2600);
   };
+  const copyUrl = (id: string, url: string) =>
+    navigator.clipboard.writeText(url).then(() => {
+      clearTimeout(copiedTimer.current);
+      setCopiedId(id);
+      copiedTimer.current = setTimeout(() => setCopiedId(null), 2600);
+    }, () => {/* clipboard blocked — the URL is visible to select by hand */});
   const copyLink = () =>
     createShareLink(pageId).then((r) => {
       if (!r.url) {
@@ -170,9 +181,33 @@ export function ShareModal(
               key={l.id}
               className="mb-1.5 flex items-center gap-2 text-[12px]"
             >
-              <span className="flex-1 truncate text-ink-muted">
-                link · created {new Date(l.updated_at).toLocaleDateString()}
-              </span>
+              {l.url
+                ? (
+                  <>
+                    <span
+                      className="flex-1 truncate font-mono text-[10.5px] text-ink-muted"
+                      title={l.url}
+                    >
+                      {l.url}
+                    </span>
+                    <button
+                      type="button"
+                      title="Copy the URL"
+                      onClick={() => copyUrl(l.id, l.url!)}
+                      className="rounded-md border border-line px-1.5 py-0.5 text-[11px] text-ink-muted hover:text-ink-soft"
+                    >
+                      {copiedId === l.id ? "✓" : "Copy"}
+                    </button>
+                  </>
+                )
+                : (
+                  <span
+                    className="flex-1 truncate text-ink-muted"
+                    title="The URL only lives on the device that created this link"
+                  >
+                    link · created {new Date(l.updated_at).toLocaleDateString()}
+                  </span>
+                )}
               <button
                 type="button"
                 title="Revoke — the URL stops working immediately"

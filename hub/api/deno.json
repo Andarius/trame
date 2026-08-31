@@ -3,6 +3,8 @@
     "dev": "deno run -A main.ts",
     "test": "deno test -A"
   },
+  "fmt": { "exclude": ["link-embed.ts"] },
+  "lint": { "exclude": ["link-embed.ts"] },
   "imports": {
     "hono": "npm:hono@^4.6",
     "postgres": "npm:postgres@^3.4",
