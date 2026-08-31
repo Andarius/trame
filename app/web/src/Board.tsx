@@ -262,7 +262,8 @@ export function Board(
     : [
       ...board.stories.map((o) => ({
         key: o.id,
-        title: o.title,
+        // archived stories keep their lane while sessions remain visible
+        title: o.status === "archived" ? `${o.title} (archived)` : o.title,
         glyph: "◇",
         // subtree: sessions anchored to the story or any page nested under it
         sessions: visible.filter((s) => storyOf(s, byId)?.id === o.id),

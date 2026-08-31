@@ -352,9 +352,10 @@ function PageNode(
     meId: string | null;
   },
 ) {
-  const kids = childrenOf.get(p.id) ?? [];
+  const allKids = childrenOf.get(p.id) ?? [];
+  const { normal: kids, archived } = splitArchived(allKids);
   const dbs = dbsOf.get(p.id) ?? [];
-  const hasKids = kids.length + dbs.length > 0;
+  const hasKids = allKids.length + dbs.length > 0;
   const open = expanded.has(p.id);
   const active = p.id === current;
   const sharedIn = isSharedIn(p, meId);
@@ -382,7 +383,9 @@ function PageNode(
             : "text-ink-muted hover:text-ink-soft"
         }${canDrag ? " touch-none active:cursor-grabbing" : ""}${
           isDragging ? " opacity-40" : ""
-        }${isOver && canDrop ? " bg-copper/10 ring-1 ring-copper/40" : ""}`}
+        }${p.status === "done" && !active ? " opacity-60" : ""}${
+          isOver && canDrop ? " bg-copper/10 ring-1 ring-copper/40" : ""
+        }`}
         style={{ paddingLeft: 8 + depth * 14 }}
       >
         <button
@@ -451,31 +454,90 @@ function PageNode(
           </button>
         );
       })}
-      {open && kids.map((k) => (
-        <PageNode
-          key={k.id}
-          p={k}
+      {open && kids.map(renderKid)}
+      {open && archived.length > 0 && (
+        <ArchivedFold
+          parentKey={p.id}
+          kids={archived}
           depth={depth + 1}
-          childrenOf={childrenOf}
-          dbsOf={dbsOf}
           expanded={expanded}
           onToggle={onToggle}
-          current={current}
-          currentDb={currentDb}
-          onOpenPage={onOpenPage}
-          onOpenDb={onOpenDb}
-          onNewChild={onNewChild}
-          meId={meId}
+          node={renderKid}
         />
-      ))}
+      )}
     </>
   );
+
+  function renderKid(k: PageMeta) {
+    return (
+      <PageNode
+        key={k.id}
+        p={k}
+        depth={depth + 1}
+        childrenOf={childrenOf}
+        dbsOf={dbsOf}
+        expanded={expanded}
+        onToggle={onToggle}
+        current={current}
+        currentDb={currentDb}
+        onOpenPage={onOpenPage}
+        onOpenDb={onOpenDb}
+        onNewChild={onNewChild}
+        meId={meId}
+      />
+    );
+  }
 }
 
 // A root page owned by another hub user reached us via a share — group it apart.
 // Ownerless pages (legacy rows, dev mode) count as mine.
 function isSharedIn(p: PageMeta, meId: string | null): boolean {
   return meId != null && p.owner_id != null && p.owner_id !== meId;
+}
+
+// done stories sink below their open siblings; archived ones leave the main list
+// (stable sort: server order kept within each group)
+const sortDoneLast = (kids: PageMeta[]) =>
+  [...kids].sort((a, b) =>
+    (a.status === "done" ? 1 : 0) - (b.status === "done" ? 1 : 0)
+  );
+const splitArchived = (kids: PageMeta[]) => ({
+  normal: sortDoneLast(kids.filter((k) => k.status !== "archived")),
+  archived: kids.filter((k) => k.status === "archived"),
+});
+
+// collapsed per-parent bucket for archived stories — expand state persists through
+// the same `expanded` set as real nodes, under the synthetic `archived:<parent>` key
+function ArchivedFold(
+  { parentKey, kids, depth, expanded, onToggle, node }: {
+    parentKey: string;
+    kids: PageMeta[];
+    depth: number;
+    expanded: Set<string>;
+    onToggle: (id: string) => void;
+    node: (k: PageMeta) => ReactNode;
+  },
+) {
+  const key = `archived:${parentKey}`;
+  const open = expanded.has(key);
+  return (
+    <>
+      <button
+        type="button"
+        className="flex items-center gap-1 rounded-md py-[5px] pr-1 text-left text-[12px] text-ink-muted/70 hover:text-ink-soft"
+        style={{ paddingLeft: 8 + depth * 14 }}
+        onClick={() => onToggle(key)}
+      >
+        <span className="w-[14px] shrink-0 text-[9px]">
+          {open ? "▾" : "▸"}
+        </span>
+        Archived ({kids.length})
+      </button>
+      {open && (
+        <div className="flex flex-col gap-1 opacity-50">{kids.map(node)}</div>
+      )}
+    </>
+  );
 }
 
 // drop zone covering the whole UNFILED section — dropping a page here un-files it
@@ -586,8 +648,16 @@ function Sidebar(
     if (!pageId) return;
     setExpanded((prev) => {
       const next = new Set(prev);
-      for (let p = byId.get(pageId); p?.parent_id; p = byId.get(p.parent_id)) {
-        next.add(p.parent_id);
+      for (
+        let p = byId.get(pageId);
+        p;
+        p = p.parent_id ? byId.get(p.parent_id) : undefined
+      ) {
+        if (p.parent_id) next.add(p.parent_id);
+        // an archived hop hides behind its parent's fold — open that too
+        if (p.status === "archived") {
+          next.add(`archived:${p.parent_id ?? "root"}`);
+        }
       }
       return next;
     });
@@ -641,6 +711,28 @@ function Sidebar(
     onMovePage(id, target);
   };
   const dragged = dragId ? byId.get(dragId) : undefined;
+  const rootsOwn = splitArchived(
+    (childrenOf.get(null) ?? []).filter((p) =>
+      (p.kind === "project" || p.kind === "story") && !isSharedIn(p, meId)
+    ),
+  );
+  const renderRoot = (p: PageMeta) => (
+    <PageNode
+      key={p.id}
+      p={p}
+      depth={0}
+      childrenOf={childrenOf}
+      dbsOf={dbsOf}
+      expanded={expanded}
+      onToggle={onToggle}
+      current={view === "page" ? pageId : null}
+      currentDb={view === "database" ? dbId : null}
+      onOpenPage={openGuarded}
+      onOpenDb={onOpenDb}
+      onNewChild={(id) => onNewPage(id)}
+      meId={meId}
+    />
+  );
 
   return (
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
@@ -702,25 +794,17 @@ function Sidebar(
       <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
         PROJECTS
       </div>
-      {(childrenOf.get(null) ?? []).filter((p) =>
-        (p.kind === "project" || p.kind === "story") && !isSharedIn(p, meId)
-      ).map((p) => (
-        <PageNode
-          key={p.id}
-          p={p}
+      {rootsOwn.normal.map(renderRoot)}
+      {rootsOwn.archived.length > 0 && (
+        <ArchivedFold
+          parentKey="root"
+          kids={rootsOwn.archived}
           depth={0}
-          childrenOf={childrenOf}
-          dbsOf={dbsOf}
           expanded={expanded}
           onToggle={onToggle}
-          current={view === "page" ? pageId : null}
-          currentDb={view === "database" ? dbId : null}
-          onOpenPage={openGuarded}
-          onOpenDb={onOpenDb}
-          onNewChild={(id) => onNewPage(id)}
-          meId={meId}
+          node={renderRoot}
         />
-      ))}
+      )}
       <NewChip label="New project" indent={26} onClick={onNewProject} />
       {(childrenOf.get(null) ?? []).some((p) => isSharedIn(p, meId)) && (
         <>
