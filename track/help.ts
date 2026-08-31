@@ -117,8 +117,9 @@ Pipe ONE JSON object on stdin (or pass it as the single argument):
   the real model, not the harness seat; codex/claude get a branded avatar, any other
   id a generated one. Never post as a human.
 - meta.model is required: the exact model id you run as (e.g. claude-opus-5); it
-  renders as a footer. in/out/ms are optional — pass only numbers you actually
-  measured, omit the rest (a visible footer must mean real data).`;
+  renders as a footer. Running as claude or codex, in/out/ms are required too —
+  both harnesses report their own usage, so read it there. Other agents omit what
+  they cannot measure; never guess (a visible footer must mean real data).`;
 
 export const SETUP_HELP =
   `tramecli setup — install the agent command/skills from this binary
