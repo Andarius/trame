@@ -26,14 +26,14 @@ Never use session-card fields as a substitute for a requested document or page r
 3. Prefer the `trame_create_page` MCP tool when available. Pass `title`, the complete
    `markdown`, `repo_path` (your working directory, so it files itself), and optional
    `parent_id` or `icon`.
-4. Otherwise pipe one JSON object to `__TRAMECLI__ page`:
+4. Otherwise pipe one JSON object to `tramecli page`:
 
    ```json
    {"title":"Release plan","markdown":"# Release plan\n\nComplete document body"}
    ```
 
    ```bash
-   echo '<json>' | __TRAMECLI__ page
+   echo '<json>' | tramecli page
    ```
 
    Pass `markdown_file` instead of `markdown` when the content is already in a local
@@ -46,7 +46,7 @@ Never use session-card fields as a substitute for a requested document or page r
 Trame renders GFM plus page extensions — `{{tab}}`/`{{fold}}` section headings,
 checkable todos, status lists, `{{color:pills}}`, mermaid diagrams, highlighted code
 fences, live PR chips, interactive tables; no raw HTML or entities. Run
-`__TRAMECLI__ page --help` for the full dialect before composing, and use the
+`tramecli page --help` for the full dialect before composing, and use the
 extensions instead of flattening structure into plain prose.
 
 ## Update a page
@@ -62,7 +62,7 @@ instead (next section).
    block that the update may remove.
 3. Prefer the `trame_update_page` MCP tool when available: `page_id` or exact
    `page_title`, plus `markdown`. Pass `title` only to rename the page.
-4. Otherwise pipe one JSON object to `__TRAMECLI__ page`:
+4. Otherwise pipe one JSON object to `tramecli page`:
 
    ```json
    {"page_id":"0199…","markdown_file":"/path/to/revised.md"}
@@ -88,7 +88,7 @@ instead (next section).
    writing — attribute the real model, not the harness seat (`codex` and `claude` get a
    branded avatar; any other id, e.g. `glm`, `gemini`, gets a generated one) — and
    `meta` (see step 5; the tool rejects calls without `meta.model`).
-4. Otherwise pipe one JSON object to `__TRAMECLI__ comment`:
+4. Otherwise pipe one JSON object to `tramecli comment`:
 
    ```json
    {
@@ -101,7 +101,7 @@ instead (next section).
    ```
 
    ```bash
-   echo '<json>' | __TRAMECLI__ comment
+   echo '<json>' | tramecli comment
    ```
 
 5. Always pass `meta.model` — the exact model id you run as (`claude-opus-5`,

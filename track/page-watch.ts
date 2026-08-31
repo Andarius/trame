@@ -2,8 +2,10 @@
 // page has answerable human feedback — run it in the background from an agent session;
 // the harness re-invokes the session when it exits, which then answers and restarts it.
 //
-//   deno run -A track/page-watch.ts --page <id[,id]> [--agent claude] [--interval 10]
-//                                   [--quiet 45] [--stale 600]
+//   tramecli watch [--page <id-or-title[,…]>] [--agent claude] [--interval 10]
+//                  [--quiet 45] [--stale 600]
+//
+// No --page: the `page_id` in ./.plan-trame.json.
 //
 // Each pass: POST /api/presence (badge TTL is 20s — keep --interval below that), then
 // GET /api/comments/inbox?page&mode=all filtered to --agent. Exits 0 once items exist
@@ -11,13 +13,15 @@
 // (the commenter went quiet), printing the pending items as JSON on stdout.
 import { PORT_FILE } from "../app/config.ts";
 import { AGENT_AUTHOR_ID } from "../app/agent-comments.ts";
+import { resolvePages } from "./watch.ts";
 
 const USAGE = `Waits for human feedback on a Trame page, then exits (0 = feedback ready).
 
-Usage: tramecli watch --page <id[,id]> [options]
+Usage: tramecli watch [--page <id-or-title[,…]>] [options]
 
 Options:
-  --page ID,ID     page ids to watch (required)
+  --page P,P       pages to watch, by id or exact title, subpages included
+                   (default: page_id from ./.plan-trame.json)
   --agent ID       answer as this agent (default: claude)
   --interval SECS  poll + presence heartbeat cadence (default: 10, keep < 20)
   --quiet SECS     required quiet period after the last human comment (default: 45)
@@ -45,8 +49,23 @@ function parseFlags(argv: string[]): Flags {
     else if (a === "--stale") f.stale = Number(val());
     else throw new Error(`unknown flag: ${a}`);
   }
-  if (!f.pages.length) throw new Error("--page is required");
+  if (!f.pages.length) f.pages = planPages();
+  if (!f.pages.length) {
+    throw new Error(
+      "no page to watch — pass --page <id-or-title>, or run from a project with .plan-trame.json",
+    );
+  }
   return f;
+}
+
+// Fallback selector: the plan page recorded by /trame:plan-export.
+function planPages(): string[] {
+  try {
+    const id = JSON.parse(Deno.readTextFileSync(".plan-trame.json")).page_id;
+    return id ? [String(id)] : [];
+  } catch {
+    return [];
+  }
 }
 
 function readBase(): string | null {
@@ -91,12 +110,36 @@ async function lastHumanActivity(base: string, pages: string[]): Promise<number>
   return newest;
 }
 
+// A standalone `tramecli answer` covering every page would answer the same threads
+// as this session — say so rather than double-answering silently.
+async function warnOnGlobalWatcher(base: string, page: string, agent: string) {
+  try {
+    const here = await api(
+      base,
+      `/api/presence?page=${encodeURIComponent(page)}`,
+    ) as { id: string; page_id: string }[];
+    if (here.some((p) => p.id === `watcher:${agent}` && p.page_id === "*")) {
+      console.warn(
+        `warning: a global ${agent} watcher is running — both may answer the same thread`,
+      );
+    }
+  } catch {
+    // preflight only — never block the watch on it
+  }
+}
+
 export async function main(argv: string[] = Deno.args) {
   if (argv.includes("-h") || argv.includes("--help")) {
     console.log(USAGE);
     return;
   }
   const f = parseFlags(argv);
+  const first = readBase();
+  if (first) {
+    f.pages = [...await resolvePages(first, new Set(f.pages))];
+    if (!f.pages.length) throw new Error("no page matched (by id or title)");
+    await warnOnGlobalWatcher(first, f.pages[0], f.agent);
+  }
   console.log(
     `watching page(s) ${f.pages.join(",")} for ${f.agent} feedback ` +
       `(every ${f.interval}s, quiet ${f.quiet}s)…`,

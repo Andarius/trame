@@ -1,8 +1,9 @@
 // tramecli setup — install the agent command/skills from THIS binary. The docs are
-// embedded at compile time (text imports), stamped with the binary's own invocation,
-// so a machine needs neither deno nor a checkout (`just setup` compiles + runs it
-// from a dev checkout).
+// embedded at compile time (text imports) and call the bare `tramecli`, so a machine
+// needs neither deno nor a checkout (`just setup` compiles + runs it from a dev
+// checkout); setup makes that name resolve before writing them.
 import trackCmd from "../commands/trame/track.md" with { type: "text" };
+import watchCmd from "../commands/trame/watch.md" with { type: "text" };
 import trackSkill from "../skills/trame-track/SKILL.md" with { type: "text" };
 import trackSkillOpenai from "../skills/trame-track/agents/openai.yaml" with {
   type: "text",
@@ -11,13 +12,18 @@ import pageSkill from "../skills/trame-page/SKILL.md" with { type: "text" };
 import * as p from "@clack/prompts";
 import { SETUP_HELP } from "./help.ts";
 
-export const EMBEDS = { trackCmd, trackSkill, trackSkillOpenai, pageSkill };
+export const EMBEDS = {
+  trackCmd,
+  watchCmd,
+  trackSkill,
+  trackSkillOpenai,
+  pageSkill,
+};
 
 export type SetupPlan = {
   claude: boolean;
   skillDirs: string[];
   home: string;
-  invocation: string;
 };
 
 async function onPath(name: string): Promise<boolean> {
@@ -29,12 +35,10 @@ async function onPath(name: string): Promise<boolean> {
   return res.success;
 }
 
-// The invocation stamped into the docs: the bare name when reachable, else this
-// binary self-installed into ~/.local/bin, else its absolute path.
-export async function resolveInvocation(home: string): Promise<string> {
-  for (const name of ["tramecli", "trame.tramecli"]) {
-    if (await onPath(name)) return name;
-  }
+// The docs call the bare `tramecli`, so make it resolve: self-link into ~/.local/bin
+// when it is not already on PATH. Returns the warning to print when it still is not.
+export async function ensureOnPath(home: string): Promise<string | null> {
+  if (await onPath("tramecli")) return null;
   const self = Deno.execPath();
   if (self.endsWith("/deno") || self.endsWith("deno.exe")) {
     throw new Error(
@@ -47,33 +51,29 @@ export async function resolveInvocation(home: string): Promise<string> {
     await Deno.remove(dest).catch(() => {});
     await Deno.symlink(self, dest);
     console.log(`linked ${dest} → ${self}`);
-    if (await onPath("tramecli")) return "tramecli";
-    return dest;
-  } catch {
-    return self;
+  } catch (e) {
+    return `could not link ${dest} (${(e as Error).message}) — put ${self} on PATH as \`tramecli\``;
   }
+  if (await onPath("tramecli")) return null;
+  return `${dest} is not on PATH — add ~/.local/bin to it, or the installed docs cannot call \`tramecli\``;
 }
 
-async function write(path: string, text: string, invocation: string) {
+async function write(path: string, text: string) {
   await Deno.mkdir(path.replace(/\/[^/]+$/, ""), { recursive: true });
-  await Deno.writeTextFile(path, text.replaceAll("__TRAMECLI__", invocation));
+  await Deno.writeTextFile(path, text);
   console.log(`installed → ${path}`);
 }
 
 export async function setup(plan: SetupPlan): Promise<void> {
-  const inv = plan.invocation;
   if (plan.claude) {
-    await write(`${plan.home}/.claude/commands/trame/track.md`, trackCmd, inv);
-    await write(
-      `${plan.home}/.claude/skills/trame-page/SKILL.md`,
-      pageSkill,
-      inv,
-    );
+    await write(`${plan.home}/.claude/commands/trame/track.md`, trackCmd);
+    await write(`${plan.home}/.claude/commands/trame/watch.md`, watchCmd);
+    await write(`${plan.home}/.claude/skills/trame-page/SKILL.md`, pageSkill);
   }
   for (const dir of new Set(plan.skillDirs)) {
-    await write(`${dir}/trame-track/SKILL.md`, trackSkill, inv);
-    await write(`${dir}/trame-track/agents/openai.yaml`, trackSkillOpenai, inv);
-    await write(`${dir}/trame-page/SKILL.md`, pageSkill, inv);
+    await write(`${dir}/trame-track/SKILL.md`, trackSkill);
+    await write(`${dir}/trame-track/agents/openai.yaml`, trackSkillOpenai);
+    await write(`${dir}/trame-page/SKILL.md`, pageSkill);
   }
 }
 
@@ -88,7 +88,7 @@ async function chooseInteractive(
       {
         value: "claude",
         label: "Claude Code",
-        hint: "the /trame:track slash command and the trame-page skill",
+        hint: "the /trame:track + /trame:watch commands and the trame-page skill",
       },
       {
         value: "codex",
@@ -164,9 +164,9 @@ export async function run(argv: string[]): Promise<number> {
     claude = picked.claude;
     skillDirs.push(...picked.skillDirs);
   }
-  const invocation = await resolveInvocation(home);
-  await setup({ claude, skillDirs, home, invocation });
-  console.log(`writer binary: ${invocation}`);
+  const warning = await ensureOnPath(home);
+  await setup({ claude, skillDirs, home });
+  if (warning) console.error(`warning: ${warning}`);
   if (interactive) p.outro("Trame agent integrations installed.");
   return 0;
 }

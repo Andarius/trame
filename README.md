@@ -79,9 +79,10 @@ track/track.ts             the /trame:track session writer (app or outbox)
 track/page.ts              the $trame-page writer (Markdown → atomic page create)
 track/comment.ts           agent page comments (title/quote resolution + attribution)
 track/watch.ts             the comment watcher — agents auto-answer human replies (`tramecli answer`)
+track/page-watch.ts        page-scoped poller behind `tramecli watch` — wakes a session on feedback
 track/claude-hook.ts       UserPromptSubmit hook: records cwd → Claude session id for track.ts
 bin/quickstart.sh          curl-able laptop setup: clone + packaged app + agent integrations
-commands/trame/track.md    the /trame:track slash command — embedded in tramecli, installed by `tramecli setup`
+commands/trame/{track,watch}.md  the slash commands — embedded in tramecli, installed by `tramecli setup`
 skills/trame-{track,page}/ agent skills (Codex & friends) — embedded in tramecli, installed by `tramecli setup`
 ```
 
@@ -175,8 +176,8 @@ your local PGlite (syncing to the hub when online, else queued in the outbox). F
 repo: `/trame:track` to log the session, or `/trame:track paused|blocked|done "note"` to
 set its status with a note. Setup also installs the `trame-page` skill into
 `~/.claude/skills/` — picked up automatically when you ask to save a document, note, or
-plan as a Trame page. (Setup stamps the docs with the binary's invocation — don't copy
-the files by hand.)
+plan as a Trame page. (The docs call the bare `tramecli`; setup links the binary into
+`~/.local/bin` when that name is not already on PATH.)
 
 For the card's **Resume** button to work, the writer needs the Claude session UUID — slash
 commands can't see their own session id, so a `UserPromptSubmit` hook records it per-cwd into

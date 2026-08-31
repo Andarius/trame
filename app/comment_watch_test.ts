@@ -468,3 +468,32 @@ Deno.test("Codex model is read from its redacted doctor report", () => {
   );
   assertEquals(parseCodexDoctorModel("not json"), undefined);
 });
+
+Deno.test("--page selectors resolve by id or exact title, subpages included", async () => {
+  const { resolvePages } = await import("../track/watch.ts");
+  let listening!: (port: number) => void;
+  const ready = new Promise<number>((resolve) => listening = resolve);
+  const server = Deno.serve(
+    { hostname: "127.0.0.1", port: 0, onListen: ({ port }) => listening(port) },
+    () =>
+      new Response(
+        JSON.stringify([
+          { id: "p1", parent_id: null, title: "Plan: tramecli" },
+          { id: "p2", parent_id: "p1", title: "Specs" },
+          { id: "p3", parent_id: null, title: "Unrelated" },
+        ]),
+        { headers: { "content-type": "application/json" } },
+      ),
+  );
+  try {
+    const base = `http://127.0.0.1:${await ready}`;
+    assertEquals(
+      [...await resolvePages(base, new Set(["plan: TRAMECLI"]))].sort(),
+      ["p1", "p2"],
+    );
+    assertEquals([...await resolvePages(base, new Set(["p3"]))], ["p3"]);
+    assertEquals([...await resolvePages(base, new Set(["nope"]))], []);
+  } finally {
+    await server.shutdown();
+  }
+});

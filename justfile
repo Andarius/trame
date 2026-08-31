@@ -186,19 +186,3 @@ docs:
 [group('docs')]
 docs-build:
     cd docs-site && npm install && npm run build
-
-# Read a doc in the terminal with glow. No arg = browse; `just docs-read hub-api` opens one
-[group('docs')]
-docs-read doc='':
-    #!/usr/bin/env bash
-    set -euo pipefail
-    command -v glow >/dev/null || { echo "glow not installed — see https://github.com/charmbracelet/glow (or open docs-site/src/content/docs in your editor)" >&2; exit 1; }
-    dir=docs-site/src/content/docs
-    doc="{{ doc }}"
-    if [ -z "$doc" ]; then
-        glow "$dir"
-    else
-        f=$(find "$dir" -name "${doc%.md}.md" -print -quit)
-        [ -n "$f" ] || { echo "no such doc: $doc" >&2; exit 1; }
-        glow -p "$f"
-    fi
