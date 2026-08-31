@@ -1,5 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { formatBoard, run } from "../track/cli.ts";
+import { boardRows, formatBoard, run } from "../track/cli.ts";
+import { EMBEDS, setup } from "../track/setup.ts";
 import {
   COMMENT_HELP,
   OVERVIEW,
@@ -42,34 +43,42 @@ Deno.test("formatBoard groups open sessions by story and hides terminal columns"
   const board = {
     sessions: [
       {
+        id: "s1",
         title: "repo — fix thing",
         status: "active",
         branch: "fix/thing",
         next_step: "merge it",
+        pr_url: null,
         page_id: "st-1",
         deleted: false,
       },
       {
+        id: "s2",
         title: "repo — old work",
         status: "done",
         branch: null,
         next_step: null,
+        pr_url: null,
         page_id: "st-1",
         deleted: false,
       },
       {
+        id: "s3",
         title: "repo — orphan",
         status: "paused",
         branch: null,
         next_step: null,
+        pr_url: null,
         page_id: null,
         deleted: false,
       },
       {
+        id: "s4",
         title: "repo — gone",
         status: "active",
         branch: null,
         next_step: null,
+        pr_url: null,
         page_id: null,
         deleted: true,
       },
@@ -96,4 +105,82 @@ Deno.test("formatBoard with nothing open", () => {
     formatBoard({ sessions: [], stories: [], statuses: [] }),
     "no open sessions",
   );
+});
+
+Deno.test("boardRows flattens open sessions for --json", () => {
+  const rows = boardRows({
+    sessions: [
+      {
+        id: "s1",
+        title: "repo — fix thing",
+        status: "active",
+        branch: "fix/thing",
+        next_step: "merge it",
+        pr_url: null,
+        page_id: "st-1",
+        deleted: false,
+      },
+      {
+        id: "s2",
+        title: "repo — done work",
+        status: "done",
+        branch: null,
+        next_step: null,
+        pr_url: null,
+        page_id: null,
+        deleted: false,
+      },
+    ],
+    stories: [{ id: "st-1", title: "Ship the thing" }],
+    statuses: [
+      { key: "active", terminal: false },
+      { key: "done", terminal: true },
+    ],
+  });
+  assertEquals(rows, [{
+    id: "s1",
+    title: "repo — fix thing",
+    status: "active",
+    story: "Ship the thing",
+    branch: "fix/thing",
+    next_step: "merge it",
+    pr_url: null,
+  }]);
+});
+
+Deno.test("setup embeds carry the placeholder and stamp it away", async () => {
+  for (const [name, text] of Object.entries(EMBEDS)) {
+    if (name !== "trackSkillOpenai") {
+      assertStringIncludes(text, "__TRAMECLI__");
+    }
+    assertEquals(text.includes("__TRACK_WRITER__"), false, name);
+    assertEquals(text.includes("__PAGE_WRITER__"), false, name);
+  }
+  const home = await Deno.makeTempDir();
+  try {
+    await setup({
+      claude: true,
+      skillDirs: [`${home}/.agents/skills`],
+      home,
+      invocation: "tramecli",
+    });
+    for (
+      const f of [
+        `${home}/.claude/commands/trame/track.md`,
+        `${home}/.claude/skills/trame-page/SKILL.md`,
+        `${home}/.agents/skills/trame-track/SKILL.md`,
+        `${home}/.agents/skills/trame-track/agents/openai.yaml`,
+        `${home}/.agents/skills/trame-page/SKILL.md`,
+      ]
+    ) {
+      const text = await Deno.readTextFile(f);
+      assertEquals(text.includes("__TRAMECLI__"), false, f);
+    }
+    assertStringIncludes(
+      await Deno.readTextFile(`${home}/.claude/commands/trame/track.md`),
+      "tramecli track --help",
+    );
+  } finally {
+    await Deno.remove(home, { recursive: true });
+  }
 });

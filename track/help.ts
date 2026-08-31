@@ -60,6 +60,8 @@ Posts to the running Trame app, or queues to the offline outbox when the app is
 closed. The server upserts by repo_path+branch among open sessions and attaches the
 agent's session UUID so the card gets a working Resume button (Codex: from
 CODEX_THREAD_ID; Claude Code: from the UserPromptSubmit hook sidecar).
+--json prints the server response ({id, specs_page_id, note}; {queued: true} when
+the app is closed) instead of the human lines.
 
 Compose every field from the conversation — do not ask the user.
 
@@ -116,10 +118,22 @@ Pipe ONE JSON object on stdin (or pass it as the single argument):
   renders as a footer. in/out/ms are optional — pass only numbers you actually
   measured, omit the rest (a visible footer must mean real data).`;
 
+export const SETUP_HELP =
+  `tramecli setup — install the agent command/skills from this binary
+
+  tramecli setup --claude          /trame:track + the trame-page skill into ~/.claude
+  tramecli setup --codex           $trame-track + $trame-page into ~/.agents/skills
+  tramecli setup --skills-dir DIR  any Agent Skills directory (repeatable)
+
+The docs are embedded in the binary and stamped with its own invocation; when the
+binary is not on PATH it links itself into ~/.local/bin first. Dev checkouts keep
+scripts/install-track.ts, which also installs the extra command files.`;
+
 export const LIST_HELP = `tramecli list — print open sessions grouped by story
 
 Reads the board from the running Trame app; writes nothing. Sessions whose status
-column is terminal (e.g. done) are omitted.`;
+column is terminal (e.g. done) are omitted. --json prints flat rows
+({id, title, status, story, branch, next_step, pr_url}) for jq.`;
 
 export const OVERVIEW =
   `tramecli ${VERSION} — agent CLI for Trame, the local-first session tracker
@@ -132,6 +146,7 @@ Commands:
   comment    add an inline agent comment to a page block (JSON on stdin)
   watch      wait for human feedback on page(s); exits 0 when feedback is ready
   list       print open sessions grouped by story
+  setup      install the agent command/skills embedded in this binary
   --version  print the CLI version (the app's is at GET /api/status)
 
 The Trame app must be running (it writes its port to the port file); only

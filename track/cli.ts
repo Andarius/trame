@@ -6,11 +6,13 @@ import { main as trackMain } from "./track.ts";
 import { main as pageMain } from "./page.ts";
 import { main as commentMain } from "./comment.ts";
 import { main as watchMain } from "./page-watch.ts";
+import { run as setupRun } from "./setup.ts";
 import {
   COMMENT_HELP,
   LIST_HELP,
   OVERVIEW,
   PAGE_HELP,
+  SETUP_HELP,
   TRACK_HELP,
   VERSION,
 } from "./help.ts";
@@ -20,20 +22,42 @@ const HELP_TOPICS: Record<string, string> = {
   page: PAGE_HELP,
   comment: COMMENT_HELP,
   list: LIST_HELP,
+  setup: SETUP_HELP,
 };
 
 type Board = {
   sessions: {
+    id: string;
     title: string;
     status: string;
     branch: string | null;
     next_step: string | null;
+    pr_url: string | null;
     page_id: string | null;
     deleted: boolean;
   }[];
   stories: { id: string; title: string }[];
   statuses: { key: string; terminal: boolean }[];
 };
+
+// flat rows for --json: one object per open session, jq-friendly
+export function boardRows(board: Board) {
+  const terminal = new Set(
+    board.statuses.filter((s) => s.terminal).map((s) => s.key),
+  );
+  const storyTitle = new Map(board.stories.map((s) => [s.id, s.title]));
+  return board.sessions
+    .filter((s) => !s.deleted && !terminal.has(s.status))
+    .map(({ id, title, status, branch, next_step, pr_url, page_id }) => ({
+      id,
+      title,
+      status,
+      story: (page_id && storyTitle.get(page_id)) ?? null,
+      branch,
+      next_step,
+      pr_url,
+    }));
+}
 
 // Open sessions grouped by story; a status column marked terminal (done, …) hides its cards.
 export function formatBoard(board: Board): string {
@@ -60,7 +84,7 @@ export function formatBoard(board: Board): string {
   ).join("\n");
 }
 
-async function list(): Promise<void> {
+async function list(json: boolean): Promise<void> {
   let port: number;
   try {
     port = JSON.parse(await Deno.readTextFile(PORT_FILE)).port;
@@ -73,11 +97,14 @@ async function list(): Promise<void> {
     signal: AbortSignal.timeout(5000),
   });
   if (!res.ok) throw new Error(`/api/board → HTTP ${res.status}`);
-  console.log(formatBoard(await res.json() as Board));
+  const board = await res.json() as Board;
+  console.log(json ? JSON.stringify(boardRows(board)) : formatBoard(board));
 }
 
 export async function run(argv: string[]): Promise<number> {
-  const [cmd, ...rest] = argv;
+  const [cmd, ...raw] = argv;
+  const json = raw.includes("--json");
+  const rest = raw.filter((a) => a !== "--json");
   const wantsHelp = rest.includes("-h") || rest.includes("--help");
   switch (cmd) {
     case undefined:
@@ -95,7 +122,7 @@ export async function run(argv: string[]): Promise<number> {
       return 0;
     case "track":
       if (wantsHelp) console.log(TRACK_HELP);
-      else await trackMain(rest);
+      else await trackMain(rest, { json });
       return 0;
     case "page":
       if (wantsHelp) console.log(PAGE_HELP);
@@ -110,8 +137,14 @@ export async function run(argv: string[]): Promise<number> {
       return 0;
     case "list":
       if (wantsHelp) console.log(LIST_HELP);
-      else await list();
+      else await list(json);
       return 0;
+    case "setup":
+      if (wantsHelp) {
+        console.log(SETUP_HELP);
+        return 0;
+      }
+      return await setupRun(rest);
     default:
       console.error(`unknown command: ${cmd}\n\n${OVERVIEW}`);
       return 2;
