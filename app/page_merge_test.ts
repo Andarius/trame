@@ -70,7 +70,9 @@ Deno.test("structural blocks re-anchor to the nearest surviving text block", () 
 
 Deno.test("structural-only pages keep their blocks at the head", () => {
   assertEquals(
-    mergePageBlocks([{ type: "database", db_id: "db-1" }], [text("intro", "n1")]),
+    mergePageBlocks([{ type: "database", db_id: "db-1" }], [
+      text("intro", "n1"),
+    ]),
     [{ type: "database", db_id: "db-1" }, text("intro", "n1")],
   );
 });
@@ -86,4 +88,39 @@ Deno.test("id-less text blocks are dropped, unknown types preserved", () => {
 Deno.test("empty existing content returns next unchanged", () => {
   const next = markdownToPageBlocks("# Title\n\nBody", "Title");
   assertEquals(mergePageBlocks([], next), next);
+});
+
+Deno.test("a rewrite that drops {{trame:...}} marks keeps the id and the dates", () => {
+  const out = mergePageBlocks(
+    [{
+      type: "todo",
+      text: "Ship it {{trame:created_at=2026-08-20}}",
+      done: false,
+      id: "b1",
+    }],
+    [{ type: "todo", text: "Ship it", done: true, id: "n1" }],
+  );
+  assertEquals(out, [{
+    type: "todo",
+    text: "Ship it {{trame:created_at=2026-08-20}}",
+    done: true,
+    id: "b1",
+  }]);
+});
+
+Deno.test("a mark the rewrite states wins over the stored one", () => {
+  const out = mergePageBlocks(
+    [{
+      type: "todo",
+      text: "Ship it {{trame:created_at=2026-08-20}}",
+      id: "b1",
+    }],
+    [{
+      type: "todo",
+      text: "Ship it {{trame:created_at=2026-01-01}}",
+      id: "n1",
+    }],
+  ) as PageTextBlock[];
+  assertEquals(out[0].text, "Ship it {{trame:created_at=2026-01-01}}");
+  assertEquals(out[0].id, "b1");
 });

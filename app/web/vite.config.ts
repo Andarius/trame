@@ -31,5 +31,6 @@ export default defineConfig(async () => ({
     // ~5MB); we only use exportToSvg — keep it out of the embedded bundle
     rollupOptions: { external: [/@excalidraw\/mermaid-to-excalidraw/] },
   },
-  server: { proxy: { "/api": await apiTarget() } },
+  // the editor shares app/todo-marks.ts with the Deno side
+  server: { fs: { allow: [".."] }, proxy: { "/api": await apiTarget() } },
 }));

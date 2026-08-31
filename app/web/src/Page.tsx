@@ -66,6 +66,14 @@ export function ensureIds(blocks: Block[]): { blocks: Block[]; changed: boolean 
   return { blocks: out, changed };
 }
 import { IconPicker } from "./udb/cells";
+import {
+  normalizeMarks,
+  removeMark,
+  setMark,
+  stripMarks,
+  todayMark,
+  touchTodo,
+} from "../../todo-marks.ts";
 import { DatabaseView } from "./udb/DatabaseTable";
 import { FolderBlock } from "./FolderBlock";
 import { HtmlBlock } from "./HtmlBlock";
@@ -991,6 +999,8 @@ export function BlockEditor(
     { id: string; text: string; x: number; y: number } | null
   >(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  // a todo's visible text when it took focus — a blur only counts as an edit if it moved
+  const editStart = useRef<string | null>(null);
 
   const syncSel = (i: number, el: HTMLTextAreaElement) => {
     const { selectionStart: s, selectionEnd: e } = el;
@@ -1103,7 +1113,7 @@ export function BlockEditor(
     const inTodo = isText(cur) && cur.type === "todo";
     // Enter on an EMPTY todo exits the list instead of stacking empty rings
     // (outdenting first if nested)
-    if (inTodo && !cur.text.trim()) {
+    if (inTodo && !stripMarks(cur.text).trim()) {
       return setBlock(
         i,
         cur.indent ? { indent: cur.indent - 1 } : { type: "text" },
@@ -1145,7 +1155,14 @@ export function BlockEditor(
     }
     const gi = groups.findIndex((g) => g[0] === cur);
     if (gi < 0) return;
-    const moved = groups[gi].map((x, j) => (j === 0 ? { ...x, done } : x));
+    const stamp = (t: string) =>
+      done
+        ? setMark(t, "completed_at", todayMark())
+        // re-opening drops completed_at, so updated_at is what keeps the trace
+        : touchTodo(removeMark(t, "completed_at"), todayMark());
+    const moved = groups[gi].map((x, j) =>
+      j === 0 ? { ...x, done, text: stamp((x as TextBlock).text) } : x
+    );
     const rest = groups.filter((_, j) => j !== gi);
     const firstDone = rest.findIndex((g) => (g[0] as TextBlock).done);
     const at = done || firstDone === -1 ? rest.length : firstDone;
@@ -1672,7 +1689,8 @@ export function BlockEditor(
           openThreads.has(b.id as string);
         const bid = b.id ?? String(i);
         // empty/new/mid-navigation blocks always stay in raw-text edit mode
-        const editing = activeId === bid || !b.text.trim() || focusIdx === i;
+        const editing = activeId === bid || !stripMarks(b.text).trim() ||
+          focusIdx === i;
         // session-report lists: the nearest heading above decides how bullets render
         // (Completed → green checks, Open/Next → copper rings; see md.tsx ListVariant)
         let listVariant: "done" | "open" | undefined;
@@ -1873,10 +1891,24 @@ export function BlockEditor(
                   pointerEvents: "none",
                 }}
                 className={`w-full resize-none overflow-hidden border-none py-1 outline-none placeholder:text-ink-muted/40 ${editCls}`}
-                onFocus={() => setActiveId(bid)}
+                onFocus={() => {
+                  setActiveId(bid);
+                  editStart.current = stripMarks(b.text);
+                }}
                 onBlur={() => {
                   setActiveId((cur) => (cur === bid ? null : cur));
                   setSel((cur) => (cur && cur.i === i ? null : cur));
+                  // on blur, not on keystroke: appending mid-typing would move the caret
+                  if (b.type === "todo" && stripMarks(b.text).trim()) {
+                    const was = editStart.current;
+                    let text = setMark(b.text, "created_at", todayMark());
+                    if (was !== null && was !== stripMarks(b.text)) {
+                      text = touchTodo(text, todayMark());
+                    }
+                    text = normalizeMarks(text);
+                    if (text !== b.text) set(i, { text });
+                  }
+                  editStart.current = null;
                 }}
                 onSelect={(e) => syncSel(i, e.currentTarget)}
                 onChange={(e) => {

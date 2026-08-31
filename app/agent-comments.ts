@@ -1,3 +1,5 @@
+import { stripMarks } from "./todo-marks.ts";
+
 // An agent id is free-form: any model can attribute itself honestly (the running
 // model, e.g. "glm", not just the harness seat). "codex"/"claude"/"glm" get a
 // branded avatar; anything else gets a generated initial avatar.
@@ -112,10 +114,14 @@ export function resolveCommentBlock(
     return { id: hit.id, text: hit.text };
   }
 
-  const want = target.block_text?.trim();
+  // quotes are matched on the visible line: an agent never has to repeat the
+  // {{trame:...}} marks the app stamped onto a todo
+  const want = target.block_text ? stripMarks(target.block_text).trim() : "";
   if (want) {
-    let matches = blocks.filter((b) => b.text.trim() === want);
-    if (!matches.length) matches = blocks.filter((b) => b.text.includes(want));
+    let matches = blocks.filter((b) => stripMarks(b.text).trim() === want);
+    if (!matches.length) {
+      matches = blocks.filter((b) => stripMarks(b.text).includes(want));
+    }
     if (matches.length === 1) {
       return { id: matches[0].id, text: matches[0].text };
     }
