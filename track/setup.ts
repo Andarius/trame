@@ -1,7 +1,7 @@
 // tramecli setup — install the agent command/skills from THIS binary. The docs are
 // embedded at compile time (text imports), stamped with the binary's own invocation,
-// so a machine needs neither deno nor a checkout. Dev checkouts keep
-// scripts/install-track.ts, which also handles the extra command files (plan/watch).
+// so a machine needs neither deno nor a checkout (`just setup` compiles + runs it
+// from a dev checkout).
 import trackCmd from "../commands/trame/track.md" with { type: "text" };
 import trackSkill from "../skills/trame-track/SKILL.md" with { type: "text" };
 import trackSkillOpenai from "../skills/trame-track/agents/openai.yaml" with {
@@ -38,7 +38,7 @@ export async function resolveInvocation(home: string): Promise<string> {
   const self = Deno.execPath();
   if (self.endsWith("/deno") || self.endsWith("deno.exe")) {
     throw new Error(
-      "running from source — use scripts/install-track.ts, or compile first (deno task compile:cli)",
+      "running from source — compile first (`just setup`, or `deno task compile:cli`)",
     );
   }
   const dest = `${home}/.local/bin/tramecli`;
@@ -77,7 +77,7 @@ export async function setup(plan: SetupPlan): Promise<void> {
   }
 }
 
-// same picker as scripts/install-track.ts, for a bare `tramecli setup` on a TTY
+// interactive target picker for a bare `tramecli setup` on a TTY
 async function chooseInteractive(
   home: string,
 ): Promise<{ claude: boolean; skillDirs: string[] } | null> {

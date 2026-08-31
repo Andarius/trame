@@ -81,8 +81,8 @@ track/comment.ts           agent page comments (title/quote resolution + attribu
 track/watch.ts             the comment watcher — agents auto-answer human replies (`tramecli answer`)
 track/claude-hook.ts       UserPromptSubmit hook: records cwd → Claude session id for track.ts
 bin/quickstart.sh          curl-able laptop setup: clone + packaged app + agent integrations
-commands/trame/track.md    the /trame:track slash command — install with `just install-cmd`
-skills/trame-{track,page}/ agent skills — Codex via `just install-skill`, trame-page also lands in ~/.claude/skills via `just install-cmd`
+commands/trame/track.md    the /trame:track slash command — embedded in tramecli, installed by `tramecli setup`
+skills/trame-{track,page}/ agent skills (Codex & friends) — embedded in tramecli, installed by `tramecli setup`
 ```
 
 ## Setup
@@ -158,13 +158,10 @@ tramecli setup                   # interactive target picker
 tramecli setup --claude --codex  # non-interactive; also --skills-dir ~/.gemini/skills
 ```
 
-From a dev checkout, `just install-track` (interactive), `just install-cmd`
-(Claude Code) or `just install-skill` (Codex) do the same and additionally install
-the extra command files; without a `tramecli` on PATH they compile one from the
-checkout into `~/.local/share/trame/bin/`. Any other agent CLI that reads an Agent
-Skills directory works too:
+From a dev checkout, `just setup` compiles a fresh binary and runs its setup —
+flags pass through, and any agent CLI that reads an Agent Skills directory works:
 ```bash
-deno run --config app/deno.json -A scripts/install-track.ts --skills-dir ~/.gemini/skills
+just setup --claude --codex --skills-dir ~/.gemini/skills
 ```
 
 In Codex, use `$trame-track`, `$trame-track paused "note"`, or `$trame-track list`

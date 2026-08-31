@@ -127,8 +127,8 @@ export const SETUP_HELP =
   tramecli setup --skills-dir DIR  any Agent Skills directory (repeatable)
 
 The docs are embedded in the binary and stamped with its own invocation; when the
-binary is not on PATH it links itself into ~/.local/bin first. Dev checkouts keep
-scripts/install-track.ts, which also installs the extra command files.`;
+binary is not on PATH it links itself into ~/.local/bin first. From a dev checkout,
+\`just setup\` compiles a fresh binary and runs this.`;
 
 export const LIST_HELP = `tramecli list — print open sessions grouped by story
 

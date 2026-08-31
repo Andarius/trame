@@ -56,12 +56,15 @@ install_release() { # flavor
             fetch_asset "$tag" "trame_${ver}_amd64.snap" "$tmp/trame.snap"
             echo "Installing the snap $tag (needs sudo)..."
             sudo snap install --dangerous --classic "$tmp/trame.snap"
+            sudo snap alias trame.tramecli tramecli || echo "snap alias failed — use trame.tramecli" >&2
             RUN_HINT="trame"
             ;;
         appimage)
             mkdir -p "$HOME/.local/bin"
             fetch_asset "$tag" "Trame-${tag}-linux-x64.AppImage" "$HOME/.local/bin/trame"
             chmod +x "$HOME/.local/bin/trame"
+            fetch_asset "$tag" "tramecli-${tag}-linux-x64" "$HOME/.local/bin/tramecli"
+            chmod +x "$HOME/.local/bin/tramecli"
             RUN_HINT="$HOME/.local/bin/trame"
             ;;
         dmg)
@@ -72,6 +75,9 @@ install_release() { # flavor
             cp -R "$vol/Trame.app" /Applications/
             hdiutil detach "$vol" >/dev/null
             xattr -dr com.apple.quarantine /Applications/Trame.app
+            mkdir -p "$HOME/.local/bin"
+            fetch_asset "$tag" "tramecli-${tag}-macos-arm64" "$HOME/.local/bin/tramecli"
+            chmod +x "$HOME/.local/bin/tramecli"
             RUN_HINT="open /Applications/Trame.app"
             ;;
         *)
@@ -121,11 +127,33 @@ main() {
         *) install_release "$flavor" ;;
     esac
 
-    local install_args=()
-    [[ "$targets" != "none" ]] && install_args+=(--target "$targets")
-    [[ -n "${TRAME_SKILL_DIRS:-}" ]] && install_args+=(--skills-dir "$TRAME_SKILL_DIRS")
-    if [[ ${#install_args[@]} -gt 0 ]]; then
-        (cd "$dir" && deno run --config app/deno.json -A scripts/install-track.ts "${install_args[@]}")
+    # agent docs come from the tramecli binary (`tramecli setup`)
+    local setup_args=()
+    if [[ "$targets" != "none" ]]; then
+        local t
+        for t in ${targets//,/ }; do
+            case "$t" in
+                claude) setup_args+=(--claude) ;;
+                codex) setup_args+=(--codex) ;;
+                *) echo "unknown TRAME_TARGETS entry: $t (expected claude, codex, or none)" >&2 ;;
+            esac
+        done
+    fi
+    if [[ -n "${TRAME_SKILL_DIRS:-}" ]]; then
+        local d
+        for d in ${TRAME_SKILL_DIRS//,/ }; do
+            setup_args+=(--skills-dir "$d")
+        done
+    fi
+    if [[ ${#setup_args[@]} -gt 0 ]]; then
+        local cli
+        if command -v tramecli >/dev/null; then cli=tramecli
+        elif command -v trame.tramecli >/dev/null; then cli=trame.tramecli
+        else
+            (cd "$dir/app" && deno task compile:cli)
+            cli="$dir/dist/tramecli"
+        fi
+        "$cli" setup "${setup_args[@]}"
     fi
 
     cat <<EOF

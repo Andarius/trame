@@ -137,20 +137,12 @@ ci: lint fmt-check-sql check test check-hub
 compile-cli:
     cd app && deno task compile:cli
 
-# Install the /trame:track slash command + trame-page skill into ~/.claude
+# Install the agent command/skills from a fresh build (interactive picker;
+# or pass flags: `just setup --claude --codex --skills-dir ~/.gemini/skills`)
 [group('setup')]
-install-cmd:
-    deno run --config app/deno.json -A scripts/install-track.ts --target claude
-
-# Install the native Trame skills for Codex (available from every repository)
-[group('setup')]
-install-skill:
-    deno run --config app/deno.json -A scripts/install-track.ts --target codex
-
-# Choose Claude Code, Codex, or both interactively
-[group('setup')]
-install-track:
-    deno run --config app/deno.json -A scripts/install-track.ts
+setup *args:
+    cd app && deno task compile:cli
+    ./dist/tramecli setup "$@"
 
 # Wipe the local PGlite data + outbox (fresh local db)
 [group('setup')]
