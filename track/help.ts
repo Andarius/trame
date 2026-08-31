@@ -108,9 +108,11 @@ export const COMMENT_HELP =
 
 Pipe ONE JSON object on stdin (or pass it as the single argument):
 
-  {page_id|page_title, block_id|block_text, body, agent?, meta}
+  {page_id|page_title, block_id|block_text, body, agent?, meta, in_reply_to?}
 
 - block_text: a unique exact quote from the target block.
+- in_reply_to: comment id you are answering — it is marked "answering" before the
+  reply and "answered" after, so the UI never shows a stuck spinner.
 - agent: id of the model ACTUALLY writing (codex, claude, glm, gemini, …) — attribute
   the real model, not the harness seat; codex/claude get a branded avatar, any other
   id a generated one. Never post as a human.
@@ -126,8 +128,8 @@ export const SETUP_HELP =
   tramecli setup --codex           $trame-track + $trame-page into ~/.agents/skills
   tramecli setup --skills-dir DIR  any Agent Skills directory (repeatable)
 
-The docs are embedded in the binary and stamped with its own invocation; when the
-binary is not on PATH it links itself into ~/.local/bin first. From a dev checkout,
+The docs are embedded in the binary and call the bare \`tramecli\`; when that name is
+not on PATH the binary links itself into ~/.local/bin first. From a dev checkout,
 \`just setup\` compiles a fresh binary and runs this.`;
 
 export const LIST_HELP = `tramecli list — print open sessions grouped by story

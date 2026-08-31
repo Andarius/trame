@@ -1,7 +1,7 @@
 // Agent-facing Trame page-comment writer.
 //
 // Input: one JSON object, as argv[0] or on stdin:
-//   { page_id|page_title, block_id|block_text, body, agent?, meta? }
+//   { page_id|page_title, block_id|block_text, body, agent?, meta?, in_reply_to? }
 //
 // The app injects the canonical agent name/avatar. This writer resolves human-friendly
 // page titles and target quotes so callers do not need to discover HTTP routes or UUIDs.
@@ -17,6 +17,8 @@ export type CommentInput = {
   agent?: AgentKind;
   // footer stats; model defaults to the agent id server-side — only pass numbers you measured
   meta?: { model?: string; in?: number; out?: number; ms?: number };
+  // comment being answered: marked "answering" before the reply, "answered" after
+  in_reply_to?: string;
 };
 type Input = CommentInput;
 
@@ -61,6 +63,18 @@ async function request(
   return res.json();
 }
 
+const setStatus = (
+  base: string,
+  id: string,
+  status: "answering" | "answered",
+  agent: string,
+) =>
+  request(base, `/api/comments/${id}/agent-status`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ status, agent }),
+  });
+
 // The one comment entrypoint, shared by the CLI and the MCP server: resolves the
 // page by title, the block by id or unique quote, then posts with attribution.
 export async function addComment(
@@ -86,6 +100,9 @@ export async function addComment(
   const target = resolveCommentBlock(page.content, input);
   const agent = input.agent ??
     (Deno.env.get("CODEX_THREAD_ID") ? "codex" : "claude");
+  if (input.in_reply_to) {
+    await setStatus(base, input.in_reply_to, "answering", agent);
+  }
   const { id } = await request(base, "/api/comments", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -98,6 +115,12 @@ export async function addComment(
       meta: input.meta,
     }),
   }) as { id: string };
+  // the reply is posted: a failing status call must not look like a failed answer
+  if (input.in_reply_to) {
+    await setStatus(base, input.in_reply_to, "answered", agent).catch((e) =>
+      console.error(`warning: reply posted but marking answered failed: ${e.message}`)
+    );
+  }
   return { id, agent, page: { id: page.id, title: page.title } };
 }
 

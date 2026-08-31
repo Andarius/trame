@@ -586,7 +586,7 @@ const warnedSelectors = new Set<string>();
 // (case-insensitive) title, and a match includes its whole subtree — so a project
 // name/id scopes the watcher to every page under it. Re-resolved each pass, so
 // renames and new subpages are picked up while running.
-async function resolvePages(
+export async function resolvePages(
   base: string,
   selectors: Set<string>,
 ): Promise<Set<string>> {

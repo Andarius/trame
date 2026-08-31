@@ -148,23 +148,22 @@ Deno.test("boardRows flattens open sessions for --json", () => {
   }]);
 });
 
-Deno.test("setup embeds carry the placeholder and stamp it away", async () => {
+Deno.test("setup embeds call the bare binary and install everywhere", async () => {
   for (const [name, text] of Object.entries(EMBEDS)) {
-    if (name !== "trackSkillOpenai") {
-      assertStringIncludes(text, "__TRAMECLI__");
+    for (
+      const legacy of [
+        "__TRAMECLI__",
+        "__TRACK_WRITER__",
+        "__PAGE_WRITER__",
+        "__PAGE_WATCH__",
+      ]
+    ) {
+      assertEquals(text.includes(legacy), false, `${name}: ${legacy}`);
     }
-    assertEquals(text.includes("__TRACK_WRITER__"), false, name);
-    assertEquals(text.includes("__PAGE_WRITER__"), false, name);
-    assertEquals(text.includes("__PAGE_WATCH__"), false, name);
   }
   const home = await Deno.makeTempDir();
   try {
-    await setup({
-      claude: true,
-      skillDirs: [`${home}/.agents/skills`],
-      home,
-      invocation: "tramecli",
-    });
+    await setup({ claude: true, skillDirs: [`${home}/.agents/skills`], home });
     for (
       const f of [
         `${home}/.claude/commands/trame/track.md`,
@@ -175,8 +174,7 @@ Deno.test("setup embeds carry the placeholder and stamp it away", async () => {
         `${home}/.agents/skills/trame-page/SKILL.md`,
       ]
     ) {
-      const text = await Deno.readTextFile(f);
-      assertEquals(text.includes("__TRAMECLI__"), false, f);
+      await Deno.stat(f);
     }
     assertStringIncludes(
       await Deno.readTextFile(`${home}/.claude/commands/trame/track.md`),

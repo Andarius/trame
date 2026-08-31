@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(pwd), Bash(git branch:*), Bash(git remote:*), Bash(__TRAMECLI__:*), Bash(cat:*)
+allowed-tools: Bash(pwd), Bash(git branch:*), Bash(git remote:*), Bash(tramecli:*), Bash(cat:*)
 description: Log or update the current coding-agent session in Trame (the local session tracker)
 ---
 
@@ -15,7 +15,7 @@ description: Log or update the current coding-agent session in Trame (the local 
 
 Track this session in **Trame** — a board of projects, stories, and session cards.
 
-1. Run `__TRAMECLI__ track --help` for the writer contract and the field conventions.
-2. Compose every field from THIS conversation (do not ask the user) and pipe one JSON object to `__TRAMECLI__ track`.
-3. If a spec is evident, write the spec page with the session id from the writer output (`__TRAMECLI__ page`, see its `--help`).
+1. Run `tramecli track --help` for the writer contract and the field conventions.
+2. Compose every field from THIS conversation (do not ask the user) and pipe one JSON object to `tramecli track`.
+3. If a spec is evident, write the spec page with the session id from the writer output (`tramecli page`, see its `--help`).
 4. Report one line from the writer output: tracked/queued, title, status, and the `next_step` you wrote.
