@@ -79,9 +79,10 @@ track/track.ts             the /trame:track session writer (app or outbox)
 track/page.ts              the $trame-page writer (Markdown → atomic page create)
 track/comment.ts           agent page comments (title/quote resolution + attribution)
 track/watch.ts             the comment watcher — agents auto-answer human replies (`tramecli answer`)
+track/page-watch.ts        page-scoped poller behind `tramecli watch` — wakes a session on feedback
 track/claude-hook.ts       UserPromptSubmit hook: records cwd → Claude session id for track.ts
 bin/quickstart.sh          curl-able laptop setup: clone + packaged app + agent integrations
-commands/trame/track.md    the /trame:track slash command — embedded in tramecli, installed by `tramecli setup`
+commands/trame/{track,watch}.md  the slash commands — embedded in tramecli, installed by `tramecli setup`
 skills/trame-{track,page}/ agent skills (Codex & friends) — embedded in tramecli, installed by `tramecli setup`
 ```
 

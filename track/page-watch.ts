@@ -2,8 +2,8 @@
 // page has answerable human feedback — run it in the background from an agent session;
 // the harness re-invokes the session when it exits, which then answers and restarts it.
 //
-//   deno run -A track/page-watch.ts --page <id[,id]> [--agent claude] [--interval 10]
-//                                   [--quiet 45] [--stale 600]
+//   tramecli watch --page <id[,id]> [--agent claude] [--interval 10]
+//                  [--quiet 45] [--stale 600]
 //
 // Each pass: POST /api/presence (badge TTL is 20s — keep --interval below that), then
 // GET /api/comments/inbox?page&mode=all filtered to --agent. Exits 0 once items exist

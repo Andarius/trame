@@ -122,7 +122,7 @@ export const SETUP_HELP =
   `tramecli setup — install the agent command/skills from this binary
 
   tramecli setup                   pick targets interactively (TTY only)
-  tramecli setup --claude          /trame:track + the trame-page skill into ~/.claude
+  tramecli setup --claude          /trame:track, /trame:watch + trame-page into ~/.claude
   tramecli setup --codex           $trame-track + $trame-page into ~/.agents/skills
   tramecli setup --skills-dir DIR  any Agent Skills directory (repeatable)
 

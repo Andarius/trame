@@ -3,6 +3,7 @@
 // so a machine needs neither deno nor a checkout (`just setup` compiles + runs it
 // from a dev checkout).
 import trackCmd from "../commands/trame/track.md" with { type: "text" };
+import watchCmd from "../commands/trame/watch.md" with { type: "text" };
 import trackSkill from "../skills/trame-track/SKILL.md" with { type: "text" };
 import trackSkillOpenai from "../skills/trame-track/agents/openai.yaml" with {
   type: "text",
@@ -11,7 +12,13 @@ import pageSkill from "../skills/trame-page/SKILL.md" with { type: "text" };
 import * as p from "@clack/prompts";
 import { SETUP_HELP } from "./help.ts";
 
-export const EMBEDS = { trackCmd, trackSkill, trackSkillOpenai, pageSkill };
+export const EMBEDS = {
+  trackCmd,
+  watchCmd,
+  trackSkill,
+  trackSkillOpenai,
+  pageSkill,
+};
 
 export type SetupPlan = {
   claude: boolean;
@@ -64,6 +71,7 @@ export async function setup(plan: SetupPlan): Promise<void> {
   const inv = plan.invocation;
   if (plan.claude) {
     await write(`${plan.home}/.claude/commands/trame/track.md`, trackCmd, inv);
+    await write(`${plan.home}/.claude/commands/trame/watch.md`, watchCmd, inv);
     await write(
       `${plan.home}/.claude/skills/trame-page/SKILL.md`,
       pageSkill,
@@ -88,7 +96,7 @@ async function chooseInteractive(
       {
         value: "claude",
         label: "Claude Code",
-        hint: "the /trame:track slash command and the trame-page skill",
+        hint: "the /trame:track + /trame:watch commands and the trame-page skill",
       },
       {
         value: "codex",

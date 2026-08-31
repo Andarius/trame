@@ -155,6 +155,7 @@ Deno.test("setup embeds carry the placeholder and stamp it away", async () => {
     }
     assertEquals(text.includes("__TRACK_WRITER__"), false, name);
     assertEquals(text.includes("__PAGE_WRITER__"), false, name);
+    assertEquals(text.includes("__PAGE_WATCH__"), false, name);
   }
   const home = await Deno.makeTempDir();
   try {
@@ -167,6 +168,7 @@ Deno.test("setup embeds carry the placeholder and stamp it away", async () => {
     for (
       const f of [
         `${home}/.claude/commands/trame/track.md`,
+        `${home}/.claude/commands/trame/watch.md`,
         `${home}/.claude/skills/trame-page/SKILL.md`,
         `${home}/.agents/skills/trame-track/SKILL.md`,
         `${home}/.agents/skills/trame-track/agents/openai.yaml`,
