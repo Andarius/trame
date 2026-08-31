@@ -150,7 +150,10 @@ export function NewSessionModal(
           className={pill}
           options={[
             { value: "", label: "◇ no story" },
-            ...pageOptions(board.stories, board.pages ?? []),
+            ...pageOptions(
+              board.stories.filter((s) => s.status !== "archived"),
+              board.pages ?? [],
+            ),
             { value: "__new__", label: "＋ new story…" },
           ]}
           onChange={setObjective}
@@ -973,7 +976,9 @@ export function ImportClaudeModal(
           // only offer projects of the group's client (plus unassigned ones)
           const clientName = clients[g.repoPath] ?? g.suggestedClient;
           const clientId = board.projects.find((c) => c.name === clientName)?.id;
-          const clientProjects = board.stories.filter((o) => !o.client_id || o.client_id === clientId);
+          const clientProjects = board.stories.filter((o) =>
+            o.status !== "archived" && (!o.client_id || o.client_id === clientId)
+          );
           // plain pages are offered too — the import promotes them on attach
           const clientPages = (board.pages ?? [])
             .filter((p) => p.kind !== "project" && (!p.client_id || p.client_id === clientId));
