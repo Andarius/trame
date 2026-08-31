@@ -60,6 +60,13 @@ export const DEPLOYMENTS_POLL_ACTIVE_MS = Number(
   Deno.env.get("TRACKER_DEPLOYMENTS_POLL_ACTIVE_MS") ?? "10000",
 );
 export const DEPLOYMENTS_FIXTURE = Deno.env.get("TRACKER_DEPLOYMENTS_FIXTURE") ?? "";
+// Cockpit plugin: mirrors tickets from a Cockpit instance's /api/sync. One
+// cadence only — tickets move on human timescales, so there is no fast mode to
+// justify. Same offline fixture escape hatch as deployments.
+export const COCKPIT_POLL_IDLE_MS = Number(
+  Deno.env.get("TRACKER_COCKPIT_POLL_IDLE_MS") ?? "300000",
+);
+export const COCKPIT_FIXTURE = Deno.env.get("TRACKER_COCKPIT_FIXTURE") ?? "";
 // Pasted-image storage: files under ASSETS_DIR by default; an S3-compatible bucket
 // when TRACKER_S3_ENDPOINT + TRACKER_S3_BUCKET (+ keys) are set.
 export const ASSETS_DIR = Deno.env.get("TRACKER_ASSETS_DIR") ?? `${dataHome}/trame/assets`;

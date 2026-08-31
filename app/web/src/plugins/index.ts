@@ -5,6 +5,8 @@
 import type { ComponentType } from "react";
 import { DeploymentsPanel } from "./deployments/Panel";
 import { DeploymentsSettings } from "./deployments/Settings";
+import { CockpitPanel } from "./cockpit/Panel";
+import { CockpitSettings } from "./cockpit/Settings";
 
 export type FrontendPlugin = {
   id: string;
@@ -14,4 +16,5 @@ export type FrontendPlugin = {
 
 export const FRONTEND_PLUGINS: FrontendPlugin[] = [
   { id: "deployments", Panel: DeploymentsPanel, Settings: DeploymentsSettings },
+  { id: "cockpit", Panel: CockpitPanel, Settings: CockpitSettings },
 ];
