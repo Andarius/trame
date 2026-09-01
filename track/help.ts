@@ -61,6 +61,16 @@ omits them — so a page update does not have to repeat the dates it did not cha
 (\`updated_at\` unions both sides rather than picking one).
 Quote a block by its visible text when commenting; the marks are not part of it.`;
 
+// When a session gets a spec page — one text, shared by the CLI help, the MCP
+// descriptions, and the tracker's specs-less note.
+export const SPECS_WHEN =
+  `Write a spec page whenever the session produced knowledge worth keeping — planned
+work (goal, scope, acceptance, with \`links\` back to the TODO/plan item) and
+investigations (what broke, what was ruled out, what is still open) alike; the page is
+the only place that survives, \`summary\` is 1–3 lines. When the session's whole story
+is its diff, the spec page and the PR description are the same text — write it once on
+the page and reuse it for the PR.`;
+
 // Field-by-field composition conventions for `tramecli track` (formerly
 // skills/trame-track/fields.md).
 export const TRACK_FIELDS =
@@ -82,9 +92,8 @@ by full URL, never a bare \`#42\` — full links render as badges.
 Specs
 
 Specs are a real page — a subpage of the card's story; the tracker's response returns its
-\`specs_page_id\`. Write them whenever a spec is evident (goal, scope, acceptance) —
-especially planned work from a TODO/plan item, with \`links\` back to it. Update only when
-the user asks or the plan materially changed; unchanged blocks keep their comment anchors.
+\`specs_page_id\`. ${SPECS_WHEN} Update only when the user asks or the plan materially
+changed; unchanged blocks keep their comment anchors.
 
   echo '{"session_id": "<session id>", "markdown": "## Goal\\n..."}' | tramecli page
 

@@ -420,6 +420,18 @@ export async function addEvent(sessionId: string, summary: string, kind = "log",
   await pg.query(`update sessions set last_touched=now(), origin=$2, updated_at=now() where id=$1`, [sessionId, NODE_ID]);
 }
 
+// A track repeating the last one is a no-op (upsertSession already touched the card); manual logs always append.
+export async function addTrackEvent(sessionId: string, summary: string, agent: string | null = null): Promise<void> {
+  const pg = await db();
+  const last = (await pg.query(
+    `select summary, agent from session_events where session_id=$1 and kind='track' and not deleted
+     order by at desc, id desc limit 1`,
+    [sessionId],
+  )).rows[0] as { summary: string | null; agent: string | null } | undefined;
+  if (last && (last.summary ?? "").trim() === summary.trim() && (last.agent ?? null) === agent) return;
+  await addEvent(sessionId, summary, "track", agent);
+}
+
 export async function linksForSession(sessionId: string) {
   const pg = await db();
   return (await pg.query(

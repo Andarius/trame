@@ -24,7 +24,7 @@ For tracking actions:
 1. Run `tramecli track --help` for the writer contract and the field conventions.
 2. Read the current working directory and Git branch, compose every field from THIS
    conversation (do not ask the user), and pipe one JSON object to `tramecli track`.
-3. If a spec is evident, write the spec page with the session id from the writer
-   output (`tramecli page`, see its `--help`).
+3. Write the spec page when the writer contract (Specs, in that `--help`) says so,
+   with the session id from the writer output (`tramecli page`, see its `--help`).
 4. Report one line from the writer output: tracked/queued, title, status, and the
    `next_step` you wrote.

@@ -43,6 +43,7 @@ import {
 import { ASSETS } from "./embed.ts";
 import {
   addEvent,
+  addTrackEvent,
   addSessionLink,
   createObjective,
   createReport,
@@ -66,6 +67,7 @@ import {
   updateStatus,
   upsertSession,
 } from "./db.ts";
+import { SPECS_WHEN } from "../track/help.ts";
 import { syncOnce } from "./sync.ts";
 import { testHubApi } from "./sync-api.ts";
 import { startRealtime } from "./realtime.ts";
@@ -1042,7 +1044,7 @@ async function handler(req: Request): Promise<Response> {
     if (
       typeof body.summary === "string" && body.summary.trim() && !body.no_event
     ) {
-      await addEvent(id, body.summary, "track", typeof body.agent === "string" ? body.agent : null);
+      await addTrackEvent(id, body.summary, typeof body.agent === "string" ? body.agent : null);
     }
     // Planned-work backlinks (plan/TODO pages) ride the same POST; dedupe by
     // page+block so repeated tracking doesn't pile up chips.
@@ -1057,8 +1059,7 @@ async function handler(req: Request): Promise<Response> {
         await addSessionLink(id, l.page_id, l.block_id ?? null, l.anchor ?? "");
       }
     }
-    // Nudge every write path (skill, writer, MCP, raw curl): a specs-less card is
-    // fine for a work log but wrong for planned work — see track.md.
+    // Nudge every write path (skill, writer, MCP, raw curl) toward a specs page.
     const pg = await db();
     const s = (await pg.query(`select specs_page_id from sessions where id=$1`, [id]))
       .rows[0] as { specs_page_id: string | null } | undefined;
@@ -1070,9 +1071,7 @@ async function handler(req: Request): Promise<Response> {
       : undefined;
     const note = spec
       ? undefined
-      : ('card has no specs page — if this is planned work (from a TODO/plan item), write one with the page writer/trame_update_page using {"session_id": "' +
-          id +
-          '"} plus links back to the plan and the TODO page');
+      : (`card has no specs page. ${SPECS_WHEN.replaceAll("\n", " ")} Write it with the page writer/trame_update_page using {"session_id": "${id}"}`);
     return json({ id, specs_page_id: s?.specs_page_id ?? null, ...(note ? { note } : {}) });
   }
   const spm = pathname.match(/^\/api\/sessions\/([^/]+)\/specs-page$/);
