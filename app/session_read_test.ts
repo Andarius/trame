@@ -80,6 +80,9 @@ Deno.test("getSession resolves the card the drawer shows", async () => {
   await addEvent(id, "fifth", "log");
   await addTrackEvent(id, "fifth", "claude");
   assertEquals((await getSession(id))!.activity_total, 8);
+  // …nor does the same text from another agent: the worklog must show the handoff
+  await addTrackEvent(id, "fifth", "codex");
+  assertEquals((await getSession(id))!.activity_total, 9);
 
   // an unfiled card resolves to nulls rather than blowing up
   const bare = await upsertSession({ title: "loose", status: "active", repo_path: "/repos/loose" });

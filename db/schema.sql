@@ -187,7 +187,7 @@ create index if not exists comment_agent_status_comment on comment_agent_status 
 create index if not exists comment_agent_status_page on comment_agent_status (page_id);
 
 create table if not exists session_events (
-  id uuid primary key default gen_random_uuid(),
+  id uuid primary key default uuidv7(),
   session_id uuid not null references sessions (id),
   at timestamptz not null default now(),
   summary text,
@@ -197,6 +197,7 @@ create table if not exists session_events (
   deleted boolean not null default false
 );
 alter table session_events add column if not exists agent text;  -- claude | codex; null = human/unknown
+alter table session_events alter column id set default uuidv7();  -- time-ordered: the tiebreak after `at`
 
 -- Session <-> page-item links ("this session works on that TODO line"). Anchored
 -- like page_comments: block_id + an `anchor` text snapshot of the item line, so
@@ -415,7 +416,7 @@ comment on column sessions.next_step is 'One imperative line — what to do next
 comment on column sessions.specs_page_id is 'The session''s spec page (deterministic id, lazily created subpage of the story).';
 comment on column sessions.claude_id is 'Claude Code or Codex transcript UUID (the name predates Codex). Imported cards also carry it as their id.';
 comment on column sessions.agent is 'Transcript provider: claude or codex. Null on manual cards.';
-comment on column sessions.summary is 'Last "what happened" blurb; also written to session_events as the worklog.';
+comment on column sessions.summary is 'Last "what happened" blurb; a changed value is also appended to session_events as the worklog.';
 comment on column sessions.last_touched is 'Activity clock for board ordering (distinct from updated_at, the LWW clock).';
 
 comment on table statuses is 'Kanban board columns — user-editable. sessions.status stores statuses.key (a stable slug), not the id. terminal marks done-like columns. Built-ins (active/paused/blocked/done) are seeded with fixed ids so LWW sync dedupes them.';
