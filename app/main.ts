@@ -67,6 +67,7 @@ import {
   updateStatus,
   upsertSession,
 } from "./db.ts";
+import { SPECS_WHEN } from "../track/help.ts";
 import { syncOnce } from "./sync.ts";
 import { testHubApi } from "./sync-api.ts";
 import { startRealtime } from "./realtime.ts";
@@ -1058,8 +1059,7 @@ async function handler(req: Request): Promise<Response> {
         await addSessionLink(id, l.page_id, l.block_id ?? null, l.anchor ?? "");
       }
     }
-    // Nudge every write path (skill, writer, MCP, raw curl): a specs-less card keeps
-    // only the 1-3 line summary — see track.md.
+    // Nudge every write path (skill, writer, MCP, raw curl) toward a specs page.
     const pg = await db();
     const s = (await pg.query(`select specs_page_id from sessions where id=$1`, [id]))
       .rows[0] as { specs_page_id: string | null } | undefined;
@@ -1071,9 +1071,7 @@ async function handler(req: Request): Promise<Response> {
       : undefined;
     const note = spec
       ? undefined
-      : ('card has no specs page — if this session produced anything worth keeping (planned work: goal/scope/acceptance plus links back to the TODO/plan item; an investigation: what broke, what was ruled out, what is still open), write one with the page writer/trame_update_page using {"session_id": "' +
-          id +
-          '"}');
+      : (`card has no specs page. ${SPECS_WHEN.replaceAll("\n", " ")} Write it with the page writer/trame_update_page using {"session_id": "${id}"}`);
     return json({ id, specs_page_id: s?.specs_page_id ?? null, ...(note ? { note } : {}) });
   }
   const spm = pathname.match(/^\/api\/sessions\/([^/]+)\/specs-page$/);
