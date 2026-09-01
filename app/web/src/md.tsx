@@ -7,6 +7,7 @@
 // Underscore emphasis is intentionally NOT supported so snake_case survives.
 import { Fragment, type ReactNode, useEffect, useState } from "react";
 import { openInBrowser, type PrInfo, prInfo } from "./api";
+import { Popover } from "./ui";
 
 // ```mermaid fences render as diagrams. The lib (~1.5 MB) is dynamically imported so
 // pages without diagrams never load it. The svg-string injection is the one exception
@@ -540,16 +541,65 @@ type TableOps = {
   // item text whose editor opens on mount (the fresh half of a split)
   autoEditItem?: string;
   // session links on list items: resolver returns the chip for a linked item,
-  // onLinkItem offers the hover 🔗 to create one
+  // onLinkItem puts "Link a session" in the item's ⋯ menu
   getItemLink?: (
     item: string,
   ) => { title: string; color: string; open: () => void } | null;
   onLinkItem?: (item: string) => void;
 };
 
-// trailing per-item affordances: the linked-session chip and the hover 🔗
+// Per-item ⋯ menu (shown on hover of that item only — the group is named so the
+// block wrapper's own `group` does not light up every line at once).
+function ItemMenu({ actions }: { actions: { label: string; icon: string; run: () => void }[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span
+      className="relative ml-1 shrink-0 self-center"
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        aria-label="Item actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={`rounded px-1 text-[12px] leading-none text-ink-muted transition-opacity hover:bg-panel hover:text-ink-soft focus-visible:opacity-100 ${
+          open ? "opacity-100" : "opacity-0 group-hover/item:opacity-100"
+        }`}
+        onClick={() => setOpen((v) => !v)}
+      >
+        ⋯
+      </button>
+      {open && (
+        <Popover onClose={() => setOpen(false)} className="min-w-[160px]" style={{ left: "auto", right: 0 }}>
+          <div role="menu">
+            {actions.map((a) => (
+              <button
+                key={a.label}
+                type="button"
+                role="menuitem"
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-ink-soft hover:bg-panel"
+                onClick={() => {
+                  setOpen(false);
+                  a.run();
+                }}
+              >
+                <span className="w-4 text-center text-[11px]">{a.icon}</span>
+                <span className="flex-1 truncate">{a.label}</span>
+              </button>
+            ))}
+          </div>
+        </Popover>
+      )}
+    </span>
+  );
+}
+
+// trailing per-item affordances: the linked-session chip and the ⋯ menu
 function itemTrail(t: string, ops?: TableOps): ReactNode {
   const lk = ops?.getItemLink?.(t);
+  const actions = [];
+  if (!lk && ops?.onLinkItem) actions.push({ label: "Link a session", icon: "🔗", run: () => ops.onLinkItem!(t) });
   return (
     <>
       {lk && (
@@ -570,20 +620,7 @@ function itemTrail(t: string, ops?: TableOps): ReactNode {
           <span className="truncate">{lk.title}</span>
         </button>
       )}
-      {!lk && ops?.onLinkItem && (
-        <button
-          type="button"
-          title="link a session"
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            ops.onLinkItem!(t);
-          }}
-          className="ml-1 shrink-0 self-center text-[10.5px] text-ink-muted opacity-0 transition-opacity hover:text-copper group-hover:opacity-100"
-        >
-          🔗
-        </button>
-      )}
+      {actions.length > 0 && <ItemMenu actions={actions} />}
     </>
   );
 }
@@ -1086,7 +1123,7 @@ function renderBlocks(
             className="my-1 list-none space-y-1 pl-0 text-ink-muted"
           >
             {texts.map((t, j) => (
-              <li key={j} className="group flex gap-2 leading-relaxed">
+              <li key={j} className="group/item flex gap-2 leading-relaxed">
                 {ops?.onMarkOpen
                   ? (
                     <button
@@ -1122,7 +1159,7 @@ function renderBlocks(
           >
             <ul className="list-none space-y-1.5 pl-0 text-ink-soft">
               {texts.map((t, j) => (
-                <li key={j} className="group flex gap-2 leading-relaxed">
+                <li key={j} className="group/item flex gap-2 leading-relaxed">
                   {ops?.onMarkDone
                     ? (
                       <button
@@ -1154,7 +1191,7 @@ function renderBlocks(
             className="my-1 list-disc space-y-0.5 pl-4 text-ink-soft"
           >
             {texts.map((t, j) => (
-              <li key={j} className="group leading-relaxed">
+              <li key={j} className="group/item leading-relaxed">
                 {itemContent(t, ops)}
                 {itemTrail(t, ops)}
               </li>
