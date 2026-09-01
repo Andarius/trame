@@ -82,9 +82,11 @@ by full URL, never a bare \`#42\` — full links render as badges.
 Specs
 
 Specs are a real page — a subpage of the card's story; the tracker's response returns its
-\`specs_page_id\`. Write them whenever a spec is evident (goal, scope, acceptance) —
-especially planned work from a TODO/plan item, with \`links\` back to it. Update only when
-the user asks or the plan materially changed; unchanged blocks keep their comment anchors.
+\`specs_page_id\`. Write them whenever the session produced knowledge worth keeping —
+planned work and investigations alike. Planned work: goal, scope, acceptance, with
+\`links\` back to the TODO/plan item. A debug or incident session: what broke, what was
+ruled out, and what is still open — the page is the only place that survives, \`summary\`
+is 1–3 lines. Update only when the user asks or the plan materially changed; unchanged blocks keep their comment anchors.
 
   echo '{"session_id": "<session id>", "markdown": "## Goal\\n..."}' | tramecli page
 
