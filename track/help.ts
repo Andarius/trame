@@ -86,7 +86,10 @@ Specs are a real page — a subpage of the card's story; the tracker's response 
 planned work and investigations alike. Planned work: goal, scope, acceptance, with
 \`links\` back to the TODO/plan item. A debug or incident session: what broke, what was
 ruled out, and what is still open — the page is the only place that survives, \`summary\`
-is 1–3 lines. Update only when the user asks or the plan materially changed; unchanged blocks keep their comment anchors.
+is 1–3 lines. When the session's whole story is its diff, the spec page and the PR
+description are the same text — write it once on the page and reuse it for the PR; the
+page is the one that also holds what the diff cannot. Update only when the user asks or
+the plan materially changed; unchanged blocks keep their comment anchors.
 
   echo '{"session_id": "<session id>", "markdown": "## Goal\\n..."}' | tramecli page
 
