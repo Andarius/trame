@@ -420,6 +420,23 @@ export async function addEvent(sessionId: string, summary: string, kind = "log",
   await pg.query(`update sessions set last_touched=now(), origin=$2, updated_at=now() where id=$1`, [sessionId, NODE_ID]);
 }
 
+// Re-tracking a session usually resends the same summary; only a changed one is a new
+// worklog entry, so an unchanged repeat just touches the card. Tracks only: a human
+// typing the same line twice in the drawer (addEvent, kind='log') means it.
+export async function addTrackEvent(sessionId: string, summary: string, agent: string | null = null): Promise<void> {
+  const pg = await db();
+  const last = (await pg.query(
+    `select summary from session_events where session_id=$1 and kind='track' and not deleted
+     order by at desc limit 1`,
+    [sessionId],
+  )).rows[0] as { summary: string | null } | undefined;
+  if ((last?.summary ?? "").trim() === summary.trim()) {
+    await pg.query(`update sessions set last_touched=now(), origin=$2, updated_at=now() where id=$1`, [sessionId, NODE_ID]);
+    return;
+  }
+  await addEvent(sessionId, summary, "track", agent);
+}
+
 export async function linksForSession(sessionId: string) {
   const pg = await db();
   return (await pg.query(

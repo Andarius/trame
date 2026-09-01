@@ -43,6 +43,7 @@ import {
 import { ASSETS } from "./embed.ts";
 import {
   addEvent,
+  addTrackEvent,
   addSessionLink,
   createObjective,
   createReport,
@@ -1042,7 +1043,7 @@ async function handler(req: Request): Promise<Response> {
     if (
       typeof body.summary === "string" && body.summary.trim() && !body.no_event
     ) {
-      await addEvent(id, body.summary, "track", typeof body.agent === "string" ? body.agent : null);
+      await addTrackEvent(id, body.summary, typeof body.agent === "string" ? body.agent : null);
     }
     // Planned-work backlinks (plan/TODO pages) ride the same POST; dedupe by
     // page+block so repeated tracking doesn't pile up chips.
