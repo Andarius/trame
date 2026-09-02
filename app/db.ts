@@ -303,6 +303,56 @@ export async function setSessionStatus(id: string, status: string): Promise<void
   await pg.query(`update sessions set status=$2, origin=$3, updated_at=now() where id=$1`, [id, status, NODE_ID]);
 }
 
+// tags (free labels on pages)
+
+const TAG_NS = "3c9e0b71-2f45-4d18-a6c3-8e5417b9d0aa";
+export const tagId = (key: string) => v5.generate(TAG_NS, new TextEncoder().encode(key));
+
+export const tagKey = (label: string) =>
+  label.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+
+// Find-or-create a tag by label. Unlike a status, a clash is the POINT: two people
+// typing "DevOps" must land on ONE tag, not on `devops-2`. The id falls out of the key
+// (same reason schema.sql seeds the built-in statuses with fixed ids), so two offline
+// nodes converge instead of forking; `do update` revives one deleted earlier.
+export async function ensureTag(t: { label: string; color?: string }): Promise<{ id: string; key: string }> {
+  const pg = await db();
+  const key = tagKey(t.label) || "tag";
+  const id = await tagId(key);
+  const last = (await pg.query(`select max(sort_key) as k from tags where not deleted`)).rows[0] as { k: string | null };
+  await pg.query(
+    `insert into tags (id, key, label, color, sort_key, origin)
+     values ($1,$2,$3,$4,$5,$6)
+     on conflict (id) do update set
+       label=excluded.label, deleted=false, origin=excluded.origin, updated_at=now()`,
+    [id, key, t.label, t.color ?? "#6b7280", midKey(last.k ?? "", ""), NODE_ID],
+  );
+  return { id, key };
+}
+
+export async function listTags() {
+  const pg = await db();
+  return (await pg.query(
+    `select id, key, label, color, sort_key from tags where not deleted order by sort_key, label`,
+  )).rows;
+}
+
+// key is immutable (pages.tags references it) — only label/color are patchable
+export async function updateTag(id: string, patch: { label?: string; color?: string }): Promise<void> {
+  const pg = await db();
+  await pg.query(
+    `update tags set label=coalesce($2,label), color=coalesce($3,color), origin=$4, updated_at=now() where id=$1`,
+    [id, patch.label ?? null, patch.color ?? null, NODE_ID],
+  );
+}
+
+// Soft-delete the vocabulary row. Pages keep the key and render it plainly.
+export async function deleteTag(id: string): Promise<void> {
+  const pg = await db();
+  await pg.query(`update tags set deleted=true, origin=$2, updated_at=now() where id=$1`, [id, NODE_ID]);
+}
+
 // statuses (kanban columns)
 
 // slug a label into a key, unique among non-deleted statuses (append -2, -3, … on clash)

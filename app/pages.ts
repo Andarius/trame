@@ -13,7 +13,7 @@ import {
 } from "./agent-comments.ts";
 
 const LIST_COLS =
-  "id, parent_id, kind, title, icon, status, client_id, color, sort_key, owner_id";
+  "id, parent_id, kind, title, icon, status, client_id, color, tags, sort_key, owner_id";
 const COMMENT_COLS =
   "id, page_id, block_id, anchor, body, author, author_avatar, author_id, resolved, meta, updated_at";
 
@@ -100,6 +100,7 @@ export async function createPage(
     client_id?: string | null;
     story?: string;
     content?: unknown[];
+    tags?: string[];
     repo_path?: string;
   },
 ): Promise<string> {
@@ -113,8 +114,8 @@ export async function createPage(
     : null;
   const row = (await pg.query(
     `insert into pages
-       (kind, title, icon, client_id, parent_id, sort_key, story, content, owner_id, origin)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id`,
+       (kind, title, icon, client_id, parent_id, sort_key, story, content, tags, owner_id, origin)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning id`,
     [
       ["project", "story"].includes(p.kind ?? "") ? p.kind : "page",
       p.title ?? "",
@@ -124,6 +125,7 @@ export async function createPage(
       await endKey(pg, parentId),
       p.story ?? "",
       JSON.stringify(p.content ?? []),
+      JSON.stringify(p.tags ?? []),
       (await getIdentity()).userId,
       NODE_ID,
     ],
@@ -141,6 +143,7 @@ export async function updatePage(
     client_id?: string | null;
     content?: unknown[];
     color?: string | null;
+    tags?: string[];
   },
 ): Promise<void> {
   const pg = await db();
@@ -153,6 +156,7 @@ export async function updatePage(
        icon      = case when $6 then $7 else icon end,
        client_id = case when $8 then $9 else client_id end,
        color     = case when $11 then $12 else color end,
+       tags      = case when $13 then $14 else tags end,
        origin=$10, updated_at=now()
      where id=$1`,
     [
@@ -168,6 +172,8 @@ export async function updatePage(
       NODE_ID,
       "color" in patch,
       patch.color ?? null,
+      "tags" in patch,
+      JSON.stringify(patch.tags ?? []),
     ],
   );
 }

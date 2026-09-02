@@ -65,6 +65,10 @@ import {
   updateObjective,
   updateStatus,
   upsertSession,
+  deleteTag,
+  ensureTag,
+  listTags,
+  updateTag,
 } from "./db.ts";
 import { syncOnce } from "./sync.ts";
 import { testHubApi } from "./sync-api.ts";
@@ -1220,6 +1224,28 @@ async function handler(req: Request): Promise<Response> {
       else if (stm[2] === "/move") {
         await moveStatus(stm[1], (await req.json()).dir === -1 ? -1 : 1);
       } else await updateStatus(stm[1], await req.json());
+    } catch (e) {
+      return json({ error: (e as Error).message }, 400);
+    }
+    return json({ ok: true });
+  }
+
+  // tags — free labels on pages (create is find-or-create, cf. ensureTag)
+  if (pathname === "/api/tags") {
+    if (req.method === "POST") {
+      const b = await req.json();
+      if (typeof b.label !== "string" || !b.label.trim()) {
+        return json({ error: "label required" }, 400);
+      }
+      return json(await ensureTag({ label: b.label.trim(), color: b.color }));
+    }
+    return json(await listTags());
+  }
+  const tgm = pathname.match(/^\/api\/tags\/([^/]+)(\/delete)?$/);
+  if (tgm && req.method === "POST") {
+    try {
+      if (tgm[2] === "/delete") await deleteTag(tgm[1]);
+      else await updateTag(tgm[1], await req.json());
     } catch (e) {
       return json({ error: (e as Error).message }, 400);
     }

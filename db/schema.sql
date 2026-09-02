@@ -66,6 +66,21 @@ insert into statuses (id, key, label, color, terminal, sort_key) values
 ('00000000-0000-4000-8000-000000000004', 'done', 'Done', '#6b7280', true, 'a3')
 on conflict (id) do nothing;
 
+-- Tags: libres, posées sur les pages. Même forme que `statuses` — vocabulaire
+-- synchronisé, édité par l'utilisateur. `pages.tags` stocke la `key` (slug
+-- stable) et non l'id, comme `sessions.status` : une page reste lisible même si
+-- la ligne de vocabulaire n'est pas encore arrivée, elle affiche son slug.
+create table if not exists tags (
+  id uuid primary key default uuidv7(),
+  key text not null,                    -- slug stable stocké dans pages.tags
+  label text not null,
+  color text not null,                    -- hex
+  sort_key text not null default 'a0',
+  origin text not null default 'seed',
+  updated_at timestamptz not null default now(),
+  deleted boolean not null default false
+);
+
 -- Users: profile only — credentials come with the hub API (Phase 3) and stay hub-only,
 -- so no secrets ever ride the laptop sync. Synced so every node renders authors offline.
 -- The initial user is seeded with a FIXED id (same reason as the statuses seed): every
@@ -307,6 +322,9 @@ alter table udb_databases add column if not exists page_id uuid references pages
 -- Projects and stories are pages: client_id survives only as a denormalized
 -- pointer, with no table behind it.
 alter table pages add column if not exists color text;
+-- jsonb et pas text[] : rien dans ce schéma n'utilise de tableau natif, alors
+-- que `content` et `views` sont déjà en jsonb.
+alter table pages add column if not exists tags jsonb not null default '[]';
 alter table pages drop constraint if exists pages_client_id_fkey;
 alter table sessions drop constraint if exists sessions_client_id_fkey;
 alter table reports drop constraint if exists reports_client_id_fkey;
@@ -360,7 +378,7 @@ $fn$;
 do $$
 declare t text;
 begin
-  foreach t in array array['users','devices','pages','page_shares','page_links','page_comments','comment_agent_status','statuses','sessions',
+  foreach t in array array['users','devices','pages','page_shares','page_links','page_comments','comment_agent_status','statuses','tags','sessions',
                            'session_events','reports','udb_databases','udb_properties','udb_rows','udb_links'] loop
     execute format(
       'create or replace trigger %I after insert or update or delete on %I for each row execute function trame_log_change()',
