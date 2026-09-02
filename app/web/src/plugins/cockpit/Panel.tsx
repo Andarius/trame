@@ -21,6 +21,13 @@ type State = {
   tickets: Ticket[];
   polledAt: string | null;
   errors: { scope: string; error: string }[];
+  mirrored: {
+    pageId: string;
+    scopes: string[];
+    created: number;
+    updated: number;
+    removed: number;
+  }[];
 };
 
 // Cockpit's execution statuses. Colours reuse the board's status vocabulary so
@@ -107,9 +114,9 @@ export function CockpitPanel(
             onClick={refresh}
             disabled={busy}
             className="rounded-md border border-line px-1.5 py-0.5 hover:border-chipline disabled:opacity-50"
-            title="Refresh"
+            title="Poll Cockpit now instead of waiting for the interval"
           >
-            ↻
+            {busy ? "…" : "↻ Sync now"}
           </button>
           <button
             type="button"
@@ -121,6 +128,21 @@ export function CockpitPanel(
           </button>
         </div>
       </div>
+
+      {state.mirrored.length > 0 && (
+        <div className="border-b border-line px-3 py-1.5 text-[11px] text-ink-muted">
+          {state.mirrored.map((m) => (
+            <div key={m.pageId}>
+              {m.scopes.join(", ")} —{" "}
+              {m.created + m.updated + m.removed === 0 ? "nothing to change" : [
+                m.created ? `${m.created} new` : "",
+                m.updated ? `${m.updated} updated` : "",
+                m.removed ? `${m.removed} retired` : "",
+              ].filter(Boolean).join(" · ")}
+            </div>
+          ))}
+        </div>
+      )}
 
       {state.errors.length > 0 && (
         <div className="border-b border-line px-3 py-2">
