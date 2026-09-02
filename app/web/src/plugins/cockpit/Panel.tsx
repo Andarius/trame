@@ -73,27 +73,6 @@ export function CockpitPanel(
     return <div className="p-4 text-[12px] text-ink-muted">Loading…</div>;
   }
 
-  // An unmapped plugin is the normal first state, not an error — say what to do
-  // rather than showing a blank panel.
-  if (!state.configured) {
-    return (
-      <div className="p-4 text-[12px] text-ink-muted">
-        <p className="mb-2">No project mapped yet.</p>
-        <p className="mb-3">
-          Cockpit tickets only appear for the products or flows you map
-          explicitly — nothing is fetched until then.
-        </p>
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          className="rounded-md border border-line px-2.5 py-1.5 text-[12px] text-ink-soft hover:border-chipline"
-        >
-          ⚙︎ Open settings
-        </button>
-      </div>
-    );
-  }
-
   const byMapping = new Map<string, Ticket[]>();
   for (const t of state.tickets) {
     const list = byMapping.get(t.mapping);
@@ -155,7 +134,31 @@ export function CockpitPanel(
       )}
 
       <div className="flex-1 overflow-y-auto">
-        {state.tickets.length === 0 && state.errors.length === 0 && (
+        {
+          /* `configured` reflects the LAST POLL, not the settings: mapping a
+            project leaves it false until the next pass. So this branch keeps
+            the header — and its refresh — reachable, otherwise the panel would
+            deny being configured with no way to prove itself wrong. */
+        }
+        {!state.configured && (
+          <div className="p-4 text-[12px] text-ink-muted">
+            <p className="mb-2">No project mapped yet.</p>
+            <p className="mb-3">
+              Cockpit tickets only appear for the products or flows you map
+              explicitly — nothing is fetched until then. Just mapped one? Hit ↻
+              Sync now.
+            </p>
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              className="rounded-md border border-line px-2.5 py-1.5 text-[12px] text-ink-soft hover:border-chipline"
+            >
+              ⚙︎ Open settings
+            </button>
+          </div>
+        )}
+        {state.configured && state.tickets.length === 0 &&
+          state.errors.length === 0 && (
           <div className="p-4 text-[12px] text-ink-muted">
             Nothing open in the mapped projects.
           </div>
