@@ -20,14 +20,16 @@ import {
 } from "./scope.ts";
 import {
   CockpitError,
+  createTicket,
   fetchDelta,
   fetchRefs,
   fetchScopes,
   probe,
   type Ticket,
 } from "./api.ts";
-import { groupByProject, planMirror } from "./mirror.ts";
+import { groupByProject, planMirror, ticketFromPage } from "./mirror.ts";
 import {
+  adoptAsMirror,
   applyMirror,
   loadMirrorPages,
   type MirrorResult,
@@ -320,6 +322,58 @@ const cockpit: Plugin = {
             ? `${e.status} — ${e.message}`
             : String((e as Error)?.message ?? e),
         });
+      }
+    }
+    // Push a local page INTO Cockpit as a ticket. Explicit on purpose: this
+    // files a row in a shared team tracker, so it must never happen because a
+    // project happens to be mapped.
+    if (subPath === "/create" && req.method === "POST") {
+      const body = await req.json().catch(() => ({}));
+      const pageId = str(body.pageId);
+      if (!pageId) return json({ error: "pageId required" }, 400);
+
+      const slice = await getPluginSettings(ID);
+      const baseUrl = str(slice.baseUrl);
+      const token = str(slice.token);
+      if (!baseUrl || !token) return json({ error: "not configured" }, 400);
+
+      const { getPage } = await import("../../pages.ts");
+      const page = await getPage(pageId) as unknown as {
+        id: string;
+        title: string;
+        story?: string;
+        content: unknown[];
+        parent_id: string | null;
+      } | null;
+      if (!page) return json({ error: "unknown page" }, 404);
+
+      // The scope comes from the mapping on the page's project — a page can
+      // only reach a scope this device was told to sync.
+      const mapping = parseMappings(slice.projects).find((m) =>
+        m.pageId === page.parent_id
+      );
+      const scope = mapping && scopeOf(mapping);
+      if (!scope) {
+        return json({
+          error: "This page is not under a mapped project.",
+        }, 400);
+      }
+
+      const fields = ticketFromPage(page);
+      if ("error" in fields) return json({ error: fields.error }, 422);
+
+      try {
+        const made = await createTicket(baseUrl, token, scope, fields);
+        // Stamp it so the next poll keeps this page in step instead of
+        // creating a second one beside it.
+        await adoptAsMirror(pageId, made.reference);
+        poll().catch(console.error);
+        return json(made);
+      } catch (e) {
+        const detail = e instanceof CockpitError
+          ? `${e.status} — ${e.message}`
+          : String((e as Error)?.message ?? e);
+        return json({ error: detail }, 502);
       }
     }
     if (subPath === "/refresh" && req.method === "POST") {

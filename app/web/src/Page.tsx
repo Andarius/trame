@@ -77,6 +77,7 @@ import {
 import { DatabaseView } from "./udb/DatabaseTable";
 import { FolderBlock } from "./FolderBlock";
 import { TagEditor } from "./TagEditor";
+import { CreateTicket } from "./plugins/cockpit/CreateTicket";
 import { HtmlBlock } from "./HtmlBlock";
 
 // project chip palette (matches the client palette + a few extras)
@@ -2814,6 +2815,14 @@ export function Page(
             <TagEditor
               tags={page.tags ?? []}
               onChange={(tags) => patch({ tags })}
+            />
+            <CreateTicket
+              pageId={pageId}
+              parentId={page.parent_id}
+              alreadySynced={JSON.stringify(page.content ?? []).includes(
+                "trame:cockpit_ref=",
+              )}
+              onDone={() => reload()}
             />
             <div className="flex shrink-0 items-center gap-1.5 pl-1">
               {(() => {

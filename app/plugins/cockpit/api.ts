@@ -59,9 +59,16 @@ async function call<T>(
   baseUrl: string,
   token: string,
   path: string,
+  init?: { method: string; body: string },
 ): Promise<T> {
   const res = await fetch(`${trimUrl(baseUrl)}/api/sync${path}`, {
-    headers: { authorization: `Bearer ${token}`, accept: "application/json" },
+    method: init?.method,
+    headers: {
+      authorization: `Bearer ${token}`,
+      accept: "application/json",
+      ...(init ? { "content-type": "application/json" } : {}),
+    },
+    body: init?.body,
   });
   const body = await res.json().catch(() => ({})) as { error?: string };
   if (!res.ok) {
@@ -88,6 +95,42 @@ export function fetchDelta(
 }
 
 /** Live references for a scope — the reconcile list (phase 3). */
+export type Created = {
+  reference: string;
+  updated_at: string;
+  /** false when this origin_id had already produced a ticket */
+  created: boolean;
+};
+
+/**
+ * Deposit a ticket in a granted scope.
+ *
+ * `originId` is the Trame page id, and the server deduplicates on it: a retry
+ * after a timeout returns the ticket the first call made rather than a second
+ * one, so a flaky network cannot litter a shared tracker.
+ */
+export function createTicket(
+  baseUrl: string,
+  token: string,
+  scope: Scope,
+  body: {
+    originId: string;
+    title: string;
+    objective: string;
+    description: string | null;
+  },
+): Promise<Created> {
+  return call(baseUrl, token, `/tickets/create?${scopeQuery(scope)}`, {
+    method: "POST",
+    body: JSON.stringify({
+      origin_id: body.originId,
+      title: body.title,
+      objective: body.objective,
+      description: body.description,
+    }),
+  });
+}
+
 export function fetchScopes(
   baseUrl: string,
   token: string,

@@ -9,7 +9,7 @@ import {
   type PageTextBlock,
 } from "../../page-markdown.ts";
 import { mergePageBlocks } from "../../page-merge.ts";
-import { readMarks, writeMark } from "../../todo-marks.ts";
+import { readMarks, stripMarks, writeMark } from "../../todo-marks.ts";
 import type { Ticket } from "./api.ts";
 
 export const REF_MARK = "cockpit_ref";
@@ -222,4 +222,85 @@ export function groupByProject<S>(rows: Drained<S>[]): ProjectGroup<S>[] {
       a.reference.localeCompare(b.reference)
     ),
   }));
+}
+
+/**
+ * What a Trame page offers Cockpit when it becomes a ticket.
+ *
+ * `objective` is mandatory server-side — it is the "why", and a ticket without
+ * one is noise in a shared tracker. The page's own summary line is the natural
+ * source; failing that, its first paragraph. We do NOT invent one: a page with
+ * nothing to say should be refused, not filed with a placeholder.
+ */
+export function ticketFromPage(page: {
+  id: string;
+  title: string;
+  story?: string;
+  content: unknown[];
+}): {
+  originId: string;
+  title: string;
+  objective: string;
+  description: string | null;
+} | { error: string } {
+  const title = page.title.trim();
+  if (title.length < 3) {
+    return { error: "The page needs a title of at least 3 characters." };
+  }
+
+  const paragraphs = page.content.flatMap((b) => {
+    if (typeof b !== "object" || b === null) return [];
+    const { type, text } = b as { type?: unknown; text?: unknown };
+    if (type !== "text" || typeof text !== "string") return [];
+    const t = stripMarks(text).trim();
+    return t ? [t] : [];
+  });
+
+  const objective = (page.story ?? "").trim() || paragraphs[0] || "";
+  if (!objective) {
+    return {
+      error:
+        "The page needs a summary or a first paragraph — Cockpit requires an objective.",
+    };
+  }
+
+  // The objective is already carried on its own; repeating it as the first
+  // line of the description would read as a duplicate in Cockpit's UI.
+  const rest = paragraphs.filter((t) => t !== objective);
+  return {
+    originId: page.id,
+    title,
+    objective,
+    description: rest.length ? rest.join("\n\n") : null,
+  };
+}
+
+/**
+ * Put the reference mark on a page's first block, keeping everything else.
+ *
+ * Used when a local page becomes a ticket: the page already has the reader's
+ * own content, so it is stamped in place rather than rewritten from the
+ * ticket — which would discard whatever they had written.
+ */
+export function stampRef(content: unknown[], reference: string): unknown[] {
+  const at = content.findIndex((b) =>
+    typeof b === "object" && b !== null &&
+    typeof (b as { text?: unknown }).text === "string"
+  );
+  if (at === -1) {
+    return [
+      ...content,
+      {
+        type: "text",
+        text: `{{trame:${REF_MARK}=${reference}}}`,
+        id: crypto.randomUUID(),
+      },
+    ];
+  }
+  const block = content[at] as { text: string };
+  return content.map((b, i) =>
+    i === at
+      ? { ...block, text: writeMark(block.text, REF_MARK, reference) }
+      : b
+  );
 }

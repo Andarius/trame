@@ -2,7 +2,12 @@
 // stays pure and testable without a PGlite instance.
 import { db } from "../../db.ts";
 import { createPage, deletePage, updatePage } from "../../pages.ts";
-import { type MirrorPage, type MirrorPlan, refOfContent } from "./mirror.ts";
+import {
+  type MirrorPage,
+  type MirrorPlan,
+  refOfContent,
+  stampRef,
+} from "./mirror.ts";
 
 export type MirrorResult = {
   created: number;
@@ -72,4 +77,24 @@ export async function applyMirror(
     updated: plan.update.length,
     removed: plan.remove.length,
   };
+}
+
+/**
+ * Turn a local page into a mirrored one, once Cockpit has given it a
+ * reference. Stamping the mark is what makes the next poll recognise the page
+ * as ours and keep it in step, instead of creating a second page beside it.
+ */
+export async function adoptAsMirror(
+  pageId: string,
+  reference: string,
+): Promise<void> {
+  const pg = await db();
+  const row = (await pg.query(
+    `select content from pages where id=$1 and not deleted`,
+    [pageId],
+  )).rows[0] as { content: unknown } | undefined;
+  if (!row) throw new Error(`unknown page ${pageId}`);
+
+  const content = Array.isArray(row.content) ? row.content : [];
+  await updatePage(pageId, { content: stampRef(content, reference) });
 }

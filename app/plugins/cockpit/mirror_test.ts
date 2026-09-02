@@ -6,6 +6,7 @@ import {
   REF_MARK,
   refOfContent,
   ticketBlocks,
+  ticketFromPage,
   ticketMarkdown,
 } from "./mirror.ts";
 import type { Ticket } from "./api.ts";
@@ -272,4 +273,62 @@ Deno.test("groupByProject gives a ticket the tag of every scope that returned it
     { pageId: "soren", scope: "b", tag: "billing", tickets: [t] },
   ]);
   assertEquals(g.tagsByRef.get("CKP-1"), ["mobile", "billing"]);
+});
+
+// Pushing a page INTO Cockpit files a row in a shared team tracker. A page
+// that says nothing must be refused rather than filed with a placeholder.
+
+const pageFor = (over: Record<string, unknown> = {}) => ({
+  id: "01a0581d-2a5b-7000-a6c8-3fa7a72789c1",
+  title: "Rotate the prod keys",
+  content: [
+    { type: "text", text: "The keys date from March.", id: "b1" },
+    { type: "text", text: "Rotate, then revoke the old ones.", id: "b2" },
+  ] as unknown[],
+  ...over,
+});
+
+Deno.test("ticketFromPage takes the objective from the summary", () => {
+  const out = ticketFromPage(pageFor({ story: "Prod keys are stale." }));
+  assertEquals("error" in out, false);
+  assertEquals(
+    (out as { objective: string }).objective,
+    "Prod keys are stale.",
+  );
+});
+
+Deno.test("ticketFromPage falls back to the first paragraph", () => {
+  const out = ticketFromPage(pageFor()) as {
+    objective: string;
+    description: string;
+  };
+  assertEquals(out.objective, "The keys date from March.");
+  // and does not repeat it in the description
+  assertEquals(out.description, "Rotate, then revoke the old ones.");
+});
+
+Deno.test("ticketFromPage refuses a page with nothing to say", () => {
+  const out = ticketFromPage(pageFor({ content: [] }));
+  assertEquals("error" in out, true);
+});
+
+Deno.test("ticketFromPage refuses a title too short for Cockpit", () => {
+  // The server enforces 3-200; failing here gives a better message than a 422.
+  assertEquals("error" in ticketFromPage(pageFor({ title: "ab" })), true);
+});
+
+Deno.test("ticketFromPage carries the page id as the idempotency key", () => {
+  const out = ticketFromPage(pageFor({ story: "why" })) as { originId: string };
+  assertEquals(out.originId, "01a0581d-2a5b-7000-a6c8-3fa7a72789c1");
+});
+
+Deno.test("ticketFromPage ignores marks when reading a paragraph", () => {
+  const out = ticketFromPage(pageFor({
+    content: [{
+      type: "text",
+      text: "Why it matters {{trame:created_at=2026-09-02}}",
+      id: "b1",
+    }],
+  })) as { objective: string };
+  assertEquals(out.objective, "Why it matters");
 });
