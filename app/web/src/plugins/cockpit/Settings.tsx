@@ -25,12 +25,21 @@ const input =
 
 export function CockpitSettings() {
   const [slice, setSlice] = useState<Slice | null>(null);
+  // Les lignes en cours d'édition vivent ICI, pas dans `slice`. Le serveur
+  // écarte toute cartographie sans périmètre valide (règle fail-closed qui
+  // protège le poller) : une ligne vide qu'on vient d'ajouter reviendrait donc
+  // aussitôt supprimée, et « Map a project » semblerait ne rien faire.
+  const [rows, setRows] = useState<Mapping[]>([]);
   const [token, setToken] = useState("");
   const [test, setTest] = useState<Test>({ state: "idle" });
   const [projects, setProjects] = useState<Page[]>([]);
 
   useEffect(() => {
-    getPluginSettings("cockpit").then((s) => setSlice(s as unknown as Slice));
+    getPluginSettings("cockpit").then((s) => {
+      const loaded = s as unknown as Slice;
+      setSlice(loaded);
+      setRows(loaded.projects);
+    });
     fetch("/api/pages")
       .then((r) => (r.ok ? r.json() : []))
       .then((all: Page[]) =>
@@ -43,12 +52,19 @@ export function CockpitSettings() {
 
   const save = async (patch: Record<string, unknown>) => {
     const next = await savePluginSettings("cockpit", patch);
-    setSlice(next as unknown as Slice);
+    // `projects` volontairement pas repris : la réponse est la version élaguée.
+    setSlice((prev) => ({ ...(next as unknown as Slice), projects: prev?.projects ?? [] }));
     setToken("");
     setTest({ state: "idle" });
   };
 
-  const setMappings = (rows: Mapping[]) => save({ projects: rows });
+  // On garde les lignes locales telles quelles et on n'envoie que ce que le
+  // serveur acceptera : ce qui est stocké reste toujours valide, sans que la
+  // ligne à moitié remplie disparaisse sous les doigts.
+  const setMappings = (next: Mapping[]) => {
+    setRows(next);
+    return save({ projects: next });
+  };
 
   const runTest = async () => {
     setTest({ state: "busy" });
@@ -80,7 +96,7 @@ export function CockpitSettings() {
         </p>
 
         <div className="flex flex-col gap-1.5">
-          {slice.projects.map((m, i) => (
+          {rows.map((m, i) => (
             <div key={i} className="flex items-center gap-1.5">
               <Select
                 value={m.flow ? "flow" : "product"}
@@ -90,11 +106,11 @@ export function CockpitSettings() {
                 ]}
                 onChange={(kind) => {
                   const slug = m.product ?? m.flow ?? "";
-                  const rows = [...slice.projects];
-                  rows[i] = kind === "flow"
+                  const next = [...rows];
+                  next[i] = kind === "flow"
                     ? { flow: slug, pageId: m.pageId }
                     : { product: slug, pageId: m.pageId };
-                  setMappings(rows);
+                  setMappings(next);
                 }}
               />
               <input
@@ -103,11 +119,11 @@ export function CockpitSettings() {
                 defaultValue={m.product ?? m.flow ?? ""}
                 onBlur={(e) => {
                   const slug = e.target.value.trim();
-                  const rows = [...slice.projects];
-                  rows[i] = m.flow
+                  const next = [...rows];
+                  next[i] = m.flow
                     ? { flow: slug, pageId: m.pageId }
                     : { product: slug, pageId: m.pageId };
-                  setMappings(rows);
+                  setMappings(next);
                 }}
               />
               <span className="text-[11px] text-ink-muted">→</span>
@@ -118,18 +134,16 @@ export function CockpitSettings() {
                   ...projects.map((p) => ({ value: p.id, label: p.title })),
                 ]}
                 onChange={(pageId) => {
-                  const rows = [...slice.projects];
-                  rows[i] = { ...m, pageId };
-                  setMappings(rows);
+                  const next = [...rows];
+                  next[i] = { ...m, pageId };
+                  setMappings(next);
                 }}
               />
               <button
                 type="button"
                 title="Remove"
                 onClick={() =>
-                  setMappings(slice.projects.filter((_, j) =>
-                    j !== i
-                  ))}
+                  setMappings(rows.filter((_, j) => j !== i))}
                 className="rounded-md border border-line px-1.5 py-0.5 text-[11px] text-ink-muted hover:border-chipline"
               >
                 ✕
@@ -141,7 +155,7 @@ export function CockpitSettings() {
         <button
           type="button"
           onClick={() =>
-            setMappings([...slice.projects, { product: "", pageId: "" }])}
+            setMappings([...rows, { product: "", pageId: "" }])}
           className="mt-2 rounded-md border border-dashed border-chipline px-2 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
         >
           ＋ Map a project
