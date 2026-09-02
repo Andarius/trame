@@ -22,6 +22,7 @@ import {
   CockpitError,
   fetchDelta,
   fetchRefs,
+  fetchScopes,
   probe,
   type Ticket,
 } from "./api.ts";
@@ -279,7 +280,7 @@ const cockpit: Plugin = {
   glyph: "⌗",
   description: "Tickets from the projects you map, read-only.",
   // Usable from the settings pane before the plugin is switched on.
-  ungatedRoutes: ["/test"],
+  ungatedRoutes: ["/test", "/scopes"],
 
   badge: () =>
     state.tickets.filter((t) =>
@@ -303,6 +304,24 @@ const cockpit: Plugin = {
 
   async routes(req, subPath) {
     if (subPath === "/state") return json(state);
+    // The slugs this token may map. Offering them beats a free-text field: a
+    // typo there returns no tickets, which looks exactly like an empty scope.
+    if (subPath === "/scopes") {
+      const s = await getPluginSettings(ID);
+      const baseUrl = str(s.baseUrl);
+      const token = str(s.token);
+      if (!baseUrl || !token) return json({ scopes: [] });
+      try {
+        return json(await fetchScopes(baseUrl, token));
+      } catch (e) {
+        return json({
+          scopes: [],
+          error: e instanceof CockpitError
+            ? `${e.status} — ${e.message}`
+            : String((e as Error)?.message ?? e),
+        });
+      }
+    }
     if (subPath === "/refresh" && req.method === "POST") {
       return json(await poll());
     }

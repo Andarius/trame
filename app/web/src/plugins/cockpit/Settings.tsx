@@ -19,6 +19,7 @@ type Test =
   | { state: "fail"; kind: string; detail: string };
 
 type Page = { id: string; kind: string; title: string };
+type Granted = { kind: "product" | "flow"; slug: string; name: string };
 
 const input =
   "rounded-md border border-line bg-panel px-2.5 py-1.5 text-[11.5px] text-ink outline-none focus:border-chipline";
@@ -33,6 +34,10 @@ export function CockpitSettings() {
   const [token, setToken] = useState("");
   const [test, setTest] = useState<Test>({ state: "idle" });
   const [projects, setProjects] = useState<Page[]>([]);
+  // The scopes this token may map, read back from Cockpit. Empty until a host
+  // and token are saved — and empty is meaningful: no perimeter granted yet.
+  const [scopes, setScopes] = useState<Granted[]>([]);
+  const [scopesError, setScopesError] = useState<string | null>(null);
 
   useEffect(() => {
     getPluginSettings("cockpit").then((s) => {
@@ -46,6 +51,13 @@ export function CockpitSettings() {
         setProjects(all.filter((p) => p.kind === "project"))
       )
       .catch(() => {});
+    fetch("/api/plugins/cockpit/scopes")
+      .then((r) => r.json())
+      .then((d: { scopes?: Granted[]; error?: string }) => {
+        setScopes(d.scopes ?? []);
+        setScopesError(d.error ?? null);
+      })
+      .catch(() => {});
   }, []);
 
   if (!slice) return <div className="text-[12px] text-ink-muted">Loading…</div>;
@@ -53,7 +65,10 @@ export function CockpitSettings() {
   const save = async (patch: Record<string, unknown>) => {
     const next = await savePluginSettings("cockpit", patch);
     // `projects` volontairement pas repris : la réponse est la version élaguée.
-    setSlice((prev) => ({ ...(next as unknown as Slice), projects: prev?.projects ?? [] }));
+    setSlice((prev) => ({
+      ...(next as unknown as Slice),
+      projects: prev?.projects ?? [],
+    }));
     setToken("");
     setTest({ state: "idle" });
   };
@@ -95,6 +110,21 @@ export function CockpitSettings() {
           mapped, the plugin makes no network call at all.
         </p>
 
+        {scopesError
+          ? (
+            <p className="mb-2 text-[11px] text-blocked">
+              Could not read this token&rsquo;s scopes — {scopesError}
+            </p>
+          )
+          : scopes.length === 0 && slice.hasToken
+          ? (
+            <p className="mb-2 text-[11px] text-ink-muted">
+              This token grants no scope yet. Open it in Cockpit &rarr;
+              R&eacute;glages &rarr; Connexion MCP and tick a product or flow.
+            </p>
+          )
+          : null}
+
         <div className="flex flex-col gap-1.5">
           {rows.map((m, i) => (
             <div key={i} className="flex items-center gap-1.5">
@@ -113,12 +143,26 @@ export function CockpitSettings() {
                   setMappings(next);
                 }}
               />
-              <input
-                className={`${input} w-32`}
-                placeholder="slug"
-                defaultValue={m.product ?? m.flow ?? ""}
-                onBlur={(e) => {
-                  const slug = e.target.value.trim();
+              <Select
+                value={m.product ?? m.flow ?? ""}
+                options={[
+                  { value: "", label: "scope…" },
+                  ...scopes
+                    .filter((sc) =>
+                      sc.kind === (m.flow ? "flow" : "product")
+                    )
+                    .map((sc) => ({ value: sc.slug, label: sc.name })),
+                  // Keep a slug already saved but no longer granted: dropping
+                  // it from the list would silently rewrite the mapping.
+                  ...(() => {
+                    const cur = m.product ?? m.flow ?? "";
+                    const known = scopes.some((sc) => sc.slug === cur);
+                    return cur && !known
+                      ? [{ value: cur, label: `${cur} (not granted)` }]
+                      : [];
+                  })(),
+                ]}
+                onChange={(slug) => {
                   const next = [...rows];
                   next[i] = m.flow
                     ? { flow: slug, pageId: m.pageId }
@@ -142,8 +186,7 @@ export function CockpitSettings() {
               <button
                 type="button"
                 title="Remove"
-                onClick={() =>
-                  setMappings(rows.filter((_, j) => j !== i))}
+                onClick={() => setMappings(rows.filter((_, j) => j !== i))}
                 className="rounded-md border border-line px-1.5 py-0.5 text-[11px] text-ink-muted hover:border-chipline"
               >
                 ✕
@@ -154,8 +197,7 @@ export function CockpitSettings() {
 
         <button
           type="button"
-          onClick={() =>
-            setMappings([...rows, { product: "", pageId: "" }])}
+          onClick={() => setMappings([...rows, { product: "", pageId: "" }])}
           className="mt-2 rounded-md border border-dashed border-chipline px-2 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
         >
           ＋ Map a project

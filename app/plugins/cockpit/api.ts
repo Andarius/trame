@@ -40,6 +40,13 @@ export type Delta = {
 
 export type Refs = { now: string; references: string[] };
 
+/** What this token may sync — the server reads back its own grant. */
+export type GrantedScope = {
+  kind: "product" | "flow";
+  slug: string;
+  name: string;
+};
+
 export class CockpitError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
@@ -81,6 +88,13 @@ export function fetchDelta(
 }
 
 /** Live references for a scope — the reconcile list (phase 3). */
+export function fetchScopes(
+  baseUrl: string,
+  token: string,
+): Promise<{ scopes: GrantedScope[] }> {
+  return call(baseUrl, token, "/scopes");
+}
+
 export function fetchRefs(
   baseUrl: string,
   token: string,
