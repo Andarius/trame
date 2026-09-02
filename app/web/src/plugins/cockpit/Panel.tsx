@@ -95,7 +95,12 @@ export function CockpitPanel(
             className="rounded-md border border-line px-1.5 py-0.5 hover:border-chipline disabled:opacity-50"
             title="Poll Cockpit now instead of waiting for the interval"
           >
-            {busy ? "…" : "↻ Sync now"}
+            {
+              /* NOT "Sync now": Trame's own hub-sync button carries that
+                label in the page header just above, and two identical
+                buttons doing different things is worse than a vague one. */
+            }
+            {busy ? "…" : "↻ Poll Cockpit"}
           </button>
           <button
             type="button"
