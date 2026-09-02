@@ -10,6 +10,7 @@
 import { COCKPIT_FIXTURE, COCKPIT_POLL_IDLE_MS } from "../../config.ts";
 import type { Plugin, PluginSettings } from "../types.ts";
 import { getPluginSettings, isPluginEnabled } from "../settings.ts";
+import { ensureTag, tagKey } from "../../db.ts";
 import {
   type Mapping,
   parseMappings,
@@ -138,6 +139,7 @@ async function mirror(
   scopes: Scope[],
   pageId: string,
   tickets: Ticket[],
+  tagsByRef: ReadonlyMap<string, string[]>,
 ): Promise<MirrorResult> {
   // No scope at all means we were told nothing — null, not an empty union.
   // An empty ARRAY would read as "no ticket is live" and retire every page.
@@ -152,7 +154,7 @@ async function mirror(
   }
 
   const existing = await loadMirrorPages(pageId);
-  return applyMirror(pageId, planMirror(tickets, existing, live));
+  return applyMirror(pageId, planMirror(tickets, existing, live, tagsByRef));
 }
 
 async function pollOnce(): Promise<CockpitState> {
@@ -213,6 +215,9 @@ async function pollOnce(): Promise<CockpitState> {
       drained.map((d) => ({
         pageId: d.m.pageId,
         scope: d.scope,
+        // The mapping's slug names the tag, so a shared project says which
+        // product each page came from.
+        tag: tagKey(d.scope.slug),
         tickets: d.tickets,
         failed: "failed" in d,
       })),
@@ -221,11 +226,21 @@ async function pollOnce(): Promise<CockpitState> {
     for (const g of groups) {
       const keys = g.scopes.map(scopeKey);
       try {
+        // The vocabulary row must exist before a page references its key,
+        // or the chip renders as a bare slug until someone creates it.
+        for (const scope of g.scopes) await ensureTag({ label: scope.slug });
         mirrored.push({
           pageId: g.pageId,
           scopes: keys,
           // refScopes is empty when a scope failed to load — see groupByProject.
-          ...await mirror(baseUrl, token, g.refScopes, g.pageId, g.tickets),
+          ...await mirror(
+            baseUrl,
+            token,
+            g.refScopes,
+            g.pageId,
+            g.tickets,
+            g.tagsByRef,
+          ),
         });
       } catch (e) {
         // A mirroring failure must not discard the tickets we just read — the

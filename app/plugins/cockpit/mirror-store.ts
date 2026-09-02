@@ -20,16 +20,29 @@ export type MirrorResult = {
 export async function loadMirrorPages(parentId: string): Promise<MirrorPage[]> {
   const pg = await db();
   const rows = (await pg.query(
-    `select id, title, content from pages
+    `select id, title, content, tags from pages
       where parent_id = $1 and kind = 'story' and not deleted`,
     [parentId],
-  )).rows as { id: string; title: string; content: unknown }[];
+  )).rows as {
+    id: string;
+    title: string;
+    content: unknown;
+    tags: unknown;
+  }[];
 
   const out: MirrorPage[] = [];
   for (const r of rows) {
     const content = Array.isArray(r.content) ? r.content : [];
     const ref = refOfContent(content);
-    if (ref) out.push({ id: r.id, ref, title: r.title, content });
+    if (ref) {
+      out.push({
+        id: r.id,
+        ref,
+        title: r.title,
+        content,
+        tags: Array.isArray(r.tags) ? r.tags as string[] : [],
+      });
+    }
   }
   return out;
 }
@@ -45,10 +58,11 @@ export async function applyMirror(
       parent_id: parentId,
       kind: "story",
       content: c.blocks,
+      tags: c.tags,
     });
   }
   for (const u of plan.update) {
-    await updatePage(u.id, { title: u.title, content: u.blocks });
+    await updatePage(u.id, { title: u.title, content: u.blocks, tags: u.tags });
   }
   for (const r of plan.remove) {
     await deletePage(r.id);

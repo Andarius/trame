@@ -41,11 +41,12 @@ const ticket = (over: Partial<Ticket> = {}): Ticket => ({
   ...over,
 });
 
-const pageOf = (t: Ticket, id = "page-1"): MirrorPage => ({
+const pageOf = (t: Ticket, id = "page-1", tags: string[] = []): MirrorPage => ({
   id,
   ref: t.reference,
   title: `${t.reference} — ${t.title}`,
   content: ticketBlocks(t),
+  tags,
 });
 
 Deno.test("ticketMarkdown keeps the reference and the description", () => {
@@ -239,4 +240,36 @@ Deno.test("groupByProject sorts tickets so devices agree on order", () => {
     tickets: [ticket({ reference: "CKP-9" }), ticket({ reference: "CKP-1" })],
   }]);
   assertEquals(g.tickets.map((t) => t.reference), ["CKP-1", "CKP-9"]);
+});
+
+Deno.test("planMirror stamps the mapping's tag on a new page", () => {
+  const plan = planMirror(
+    [ticket()],
+    [],
+    ["CKP-1"],
+    new Map([["CKP-1", ["mobile"]]]),
+  );
+  assertEquals(plan.create[0].tags, ["mobile"]);
+});
+
+Deno.test("planMirror keeps a tag the reader added themselves", () => {
+  // Re-mirroring rewrites the page every poll. Replacing its tags would
+  // silently strip anything a human put there.
+  const t = ticket();
+  const plan = planMirror(
+    [t],
+    [pageOf(t, "p1", ["mobile", "urgent"])],
+    ["CKP-1"],
+    new Map([["CKP-1", ["mobile"]]]),
+  );
+  assertEquals(plan.update[0].tags, ["mobile", "urgent"]);
+});
+
+Deno.test("groupByProject gives a ticket the tag of every scope that returned it", () => {
+  const t = ticket();
+  const [g] = groupByProject([
+    { pageId: "soren", scope: "a", tag: "mobile", tickets: [t] },
+    { pageId: "soren", scope: "b", tag: "billing", tickets: [t] },
+  ]);
+  assertEquals(g.tagsByRef.get("CKP-1"), ["mobile", "billing"]);
 });

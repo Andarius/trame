@@ -20,11 +20,24 @@ export type MirrorPage = {
   ref: string;
   title: string;
   content: unknown[];
+  /** what the page already carries — ours plus anything the reader added */
+  tags: string[];
 };
 
 export type MirrorPlan = {
-  create: { ref: string; title: string; blocks: PageTextBlock[] }[];
-  update: { id: string; ref: string; title: string; blocks: unknown[] }[];
+  create: {
+    ref: string;
+    title: string;
+    blocks: PageTextBlock[];
+    tags: string[];
+  }[];
+  update: {
+    id: string;
+    ref: string;
+    title: string;
+    blocks: unknown[];
+    tags: string[];
+  }[];
   remove: { id: string; ref: string }[];
 };
 
@@ -94,6 +107,8 @@ export function planMirror(
   tickets: Ticket[],
   existing: MirrorPage[],
   liveRefs: readonly string[] | null,
+  /** tag keys this mirror wants on a ticket's page, by reference */
+  tagsByRef: ReadonlyMap<string, string[]> = new Map(),
 ): MirrorPlan {
   const byRef = new Map(existing.map((p) => [p.ref, p]));
   const plan: MirrorPlan = { create: [], update: [], remove: [] };
@@ -101,9 +116,10 @@ export function planMirror(
   for (const t of tickets) {
     const blocks = ticketBlocks(t);
     const title = `${t.reference} — ${t.title}`;
+    const ours = tagsByRef.get(t.reference) ?? [];
     const page = byRef.get(t.reference);
     if (!page) {
-      plan.create.push({ ref: t.reference, title, blocks });
+      plan.create.push({ ref: t.reference, title, blocks, tags: ours });
       continue;
     }
     // Merge rather than replace: unchanged lines keep their block ids, so the
@@ -113,6 +129,9 @@ export function planMirror(
       ref: t.reference,
       title,
       blocks: mergePageBlocks(page.content, blocks),
+      // Union, never replace: a reader may have tagged this page themselves,
+      // and re-mirroring must not quietly strip that.
+      tags: [...new Set([...page.tags, ...ours])],
     });
   }
 
@@ -129,6 +148,8 @@ export function planMirror(
 export type Drained<S> = {
   pageId: string;
   scope: S;
+  /** tag key this scope stamps on the pages it contributes */
+  tag?: string;
   tickets: Ticket[];
   /** the scope could not be read at all */
   failed?: boolean;
@@ -146,6 +167,8 @@ export type ProjectGroup<S> = {
    */
   refScopes: S[];
   tickets: Ticket[];
+  /** the tags each reference earned, by the scopes that returned it */
+  tagsByRef: Map<string, string[]>;
   /** a scope in this group failed — the union is incomplete, retire nothing */
   blind: boolean;
 };
@@ -175,11 +198,20 @@ export function groupByProject<S>(rows: Drained<S>[]): ProjectGroup<S>[] {
       scopes: [],
       refScopes: [],
       tickets: [],
+      tagsByRef: new Map<string, string[]>(),
       blind: false,
       seen: new Map<string, Ticket>(),
     };
     g.scopes.push(r.scope);
-    for (const t of r.tickets) g.seen.set(t.reference, t);
+    for (const t of r.tickets) {
+      g.seen.set(t.reference, t);
+      // A ticket returned by two scopes earns both tags — that is how a page
+      // under a shared project says where it came from.
+      if (r.tag) {
+        const has = g.tagsByRef.get(t.reference) ?? [];
+        if (!has.includes(r.tag)) g.tagsByRef.set(t.reference, [...has, r.tag]);
+      }
+    }
     g.blind ||= r.failed === true;
     groups.set(r.pageId, g);
   }

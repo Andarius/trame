@@ -76,6 +76,7 @@ import {
 } from "../../todo-marks.ts";
 import { DatabaseView } from "./udb/DatabaseTable";
 import { FolderBlock } from "./FolderBlock";
+import { TagEditor } from "./TagEditor";
 import { HtmlBlock } from "./HtmlBlock";
 
 // project chip palette (matches the client palette + a few extras)
@@ -2810,6 +2811,10 @@ export function Page(
                 )}
               </div>
             )}
+            <TagEditor
+              tags={page.tags ?? []}
+              onChange={(tags) => patch({ tags })}
+            />
             <div className="flex shrink-0 items-center gap-1.5 pl-1">
               {(() => {
                 // agents with comments on this page but no live watcher heartbeat;

@@ -536,6 +536,8 @@ export type PageMeta = {
   status: string;
   client_id: string | null;
   color: string | null;
+  /** tag keys, not ids — a page stays readable before the vocabulary arrives */
+  tags: string[];
   sort_key: string;
   owner_id: string | null;
 };
@@ -597,8 +599,27 @@ export const updatePage = (
     client_id?: string | null;
     content?: Block[];
     color?: string | null;
+    tags?: string[];
   },
 ) => post(`/api/pages/${id}`, patch).then(jsonOrThrow);
+
+export type Tag = {
+  id: string;
+  key: string;
+  label: string;
+  color: string;
+  sort_key: string;
+};
+export const listTags = () =>
+  fetch("/api/tags").then((r) => r.json() as Promise<Tag[]>);
+// find-or-create: the same label always resolves to the same tag
+export const ensureTag = (label: string, color?: string) =>
+  post("/api/tags", { label, color }).then((r) =>
+    r.json() as Promise<{ id: string; key: string }>
+  );
+export const updateTag = (id: string, patch: { label?: string; color?: string }) =>
+  post(`/api/tags/${id}`, patch).then(jsonOrThrow);
+export const deleteTag = (id: string) => post(`/api/tags/${id}/delete`, {});
 export const deletePage = (id: string) => post(`/api/pages/${id}/delete`, {});
 export const movePage = (
   id: string,
