@@ -2816,14 +2816,6 @@ export function Page(
               tags={page.tags ?? []}
               onChange={(tags) => patch({ tags })}
             />
-            <CreateTicket
-              pageId={pageId}
-              parentId={page.parent_id}
-              alreadySynced={JSON.stringify(page.content ?? []).includes(
-                "trame:cockpit_ref=",
-              )}
-              onDone={() => reload()}
-            />
             <div className="flex shrink-0 items-center gap-1.5 pl-1">
               {(() => {
                 // agents with comments on this page but no live watcher heartbeat;
@@ -2997,6 +2989,18 @@ export function Page(
               }}
             />
           )}
+
+          {/* Below the story, because the story becomes the ticket's
+              objective: the offer sits next to the text it will send. */}
+          <CreateTicket
+            pageId={pageId}
+            parentId={page.parent_id}
+            tags={page.tags ?? []}
+            alreadySynced={JSON.stringify(page.content ?? []).includes(
+              "trame:cockpit_ref=",
+            )}
+            onDone={() => reload()}
+          />
 
           {(openCount > 0 || resolvedCount > 0) && (
             <div className="-mb-2 flex items-center gap-3 self-start">

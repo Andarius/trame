@@ -6,37 +6,63 @@ type State =
   | { kind: "done"; reference: string; created: boolean }
   | { kind: "error"; detail: string };
 
+type Mapping = { product?: string; flow?: string; pageId?: string };
+
 /**
- * Push a Trame page into Cockpit as a ticket.
+ * Offer to file this page as a Cockpit ticket, once it is tagged for a mapped
+ * scope.
  *
- * Explicit and per-page on purpose: this files a row in a shared team tracker,
- * so it must never be a side effect of mapping a project. The button only
- * appears where it can work — a page under a mapped project that is not
- * already a ticket — because an action that always fails is worse than none.
+ * The tag is the intent: nothing appears until you say, by tagging, that this
+ * page belongs to a product Cockpit knows. It stays an OFFER rather than an
+ * automatic push — filing a row in a shared team tracker should not be a side
+ * effect of a gesture you might be using for your own filing.
+ *
+ * Never shown on a page that already carries a reference. The mirror tags the
+ * pages it creates with the very same key, so without that guard a mirrored
+ * ticket would offer to file itself a second time.
  */
 export function CreateTicket(
-  { pageId, parentId, alreadySynced, onDone }: {
+  { pageId, parentId, tags, alreadySynced, onDone }: {
     pageId: string;
     parentId: string | null;
+    tags: string[];
     /** the page already carries a Cockpit reference */
     alreadySynced: boolean;
     onDone: () => void;
   },
 ) {
-  const [mapped, setMapped] = useState<string[]>([]);
+  const [mappings, setMappings] = useState<Mapping[]>([]);
   const [state, setState] = useState<State>({ kind: "idle" });
+  const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
     setState({ kind: "idle" });
+    setDismissed(false);
     fetch("/api/plugins/cockpit/settings")
       .then((r) => (r.ok ? r.json() : { projects: [] }))
-      .then((s: { projects?: { pageId?: string }[] }) =>
-        setMapped((s.projects ?? []).map((p) => p.pageId ?? "").filter(Boolean))
-      )
+      .then((s: { projects?: Mapping[] }) => setMappings(s.projects ?? []))
       .catch(() => {});
   }, [pageId]);
 
-  if (alreadySynced || !parentId || !mapped.includes(parentId)) return null;
+  if (state.kind === "done") {
+    return (
+      <div className="text-[11px] text-ink-muted">
+        {
+          /* `created: false` means the server recognised this page and returned
+            the ticket it had already made — a retry, not a duplicate. */
+        }
+        {state.created ? "Filed as " : "Already filed as "}
+        <code className="text-ink-soft">{state.reference}</code>
+      </div>
+    );
+  }
+
+  if (alreadySynced || dismissed || !parentId) return null;
+
+  // The mapping that governs this page, and the tag that names its scope.
+  const mapping = mappings.find((m) => m.pageId === parentId);
+  const slug = mapping?.product ?? mapping?.flow ?? "";
+  if (!slug || !tags.includes(slug)) return null;
 
   const create = () => {
     setState({ kind: "busy" });
@@ -63,32 +89,30 @@ export function CreateTicket(
       );
   };
 
-  if (state.kind === "done") {
-    return (
-      <span className="text-[11px] text-ink-muted">
-        {
-          /* `created: false` means the server recognised this page and returned
-            the ticket it already made — a retry, not a duplicate. */
-        }
-        {state.created ? "Created " : "Already "}
-        <code className="text-ink-soft">{state.reference}</code>
-      </span>
-    );
-  }
-
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed border-chipline px-2.5 py-1.5 text-[11.5px] text-ink-muted">
+      <span>
+        Tagged <code className="text-ink-soft">{slug}</code>{" "}
+        — file it as a Cockpit ticket?
+      </span>
       <button
         type="button"
         disabled={state.kind === "busy"}
         onClick={create}
-        title="Create this page as a Cockpit ticket"
-        className="shrink-0 whitespace-nowrap rounded-md border border-line px-2 py-0.5 text-[11px] text-ink-muted hover:text-ink-soft disabled:opacity-60"
+        className="rounded-md border border-line px-2 py-0.5 text-ink-soft hover:border-chipline disabled:opacity-60"
       >
-        {state.kind === "busy" ? "…" : "⌗ Create in Cockpit"}
+        {state.kind === "busy" ? "…" : "⌗ File it"}
+      </button>
+      <button
+        type="button"
+        onClick={() => setDismissed(true)}
+        className="text-ink-muted/70 hover:text-ink-soft"
+        title="Not this page"
+      >
+        ✕
       </button>
       {state.kind === "error" && (
-        <span className="text-[11px] text-blocked">{state.detail}</span>
+        <span className="text-blocked">{state.detail}</span>
       )}
     </div>
   );
