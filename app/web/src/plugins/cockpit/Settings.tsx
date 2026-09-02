@@ -212,7 +212,9 @@ export function CockpitSettings() {
               }
               {test.kind === "scope" && (
                 <span className="block text-ink-muted">
-                  Ask a Cockpit admin to grant this token a sync scope.
+                  Open the token in Cockpit → Réglages → Connexion MCP and tick
+                  a product or flow under “Synchro externe”. It is your own
+                  token, so you can grant this yourself.
                 </span>
               )}
             </div>
