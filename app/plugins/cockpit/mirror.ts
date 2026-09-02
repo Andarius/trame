@@ -124,3 +124,70 @@ export function planMirror(
   }
   return plan;
 }
+
+/** One mapping, once its scope has been drained. */
+export type Drained<S> = {
+  pageId: string;
+  scope: S;
+  tickets: Ticket[];
+  /** the scope could not be read at all */
+  failed?: boolean;
+};
+
+export type ProjectGroup<S> = {
+  pageId: string;
+  /** every scope feeding this project, for reporting */
+  scopes: S[];
+  /**
+   * The scopes to ask `/refs` for — EMPTY when a scope failed to load. Asking
+   * the rest would build a partial union, which reads as "those tickets are
+   * gone" and retires their pages. Empty makes the caller pass null instead,
+   * and nothing is retired. The guard lives here so it can be tested.
+   */
+  refScopes: S[];
+  tickets: Ticket[];
+  /** a scope in this group failed — the union is incomplete, retire nothing */
+  blind: boolean;
+};
+
+/**
+ * Gather the mappings that feed each Trame project.
+ *
+ * This is where the reconcile unit is decided, and it is the whole reason the
+ * per-mapping version destroyed data: the pages under a project are loaded as
+ * a whole, so a plan built from one mapping reads every other mapping's pages
+ * as stale. Grouping first means one plan per project, built from everything
+ * aiming at it.
+ *
+ * Tickets are deduplicated by reference — a ticket carries both a product and
+ * a flow, so one mapped under each arrives twice — and sorted, so two devices
+ * create the same pages in the same order.
+ */
+export function groupByProject<S>(rows: Drained<S>[]): ProjectGroup<S>[] {
+  const groups = new Map<
+    string,
+    ProjectGroup<S> & { seen: Map<string, Ticket> }
+  >();
+  for (const r of rows) {
+    if (!r.pageId) continue; // mapping feeds the panel only
+    const g = groups.get(r.pageId) ?? {
+      pageId: r.pageId,
+      scopes: [],
+      refScopes: [],
+      tickets: [],
+      blind: false,
+      seen: new Map<string, Ticket>(),
+    };
+    g.scopes.push(r.scope);
+    for (const t of r.tickets) g.seen.set(t.reference, t);
+    g.blind ||= r.failed === true;
+    groups.set(r.pageId, g);
+  }
+  return [...groups.values()].map(({ seen, ...g }) => ({
+    ...g,
+    refScopes: g.blind ? [] : g.scopes,
+    tickets: [...seen.values()].sort((a, b) =>
+      a.reference.localeCompare(b.reference)
+    ),
+  }));
+}

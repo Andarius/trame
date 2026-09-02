@@ -1,5 +1,6 @@
 import { assertEquals, assertNotEquals } from "@std/assert";
 import {
+  groupByProject,
   type MirrorPage,
   planMirror,
   REF_MARK,
@@ -130,4 +131,112 @@ Deno.test("planMirror removes nothing when the scope is simply empty", () => {
   const t = ticket();
   const plan = planMirror([], [pageOf(t)], []);
   assertEquals(plan.remove.length, 1);
+});
+
+// Several Cockpit scopes may target one Trame project. The pages under it are
+// loaded as a whole, so a plan built from one scope alone would read the other
+// scope's pages as stale and retire them — with their comments.
+
+Deno.test("planMirror keeps both scopes' pages when they share a project", () => {
+  const mobile = ticket({ reference: "CKP-1" });
+  const devops = ticket({ reference: "CKP-9", title: "Rotate secrets" });
+  const existing = [pageOf(mobile, "p1"), pageOf(devops, "p9")];
+
+  // the union of both scopes — what the grouped caller now passes
+  const plan = planMirror([mobile, devops], existing, ["CKP-1", "CKP-9"]);
+
+  assertEquals(plan.remove, [], "neither scope's pages may be retired");
+  assertEquals(plan.update.length, 2);
+  assertEquals(plan.create.length, 0);
+});
+
+Deno.test("planMirror gives a ticket in two scopes a single page", () => {
+  // A ticket carries both product_id and flow_id, so a ticket mapped under a
+  // product AND a flow arrives twice. Deduped by reference upstream, it must
+  // still resolve to one page here.
+  const t = ticket();
+  const plan = planMirror([t], [], ["CKP-1"]);
+  assertEquals(plan.create.length, 1);
+});
+
+Deno.test("planMirror retires a ref absent from the whole union", () => {
+  // An empty-but-complete union is still a real answer: the ticket is gone
+  // from every scope feeding this project, so its page should go.
+  const gone = ticket({ reference: "CKP-9" });
+  const plan = planMirror([ticket()], [pageOf(ticket()), pageOf(gone, "p9")], [
+    "CKP-1",
+  ]);
+  assertEquals(plan.remove, [{ id: "p9", ref: "CKP-9" }]);
+});
+
+// groupByProject decides the reconcile unit. Getting it wrong is what made the
+// per-mapping version delete another product's pages on every poll.
+
+Deno.test("groupByProject gathers every scope feeding one project", () => {
+  const [g] = groupByProject([
+    { pageId: "soren", scope: "product:mobile", tickets: [ticket()] },
+    {
+      pageId: "soren",
+      scope: "product:devops",
+      tickets: [ticket({ reference: "CKP-9" })],
+    },
+  ]);
+  assertEquals(g.scopes, ["product:mobile", "product:devops"]);
+  assertEquals(g.tickets.map((t) => t.reference), ["CKP-1", "CKP-9"]);
+  assertEquals(g.blind, false);
+});
+
+Deno.test("groupByProject keeps separate projects apart", () => {
+  const groups = groupByProject([
+    { pageId: "soren", scope: "a", tickets: [ticket()] },
+    { pageId: "other", scope: "b", tickets: [ticket({ reference: "CKP-9" })] },
+  ]);
+  assertEquals(groups.length, 2);
+  assertEquals(groups.map((g) => g.pageId), ["soren", "other"]);
+});
+
+Deno.test("groupByProject drops a mapping with no project", () => {
+  // A mapping without a page feeds the panel only — it must not create a group
+  // keyed on the empty string, which would then reconcile against nothing.
+  assertEquals(
+    groupByProject([{ pageId: "", scope: "a", tickets: [ticket()] }]),
+    [],
+  );
+});
+
+Deno.test("groupByProject deduplicates a ticket seen in two scopes", () => {
+  const t = ticket();
+  const [g] = groupByProject([
+    { pageId: "soren", scope: "product:mobile", tickets: [t] },
+    { pageId: "soren", scope: "flow:billing", tickets: [t] },
+  ]);
+  assertEquals(g.tickets.length, 1, "one ticket, not one per scope");
+});
+
+Deno.test("groupByProject marks a group blind when any scope failed", () => {
+  // The whole point: one unreadable scope means the union is incomplete, and
+  // the caller must retire nothing rather than delete what it could not see.
+  const [g] = groupByProject([
+    { pageId: "soren", scope: "product:mobile", tickets: [ticket()] },
+    { pageId: "soren", scope: "product:devops", tickets: [], failed: true },
+  ]);
+  assertEquals(g.blind, true);
+  assertEquals(g.refScopes, [], "a blind group asks for no refs at all");
+});
+
+Deno.test("groupByProject asks for every scope when none failed", () => {
+  const [g] = groupByProject([
+    { pageId: "soren", scope: "a", tickets: [ticket()] },
+    { pageId: "soren", scope: "b", tickets: [] },
+  ]);
+  assertEquals(g.refScopes, ["a", "b"]);
+});
+
+Deno.test("groupByProject sorts tickets so devices agree on order", () => {
+  const [g] = groupByProject([{
+    pageId: "soren",
+    scope: "a",
+    tickets: [ticket({ reference: "CKP-9" }), ticket({ reference: "CKP-1" })],
+  }]);
+  assertEquals(g.tickets.map((t) => t.reference), ["CKP-1", "CKP-9"]);
 });

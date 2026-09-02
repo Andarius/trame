@@ -24,7 +24,7 @@ import {
   probe,
   type Ticket,
 } from "./api.ts";
-import { planMirror } from "./mirror.ts";
+import { groupByProject, planMirror } from "./mirror.ts";
 import {
   applyMirror,
   loadMirrorPages,
@@ -50,7 +50,7 @@ export type CockpitState = {
   errors: { scope: string; error: string }[];
   // What the last pass wrote into Trame, per mapping. Empty while mirroring is
   // off, which is the default.
-  mirrored: ({ scope: string } & MirrorResult)[];
+  mirrored: ({ pageId: string; scopes: string[] } & MirrorResult)[];
 };
 
 let state: CockpitState = {
@@ -123,26 +123,34 @@ async function drain(
 }
 
 /**
- * Mirror one mapping's tickets into its Trame project.
+ * Mirror one project's group — see `groupByProject` for why the unit is the
+ * project and not the mapping.
  *
- * `/refs` is what tells us a ticket left the scope. If that call fails we pass
- * null rather than an empty list, and the planner then removes nothing: the
- * difference between "no tickets" and "no answer" is the difference between a
- * correct reconcile and deleting every mirrored page on a network blip.
+ * `/refs` is what tells us a ticket left the scope. If ANY scope in the group
+ * fails that call we pass null rather than a partial union, and the planner
+ * then removes nothing — a partial answer is indistinguishable from "those
+ * tickets disappeared", and would retire a product whose server merely
+ * hiccuped.
  */
 async function mirror(
   baseUrl: string,
   token: string,
-  scope: Scope,
+  scopes: Scope[],
   pageId: string,
   tickets: Ticket[],
 ): Promise<MirrorResult> {
-  let live: string[] | null = null;
-  try {
-    live = (await fetchRefs(baseUrl, token, scope)).references;
-  } catch {
-    live = null;
+  // No scope at all means we were told nothing — null, not an empty union.
+  // An empty ARRAY would read as "no ticket is live" and retire every page.
+  let live: string[] | null = scopes.length ? [] : null;
+  for (const scope of scopes) {
+    try {
+      const refs = (await fetchRefs(baseUrl, token, scope)).references;
+      if (live) live.push(...refs);
+    } catch {
+      live = null; // one unknown scope makes the whole union unusable
+    }
   }
+
   const existing = await loadMirrorPages(pageId);
   return applyMirror(pageId, planMirror(tickets, existing, live));
 }
@@ -181,36 +189,57 @@ async function pollOnce(): Promise<CockpitState> {
   const errors: CockpitState["errors"] = [];
   const mirrored: CockpitState["mirrored"] = [];
   const wantsMirror = slice.mirror === true;
-  const results = await Promise.all(
+
+  // Drain first, mirror second. Mirroring is grouped by target project below,
+  // so it cannot start until every scope aiming at that project has answered.
+  const drained = await Promise.all(
     mappings.map(async (m: Mapping) => {
       const scope = scopeOf(m)!; // parseMappings dropped the malformed ones
       const key = scopeKey(scope);
       try {
-        const tickets = await drain(baseUrl, token, scope);
-        if (wantsMirror && m.pageId) {
-          try {
-            mirrored.push({
-              scope: key,
-              ...await mirror(baseUrl, token, scope, m.pageId, tickets),
-            });
-          } catch (e) {
-            // A mirroring failure must not discard the tickets we just read —
-            // the panel stays useful even when writing pages does not work.
-            errors.push({
-              scope: key,
-              error: `mirroring — ${String((e as Error)?.message ?? e)}`,
-            });
-          }
-        }
-        return tickets.map((t) => ({ ...t, mapping: key }));
+        return { m, scope, key, tickets: await drain(baseUrl, token, scope) };
       } catch (e) {
         const detail = e instanceof CockpitError
           ? `${e.status} — ${e.message}`
           : String((e as Error)?.message ?? e);
         errors.push({ scope: key, error: detail });
-        return [];
+        return { m, scope, key, tickets: [] as Ticket[], failed: true };
       }
     }),
+  );
+
+  if (wantsMirror) {
+    const groups = groupByProject(
+      drained.map((d) => ({
+        pageId: d.m.pageId,
+        scope: d.scope,
+        tickets: d.tickets,
+        failed: "failed" in d,
+      })),
+    );
+
+    for (const g of groups) {
+      const keys = g.scopes.map(scopeKey);
+      try {
+        mirrored.push({
+          pageId: g.pageId,
+          scopes: keys,
+          // refScopes is empty when a scope failed to load — see groupByProject.
+          ...await mirror(baseUrl, token, g.refScopes, g.pageId, g.tickets),
+        });
+      } catch (e) {
+        // A mirroring failure must not discard the tickets we just read — the
+        // panel stays useful even when writing pages does not work.
+        errors.push({
+          scope: keys.join(", "),
+          error: `mirroring — ${String((e as Error)?.message ?? e)}`,
+        });
+      }
+    }
+  }
+
+  const results = drained.map((d) =>
+    d.tickets.map((t) => ({ ...t, mapping: d.key }))
   );
 
   return (state = {
