@@ -10,6 +10,7 @@ type Slice = {
   baseUrl: string;
   projects: Mapping[];
   hasToken: boolean;
+  mirror: boolean;
   pollIdleSeconds: number;
 };
 type Test =
@@ -217,6 +218,26 @@ export function CockpitSettings() {
             </div>
           )}
         </div>
+      </section>
+
+      {/* ---- Mirroring ---- */}
+      <section>
+        <label className="flex items-start gap-2">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={slice.mirror}
+            onChange={(e) => save({ mirror: e.target.checked })}
+          />
+          <span>
+            <span className="text-[12px]">Mirror tickets as story pages</span>
+            <span className="mt-0.5 block text-[11px] text-ink-muted">
+              Writes a page per ticket under each mapping's project. These pages
+              sync like any other and can be shared by link — only turn this on
+              for projects you are willing to keep locally.
+            </span>
+          </span>
+        </label>
       </section>
 
       {/* ---- Cadence ---- */}

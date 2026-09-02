@@ -1,9 +1,12 @@
-// Cockpit plugin, phase 2: a read-only lens on the tickets a Cockpit instance
-// lets us see. No page mirroring and no writes yet — those are phases 3 and 4.
+// Cockpit plugin: a lens on the tickets a Cockpit instance lets us see, and
+// optionally a mirror of them as story pages. No writes back to Cockpit yet —
+// that is phase 4.
 //
-// Like `deployments`, state is a module-level cache fed by a self-rescheduling
-// poll; nothing is persisted in PGlite, so nothing this plugin holds can leak
-// into the synced database until mirroring exists and is deliberately turned on.
+// Like `deployments`, live state is a module-level cache fed by a
+// self-rescheduling poll. Mirroring is the one thing that reaches PGlite, and
+// it stays off until a mapping names a project AND `mirror` is switched on:
+// what lands in the local database syncs to the hub and can be shared by link,
+// so it is never a side effect of merely enabling the plugin.
 import { COCKPIT_FIXTURE, COCKPIT_POLL_IDLE_MS } from "../../config.ts";
 import type { Plugin, PluginSettings } from "../types.ts";
 import { getPluginSettings, isPluginEnabled } from "../settings.ts";
@@ -14,7 +17,19 @@ import {
   scopeKey,
   scopeOf,
 } from "./scope.ts";
-import { CockpitError, fetchDelta, probe, type Ticket } from "./api.ts";
+import {
+  CockpitError,
+  fetchDelta,
+  fetchRefs,
+  probe,
+  type Ticket,
+} from "./api.ts";
+import { planMirror } from "./mirror.ts";
+import {
+  applyMirror,
+  loadMirrorPages,
+  type MirrorResult,
+} from "./mirror-store.ts";
 
 const ID = "cockpit";
 const DEFAULT_IDLE_SECONDS = COCKPIT_POLL_IDLE_MS / 1000;
@@ -33,6 +48,9 @@ export type CockpitState = {
   tickets: ScopedTicket[];
   polledAt: string | null;
   errors: { scope: string; error: string }[];
+  // What the last pass wrote into Trame, per mapping. Empty while mirroring is
+  // off, which is the default.
+  mirrored: ({ scope: string } & MirrorResult)[];
 };
 
 let state: CockpitState = {
@@ -41,6 +59,7 @@ let state: CockpitState = {
   tickets: [],
   polledAt: null,
   errors: [],
+  mirrored: [],
 };
 let pollRunning: Promise<CockpitState> | null = null;
 
@@ -103,6 +122,31 @@ async function drain(
   return out;
 }
 
+/**
+ * Mirror one mapping's tickets into its Trame project.
+ *
+ * `/refs` is what tells us a ticket left the scope. If that call fails we pass
+ * null rather than an empty list, and the planner then removes nothing: the
+ * difference between "no tickets" and "no answer" is the difference between a
+ * correct reconcile and deleting every mirrored page on a network blip.
+ */
+async function mirror(
+  baseUrl: string,
+  token: string,
+  scope: Scope,
+  pageId: string,
+  tickets: Ticket[],
+): Promise<MirrorResult> {
+  let live: string[] | null = null;
+  try {
+    live = (await fetchRefs(baseUrl, token, scope)).references;
+  } catch {
+    live = null;
+  }
+  const existing = await loadMirrorPages(pageId);
+  return applyMirror(pageId, planMirror(tickets, existing, live));
+}
+
 async function pollOnce(): Promise<CockpitState> {
   if (COCKPIT_FIXTURE) {
     const fixture = JSON.parse(await Deno.readTextFile(COCKPIT_FIXTURE));
@@ -112,6 +156,7 @@ async function pollOnce(): Promise<CockpitState> {
       tickets: ordered((fixture.tickets ?? []) as ScopedTicket[]),
       polledAt: new Date().toISOString(),
       errors: (fixture.errors ?? []) as CockpitState["errors"],
+      mirrored: [],
     });
   }
 
@@ -129,16 +174,34 @@ async function pollOnce(): Promise<CockpitState> {
       tickets: [],
       polledAt: new Date().toISOString(),
       errors: [],
+      mirrored: [],
     });
   }
 
   const errors: CockpitState["errors"] = [];
+  const mirrored: CockpitState["mirrored"] = [];
+  const wantsMirror = slice.mirror === true;
   const results = await Promise.all(
     mappings.map(async (m: Mapping) => {
       const scope = scopeOf(m)!; // parseMappings dropped the malformed ones
       const key = scopeKey(scope);
       try {
         const tickets = await drain(baseUrl, token, scope);
+        if (wantsMirror && m.pageId) {
+          try {
+            mirrored.push({
+              scope: key,
+              ...await mirror(baseUrl, token, scope, m.pageId, tickets),
+            });
+          } catch (e) {
+            // A mirroring failure must not discard the tickets we just read —
+            // the panel stays useful even when writing pages does not work.
+            errors.push({
+              scope: key,
+              error: `mirroring — ${String((e as Error)?.message ?? e)}`,
+            });
+          }
+        }
         return tickets.map((t) => ({ ...t, mapping: key }));
       } catch (e) {
         const detail = e instanceof CockpitError
@@ -156,6 +219,7 @@ async function pollOnce(): Promise<CockpitState> {
     tickets: ordered(results.flat()),
     polledAt: new Date().toISOString(),
     errors,
+    mirrored,
   });
 }
 
@@ -228,6 +292,8 @@ const cockpit: Plugin = {
     const patch: PluginSettings = {};
     if (typeof raw.baseUrl === "string") patch.baseUrl = str(raw.baseUrl);
     if ("projects" in raw) patch.projects = parseMappings(raw.projects);
+    // Mirroring writes to the Trame database, so it is opt-in: absent means off.
+    if ("mirror" in raw) patch.mirror = raw.mirror === true;
     if ("pollIdleSeconds" in raw) {
       const n = Number(raw.pollIdleSeconds);
       if (Number.isFinite(n) && n > 0) patch.pollIdleSeconds = clampIdle(n);
@@ -253,6 +319,7 @@ const cockpit: Plugin = {
       baseUrl: str(slice.baseUrl),
       projects: parseMappings(slice.projects),
       hasToken: Boolean(str(slice.token)),
+      mirror: slice.mirror === true,
       pollIdleSeconds: typeof slice.pollIdleSeconds === "number"
         ? slice.pollIdleSeconds
         : DEFAULT_IDLE_SECONDS,
