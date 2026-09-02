@@ -5,7 +5,12 @@ import { useEffect, useState } from "react";
 import { getPluginSettings, savePluginSettings } from "../../api";
 import { Select } from "../../ui";
 
-type Mapping = { product?: string; flow?: string; pageId: string };
+type Mapping = {
+  product?: string;
+  flow?: string;
+  pageId: string;
+  tag?: string;
+};
 type Slice = {
   baseUrl: string;
   projects: Mapping[];
@@ -107,7 +112,9 @@ export function CockpitSettings() {
         </div>
         <p className="mb-2 text-[11px] text-ink-muted">
           Only these Cockpit products and flows are ever requested. With none
-          mapped, the plugin makes no network call at all.
+          mapped, the plugin makes no network call at all. The tag is stamped
+          on the pages a mapping mirrors, and tagging a page with it offers to
+          file that page as a ticket — blank means the scope&rsquo;s own slug.
         </p>
 
         {scopesError
@@ -167,6 +174,17 @@ export function CockpitSettings() {
                   next[i] = m.flow
                     ? { flow: slug, pageId: m.pageId }
                     : { product: slug, pageId: m.pageId };
+                  setMappings(next);
+                }}
+              />
+              <input
+                className={`${input} w-24`}
+                placeholder={m.product ?? m.flow ?? "tag"}
+                title="Tag stamped on this mapping's pages — defaults to the scope slug"
+                defaultValue={m.tag ?? ""}
+                onBlur={(e) => {
+                  const next = [...rows];
+                  next[i] = { ...m, tag: e.target.value.trim().toLowerCase() };
                   setMappings(next);
                 }}
               />

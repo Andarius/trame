@@ -13,6 +13,7 @@ import { getPluginSettings, isPluginEnabled } from "../settings.ts";
 import { ensureTag, tagKey } from "../../db.ts";
 import {
   type Mapping,
+  mappingTag,
   parseMappings,
   type Scope,
   scopeKey,
@@ -218,9 +219,9 @@ async function pollOnce(): Promise<CockpitState> {
       drained.map((d) => ({
         pageId: d.m.pageId,
         scope: d.scope,
-        // The mapping's slug names the tag, so a shared project says which
-        // product each page came from.
-        tag: tagKey(d.scope.slug),
+        // The mapping names the tag — its slug by default — so a shared
+        // project says which product each page came from.
+        tag: tagKey(mappingTag(d.m)),
         tickets: d.tickets,
         failed: "failed" in d,
       })),
@@ -231,7 +232,9 @@ async function pollOnce(): Promise<CockpitState> {
       try {
         // The vocabulary row must exist before a page references its key,
         // or the chip renders as a bare slug until someone creates it.
-        for (const scope of g.scopes) await ensureTag({ label: scope.slug });
+        for (const m of mappings) {
+          if (m.pageId === g.pageId) await ensureTag({ label: mappingTag(m) });
+        }
         mirrored.push({
           pageId: g.pageId,
           scopes: keys,

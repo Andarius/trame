@@ -1,5 +1,11 @@
 import { assertEquals } from "@std/assert";
-import { parseMappings, scopeKey, scopeOf, scopeQuery } from "./scope.ts";
+import {
+  mappingTag,
+  parseMappings,
+  scopeKey,
+  scopeOf,
+  scopeQuery,
+} from "./scope.ts";
 
 // The mapping list decides what leaves this machine's network and what lands in
 // it. Every case below must fail CLOSED: unreadable input removes a mapping, it
@@ -83,4 +89,35 @@ Deno.test("scopeQuery escapes the slug", () => {
     scopeQuery({ kind: "flow", slug: "multi_entity" }),
     "flow=multi_entity",
   );
+});
+
+// The tag a mapping stamps is configurable: a team's own vocabulary rarely
+// matches the other tool's slugs.
+
+Deno.test("mappingTag falls back to the scope's own slug", () => {
+  assertEquals(mappingTag({ product: "devops", pageId: "p" }), "devops");
+  assertEquals(mappingTag({ flow: "billing", pageId: "p" }), "billing");
+});
+
+Deno.test("mappingTag prefers the configured tag", () => {
+  assertEquals(mappingTag({ product: "devops", tag: "infra", pageId: "p" }), "infra");
+});
+
+Deno.test("mappingTag ignores a blank tag rather than stamping nothing", () => {
+  // An empty string would tag every mirrored page with "", which renders as a
+  // chip with no name and matches nothing.
+  assertEquals(mappingTag({ product: "devops", tag: "   ", pageId: "p" }), "devops");
+});
+
+Deno.test("parseMappings drops a tag that is not a slug", () => {
+  // Kept as a mapping, minus the unusable tag: refusing the whole row would
+  // silently unmap a project because of a cosmetic field.
+  const [m] = parseMappings([{ product: "devops", tag: "Not A Slug!", pageId: "p" }]);
+  assertEquals(m.tag, undefined);
+  assertEquals(mappingTag(m), "devops");
+});
+
+Deno.test("parseMappings lowercases a tag", () => {
+  const [m] = parseMappings([{ product: "devops", tag: "Infra", pageId: "p" }]);
+  assertEquals(m.tag, "infra");
 });

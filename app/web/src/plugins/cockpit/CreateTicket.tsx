@@ -6,7 +6,12 @@ type State =
   | { kind: "done"; reference: string; created: boolean }
   | { kind: "error"; detail: string };
 
-type Mapping = { product?: string; flow?: string; pageId?: string };
+type Mapping = {
+  product?: string;
+  flow?: string;
+  pageId?: string;
+  tag?: string;
+};
 
 /**
  * Offer to file this page as a Cockpit ticket, once it is tagged for a mapped
@@ -59,9 +64,12 @@ export function CreateTicket(
 
   if (alreadySynced || dismissed || !parentId) return null;
 
-  // The mapping that governs this page, and the tag that names its scope.
+  // The mapping that governs this page, and the tag it was configured with —
+  // the scope's own slug when none was given.
   const mapping = mappings.find((m) => m.pageId === parentId);
-  const slug = mapping?.product ?? mapping?.flow ?? "";
+  const slug = mapping
+    ? (mapping.tag?.trim() || mapping.product || mapping.flow || "")
+    : "";
   if (!slug || !tags.includes(slug)) return null;
 
   const create = () => {

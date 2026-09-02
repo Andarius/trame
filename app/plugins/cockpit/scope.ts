@@ -12,6 +12,11 @@ export type Mapping = {
   // Trame project page the mirrored stories live under. Empty until phase 3
   // needs it; the editor collects it now so the mapping is complete.
   pageId: string;
+  // Tag stamped on this mapping's pages, and the one that offers to file a
+  // page as a ticket. Empty = the scope's own slug, which is the sane default
+  // but a poor fit when your vocabulary already names the thing differently
+  // ("infra" for a product Cockpit calls "devops").
+  tag?: string;
 };
 
 export type Scope = { kind: "product" | "flow"; slug: string };
@@ -37,6 +42,12 @@ export function scopeQuery(s: Scope): string {
   return `${s.kind}=${encodeURIComponent(s.slug)}`;
 }
 
+/** The tag a mapping stamps: what it was given, else the scope's own slug. */
+export function mappingTag(m: Mapping): string {
+  const tag = m.tag?.trim() ?? "";
+  return tag || (m.product?.trim() || m.flow?.trim() || "");
+}
+
 /** Stable key for a mapping — its scope. Used to key watermarks and state. */
 export function scopeKey(s: Scope): string {
   return `${s.kind}:${s.slug}`;
@@ -55,10 +66,14 @@ export function parseMappings(raw: unknown): Mapping[] {
   for (const entry of raw) {
     if (typeof entry !== "object" || entry === null) continue;
     const e = entry as Record<string, unknown>;
+    // A tag is a slug like any other key; anything else is dropped rather than
+    // stored, so a mapping never carries a tag that cannot be rendered.
+    const rawTag = typeof e.tag === "string" ? e.tag.trim().toLowerCase() : "";
     const m: Mapping = {
       product: typeof e.product === "string" ? e.product.trim() : undefined,
       flow: typeof e.flow === "string" ? e.flow.trim() : undefined,
       pageId: typeof e.pageId === "string" ? e.pageId.trim() : "",
+      ...(SLUG_RE.test(rawTag) ? { tag: rawTag } : {}),
     };
     const scope = scopeOf(m);
     if (!scope) continue;
