@@ -17,8 +17,10 @@ export function TagEditor(
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // On mount, not on open: the chips below render a label out of this list, so
+  // waiting for the picker showed every tag as its raw key until you clicked.
   useEffect(() => {
-    if (open) listTags().then(setKnown).catch(() => {});
+    listTags().then(setKnown).catch(() => {});
   }, [open]);
 
   const byKey = new Map(known.map((t) => [t.key, t]));

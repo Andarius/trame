@@ -13,7 +13,7 @@ import { getPluginSettings, isPluginEnabled } from "../settings.ts";
 import { ensureTag, tagKey } from "../../db.ts";
 import {
   type Mapping,
-  mappingTag,
+  mappingTagLabel,
   parseMappings,
   type Scope,
   scopeKey,
@@ -219,9 +219,10 @@ async function pollOnce(): Promise<CockpitState> {
       drained.map((d) => ({
         pageId: d.m.pageId,
         scope: d.scope,
-        // The mapping names the tag — its slug by default — so a shared
-        // project says which product each page came from.
-        tag: tagKey(mappingTag(d.m)),
+        // The mapping names the tag — the scope's slug by default, always
+        // under `cockpit:` — so a shared project says which product each
+        // page came from, and says that Cockpit is where it came from.
+        tag: tagKey(mappingTagLabel(d.m)),
         tickets: d.tickets,
         failed: "failed" in d,
       })),
@@ -233,7 +234,9 @@ async function pollOnce(): Promise<CockpitState> {
         // The vocabulary row must exist before a page references its key,
         // or the chip renders as a bare slug until someone creates it.
         for (const m of mappings) {
-          if (m.pageId === g.pageId) await ensureTag({ label: mappingTag(m) });
+          if (m.pageId === g.pageId) {
+            await ensureTag({ label: mappingTagLabel(m) });
+          }
         }
         mirrored.push({
           pageId: g.pageId,
@@ -437,7 +440,14 @@ const cockpit: Plugin = {
   settingsView(slice) {
     return {
       baseUrl: str(slice.baseUrl),
-      projects: parseMappings(slice.projects),
+      // The resolved tag travels with the mapping: the key is what a page
+      // actually stores, and deriving it a second time in the browser would
+      // be one slug rule to keep in step forever.
+      projects: parseMappings(slice.projects).map((m) => ({
+        ...m,
+        tagLabel: mappingTagLabel(m),
+        tagKey: tagKey(mappingTagLabel(m)),
+      })),
       hasToken: Boolean(str(slice.token)),
       mirror: slice.mirror === true,
       pollIdleSeconds: typeof slice.pollIdleSeconds === "number"

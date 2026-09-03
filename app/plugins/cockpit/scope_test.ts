@@ -1,6 +1,7 @@
 import { assertEquals } from "@std/assert";
 import {
   mappingTag,
+  mappingTagLabel,
   parseMappings,
   scopeKey,
   scopeOf,
@@ -92,7 +93,8 @@ Deno.test("scopeQuery escapes the slug", () => {
 });
 
 // The tag a mapping stamps is configurable: a team's own vocabulary rarely
-// matches the other tool's slugs.
+// matches the other tool's slugs. The `cockpit:` namespace is not, so a
+// mirrored page always says where it came from.
 
 Deno.test("mappingTag falls back to the scope's own slug", () => {
   assertEquals(mappingTag({ product: "devops", pageId: "p" }), "devops");
@@ -120,4 +122,24 @@ Deno.test("parseMappings drops a tag that is not a slug", () => {
 Deno.test("parseMappings lowercases a tag", () => {
   const [m] = parseMappings([{ product: "devops", tag: "Infra", pageId: "p" }]);
   assertEquals(m.tag, "infra");
+});
+
+Deno.test("mappingTagLabel namespaces the scope slug", () => {
+  assertEquals(
+    mappingTagLabel({ product: "devops", pageId: "p" }),
+    "cockpit:devops",
+  );
+  assertEquals(
+    mappingTagLabel({ flow: "billing", pageId: "p" }),
+    "cockpit:billing",
+  );
+});
+
+Deno.test("mappingTagLabel namespaces a configured tag too", () => {
+  // The suffix is yours; the prefix is not, or "all Cockpit tags start with
+  // cockpit:" would hold only until someone filled this field in.
+  assertEquals(
+    mappingTagLabel({ product: "devops", tag: "infra", pageId: "p" }),
+    "cockpit:infra",
+  );
 });

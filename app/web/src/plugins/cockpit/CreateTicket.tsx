@@ -7,10 +7,11 @@ type State =
   | { kind: "error"; detail: string };
 
 type Mapping = {
-  product?: string;
-  flow?: string;
   pageId?: string;
-  tag?: string;
+  /** the tag key a page must carry — resolved server-side, cf. settingsView */
+  tagKey?: string;
+  /** how that tag reads, e.g. `cockpit:devops` */
+  tagLabel?: string;
 };
 
 /**
@@ -64,13 +65,9 @@ export function CreateTicket(
 
   if (alreadySynced || dismissed || !parentId) return null;
 
-  // The mapping that governs this page, and the tag it was configured with —
-  // the scope's own slug when none was given.
+  // The mapping that governs this page, and the tag it resolved to.
   const mapping = mappings.find((m) => m.pageId === parentId);
-  const slug = mapping
-    ? (mapping.tag?.trim() || mapping.product || mapping.flow || "")
-    : "";
-  if (!slug || !tags.includes(slug)) return null;
+  if (!mapping?.tagKey || !tags.includes(mapping.tagKey)) return null;
 
   const create = () => {
     setState({ kind: "busy" });
@@ -100,7 +97,7 @@ export function CreateTicket(
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed border-chipline px-2.5 py-1.5 text-[11.5px] text-ink-muted">
       <span>
-        Tagged <code className="text-ink-soft">{slug}</code>{" "}
+        Tagged <code className="text-ink-soft">{mapping.tagLabel}</code>{" "}
         — file it as a Cockpit ticket?
       </span>
       <button

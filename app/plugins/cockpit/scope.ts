@@ -12,10 +12,10 @@ export type Mapping = {
   // Trame project page the mirrored stories live under. Empty until phase 3
   // needs it; the editor collects it now so the mapping is complete.
   pageId: string;
-  // Tag stamped on this mapping's pages, and the one that offers to file a
-  // page as a ticket. Empty = the scope's own slug, which is the sane default
-  // but a poor fit when your vocabulary already names the thing differently
-  // ("infra" for a product Cockpit calls "devops").
+  // Suffix of the tag stamped on this mapping's pages, and of the one that
+  // offers to file a page as a ticket. Empty = the scope's own slug, which is
+  // the sane default but a poor fit when your vocabulary already names the
+  // thing differently ("infra" for a product Cockpit calls "devops").
   tag?: string;
 };
 
@@ -42,10 +42,25 @@ export function scopeQuery(s: Scope): string {
   return `${s.kind}=${encodeURIComponent(s.slug)}`;
 }
 
-/** The tag a mapping stamps: what it was given, else the scope's own slug. */
+/**
+ * Namespace shared by every tag this plugin writes.
+ *
+ * Not decoration: a mirrored page's tags sit next to the ones you write
+ * yourself, and `devops` reads as your own filing while `cockpit:devops` says
+ * where the page came from. It also keeps the plugin out of the way of a tag
+ * you happen to name after a product.
+ */
+export const TAG_PREFIX = "cockpit";
+
+/** The tag SUFFIX a mapping stamps: what it was given, else the scope's own slug. */
 export function mappingTag(m: Mapping): string {
   const tag = m.tag?.trim() ?? "";
   return tag || (m.product?.trim() || m.flow?.trim() || "");
+}
+
+/** The full tag label — always namespaced, whatever the suffix. */
+export function mappingTagLabel(m: Mapping): string {
+  return `${TAG_PREFIX}:${mappingTag(m)}`;
 }
 
 /** Stable key for a mapping — its scope. Used to key watermarks and state. */

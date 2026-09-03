@@ -9,6 +9,7 @@ type Mapping = {
   product?: string;
   flow?: string;
   pageId: string;
+  /** suffix only — the tag is always written `cockpit:<suffix>` */
   tag?: string;
 };
 type Slice = {
@@ -112,9 +113,10 @@ export function CockpitSettings() {
         </div>
         <p className="mb-2 text-[11px] text-ink-muted">
           Only these Cockpit products and flows are ever requested. With none
-          mapped, the plugin makes no network call at all. The tag is stamped
-          on the pages a mapping mirrors, and tagging a page with it offers to
-          file that page as a ticket — blank means the scope&rsquo;s own slug.
+          mapped, the plugin makes no network call at all. Every mapping writes
+          a <code>cockpit:</code> tag — stamped on the pages it mirrors, and
+          offering to file a page you tag with it. Blank means the
+          scope&rsquo;s own slug.
         </p>
 
         {scopesError
@@ -145,8 +147,8 @@ export function CockpitSettings() {
                   const slug = m.product ?? m.flow ?? "";
                   const next = [...rows];
                   next[i] = kind === "flow"
-                    ? { flow: slug, pageId: m.pageId }
-                    : { product: slug, pageId: m.pageId };
+                    ? { ...m, product: undefined, flow: slug }
+                    : { ...m, flow: undefined, product: slug };
                   setMappings(next);
                 }}
               />
@@ -172,15 +174,16 @@ export function CockpitSettings() {
                 onChange={(slug) => {
                   const next = [...rows];
                   next[i] = m.flow
-                    ? { flow: slug, pageId: m.pageId }
-                    : { product: slug, pageId: m.pageId };
+                    ? { ...m, flow: slug }
+                    : { ...m, product: slug };
                   setMappings(next);
                 }}
               />
+              <span className="text-[11px] text-ink-muted">cockpit:</span>
               <input
-                className={`${input} w-24`}
+                className={`${input} w-20`}
                 placeholder={m.product ?? m.flow ?? "tag"}
-                title="Tag stamped on this mapping's pages — defaults to the scope slug"
+                title="Tag suffix stamped on this mapping's pages — defaults to the scope slug"
                 defaultValue={m.tag ?? ""}
                 onBlur={(e) => {
                   const next = [...rows];
