@@ -42,6 +42,7 @@ type State = {
     created: number;
     updated: number;
     removed: number;
+    closed: string[];
   }[];
   filed: { title: string; reference: string }[];
 };
@@ -180,11 +181,14 @@ export function CockpitPanel(
           {state.mirrored.map((m) => (
             <div key={m.pageId}>
               {m.scopes.join(", ")} —{" "}
-              {m.created + m.updated + m.removed === 0 ? "nothing to change" : [
-                m.created ? `${m.created} new` : "",
-                m.updated ? `${m.updated} updated` : "",
-                m.removed ? `${m.removed} retired` : "",
-              ].filter(Boolean).join(" · ")}
+              {m.created + m.updated + m.removed + (m.closed?.length ?? 0) === 0
+                ? "nothing to change"
+                : [
+                  m.created ? `${m.created} new` : "",
+                  m.updated ? `${m.updated} updated` : "",
+                  m.removed ? `${m.removed} retired` : "",
+                  m.closed?.length ? `closed ${m.closed.join(", ")}` : "",
+                ].filter(Boolean).join(" · ")}
             </div>
           ))}
         </div>

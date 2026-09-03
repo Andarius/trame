@@ -22,6 +22,8 @@ export type MirrorPage = {
   content: unknown[];
   /** what the page already carries — ours plus anything the reader added */
   tags: string[];
+  /** open | done | archived */
+  status: string;
 };
 
 export type MirrorPlan = {
@@ -30,6 +32,7 @@ export type MirrorPlan = {
     title: string;
     blocks: PageTextBlock[];
     tags: string[];
+    status: string;
   }[];
   update: {
     id: string;
@@ -37,9 +40,49 @@ export type MirrorPlan = {
     title: string;
     blocks: unknown[];
     tags: string[];
+    status: string;
   }[];
   remove: { id: string; ref: string }[];
+  /** tickets to close because their page was marked done or archived here */
+  push: { ref: string; status: string; expectedUpdatedAt: string }[];
 };
+
+// Status, across two vocabularies that do not line up.
+//
+// Cockpit tracks six execution states; a Trame page has three (open / done /
+// archived). The collapse INWARD is total and lossless enough to be useful —
+// anything unfinished is simply open. The expansion OUTWARD is not: `open`
+// stands for four Cockpit states at once, so writing it back would be a guess,
+// and the guess would knock a ticket someone is working on back to `todo`.
+//
+// Hence the asymmetry below: only the terminal states travel out. Marking a
+// page done closes its ticket; nothing you do in Trame can ever regress one.
+
+const TO_PAGE: Record<string, string> = {
+  todo: "open",
+  in_progress: "open",
+  to_verify: "open",
+  to_fix: "open",
+  done: "done",
+  cancelled: "archived",
+};
+
+/** The page status a ticket implies. Unknown statuses read as open, not as done. */
+export function pageStatusOf(ticketStatus: string): string {
+  return TO_PAGE[ticketStatus] ?? "open";
+}
+
+/**
+ * The ticket status a page implies, or null when the page does not say.
+ *
+ * Null for `open` on purpose — see above. A null here means "leave the ticket
+ * alone", never "reset it".
+ */
+export function ticketStatusOf(pageStatus: string): string | null {
+  if (pageStatus === "done") return "done";
+  if (pageStatus === "archived") return "cancelled";
+  return null;
+}
 
 const line = (label: string, value: string | null | undefined) =>
   value ? `**${label}** — ${value}` : null;
@@ -145,7 +188,7 @@ export function planMirror(
   tagsByRef: ReadonlyMap<string, string[]> = new Map(),
 ): MirrorPlan {
   const byRef = new Map(existing.map((p) => [p.ref, p]));
-  const plan: MirrorPlan = { create: [], update: [], remove: [] };
+  const plan: MirrorPlan = { create: [], update: [], remove: [], push: [] };
 
   for (const t of tickets) {
     const blocks = ticketBlocks(t);
@@ -153,8 +196,26 @@ export function planMirror(
     const ours = tagsByRef.get(t.reference) ?? [];
     const page = byRef.get(t.reference);
     if (!page) {
-      plan.create.push({ ref: t.reference, title, blocks, tags: ours });
+      plan.create.push({
+        ref: t.reference,
+        title,
+        blocks,
+        tags: ours,
+        status: pageStatusOf(t.status),
+      });
       continue;
+    }
+    // A page closed HERE closes its ticket, rather than being reopened by the
+    // next pass. Only terminal states qualify — `ticketStatusOf` returns null
+    // for anything else, which is what keeps this from regressing a ticket.
+    const out = ticketStatusOf(page.status);
+    const closing = out !== null && out !== t.status;
+    if (closing) {
+      plan.push.push({
+        ref: t.reference,
+        status: out,
+        expectedUpdatedAt: t.updated_at,
+      });
     }
     // Merge rather than replace: unchanged lines keep their block ids, so the
     // comments a reader anchored to them survive re-mirroring.
@@ -166,6 +227,9 @@ export function planMirror(
       // Union, never replace: a reader may have tagged this page themselves,
       // and re-mirroring must not quietly strip that.
       tags: [...new Set([...page.tags, ...ours])],
+      // Keep the local state while it is on its way out; overwriting it here
+      // would undo the very close we just queued.
+      status: closing ? page.status : pageStatusOf(t.status),
     });
   }
 

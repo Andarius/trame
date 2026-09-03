@@ -101,6 +101,7 @@ export async function createPage(
     story?: string;
     content?: unknown[];
     tags?: string[];
+    status?: string;
     repo_path?: string;
   },
 ): Promise<string> {
@@ -114,8 +115,8 @@ export async function createPage(
     : null;
   const row = (await pg.query(
     `insert into pages
-       (kind, title, icon, client_id, parent_id, sort_key, story, content, tags, owner_id, origin)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning id`,
+       (kind, title, icon, client_id, parent_id, sort_key, story, content, tags, status, owner_id, origin)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning id`,
     [
       ["project", "story"].includes(p.kind ?? "") ? p.kind : "page",
       p.title ?? "",
@@ -126,6 +127,7 @@ export async function createPage(
       p.story ?? "",
       JSON.stringify(p.content ?? []),
       JSON.stringify(p.tags ?? []),
+      p.status ?? "open",
       (await getIdentity()).userId,
       NODE_ID,
     ],
