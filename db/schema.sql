@@ -18,7 +18,7 @@ create table if not exists pages (
   icon text,
   story text not null default '',       -- project blurb, shown as the page description
   client_id uuid,                        -- denormalized Project page id; the tree is authoritative
-  status text not null default 'open',   -- open | done | archived (projects)
+  status text not null default 'open',   -- open | done | archived — cf. app/page-status.ts
   content jsonb not null default '[]',    -- ordered blocks (LWW whole-doc; fine single-user)
   sort_key text not null default 'a0',     -- fractional key: order among siblings
   origin text not null default 'seed',
@@ -401,7 +401,7 @@ comment on column pages.parent_id is 'Parent page; null = top level. Deliberatel
 comment on column pages.kind is 'project | story | page. Behavioral: a plain page becomes a story (one-way) when a session attaches. Stories carry story/status and are what sessions ladder up to.';
 comment on column pages.icon is 'Emoji glyph, or an image URL / data URI.';
 comment on column pages.story is 'Project blurb, shown as the page description.';
-comment on column pages.status is 'open | done | archived (meaningful for kind=''project'').';
+comment on column pages.status is 'open | done | archived — the page axis: is this THING still worth seeing. Distinct from sessions.status (the board columns), which says what is happening to the WORK; a story carries several sessions and cannot have one of those. Read for every kind (dim done, fold archived, filter the pickers); only kind=''story'' has an editor for it today.';
 comment on column pages.content is 'Ordered block list (jsonb). Whole-doc LWW — concurrent offline edits collide; acceptable single-user.';
 comment on column pages.sort_key is 'Fractional order key among siblings (base-36 midpoint string; sorts identically in SQL and JS).';
 comment on column pages.owner_id is 'users.id of the creator (no FK: LWW pull order). Ownership semantics only — ACL enforcement is a later phase.';

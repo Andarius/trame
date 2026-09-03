@@ -1411,7 +1411,13 @@ async function handler(req: Request): Promise<Response> {
 
   // pages — the nestable tree; project pages also serve /api/objectives above
   if (pathname === "/api/pages" && req.method === "POST") {
-    return json({ id: await createPage(await req.json()) });
+    try {
+      return json({ id: await createPage(await req.json()) });
+    } catch (e) {
+      // Same contract as the update route below: a rejected field is the
+      // caller's problem, not a 500.
+      return json({ error: (e as Error).message }, 400);
+    }
   }
   if (pathname === "/api/pages") return json(await listPages());
   // Share: export a page subtree to a portable bundle file another Trame user can import.

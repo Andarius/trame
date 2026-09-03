@@ -4,6 +4,7 @@
 import { db, resolveHomeProject } from "./db.ts";
 import { NODE_ID } from "./config.ts";
 import { getIdentity } from "./identity.ts";
+import { isPageStatus } from "./page-status.ts";
 import { midKey } from "./udb.ts";
 import {
   AGENT_AUTHOR_ID,
@@ -105,6 +106,9 @@ export async function createPage(
     repo_path?: string;
   },
 ): Promise<string> {
+  if (p.status != null && !isPageStatus(p.status)) {
+    throw new Error(`unknown page status: ${p.status}`);
+  }
   const pg = await db();
   // An agent-created page (repo_path given, no parent) files itself under the repo's
   // project; an explicit null parent still means root.
@@ -148,6 +152,9 @@ export async function updatePage(
     tags?: string[];
   },
 ): Promise<void> {
+  if (patch.status != null && !isPageStatus(patch.status)) {
+    throw new Error(`unknown page status: ${patch.status}`);
+  }
   const pg = await db();
   await pg.query(
     `update pages set
