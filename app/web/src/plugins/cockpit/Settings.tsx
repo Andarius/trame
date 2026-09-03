@@ -17,6 +17,7 @@ type Slice = {
   projects: Mapping[];
   hasToken: boolean;
   mirror: boolean;
+  autoFile: boolean;
   pollIdleSeconds: number;
 };
 type Test =
@@ -114,9 +115,9 @@ export function CockpitSettings() {
         <p className="mb-2 text-[11px] text-ink-muted">
           Only these Cockpit products and flows are ever requested. With none
           mapped, the plugin makes no network call at all. Every mapping writes
-          a <code>cockpit:</code> tag — stamped on the pages it mirrors, and
-          offering to file a page you tag with it. Blank means the
-          scope&rsquo;s own slug.
+          a <code>cockpit:</code>{" "}
+          tag — stamped on the pages it mirrors, and sending any page you tag
+          with it. Blank means the scope&rsquo;s own slug.
         </p>
 
         {scopesError
@@ -314,6 +315,23 @@ export function CockpitSettings() {
               Writes a page per ticket under each mapping's project. These pages
               sync like any other and can be shared by link — only turn this on
               for projects you are willing to keep locally.
+            </span>
+          </span>
+        </label>
+
+        <label className="mt-2 flex items-start gap-2">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={slice.autoFile}
+            onChange={(e) => save({ autoFile: e.target.checked })}
+          />
+          <span>
+            <span className="text-[12px]">File tagged pages as tickets</span>
+            <span className="mt-0.5 block text-[11px] text-ink-muted">
+              Tagging a story under a mapped project sends it to Cockpit on the
+              next pass. Turn this off to keep filing a deliberate click — the
+              panel then lists what is waiting instead of sending it.
             </span>
           </span>
         </label>

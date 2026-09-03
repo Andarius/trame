@@ -43,6 +43,7 @@ type State = {
     updated: number;
     removed: number;
   }[];
+  filed: { title: string; reference: string }[];
 };
 
 // Cockpit's execution statuses. Colours reuse the board's status vocabulary so
@@ -189,6 +190,18 @@ export function CockpitPanel(
         </div>
       )}
 
+      {state.filed?.length > 0 && (
+        <div className="border-b border-line px-3 py-1.5 text-[11px] text-ink-muted">
+          Filed {state.filed.map((f, i) => (
+            <span key={f.reference}>
+              {i > 0 && ", "}
+              <span className="text-ink-soft">{f.title}</span>{" "}
+              <span className="font-mono text-[10.5px]">{f.reference}</span>
+            </span>
+          ))}
+        </div>
+      )}
+
       {state.errors.length > 0 && (
         <div className="border-b border-line px-3 py-2">
           {state.errors.map((e) => (
@@ -227,7 +240,7 @@ export function CockpitPanel(
           <div className="border-b border-line pb-2">
             <div className="flex items-baseline justify-between px-3 pt-3 pb-1">
               <span className="text-[10px] font-medium uppercase tracking-[0.8px] text-ink-muted/80">
-                Tagged, not filed
+                Filing next pass
               </span>
               <button
                 type="button"

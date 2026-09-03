@@ -58,6 +58,8 @@ export type CockpitState = {
   // What the last pass wrote into Trame, per mapping. Empty while mirroring is
   // off, which is the default.
   mirrored: ({ pageId: string; scopes: string[] } & MirrorResult)[];
+  // Pages this pass pushed INTO Cockpit, newest pass only.
+  filed: { title: string; reference: string }[];
 };
 
 let state: CockpitState = {
@@ -67,6 +69,7 @@ let state: CockpitState = {
   polledAt: null,
   errors: [],
   mirrored: [],
+  filed: [],
 };
 let pollRunning: Promise<CockpitState> | null = null;
 
@@ -173,6 +176,7 @@ async function pollOnce(): Promise<CockpitState> {
       polledAt: new Date().toISOString(),
       errors: (fixture.errors ?? []) as CockpitState["errors"],
       mirrored: [],
+      filed: [],
     });
   }
 
@@ -191,12 +195,44 @@ async function pollOnce(): Promise<CockpitState> {
       polledAt: new Date().toISOString(),
       errors: [],
       mirrored: [],
+      filed: [],
     });
   }
 
   const errors: CockpitState["errors"] = [];
   const mirrored: CockpitState["mirrored"] = [];
+  const filed: CockpitState["filed"] = [];
   const wantsMirror = slice.mirror === true;
+
+  // Push BEFORE pulling: a page filed now comes back in the same pass as a
+  // ticket, so one poll leaves Trame and Cockpit agreeing instead of two.
+  if (slice.autoFile !== false) {
+    const pending = await loadPendingPages(
+      mappings.map((m) => ({
+        pageId: m.pageId,
+        tagKey: tagKey(mappingTagLabel(m)),
+        tagLabel: mappingTagLabel(m),
+      })),
+    );
+    for (const page of pending) {
+      try {
+        const out = await filePage(baseUrl, token, mappings, page.pageId);
+        if ("error" in out) {
+          errors.push({ scope: page.title, error: out.error });
+        } else {
+          filed.push({ title: page.title, reference: out.reference });
+        }
+      } catch (e) {
+        // One page failing must not stop the rest, nor the pull that follows.
+        errors.push({
+          scope: page.title,
+          error: e instanceof CockpitError
+            ? `${e.status} — ${e.message}`
+            : String((e as Error)?.message ?? e),
+        });
+      }
+    }
+  }
 
   // Drain first, mirror second. Mirroring is grouped by target project below,
   // so it cannot start until every scope aiming at that project has answered.
@@ -275,7 +311,47 @@ async function pollOnce(): Promise<CockpitState> {
     polledAt: new Date().toISOString(),
     errors,
     mirrored,
+    filed,
   });
+}
+
+/**
+ * File one Trame page as a Cockpit ticket, and stamp it with the reference.
+ *
+ * The scope comes from the mapping on the page's project — a page can only
+ * ever reach a scope this device was told to sync. The stamp is what stops the
+ * next pass from making a second ticket beside it.
+ */
+async function filePage(
+  baseUrl: string,
+  token: string,
+  mappings: Mapping[],
+  pageId: string,
+): Promise<
+  { reference: string; created: boolean } | { error: string; status: number }
+> {
+  const { getPage } = await import("../../pages.ts");
+  const page = await getPage(pageId) as unknown as {
+    id: string;
+    title: string;
+    story?: string;
+    content: unknown[];
+    parent_id: string | null;
+  } | null;
+  if (!page) return { error: "unknown page", status: 404 };
+
+  const mapping = mappings.find((m) => m.pageId === page.parent_id);
+  const scope = mapping && scopeOf(mapping);
+  if (!scope) {
+    return { error: "This page is not under a mapped project.", status: 400 };
+  }
+
+  const fields = ticketFromPage(page);
+  if ("error" in fields) return { error: fields.error, status: 422 };
+
+  const made = await createTicket(baseUrl, token, scope, fields);
+  await adoptAsMirror(pageId, made.reference);
+  return made;
 }
 
 // Coalesce concurrent polls (refresh clicked while the interval tick runs).
@@ -361,38 +437,16 @@ const cockpit: Plugin = {
       const token = str(slice.token);
       if (!baseUrl || !token) return json({ error: "not configured" }, 400);
 
-      const { getPage } = await import("../../pages.ts");
-      const page = await getPage(pageId) as unknown as {
-        id: string;
-        title: string;
-        story?: string;
-        content: unknown[];
-        parent_id: string | null;
-      } | null;
-      if (!page) return json({ error: "unknown page" }, 404);
-
-      // The scope comes from the mapping on the page's project — a page can
-      // only reach a scope this device was told to sync.
-      const mapping = parseMappings(slice.projects).find((m) =>
-        m.pageId === page.parent_id
-      );
-      const scope = mapping && scopeOf(mapping);
-      if (!scope) {
-        return json({
-          error: "This page is not under a mapped project.",
-        }, 400);
-      }
-
-      const fields = ticketFromPage(page);
-      if ("error" in fields) return json({ error: fields.error }, 422);
-
       try {
-        const made = await createTicket(baseUrl, token, scope, fields);
-        // Stamp it so the next poll keeps this page in step instead of
-        // creating a second one beside it.
-        await adoptAsMirror(pageId, made.reference);
+        const out = await filePage(
+          baseUrl,
+          token,
+          parseMappings(slice.projects),
+          pageId,
+        );
+        if ("error" in out) return json({ error: out.error }, out.status);
         poll().catch(console.error);
-        return json(made);
+        return json(out);
       } catch (e) {
         const detail = e instanceof CockpitError
           ? `${e.status} — ${e.message}`
@@ -435,6 +489,9 @@ const cockpit: Plugin = {
     if ("projects" in raw) patch.projects = parseMappings(raw.projects);
     // Mirroring writes to the Trame database, so it is opt-in: absent means off.
     if ("mirror" in raw) patch.mirror = raw.mirror === true;
+    // Filing is opt-OUT: a tag on a mapped page means "this belongs in
+    // Cockpit", and making that wait for a second gesture was the wrong call.
+    if ("autoFile" in raw) patch.autoFile = raw.autoFile !== false;
     if ("pollIdleSeconds" in raw) {
       const n = Number(raw.pollIdleSeconds);
       if (Number.isFinite(n) && n > 0) patch.pollIdleSeconds = clampIdle(n);
@@ -468,6 +525,7 @@ const cockpit: Plugin = {
       })),
       hasToken: Boolean(str(slice.token)),
       mirror: slice.mirror === true,
+      autoFile: slice.autoFile !== false,
       pollIdleSeconds: typeof slice.pollIdleSeconds === "number"
         ? slice.pollIdleSeconds
         : DEFAULT_IDLE_SECONDS,
