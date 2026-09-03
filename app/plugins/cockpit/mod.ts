@@ -33,6 +33,7 @@ import {
   adoptAsMirror,
   applyMirror,
   loadMirrorPages,
+  loadPendingPages,
   loadSyncedPages,
   type MirrorResult,
 } from "./mirror-store.ts";
@@ -318,7 +319,16 @@ const cockpit: Plugin = {
     // by another device arrives through sync with its mark already on it.
     if (subPath === "/synced") {
       const s = await getPluginSettings(ID);
-      return json({ baseUrl: str(s.baseUrl), pages: await loadSyncedPages() });
+      const mappings = parseMappings(s.projects).map((m) => ({
+        pageId: m.pageId,
+        tagKey: tagKey(mappingTagLabel(m)),
+        tagLabel: mappingTagLabel(m),
+      }));
+      return json({
+        baseUrl: str(s.baseUrl),
+        pages: await loadSyncedPages(),
+        pending: await loadPendingPages(mappings),
+      });
     }
     // The slugs this token may map. Offering them beats a free-text field: a
     // typo there returns no tickets, which looks exactly like an empty scope.

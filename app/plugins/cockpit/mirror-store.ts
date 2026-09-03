@@ -5,6 +5,7 @@ import { createPage, deletePage, updatePage } from "../../pages.ts";
 import {
   type MirrorPage,
   type MirrorPlan,
+  pendingOf,
   refOfContent,
   stampRef,
 } from "./mirror.ts";
@@ -144,4 +145,60 @@ export async function loadSyncedPages(): Promise<SyncedPage[]> {
     });
   }
   return out;
+}
+
+export type PendingPage = {
+  pageId: string;
+  title: string;
+  parentTitle: string | null;
+  tagLabel: string;
+};
+
+/**
+ * Pages tagged for a mapping but not filed yet — the push side's inbox.
+ *
+ * A page already carrying a reference is not pending, however it got one:
+ * mirrored from Cockpit, or filed from another device. Without that the panel
+ * would keep offering to file pages that came FROM Cockpit.
+ */
+export async function loadPendingPages(
+  mappings: { pageId: string; tagKey: string; tagLabel: string }[],
+): Promise<PendingPage[]> {
+  const parents = [...new Set(mappings.map((m) => m.pageId).filter(Boolean))];
+  if (parents.length === 0) return [];
+
+  const pg = await db();
+  const rows = (await pg.query(
+    `select p.id, p.title, p.tags, p.content, p.parent_id,
+            parent.title as parent_title
+       from pages p
+       left join pages parent on parent.id = p.parent_id
+      where not p.deleted and p.kind = 'story' and p.parent_id = any($1::uuid[])
+      order by p.updated_at desc`,
+    [parents],
+  )).rows as {
+    id: string;
+    title: string;
+    tags: unknown;
+    content: unknown;
+    parent_id: string;
+    parent_title: string | null;
+  }[];
+
+  return pendingOf(
+    rows.map((r) => ({
+      pageId: r.id,
+      parentId: r.parent_id,
+      tags: Array.isArray(r.tags) ? r.tags as string[] : [],
+      content: Array.isArray(r.content) ? r.content : [],
+      title: r.title,
+      parentTitle: r.parent_title,
+    })),
+    mappings,
+  ).map(({ page, tagLabel }) => ({
+    pageId: page.pageId,
+    title: page.title,
+    parentTitle: page.parentTitle,
+    tagLabel,
+  }));
 }

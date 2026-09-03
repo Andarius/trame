@@ -2,6 +2,7 @@ import { assertEquals, assertNotEquals } from "@std/assert";
 import {
   groupByProject,
   type MirrorPage,
+  pendingOf,
   planMirror,
   REF_MARK,
   refOfContent,
@@ -331,4 +332,68 @@ Deno.test("ticketFromPage ignores marks when reading a paragraph", () => {
     }],
   })) as { objective: string };
   assertEquals(out.objective, "Why it matters");
+});
+
+// The push side's inbox. The guard that matters is the reference: filing a page
+// that already stands for a ticket would mint a SECOND ticket for it.
+
+const candidate = (
+  pageId: string,
+  parentId: string,
+  tags: string[],
+  text?: string,
+) => ({
+  pageId,
+  parentId,
+  tags,
+  content: text ? [{ type: "text", text, id: "b" }] : [],
+});
+
+const MAPPINGS = [
+  { pageId: "proj", tagKey: "cockpit-devops", tagLabel: "cockpit:devops" },
+];
+
+Deno.test("pendingOf keeps a tagged page with no reference", () => {
+  const out = pendingOf(
+    [candidate("a", "proj", ["cockpit-devops"])],
+    MAPPINGS,
+  );
+  assertEquals(out.map((o) => o.page.pageId), ["a"]);
+  assertEquals(out[0].tagLabel, "cockpit:devops");
+});
+
+Deno.test("pendingOf skips a page that already carries a reference", () => {
+  // A mirrored page carries BOTH the mapping's tag and a ref: offering to file
+  // it would create a duplicate of the ticket it was made from.
+  assertEquals(
+    pendingOf(
+      [candidate(
+        "a",
+        "proj",
+        ["cockpit-devops"],
+        "{{trame:cockpit_ref=CKP-9}}",
+      )],
+      MAPPINGS,
+    ),
+    [],
+  );
+});
+
+Deno.test("pendingOf ignores pages outside the mapping", () => {
+  assertEquals(
+    pendingOf([
+      candidate("a", "other", ["cockpit-devops"]), // right tag, wrong project
+      candidate("b", "proj", ["notes"]), // right project, wrong tag
+      candidate("c", "proj", []), // untagged
+    ], MAPPINGS),
+    [],
+  );
+});
+
+Deno.test("pendingOf matches the tag key, not the label", () => {
+  // Pages store keys; a page tagged with the LABEL is a different tag.
+  assertEquals(
+    pendingOf([candidate("a", "proj", ["cockpit:devops"])], MAPPINGS),
+    [],
+  );
 });

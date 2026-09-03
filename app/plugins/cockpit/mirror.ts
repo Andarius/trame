@@ -95,6 +95,40 @@ export function refOfContent(content: unknown[]): string | null {
   return null;
 }
 
+/** A mapping, as the pending filter needs to see it. */
+export type TagMapping = { pageId: string; tagKey: string; tagLabel: string };
+
+/** A candidate page, as the pending filter needs to see it. */
+export type PendingCandidate = {
+  pageId: string;
+  parentId: string;
+  tags: string[];
+  content: unknown[];
+};
+
+/**
+ * Which tagged pages are still waiting to be filed as tickets.
+ *
+ * A page already carrying a reference is never pending, however it got one:
+ * mirrored FROM Cockpit, or filed from another device. Without that guard the
+ * panel would offer to file a mirrored page, and filing it would mint a second
+ * ticket for a ticket that already exists.
+ */
+export function pendingOf<T extends PendingCandidate>(
+  candidates: readonly T[],
+  mappings: readonly TagMapping[],
+): { page: T; tagLabel: string }[] {
+  const out: { page: T; tagLabel: string }[] = [];
+  for (const page of candidates) {
+    if (refOfContent(page.content)) continue;
+    const m = mappings.find((m) =>
+      m.pageId === page.parentId && page.tags.includes(m.tagKey)
+    );
+    if (m) out.push({ page, tagLabel: m.tagLabel });
+  }
+  return out;
+}
+
 /**
  * Decide what to create, rewrite and retire for one mapping.
  *

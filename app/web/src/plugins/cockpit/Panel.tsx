@@ -23,6 +23,13 @@ type Synced = {
   updatedAt: string;
 };
 
+type Pending = {
+  pageId: string;
+  title: string;
+  parentTitle: string | null;
+  tagLabel: string;
+};
+
 type State = {
   configured: boolean;
   baseUrl: string;
@@ -62,6 +69,11 @@ export function CockpitPanel(
 ) {
   const [state, setState] = useState<State | null>(null);
   const [synced, setSynced] = useState<Synced[]>([]);
+  const [pending, setPending] = useState<Pending[]>([]);
+  const [filing, setFiling] = useState<string | null>(null);
+  const [failed, setFailed] = useState<{ pageId: string; detail: string }[]>(
+    [],
+  );
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
@@ -70,7 +82,11 @@ export function CockpitPanel(
     // Separate call: this one reads pages, not the poller's memory, so it is
     // right even when the last poll failed.
     const s = await fetch("/api/plugins/cockpit/synced");
-    if (s.ok) setSynced(((await s.json()).pages ?? []) as Synced[]);
+    if (s.ok) {
+      const d = await s.json();
+      setSynced((d.pages ?? []) as Synced[]);
+      setPending((d.pending ?? []) as Pending[]);
+    }
   };
   const refresh = async () => {
     setBusy(true);
@@ -81,6 +97,31 @@ export function CockpitPanel(
     } finally {
       setBusy(false);
     }
+  };
+
+  // One page at a time, sequentially: each is a row in a shared tracker, and a
+  // half-failed batch is far easier to sort out when the order is knowable.
+  const file = async (ids: string[]) => {
+    const errs: { pageId: string; detail: string }[] = [];
+    for (const pageId of ids) {
+      setFiling(pageId);
+      try {
+        const r = await fetch("/api/plugins/cockpit/create", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ pageId }),
+        });
+        const d = await r.json();
+        if (d.error || !d.reference) {
+          errs.push({ pageId, detail: d.error ?? "failed" });
+        }
+      } catch (e) {
+        errs.push({ pageId, detail: String((e as Error)?.message ?? e) });
+      }
+    }
+    setFiling(null);
+    setFailed(errs);
+    await load();
   };
 
   useEffect(() => {
@@ -180,6 +221,61 @@ export function CockpitPanel(
             >
               ⚙︎ Open settings
             </button>
+          </div>
+        )}
+        {state.configured && pending.length > 0 && (
+          <div className="border-b border-line pb-2">
+            <div className="flex items-baseline justify-between px-3 pt-3 pb-1">
+              <span className="text-[10px] font-medium uppercase tracking-[0.8px] text-ink-muted/80">
+                Tagged, not filed
+              </span>
+              <button
+                type="button"
+                disabled={filing !== null}
+                onClick={() => file(pending.map((p) => p.pageId))}
+                className="rounded-md border border-line px-1.5 py-0.5 text-[10.5px] text-ink-soft hover:border-chipline disabled:opacity-50"
+                title="File every page listed here as a Cockpit ticket"
+              >
+                {filing ? "…" : `⌗ File all ${pending.length}`}
+              </button>
+            </div>
+            {pending.map((p) => {
+              const err = failed.find((f) => f.pageId === p.pageId);
+              return (
+                <div
+                  key={p.pageId}
+                  className="flex w-full items-baseline gap-2 px-3 py-1.5 hover:bg-card"
+                >
+                  <button
+                    type="button"
+                    onClick={() => onOpenPage(p.pageId)}
+                    className="min-w-0 flex-1 text-left"
+                    title="Open the page in Trame"
+                  >
+                    <span className="block truncate text-[12px] text-ink">
+                      {p.title || "Untitled"}
+                    </span>
+                    <span className="text-[10px] text-ink-muted">
+                      {p.parentTitle ? `${p.parentTitle} · ` : ""}
+                      {p.tagLabel}
+                    </span>
+                    {err && (
+                      <span className="block text-[10px] text-blocked">
+                        {err.detail}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={filing !== null}
+                    onClick={() => file([p.pageId])}
+                    className="shrink-0 rounded-md border border-line px-1.5 py-0.5 text-[10.5px] text-ink-soft hover:border-chipline disabled:opacity-50"
+                  >
+                    {filing === p.pageId ? "…" : "⌗ File it"}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
         {state.configured && (
