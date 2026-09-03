@@ -98,3 +98,50 @@ export async function adoptAsMirror(
   const content = Array.isArray(row.content) ? row.content : [];
   await updatePage(pageId, { content: stampRef(content, reference) });
 }
+
+export type SyncedPage = {
+  pageId: string;
+  ref: string;
+  title: string;
+  parentTitle: string | null;
+  updatedAt: string;
+};
+
+/**
+ * Every page that stands for a Cockpit ticket, wherever it lives.
+ *
+ * Deliberately not scoped to the mappings: a page filed from a project you
+ * later unmapped is still a page that reached Cockpit, and hiding it would
+ * answer "what did I sync?" with a comfortable lie. The `like` is only a
+ * prefilter — `refOfContent` decides.
+ */
+export async function loadSyncedPages(): Promise<SyncedPage[]> {
+  const pg = await db();
+  const rows = (await pg.query(
+    `select p.id, p.title, p.content, p.updated_at, parent.title as parent_title
+       from pages p
+       left join pages parent on parent.id = p.parent_id and not parent.deleted
+      where not p.deleted and p.content::text like '%trame:cockpit_ref=%'
+      order by p.updated_at desc`,
+  )).rows as {
+    id: string;
+    title: string;
+    content: unknown;
+    updated_at: string;
+    parent_title: string | null;
+  }[];
+
+  const out: SyncedPage[] = [];
+  for (const r of rows) {
+    const ref = refOfContent(Array.isArray(r.content) ? r.content : []);
+    if (!ref) continue;
+    out.push({
+      pageId: r.id,
+      ref,
+      title: r.title,
+      parentTitle: r.parent_title,
+      updatedAt: new Date(r.updated_at).toISOString(),
+    });
+  }
+  return out;
+}

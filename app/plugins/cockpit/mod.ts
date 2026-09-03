@@ -33,6 +33,7 @@ import {
   adoptAsMirror,
   applyMirror,
   loadMirrorPages,
+  loadSyncedPages,
   type MirrorResult,
 } from "./mirror-store.ts";
 
@@ -312,6 +313,13 @@ const cockpit: Plugin = {
 
   async routes(req, subPath) {
     if (subPath === "/state") return json(state);
+    // What actually reached Cockpit, read off the pages themselves rather than
+    // off the last poll: the answer must survive a restart, and a page filed
+    // by another device arrives through sync with its mark already on it.
+    if (subPath === "/synced") {
+      const s = await getPluginSettings(ID);
+      return json({ baseUrl: str(s.baseUrl), pages: await loadSyncedPages() });
+    }
     // The slugs this token may map. Offering them beats a free-text field: a
     // typo there returns no tickets, which looks exactly like an empty scope.
     if (subPath === "/scopes") {

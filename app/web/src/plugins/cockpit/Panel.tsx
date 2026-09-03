@@ -15,6 +15,14 @@ type Ticket = {
   mapping: string;
 };
 
+type Synced = {
+  pageId: string;
+  ref: string;
+  title: string;
+  parentTitle: string | null;
+  updatedAt: string;
+};
+
 type State = {
   configured: boolean;
   baseUrl: string;
@@ -43,21 +51,33 @@ const STATUS: Record<string, { label: string; color: string }> = {
 
 const PRIORITY = ["", "low", "medium", "high", "urgent"];
 
+const ticketUrl = (baseUrl: string, ref: string) =>
+  `${baseUrl.replace(/\/+$/, "")}/ticket/${encodeURIComponent(ref)}`;
+
 export function CockpitPanel(
-  { onOpenSettings }: { onOpenSettings: () => void },
+  { onOpenSettings, onOpenPage }: {
+    onOpenSettings: () => void;
+    onOpenPage: (id: string) => void;
+  },
 ) {
   const [state, setState] = useState<State | null>(null);
+  const [synced, setSynced] = useState<Synced[]>([]);
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
     const r = await fetch("/api/plugins/cockpit/state");
     if (r.ok) setState(await r.json());
+    // Separate call: this one reads pages, not the poller's memory, so it is
+    // right even when the last poll failed.
+    const s = await fetch("/api/plugins/cockpit/synced");
+    if (s.ok) setSynced(((await s.json()).pages ?? []) as Synced[]);
   };
   const refresh = async () => {
     setBusy(true);
     try {
       const r = await fetch("/api/plugins/cockpit/refresh", { method: "POST" });
       if (r.ok) setState(await r.json());
+      await load();
     } finally {
       setBusy(false);
     }
@@ -162,6 +182,51 @@ export function CockpitPanel(
             </button>
           </div>
         )}
+        {state.configured && (
+          <div className="border-b border-line pb-2">
+            <div className="px-3 pt-3 pb-1 text-[10px] font-medium uppercase tracking-[0.8px] text-ink-muted/80">
+              Synced pages
+            </div>
+            {synced.length === 0
+              ? (
+                <p className="px-3 py-1 text-[11px] text-ink-muted">
+                  No page is linked to a ticket yet. Tag a story with its
+                  mapping&rsquo;s <code>cockpit:</code>{" "}
+                  tag and the page offers to file itself.
+                </p>
+              )
+              : synced.map((p) => (
+                <div
+                  key={p.pageId}
+                  className="flex w-full items-baseline gap-2 px-3 py-1.5 hover:bg-card"
+                >
+                  <button
+                    type="button"
+                    onClick={() => onOpenPage(p.pageId)}
+                    className="min-w-0 flex-1 text-left"
+                    title="Open the page in Trame"
+                  >
+                    <span className="block truncate text-[12px] text-ink">
+                      {p.title || "Untitled"}
+                    </span>
+                    <span className="text-[10px] text-ink-muted">
+                      {p.parentTitle ? `${p.parentTitle} · ` : ""}
+                      {timeAgo(p.updatedAt)}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openInBrowser(ticketUrl(state.baseUrl, p.ref))}
+                    className="shrink-0 font-mono text-[10.5px] text-ink-muted hover:text-ink-soft"
+                    title="Open the ticket in Cockpit"
+                  >
+                    {p.ref} ↗
+                  </button>
+                </div>
+              ))}
+          </div>
+        )}
         {state.configured && state.tickets.length === 0 &&
           state.errors.length === 0 && (
           <div className="p-4 text-[12px] text-ink-muted">
@@ -183,7 +248,7 @@ export function CockpitPanel(
                   key={t.reference}
                   type="button"
                   onClick={() =>
-                    openInBrowser(`${state.baseUrl}/cockpit?t=${t.reference}`)}
+                    openInBrowser(ticketUrl(state.baseUrl, t.reference))}
                   className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-card"
                 >
                   <span

@@ -1863,7 +1863,12 @@ export function App() {
             const Panel = FRONTEND_PLUGINS.find((p) => p.id === pluginId)
               ?.Panel;
             return Panel
-              ? <Panel onOpenSettings={() => setModal("pluginSettings")} />
+              ? (
+                <Panel
+                  onOpenSettings={() => setModal("pluginSettings")}
+                  onOpenPage={openPage}
+                />
+              )
               : <p className="p-6 text-ink-muted">Unknown plugin.</p>;
           })()
           : view === "agents"
