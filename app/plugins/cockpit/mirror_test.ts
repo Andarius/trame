@@ -10,7 +10,6 @@ import {
   ticketBlocks,
   ticketFromPage,
   ticketMarkdown,
-  ticketStatusOf,
 } from "./mirror.ts";
 import type { Ticket } from "./api.ts";
 
@@ -406,61 +405,40 @@ Deno.test("pendingOf matches the tag key, not the label", () => {
   );
 });
 
-// Status crosses two vocabularies of different sizes. The asymmetry is the
-// whole design: everything comes in, only terminal states go out.
+// Status is one-way. Cockpit tracks execution; a page only says whether it is
+// still worth looking at, because the execution axis lives on sessions here.
 
-Deno.test("pageStatusOf collapses every unfinished ticket to open", () => {
+Deno.test("pageStatusOf keeps every unfinished ticket in view", () => {
   for (const s of ["todo", "in_progress", "to_verify", "to_fix"]) {
     assertEquals(pageStatusOf(s), "open");
   }
-  assertEquals(pageStatusOf("done"), "done");
+});
+
+Deno.test("pageStatusOf folds away a ticket that is over, either way", () => {
+  // Shipped and dropped both mean "stop showing me this". That they are
+  // indistinguishable here is exactly why nothing is written back.
+  assertEquals(pageStatusOf("done"), "archived");
   assertEquals(pageStatusOf("cancelled"), "archived");
 });
 
-Deno.test("pageStatusOf reads an unknown status as open, never as done", () => {
-  // A status Cockpit adds later must not silently close a page here.
+Deno.test("pageStatusOf reads an unknown status as open, never archived", () => {
+  // A state Cockpit adds later must not silently fold pages out of the tree.
   assertEquals(pageStatusOf("in_review_2"), "open");
   assertEquals(pageStatusOf(""), "open");
-});
-
-Deno.test("ticketStatusOf refuses to expand `open`", () => {
-  // `open` stands for four Cockpit states; writing one back would be a guess,
-  // and the guess would knock a ticket in progress back to todo.
-  assertEquals(ticketStatusOf("open"), null);
-  assertEquals(ticketStatusOf("done"), "done");
-  assertEquals(ticketStatusOf("archived"), "cancelled");
 });
 
 Deno.test("planMirror pulls the ticket's status onto its page", () => {
   const t = ticket({ status: "done" });
   const plan = planMirror([t], [pageOf(t, "p1")], ["CKP-1"]);
-  assertEquals(plan.update[0].status, "done");
-  assertEquals(plan.push, []);
+  assertEquals(plan.update[0].status, "archived");
 });
 
-Deno.test("planMirror closes the ticket of a page marked done here", () => {
+Deno.test("planMirror never lets a local status stop the pull", () => {
+  // The page is the mirror's to write: archiving one here is undone next pass
+  // if the ticket is still live. Closing a ticket is a decision for Cockpit.
   const t = ticket({ status: "in_progress" });
-  const plan = planMirror([t], [pageOf(t, "p1", [], "done")], ["CKP-1"]);
-  assertEquals(plan.push, [{
-    ref: "CKP-1",
-    status: "done",
-    expectedUpdatedAt: t.updated_at,
-  }]);
-  // and does NOT reopen the page in the same breath
-  assertEquals(plan.update[0].status, "done");
-});
-
-Deno.test("planMirror pushes nothing for a page that is merely open", () => {
-  const t = ticket({ status: "in_progress" });
-  const plan = planMirror([t], [pageOf(t, "p1", [], "open")], ["CKP-1"]);
-  assertEquals(plan.push, []);
+  const plan = planMirror([t], [pageOf(t, "p1", [], "archived")], ["CKP-1"]);
   assertEquals(plan.update[0].status, "open");
-});
-
-Deno.test("planMirror pushes nothing when both sides already agree", () => {
-  const t = ticket({ status: "done" });
-  const plan = planMirror([t], [pageOf(t, "p1", [], "done")], ["CKP-1"]);
-  assertEquals(plan.push, []);
 });
 
 Deno.test("planMirror gives a new page the ticket's status", () => {

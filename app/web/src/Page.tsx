@@ -74,6 +74,7 @@ import {
   todayMark,
   touchTodo,
 } from "../../todo-marks.ts";
+import { PAGE_STATUSES } from "../../page-status.ts";
 import { DatabaseView } from "./udb/DatabaseTable";
 import { FolderBlock } from "./FolderBlock";
 import { TagEditor } from "./TagEditor";
@@ -93,11 +94,6 @@ const PROJECT_COLORS = [
   "#8b93a3",
 ];
 
-const PAGE_STATUS = [
-  { value: "open", label: "Open" },
-  { value: "done", label: "Done" },
-  { value: "archived", label: "Archived" },
-];
 
 type TextBlock = Extract<Block, { type: "text" | "heading" | "todo" }>;
 const isText = (b: Block): b is TextBlock =>
@@ -2949,7 +2945,7 @@ export function Page(
               <div className="w-[120px]">
                 <Select
                   value={page.status}
-                  options={PAGE_STATUS}
+                  options={[...PAGE_STATUSES]}
                   onChange={(status) => patch({ status })}
                 />
               </div>
@@ -3201,11 +3197,7 @@ export function Page(
                 type="button"
                 key={c.id}
                 className={`flex items-center gap-2 rounded-md px-1.5 py-1 text-left text-[13px] text-ink-soft hover:bg-panel${
-                  c.status === "done"
-                    ? " opacity-60"
-                    : c.status === "archived"
-                    ? " opacity-40"
-                    : ""
+                  c.status === "archived" ? " opacity-40" : ""
                 }`}
                 onClick={() => onOpenPage(c.id)}
               >

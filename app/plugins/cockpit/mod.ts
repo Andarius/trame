@@ -27,7 +27,6 @@ import {
   fetchScopes,
   probe,
   type Ticket,
-  updateTicketStatus,
 } from "./api.ts";
 import { groupByProject, planMirror, ticketFromPage } from "./mirror.ts";
 import {
@@ -58,10 +57,7 @@ export type CockpitState = {
   errors: { scope: string; error: string }[];
   // What the last pass wrote into Trame, per mapping. Empty while mirroring is
   // off, which is the default.
-  mirrored: (
-    & { pageId: string; scopes: string[]; closed: string[] }
-    & MirrorResult
-  )[];
+  mirrored: ({ pageId: string; scopes: string[] } & MirrorResult)[];
   // Pages this pass pushed INTO Cockpit, newest pass only.
   filed: { title: string; reference: string }[];
 };
@@ -153,7 +149,7 @@ async function mirror(
   pageId: string,
   tickets: Ticket[],
   tagsByRef: ReadonlyMap<string, string[]>,
-): Promise<MirrorResult & { closed: string[] }> {
+): Promise<MirrorResult> {
   // No scope at all means we were told nothing — null, not an empty union.
   // An empty ARRAY would read as "no ticket is live" and retire every page.
   let live: string[] | null = scopes.length ? [] : null;
@@ -167,29 +163,7 @@ async function mirror(
   }
 
   const existing = await loadMirrorPages(pageId);
-  const plan = planMirror(tickets, existing, live, tagsByRef);
-
-  // Close the tickets whose page was marked done here, BEFORE writing the
-  // pages: a 409 (someone else moved it) leaves the local status alone rather
-  // than reporting a close that did not happen.
-  const closed: string[] = [];
-  for (const p of plan.push) {
-    try {
-      await updateTicketStatus(
-        baseUrl,
-        token,
-        p.ref,
-        p.status,
-        p.expectedUpdatedAt,
-      );
-      closed.push(p.ref);
-    } catch (e) {
-      // Reported, never fatal: the pull below is still worth doing.
-      console.error(`cockpit: ${p.ref} status → ${p.status}`, e);
-    }
-  }
-
-  return { ...await applyMirror(pageId, plan), closed };
+  return applyMirror(pageId, planMirror(tickets, existing, live, tagsByRef));
 }
 
 async function pollOnce(): Promise<CockpitState> {

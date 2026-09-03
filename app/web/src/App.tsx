@@ -383,9 +383,7 @@ function PageNode(
             : "text-ink-muted hover:text-ink-soft"
         }${canDrag ? " touch-none active:cursor-grabbing" : ""}${
           isDragging ? " opacity-40" : ""
-        }${p.status === "done" && !active ? " opacity-60" : ""}${
-          isOver && canDrop ? " bg-copper/10 ring-1 ring-copper/40" : ""
-        }`}
+        }${isOver && canDrop ? " bg-copper/10 ring-1 ring-copper/40" : ""}`}
         style={{ paddingLeft: 8 + depth * 14 }}
       >
         <button
@@ -497,12 +495,8 @@ function isSharedIn(p: PageMeta, meId: string | null): boolean {
 
 // done stories sink below their open siblings; archived ones leave the main list
 // (stable sort: server order kept within each group)
-const sortDoneLast = (kids: PageMeta[]) =>
-  [...kids].sort((a, b) =>
-    (a.status === "done" ? 1 : 0) - (b.status === "done" ? 1 : 0)
-  );
 const splitArchived = (kids: PageMeta[]) => ({
-  normal: sortDoneLast(kids.filter((k) => k.status !== "archived")),
+  normal: kids.filter((k) => k.status !== "archived"),
   archived: kids.filter((k) => k.status === "archived"),
 });
 

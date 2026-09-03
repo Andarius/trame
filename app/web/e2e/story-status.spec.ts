@@ -1,13 +1,13 @@
 import { expect, test } from "@playwright/test";
 
-// Story status becomes visible: done stories dim and sink in the sidebar,
-// archived ones fold into "Archived (n)", leave pickers, and tag their lane.
+// Story status becomes visible: archived stories fold into "Archived (n)",
+// leave the pickers, and tag their board lane. That is the whole axis — the
+// page has no `done`, because finishing is a fact about a session.
 test.describe.configure({ mode: "serial" });
 
 const TITLES = [
   "Status proj",
   "Status open S",
-  "Status done S",
   "Status arch S",
   "Status arch2 S",
 ];
@@ -25,13 +25,6 @@ test.beforeAll(async ({ request }) => {
       id: string;
     }).id;
   const proj = await mk({ title: "Status proj", kind: "project" });
-  // done first so the done-last sort actually reorders it past the open story
-  const done = await mk({
-    title: "Status done S",
-    kind: "story",
-    parent_id: proj,
-    client_id: proj,
-  });
   await mk({
     title: "Status open S",
     kind: "story",
@@ -50,7 +43,6 @@ test.beforeAll(async ({ request }) => {
     parent_id: proj,
     client_id: proj,
   });
-  await request.post(`/api/pages/${done}`, { data: { status: "done" } });
   await request.post(`/api/pages/${arch}`, { data: { status: "archived" } });
   await request.post(`/api/pages/${arch2}`, { data: { status: "archived" } });
   // a session on the archived story keeps its lane + drawer chip alive
@@ -59,7 +51,7 @@ test.beforeAll(async ({ request }) => {
   });
 });
 
-test("sidebar dims done stories, sorts them last, folds archived ones", async ({ page }) => {
+test("sidebar folds archived stories away, and remembers the fold", async ({ page }) => {
   await page.goto("/");
   const aside = page.locator("aside").first();
   const row = (title: string) =>
@@ -67,10 +59,6 @@ test("sidebar dims done stories, sorts them last, folds archived ones", async ({
   await row("Status proj").locator("button").first().click();
 
   await expect(row("Status open S")).toBeVisible();
-  await expect(row("Status done S")).toHaveClass(/opacity-60/);
-  const openBox = (await row("Status open S").boundingBox())!;
-  const doneBox = (await row("Status done S").boundingBox())!;
-  expect(doneBox.y).toBeGreaterThan(openBox.y);
 
   // archived stories hide behind the fold until it's expanded
   // (scoped to the sidebar — board cards may show the story name too)
@@ -93,8 +81,8 @@ test("story picker hides archived stories but keeps the attached one", async ({ 
   const trigger = page.getByRole("button", { name: "◇ Status arch S ▾" });
   await expect(trigger).toBeVisible();
   await trigger.click();
-  // done stories stay pickable; the other archived story is gone
-  await expect(page.getByRole("button", { name: "◇ Status done S" }).first())
+  // live stories stay pickable; the other archived story is gone
+  await expect(page.getByRole("button", { name: "◇ Status open S" }).first())
     .toBeVisible();
   await expect(page.getByRole("button", { name: "◇ Status arch2 S" }))
     .toHaveCount(0);

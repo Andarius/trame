@@ -131,29 +131,6 @@ export function createTicket(
   });
 }
 
-/**
- * Change a ticket's status, and only if nobody else has touched it since.
- *
- * `expected_updated_at` is compared inside the server's UPDATE, so a colleague
- * moving the same ticket between our read and our write loses nothing: we get
- * a 409 and skip, rather than overwriting their state with a stale one.
- */
-export function updateTicketStatus(
-  baseUrl: string,
-  token: string,
-  reference: string,
-  status: string,
-  expectedUpdatedAt: string,
-): Promise<unknown> {
-  return call(baseUrl, token, `/tickets/${encodeURIComponent(reference)}`, {
-    method: "PATCH",
-    body: JSON.stringify({
-      expected_updated_at: expectedUpdatedAt,
-      fields: { status },
-    }),
-  });
-}
-
 export function fetchScopes(
   baseUrl: string,
   token: string,
