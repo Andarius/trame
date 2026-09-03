@@ -77,7 +77,8 @@ import {
 import { DatabaseView } from "./udb/DatabaseTable";
 import { FolderBlock } from "./FolderBlock";
 import { TagEditor } from "./TagEditor";
-import { CreateTicket } from "./plugins/cockpit/CreateTicket";
+import { CockpitTicket } from "./plugins/cockpit/CockpitTicket";
+import { refOfContent } from "../../plugins/cockpit/mirror.ts";
 import { HtmlBlock } from "./HtmlBlock";
 
 // project chip palette (matches the client palette + a few extras)
@@ -2992,13 +2993,11 @@ export function Page(
 
           {/* Below the story, because the story becomes the ticket's
               objective: the offer sits next to the text it will send. */}
-          <CreateTicket
+          <CockpitTicket
             pageId={pageId}
             parentId={page.parent_id}
             tags={page.tags ?? []}
-            alreadySynced={JSON.stringify(page.content ?? []).includes(
-              "trame:cockpit_ref=",
-            )}
+            reference={refOfContent(page.content ?? [])}
             onDone={() => reload()}
           />
 

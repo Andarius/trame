@@ -15,29 +15,29 @@ type Mapping = {
 };
 
 /**
- * Offer to file this page as a Cockpit ticket, once it is tagged for a mapped
- * scope.
+ * A page's standing with Cockpit: a way in when it is filed, an offer to file
+ * it when it is tagged for a mapped scope, nothing otherwise.
  *
- * The tag is the intent: nothing appears until you say, by tagging, that this
- * page belongs to a product Cockpit knows. It stays an OFFER rather than an
- * automatic push — filing a row in a shared team tracker should not be a side
- * effect of a gesture you might be using for your own filing.
- *
- * Never shown on a page that already carries a reference. The mirror tags the
- * pages it creates with the very same key, so without that guard a mirrored
- * ticket would offer to file itself a second time.
+ * One slot for both, because they are the same question asked before and
+ * after. The tag is the intent: nothing is offered until you say, by tagging,
+ * that this page belongs to a product Cockpit knows — and it stays an OFFER
+ * rather than an automatic push, since filing a row in a shared team tracker
+ * should not be a side effect of a gesture you might be using for your own
+ * filing.
  */
-export function CreateTicket(
-  { pageId, parentId, tags, alreadySynced, onDone }: {
+export function CockpitTicket(
+  { pageId, parentId, tags, reference, onDone }: {
     pageId: string;
     parentId: string | null;
     tags: string[];
-    /** the page already carries a Cockpit reference */
-    alreadySynced: boolean;
+    /** the Cockpit reference this page already carries, if any */
+    reference: string | null;
     onDone: () => void;
   },
 ) {
-  const [mappings, setMappings] = useState<Mapping[]>([]);
+  const [slice, setSlice] = useState<
+    { baseUrl?: string; projects?: Mapping[]; enabled?: boolean } | null
+  >(null);
   const [state, setState] = useState<State>({ kind: "idle" });
   const [dismissed, setDismissed] = useState(false);
 
@@ -45,28 +45,44 @@ export function CreateTicket(
     setState({ kind: "idle" });
     setDismissed(false);
     fetch("/api/plugins/cockpit/settings")
-      .then((r) => (r.ok ? r.json() : { projects: [] }))
-      .then((s: { projects?: Mapping[] }) => setMappings(s.projects ?? []))
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setSlice)
       .catch(() => {});
   }, [pageId]);
 
-  if (state.kind === "done") {
+  const baseUrl = slice?.baseUrl?.replace(/\/+$/, "") ?? "";
+  // Freshly filed counts as filed: the mark is on the page, but this component
+  // was handed the content from before the write.
+  const ref = state.kind === "done" ? state.reference : reference;
+
+  if (ref) {
+    if (!baseUrl) return null;
     return (
-      <div className="text-[11px] text-ink-muted">
+      <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-ink-muted">
+        <a
+          href={`${baseUrl}/ticket/${encodeURIComponent(ref)}`}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-0.5 text-ink-soft transition-colors hover:border-chipline"
+        >
+          ⌗ Open in Cockpit <code className="text-ink-muted">{ref}</code> ↗
+        </a>
         {
           /* `created: false` means the server recognised this page and returned
             the ticket it had already made — a retry, not a duplicate. */
         }
-        {state.created ? "Filed as " : "Already filed as "}
-        <code className="text-ink-soft">{state.reference}</code>
+        {state.kind === "done" && !state.created && <span>already filed</span>}
       </div>
     );
   }
 
-  if (alreadySynced || dismissed || !parentId) return null;
+  if (dismissed || !parentId) return null;
 
-  // The mapping that governs this page, and the tag it resolved to.
-  const mapping = mappings.find((m) => m.pageId === parentId);
+  // The mapping that governs this page, and the tag it resolved to. Gated on
+  // the plugin being on: /create is, so the button would only ever fail.
+  const mapping = slice?.enabled
+    ? slice.projects?.find((m) => m.pageId === parentId)
+    : undefined;
   if (!mapping?.tagKey || !tags.includes(mapping.tagKey)) return null;
 
   const create = () => {
