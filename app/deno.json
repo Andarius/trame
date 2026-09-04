@@ -25,7 +25,7 @@
     "test": "deno test -A",
     "sync": "deno run -A sync.ts once",
     "web:dev": "cd web && npm install && npm run dev",
-    "web:build": "cd web && npm install && npm run build && cd .. && deno run -A ../scripts/gen-embed.ts"
+    "web:build": "cd web && npm install && npm run build && npm run build:link && cd .. && deno run -A ../scripts/gen-embed.ts && deno run -A ../scripts/gen-link-embed.ts"
   },
   "imports": {
     "@clack/prompts": "npm:@clack/prompts@^1.6.0",

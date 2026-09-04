@@ -19,9 +19,15 @@ db:
     cd hub && ./gen-certs.sh init 127.0.0.1 localhost
     docker compose -f hub/docker-compose.yml up -d
 
+# Build the public link viewer bundle + regenerate hub/api/link-embed.ts
+[group('infra')]
+link-build:
+    cd app/web && npm install && npm run build:link
+    deno run -A scripts/gen-link-embed.ts
+
 # Deploy the Postgres hub over ssh (~/Apps/tracker) and start it — host via TRACKER_HUB_HOST in .env
 [group('infra')]
-db-deploy host=env_var_or_default('TRACKER_HUB_HOST', 'hub'):
+db-deploy host=env_var_or_default('TRACKER_HUB_HOST', 'hub'): link-build
     hub/deploy.sh {{ host }}
 
 # Fetch the hub's ca.crt so this laptop trusts the hub API's TLS

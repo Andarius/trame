@@ -14,6 +14,7 @@ app/embed.ts
 # frontend build + deps
 app/web/dist/
 app/web/dist-link/
+hub/api/link-embed.ts
 node_modules/
 
 # e2e artifacts

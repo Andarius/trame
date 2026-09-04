@@ -120,8 +120,8 @@ create index if not exists page_shares_user on page_shares (user_id);
 
 -- Public share links: a capability URL for a read-only browser view of a page's
 -- subtree, served by the hub's separate public listener (no account, no app).
--- Only the sha-256 of the token is stored (and synced); the raw link is shown once
--- at creation. Soft-delete revokes it. Comments are never rendered on link views.
+-- Only the sha-256 of the token is stored (and synced); soft-delete revokes it.
+-- Comments are never rendered on link views.
 create table if not exists page_links (
   id uuid primary key default uuidv7(),
   page_id uuid not null,   -- no FK: LWW pull order
@@ -132,6 +132,9 @@ create table if not exists page_links (
 );
 create index if not exists page_links_page on page_links (page_id);
 create index if not exists page_links_token on page_links (token_hash);
+-- raw token, kept only on the creating device so the app can re-show the URL;
+-- not a wire column (protocol/entities.ts) — never synced, stays null on the hub
+alter table page_links add column if not exists token text;
 
 -- Devices: NODE_ID -> user mapping ("which user am I" for a node). Rows are claimed
 -- at app startup with id = uuidv5(node_id) so concurrent claims converge on one row
@@ -199,7 +202,7 @@ create index if not exists comment_agent_status_comment on comment_agent_status 
 create index if not exists comment_agent_status_page on comment_agent_status (page_id);
 
 create table if not exists session_events (
-  id uuid primary key default gen_random_uuid(),
+  id uuid primary key default uuidv7(),
   session_id uuid not null references sessions (id),
   at timestamptz not null default now(),
   summary text,
@@ -209,6 +212,7 @@ create table if not exists session_events (
   deleted boolean not null default false
 );
 alter table session_events add column if not exists agent text;  -- claude | codex; null = human/unknown
+alter table session_events alter column id set default uuidv7();  -- time-ordered: the tiebreak after `at`
 
 -- Session <-> page-item links ("this session works on that TODO line"). Anchored
 -- like page_comments: block_id + an `anchor` text snapshot of the item line, so
@@ -437,7 +441,7 @@ comment on column sessions.next_step is 'One imperative line — what to do next
 comment on column sessions.specs_page_id is 'The session''s spec page (deterministic id, lazily created subpage of the story).';
 comment on column sessions.claude_id is 'Claude Code or Codex transcript UUID (the name predates Codex). Imported cards also carry it as their id.';
 comment on column sessions.agent is 'Transcript provider: claude or codex. Null on manual cards.';
-comment on column sessions.summary is 'Last "what happened" blurb; also written to session_events as the worklog.';
+comment on column sessions.summary is 'Last "what happened" blurb; a changed value is also appended to session_events as the worklog.';
 comment on column sessions.last_touched is 'Activity clock for board ordering (distinct from updated_at, the LWW clock).';
 
 comment on table statuses is 'Kanban board columns — user-editable. sessions.status stores statuses.key (a stable slug), not the id. terminal marks done-like columns. Built-ins (active/paused/blocked/done) are seeded with fixed ids so LWW sync dedupes them.';

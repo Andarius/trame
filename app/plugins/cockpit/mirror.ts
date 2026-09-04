@@ -5,8 +5,9 @@
 // one made instead of mirroring the same ticket twice — the pages sync, a
 // device-local index would not. Cockpit is never asked to hold a Trame id.
 import {
+  isFolderBlock,
   markdownToPageBlocks,
-  type PageTextBlock,
+  type PageBlock,
 } from "../../page-markdown.ts";
 import { mergePageBlocks } from "../../page-merge.ts";
 import { readMarks, stripMarks, writeMark } from "../../todo-marks.ts";
@@ -30,7 +31,7 @@ export type MirrorPlan = {
   create: {
     ref: string;
     title: string;
-    blocks: PageTextBlock[];
+    blocks: PageBlock[];
     tags: string[];
     status: string;
   }[];
@@ -108,10 +109,11 @@ export function ticketMarkdown(t: Ticket): string {
  * is most likely to keep: matching ignores marks, so the heading pairs with
  * its previous self even after a rename, and carries the mark forward.
  */
-export function ticketBlocks(t: Ticket): PageTextBlock[] {
+export function ticketBlocks(t: Ticket): PageBlock[] {
   const blocks = markdownToPageBlocks(ticketMarkdown(t));
-  if (blocks.length === 0) return blocks;
+  // the first block is always our own `# ref — title` heading, never a folder line
   const [head, ...rest] = blocks;
+  if (!head || isFolderBlock(head)) return blocks;
   return [
     { ...head, text: writeMark(head.text, REF_MARK, t.reference) },
     ...rest,

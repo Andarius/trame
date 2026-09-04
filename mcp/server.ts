@@ -6,7 +6,7 @@ import { StdioServerTransport } from "npm:@modelcontextprotocol/sdk@^1.12/server
 import { z } from "npm:zod@^3.24";
 import { PORT_FILE } from "../app/config.ts";
 import { HTML_BLOCK_MAX_BYTES } from "../protocol/html.ts";
-import { PAGE_DIALECT, TODO_SYNTAX } from "../track/help.ts";
+import { PAGE_DIALECT, SPECS_WHEN, TODO_SYNTAX } from "../track/help.ts";
 // the page/comment tools delegate to the tramecli writers, so both surfaces share
 // one implementation (markdown conversion, block merge, resolution, attribution)
 import { writePage } from "../track/page.ts";
@@ -112,7 +112,7 @@ ${PAGE_DIALECT}
 ${TODO_SYNTAX}
 
 A session's specs are a page too (a subpage of the card's story) — write them with
-\`trame_update_page\` passing \`{session_id}\`.
+\`trame_update_page\` passing \`{session_id}\`. ${SPECS_WHEN}
 
 ## Sessions (the board)
 - **trame_session** — read ONE card the way the user sees it: project and story by name,
@@ -188,7 +188,7 @@ server.tool(
 
 server.tool(
   "trame_track",
-  "Create or update a session (upserts by repo_path+branch among open sessions). Client and story are names — they are resolved or created. Specs live on the session's spec page: write them with trame_update_page {session_id} after tracking (the response returns specs_page_id).",
+  `Create or update a session (upserts by repo_path+branch among open sessions). Client and story are names — they are resolved or created. Specs live on the session's spec page: write them with trame_update_page {session_id} after tracking (the response returns specs_page_id). ${SPECS_WHEN.replaceAll("\n", " ")}`,
   {
     title: z.string(),
     status: z.enum(["active", "paused", "blocked", "done"]).optional(),

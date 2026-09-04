@@ -66,6 +66,7 @@ const page = (id: string, title: string, updatedAt: string) => ({
     title,
     icon: null,
     brief: "",
+    tags: [],
     client_id: null,
     status: "open",
     content: [],

@@ -14,6 +14,7 @@ Deno.test("getSession resolves the card the drawer shows", async () => {
   const {
     addEvent,
     addSessionLink,
+    addTrackEvent,
     deleteSession,
     ensureSpecsPage,
     getSession,
@@ -65,6 +66,23 @@ Deno.test("getSession resolves the card the drawer shows", async () => {
   const capped = await getSession(id, 2);
   assertEquals((capped!.activity as { summary: string }[]).map((e) => e.summary), ["third", "second"]);
   assertEquals(capped!.activity_total, 3);
+
+  // re-tracking resends the same summary: only a changed one is a new worklog entry
+  await addTrackEvent(id, "third", "claude");
+  assertEquals((await getSession(id))!.activity_total, 3);
+  await addTrackEvent(id, "fourth", "claude");
+  assertEquals((await getSession(id))!.activity_total, 4);
+  // a human typing the same line in the drawer means it, and is never swallowed
+  await addEvent(id, "fourth", "log");
+  await addEvent(id, "fourth", "log");
+  assertEquals((await getSession(id))!.activity_total, 6);
+  // …and a manual log does not hide a track that repeats it
+  await addEvent(id, "fifth", "log");
+  await addTrackEvent(id, "fifth", "claude");
+  assertEquals((await getSession(id))!.activity_total, 8);
+  // …nor does the same text from another agent: the worklog must show the handoff
+  await addTrackEvent(id, "fifth", "codex");
+  assertEquals((await getSession(id))!.activity_total, 9);
 
   // an unfiled card resolves to nulls rather than blowing up
   const bare = await upsertSession({ title: "loose", status: "active", repo_path: "/repos/loose" });

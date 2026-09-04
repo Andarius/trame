@@ -236,12 +236,18 @@ export async function upsertSession(s: Record<string, unknown>): Promise<string>
   if (s.claude_id && !s.agent) s.agent = "claude";
   // Accept human names (from the CLI/MCP) and resolve them to ids.
   if (typeof s.client === "string" && !s.client_id) s.client_id = await resolveClient(s.client);
-  // One coding-agent transcript maps to one card, regardless of import vs skill tracking.
+  // One coding-agent transcript maps to one card, regardless of import vs skill tracking —
+  // but only within a branch and among open cards. A session that moves on to another
+  // branch earns its own card instead of retitling the one it just finished, and a card
+  // the user marked done is never resurrected. An unbranched card (a fresh import) still
+  // adopts the first branch it is tracked with.
   if (!s.id && s.claude_id) {
     const hit = (await pg.query(
       `select id from sessions where (claude_id=$1 or id=$1) and not deleted
+         and status not in (select key from statuses where terminal and not deleted)
+         and ($2 = '' or coalesce(branch,'') in ('', $2))
        order by last_touched desc limit 1`,
-      [s.claude_id],
+      [s.claude_id, (s.branch as string) ?? ""],
     )).rows[0] as { id: string } | undefined;
     if (hit) s.id = hit.id;
   }
@@ -481,6 +487,18 @@ export async function addEvent(sessionId: string, summary: string, kind = "log",
     [sessionId, summary, kind, NODE_ID, agent],
   );
   await pg.query(`update sessions set last_touched=now(), origin=$2, updated_at=now() where id=$1`, [sessionId, NODE_ID]);
+}
+
+// A track repeating the last one is a no-op (upsertSession already touched the card); manual logs always append.
+export async function addTrackEvent(sessionId: string, summary: string, agent: string | null = null): Promise<void> {
+  const pg = await db();
+  const last = (await pg.query(
+    `select summary, agent from session_events where session_id=$1 and kind='track' and not deleted
+     order by at desc, id desc limit 1`,
+    [sessionId],
+  )).rows[0] as { summary: string | null; agent: string | null } | undefined;
+  if (last && (last.summary ?? "").trim() === summary.trim() && (last.agent ?? null) === agent) return;
+  await addEvent(sessionId, summary, "track", agent);
 }
 
 export async function linksForSession(sessionId: string) {

@@ -73,7 +73,9 @@ Deno.test("ticketMarkdown omits the fields a ticket has not set", () => {
 
 Deno.test("ticketBlocks stamps the reference on the first block", () => {
   const blocks = ticketBlocks(ticket());
-  assertEquals(blocks[0].text.includes(`{{trame:${REF_MARK}=CKP-1}}`), true);
+  const head = blocks[0];
+  if (!("text" in head)) throw new Error("first block should carry text");
+  assertEquals(head.text.includes(`{{trame:${REF_MARK}=CKP-1}}`), true);
   assertEquals(refOfContent(blocks), "CKP-1");
 });
 

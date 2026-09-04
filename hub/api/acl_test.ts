@@ -103,6 +103,7 @@ const page = (
     title,
     icon: null,
     brief: "",
+    tags: [],
     client_id: null,
     status: "open",
     content: [],

@@ -48,6 +48,7 @@ import {
   uuid7Time,
 } from "./ui";
 import { Markdown } from "./md";
+import { blocksToMarkdown } from "./page-serialize";
 
 // Stable block id so a comment survives edits/reorders of the surrounding text.
 export const genId = () => crypto.randomUUID().slice(0, 8);
@@ -231,24 +232,6 @@ export type CommentOps = {
   update: (id: string, patch: { body?: string; resolved?: boolean }) => void;
   remove: (id: string) => void;
 };
-
-// Serialize the page (title + text blocks) to Markdown for "select all → copy".
-// Structural blocks (database/subpage/folder/html) have no text and are skipped.
-export function blocksToMarkdown(title: string, blocks: Block[]): string {
-  const lines: string[] = [];
-  if (title.trim()) lines.push(`# ${title.trim()}`, "");
-  for (const b of blocks) {
-    if (b.type === "heading") lines.push(`## ${b.text}`);
-    else if (b.type === "todo") {
-      lines.push(
-        `${"  ".repeat(b.indent ?? 0)}- [${b.done ? "x" : " "}] ${b.text}`,
-      );
-    } else if (b.type === "text") {
-      lines.push(b.indent ? `${"  ".repeat(b.indent)}${b.text}` : b.text);
-    }
-  }
-  return `${lines.join("\n").replace(/\n{3,}/g, "\n\n").trim()}\n`;
-}
 
 // "inline": threads expand under their block (GitHub-PR style).
 // "panel": threads live in a right-side panel; bubbles open a quick popover.
