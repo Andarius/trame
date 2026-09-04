@@ -38,12 +38,24 @@ export const REPORT_PATHS = (Deno.env.get("TRACKER_REPORT_PATHS") ?? "")
   .map((s) => s.trim())
   .filter(Boolean)
   .map((p) => p.replace(/^~(?=\/|$)/, home));
-// Client names to detect from a working-dir path (`/<Client>/`); anything else →
-// "Side-projects". Kept out of the repo — set per-machine, e.g. TRACKER_CLIENTS="Acme,Globex".
-export const CLIENTS = (Deno.env.get("TRACKER_CLIENTS") ?? "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
+// Working-dir → Project map, JSON: {"<path segment>": "<project name>"}; a segment may
+// alias another name, e.g. TRACKER_CLIENTS='{"Obitrain":"Obitrain","Work":"Soren"}'.
+// Anything unmatched → "Side-projects". Kept out of the repo — set per-machine.
+export const CLIENT_MAP: Record<string, string> = (() => {
+  const raw = (Deno.env.get("TRACKER_CLIENTS") ?? "").trim();
+  if (!raw) return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("not an object");
+    for (const v of Object.values(parsed)) {
+      if (typeof v !== "string" || !v.trim()) throw new Error("values must be project names");
+    }
+    return parsed as Record<string, string>;
+  } catch (e) {
+    console.error(`TRACKER_CLIENTS ignored (want {"segment":"Project"} JSON): ${(e as Error).message}`);
+    return {};
+  }
+})();
 export const PORT = Number(Deno.env.get("TRACKER_PORT") ?? "8787");
 // Headless serve binds loopback by default — the API exposes local data (and plugin
 // state); set TRACKER_HOST=0.0.0.0 to deliberately serve over the LAN.
