@@ -2,7 +2,7 @@
 // Same SQL as the hub's Postgres — no dialect translation.
 import { PGlite } from "@electric-sql/pglite";
 import { v5 } from "@std/uuid";
-import { APP_ROOT, DATA_DIR, NODE_ID, OUTBOX } from "./config.ts";
+import { APP_ROOT, clientEntryFor, DATA_DIR, NODE_ID, OUTBOX } from "./config.ts";
 import { pageBlocksToMarkdown } from "./page-markdown.ts";
 import { midKey } from "./udb.ts";
 
@@ -132,7 +132,7 @@ export async function resolveHomeProject(repoPath: string): Promise<string | nul
 // duplicate. Another project's stories are off-limits; an unfiled plain page is still
 // reused (and promoted on attach) rather than duped. Exact spelling, then a story, then
 // the caller's own project win the tie.
-export async function resolveStory(title: string, clientId: string | null): Promise<string> {
+export async function resolveStory(title: string, clientId: string | null, tags: string[] = []): Promise<string> {
   const clean = title.trim().replace(/\s+/g, " ");
   if (!clean) throw new Error("a story needs a title");
   const pg = await db();
@@ -147,10 +147,14 @@ export async function resolveStory(title: string, clientId: string | null): Prom
     [clean, clientId],
   )).rows[0] as { id: string } | undefined;
   if (hit) return hit.id;
+  // default tags (TRACKER_CLIENTS) stamp NEW stories only — an existing page's tags
+  // belong to the user
+  const keys: string[] = [];
+  for (const label of tags) keys.push((await ensureTag({ label })).key);
   const row = (await pg.query(
-    `insert into pages (kind, title, client_id, parent_id, origin, owner_id)
-     values ('story',$1,$2,$2,$3,${OWNER_ID_SQL(3)}) returning id`,
-    [clean, clientId, NODE_ID],
+    `insert into pages (kind, title, client_id, parent_id, tags, origin, owner_id)
+     values ('story',$1,$2,$2,$3,$4,${OWNER_ID_SQL(4)}) returning id`,
+    [clean, clientId, JSON.stringify(keys), NODE_ID],
   )).rows[0] as { id: string };
   return row.id;
 }
@@ -271,7 +275,10 @@ export async function upsertSession(s: Record<string, unknown>): Promise<string>
       ? (await pg.query(`select page_id from sessions where id=$1 and not deleted`, [s.id]))
         .rows[0] as { page_id: string | null } | undefined
       : undefined;
-    if (!cur?.page_id) s.page_id = await resolveStory(s.story, (s.client_id as string) ?? null);
+    if (!cur?.page_id) {
+      const entry = typeof s.repo_path === "string" ? clientEntryFor(s.repo_path) : null;
+      s.page_id = await resolveStory(s.story, (s.client_id as string) ?? null, entry?.tags ?? []);
+    }
   }
   // project = a page that has sessions: attaching promotes a plain page (one-way)
   if (s.page_id) await promoteToProject(s.page_id as string, (s.client_id as string) ?? null);
