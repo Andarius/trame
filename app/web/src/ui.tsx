@@ -1,5 +1,5 @@
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
-import type { Status, StatusDef } from "./api";
+import { listTags, type Status, type StatusDef, type Tag } from "./api";
 
 type StatusStyle = { label: string; color: string; terminal: boolean };
 
@@ -517,4 +517,37 @@ export function inSubtree<P extends TreePage>(
 ): boolean {
   for (const p of ancestry(sessionAnchor(s, byId), byId)) if (p.id === rootId) return true;
   return false;
+}
+
+// Read-only tag chips (board cards, session drawer). The vocabulary is fetched once
+// per page load — labels and colors barely move within a session.
+let tagVocab: Promise<Tag[]> | null = null;
+export function TagChips({ keys }: { keys?: string[] }) {
+  const [vocab, setVocab] = useState<Map<string, Tag> | null>(null);
+  useEffect(() => {
+    (tagVocab ??= listTags())
+      .then((ts) => setVocab(new Map(ts.map((t) => [t.key, t]))))
+      .catch(() => {});
+  }, []);
+  if (!keys?.length) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {keys.map((k) => {
+        const t = vocab?.get(k);
+        const color = t?.color ?? "#6b7280";
+        return (
+          <span
+            key={k}
+            className="rounded-full px-1.5 py-px text-[9.5px] font-medium leading-[14px]"
+            style={{
+              background: `color-mix(in srgb, ${color} 16%, transparent)`,
+              color: `color-mix(in srgb, ${color} 72%, var(--color-ink, currentColor))`,
+            }}
+          >
+            {t?.label ?? k}
+          </span>
+        );
+      })}
+    </div>
+  );
 }

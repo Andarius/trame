@@ -23,6 +23,7 @@ import {
   statusStyle,
   StatusDot,
   storyOf,
+  TagChips,
 } from "./ui";
 
 function TicketBody(
@@ -56,6 +57,7 @@ function TicketBody(
           onClick={onFilterStory ? () => onFilterStory(chipPage.id) : undefined}
         />
       )}
+      {chipPage && <TagChips keys={board.stories.find((x) => x.id === chipPage.id)?.tags} />}
       <div className="flex items-center gap-1.5">
         {client && (
           <ClientChip
