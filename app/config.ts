@@ -38,24 +38,44 @@ export const REPORT_PATHS = (Deno.env.get("TRACKER_REPORT_PATHS") ?? "")
   .map((s) => s.trim())
   .filter(Boolean)
   .map((p) => p.replace(/^~(?=\/|$)/, home));
-// Working-dir → Project map, JSON: {"<path segment>": "<project name>"}; a segment may
-// alias another name, e.g. TRACKER_CLIENTS='{"Obitrain":"Obitrain","Work":"Soren"}'.
+// Working-dir → Project map, JSON: {"<path segment>": <entry>} where an entry is a
+// project name or {"project": "...", "tags": ["..."]} — the tags are stamped on story
+// pages created for matching sessions. e.g.
+// TRACKER_CLIENTS='{"Obitrain":"Obitrain","Work":{"project":"Soren","tags":["infra"]}}'.
 // Anything unmatched → "Side-projects". Kept out of the repo — set per-machine.
-export const CLIENT_MAP: Record<string, string> = (() => {
+export type ClientEntry = { project: string; tags: string[] };
+export const CLIENT_MAP: Record<string, ClientEntry> = (() => {
   const raw = (Deno.env.get("TRACKER_CLIENTS") ?? "").trim();
   if (!raw) return {};
   try {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("not an object");
-    for (const v of Object.values(parsed)) {
-      if (typeof v !== "string" || !v.trim()) throw new Error("values must be project names");
+    const map: Record<string, ClientEntry> = {};
+    for (const [seg, v] of Object.entries(parsed)) {
+      const entry = typeof v === "string" ? { project: v, tags: [] } : v as ClientEntry;
+      if (typeof entry?.project !== "string" || !entry.project.trim()) throw new Error(`"${seg}" needs a project name`);
+      const tags = entry.tags ?? [];
+      if (!Array.isArray(tags) || tags.some((t) => typeof t !== "string" || !t.trim())) {
+        throw new Error(`"${seg}" tags must be strings`);
+      }
+      map[seg] = { project: entry.project, tags };
     }
-    return parsed as Record<string, string>;
+    return map;
   } catch (e) {
-    console.error(`TRACKER_CLIENTS ignored (want {"segment":"Project"} JSON): ${(e as Error).message}`);
+    console.error(`TRACKER_CLIENTS ignored (want {"segment":"Project"|{project,tags}} JSON): ${(e as Error).message}`);
     return {};
   }
 })();
+
+// First map entry whose segment appears in the path — as /<segment>/, or dash-encoded
+// under /tmp/claude-… (scratchpad worktrees carry the repo path that way).
+export function clientEntryFor(path: string): ClientEntry | null {
+  for (const [seg, entry] of Object.entries(CLIENT_MAP)) {
+    if (path.includes(`/${seg}/`)) return entry;
+    if (path.startsWith("/tmp/claude-") && path.includes(`-${seg}-`)) return entry;
+  }
+  return null;
+}
 export const PORT = Number(Deno.env.get("TRACKER_PORT") ?? "8787");
 // Headless serve binds loopback by default — the API exposes local data (and plugin
 // state); set TRACKER_HOST=0.0.0.0 to deliberately serve over the LAN.

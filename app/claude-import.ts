@@ -4,7 +4,7 @@
 // Transcripts can be tens of MB: only a head chunk (first cwd) and a tail chunk
 // (LAST ai-title / last-prompt / gitBranch) are read.
 import { addEvent, db, upsertSession } from "./db.ts";
-import { CLAUDE_DIR, CLIENT_MAP, CODEX_DIR, NODE_ID, SETTINGS_FILE } from "./config.ts";
+import { CLAUDE_DIR, clientEntryFor, CODEX_DIR, NODE_ID, SETTINGS_FILE } from "./config.ts";
 import { updateSettings } from "./settings-store.ts";
 
 export type AgentSource = "claude" | "codex";
@@ -234,16 +234,9 @@ async function scanCodexSessions(cutoff: number, ignoredIds: Set<string>): Promi
   return found;
 }
 
-// working-dir → client: first TRACKER_CLIENTS segment present in the path. Scratchpad
-// worktrees carry the repo path dash-encoded ("/tmp/claude-…/-home-me-Work-repo/…"),
-// so those match on the dashed segment too.
-export const clientFor = (path: string): string => {
-  for (const [seg, name] of Object.entries(CLIENT_MAP)) {
-    if (path.includes(`/${seg}/`)) return name;
-    if (path.startsWith("/tmp/claude-") && path.includes(`-${seg}-`)) return name;
-  }
-  return "Side-projects";
-};
+// working-dir → client: the TRACKER_CLIENTS entry for the path (see clientEntryFor).
+export const clientFor = (path: string): string =>
+  clientEntryFor(path)?.project ?? "Side-projects";
 
 // "-home-user-Projects-x" → "/home/user/Projects/x" (lossy: dashes in real names)
 const decodeDirName = (name: string): string => name.replace(/-/g, "/");
