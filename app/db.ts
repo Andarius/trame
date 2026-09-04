@@ -129,7 +129,7 @@ export async function resolveHomeProject(repoPath: string): Promise<string | nul
 
 // A Story is a kind='story' page nested under its Project (clientId). Find-or-create by
 // title; a same-titled plain page is reused (and promoted on attach) rather than duped.
-export async function resolveObjective(title: string, clientId: string | null): Promise<string> {
+export async function resolveStory(title: string, clientId: string | null): Promise<string> {
   const pg = await db();
   const hit = (await pg.query(
     `select id from pages where kind in ('story','page') and title=$1 and not deleted
@@ -145,7 +145,7 @@ export async function resolveObjective(title: string, clientId: string | null): 
   return row.id;
 }
 
-export async function createObjective(o: { title: string; brief?: string; client?: string }): Promise<string> {
+export async function createStory(o: { title: string; brief?: string; client?: string }): Promise<string> {
   const pg = await db();
   const clientId = o.client ? await resolveClient(o.client) : null;
   const row = (await pg.query(
@@ -226,9 +226,8 @@ export async function upsertSession(s: Record<string, unknown>): Promise<string>
   if (s.claude_id && !s.agent) s.agent = "claude";
   // Accept human names (from the CLI/MCP) and resolve them to ids.
   if (typeof s.client === "string" && !s.client_id) s.client_id = await resolveClient(s.client);
-  if (typeof s.page === "string" && !s.page_id) s.page_id = await resolveObjective(s.page, (s.client_id as string) ?? null);
-  if (typeof s.objective === "string" && !s.page_id) {
-    s.page_id = await resolveObjective(s.objective, (s.client_id as string) ?? null);
+  if (typeof s.story === "string" && !s.page_id) {
+    s.page_id = await resolveStory(s.story, (s.client_id as string) ?? null);
   }
   // project = a page that has sessions: attaching promotes a plain page (one-way)
   if (s.page_id) await promoteToProject(s.page_id as string, (s.client_id as string) ?? null);
@@ -540,7 +539,7 @@ export async function deleteSessionLink(id: string): Promise<void> {
   );
 }
 
-export async function updateObjective(o: { id: string; title?: string; brief?: string; status?: string }): Promise<void> {
+export async function updateStory(o: { id: string; title?: string; brief?: string; status?: string }): Promise<void> {
   const pg = await db();
   await pg.query(
     `update pages set
@@ -565,10 +564,10 @@ export async function getReport(id: string) {
   return (await pg.query(`select * from reports where id=$1 and not deleted`, [id])).rows[0] ?? null;
 }
 
-export async function createReport(r: { title: string; html: string; client?: string; objective?: string }) {
+export async function createReport(r: { title: string; html: string; client?: string; story?: string }) {
   const pg = await db();
   const clientId = r.client ? await resolveClient(r.client) : null;
-  const pageId = r.objective ? await resolveObjective(r.objective, clientId) : null;
+  const pageId = r.story ? await resolveStory(r.story, clientId) : null;
   const row = (await pg.query(
     `insert into reports (title, html, client_id, page_id, origin) values ($1,$2,$3,$4,$5) returning id`,
     [r.title, r.html, clientId, pageId, NODE_ID],
@@ -577,7 +576,7 @@ export async function createReport(r: { title: string; html: string; client?: st
 }
 
 // Drain writes made by /trame:track while the app was closed/offline.
-// NOTE (scaffold): the outbox stores session fields only; client/objective-by-name
+// NOTE (scaffold): the outbox stores session fields only; client/story-by-name
 // resolution done by the online CLI path is skipped here. Good enough for v0.
 export async function drainOutbox(): Promise<number> {
   let text: string;

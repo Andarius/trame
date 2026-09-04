@@ -44,7 +44,7 @@ import { ASSETS } from "./embed.ts";
 import {
   addEvent,
   addSessionLink,
-  createObjective,
+  createStory,
   createReport,
   createStatus,
   db,
@@ -62,7 +62,7 @@ import {
   moveStatus,
   searchAll,
   setSessionStatus,
-  updateObjective,
+  updateStory,
   updateStatus,
   upsertSession,
   deleteTag,
@@ -1111,12 +1111,12 @@ async function handler(req: Request): Promise<Response> {
     await deleteSession(dm[1]);
     return json({ ok: true });
   }
-  if (pathname === "/api/objectives" && req.method === "POST") {
-    return json({ id: await createObjective(await req.json()) });
+  if (pathname === "/api/stories" && req.method === "POST") {
+    return json({ id: await createStory(await req.json()) });
   }
-  const om = pathname.match(/^\/api\/objectives\/([^/]+)$/);
+  const om = pathname.match(/^\/api\/stories\/([^/]+)$/);
   if (om && req.method === "POST") {
-    await updateObjective({ id: om[1], ...(await req.json()) });
+    await updateStory({ id: om[1], ...(await req.json()) });
     return json({ ok: true });
   }
   if (pathname === "/api/reports" && req.method === "POST") {
@@ -1409,7 +1409,7 @@ async function handler(req: Request): Promise<Response> {
     return json({ ok: true });
   }
 
-  // pages — the nestable tree; project pages also serve /api/objectives above
+  // pages — the nestable tree; story pages are also served by /api/stories above
   if (pathname === "/api/pages" && req.method === "POST") {
     try {
       return json({ id: await createPage(await req.json()) });

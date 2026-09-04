@@ -190,8 +190,8 @@ export const deleteSession = (id: string) =>
   post(`/api/sessions/${id}/delete`, {});
 export const addLog = (id: string, summary: string) =>
   post(`/api/sessions/${id}/events`, { summary });
-export const updateObjective = (id: string, patch: Record<string, unknown>) =>
-  post(`/api/objectives/${id}`, patch);
+export const updateStory = (id: string, patch: Record<string, unknown>) =>
+  post(`/api/stories/${id}`, patch);
 // Open in the system browser (the desktop webview has no window.open).
 // target: app-relative path ("/report/…") or an absolute http(s) URL.
 export const openInBrowser = (target: string) => post("/api/open", { target });

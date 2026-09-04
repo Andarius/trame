@@ -87,12 +87,12 @@ test("a custom terminal status counts as done on the project page", async ({ pag
   })).json();
   const shipped = (await statuses(request)).find((s) => s.id === id)!;
 
-  await request.post("/api/objectives", { data: { title: "Statuses Project", brief: "custom terminal status" } });
+  await request.post("/api/stories", { data: { title: "Statuses Project", brief: "custom terminal status" } });
   await request.post("/api/sessions", {
-    data: { title: "statuses e2e open", objective: "Statuses Project", no_event: true },
+    data: { title: "statuses e2e open", story: "Statuses Project", no_event: true },
   });
   const closed = await (await request.post("/api/sessions", {
-    data: { title: "statuses e2e closed", objective: "Statuses Project", no_event: true },
+    data: { title: "statuses e2e closed", story: "Statuses Project", no_event: true },
   })).json();
   await request.post(`/api/sessions/${closed.id}/status`, { data: { status: shipped.key } });
 

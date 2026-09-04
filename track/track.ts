@@ -1,10 +1,10 @@
 // Writer invoked by the /trame:track slash command.
 // App-first: POST to the running Trame instance (found via the port file) — the server
-// handles upsert-by-repo+branch, client/objective name resolution, and the worklog event.
+// handles upsert-by-repo+branch, client/story name resolution, and the worklog event.
 // Offline fallback: append to the outbox; the app drains it on next launch.
 //
 // Input: one JSON object, as argv[0] or on stdin. Shape:
-//   { title, status?, client?, objective?, repo_path?, branch?, next_step?, links?, pr_url?, summary? }
+//   { title, status?, client?, story?, repo_path?, branch?, next_step?, links?, pr_url?, summary? }
 // Specs live on the session's spec page — write them with the page writer
 // (track/page.ts) using { session_id } after tracking.
 import { CLAUDE_MAP, OUTBOX, PORT_FILE } from "../app/config.ts";
@@ -13,7 +13,7 @@ type Input = {
   title: string;
   status?: string;
   client?: string;
-  objective?: string;
+  story?: string;
   repo_path?: string;
   branch?: string;
   next_step?: string;

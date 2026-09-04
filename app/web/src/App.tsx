@@ -1093,7 +1093,7 @@ export function App() {
   });
   const [group, setGroup] = useState<"none" | "story" | "project">(() => {
     const g = params.get("group");
-    return g === "story" || g === "objective"
+    return g === "story"
       ? "story"
       : g === "project"
       ? "project"

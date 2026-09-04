@@ -121,7 +121,7 @@ A session's specs are a page too (a subpage of the card's story) — write them 
   than guessing what is on it. \`trame_board\` returns raw ids and no worklog.
 - **trame_track** — create/update a work session (upsert by repo_path+branch).
 - **trame_set_status** — move a card between columns.
-- **trame_new_objective** — create the story/epic sessions ladder up to.
+- **trame_new_story** — create the story/epic sessions ladder up to.
 
 ## Read / sync
 - **trame_board** — read sessions, stories, projects. **trame_reports** — list reports.
@@ -139,7 +139,7 @@ server.tool(
 
 server.tool(
   "trame_board",
-  "Read the Trame board: all sessions with status/client/objective/branch/next_step, plus stories and projects.",
+  "Read the Trame board: all sessions with status/client/story/branch/next_step, plus stories and projects.",
   {},
   async () => text(await api("/api/board")),
 );
@@ -188,12 +188,12 @@ server.tool(
 
 server.tool(
   "trame_track",
-  "Create or update a session (upserts by repo_path+branch among open sessions). Client and objective are names — they are resolved or created. Specs live on the session's spec page: write them with trame_update_page {session_id} after tracking (the response returns specs_page_id).",
+  "Create or update a session (upserts by repo_path+branch among open sessions). Client and story are names — they are resolved or created. Specs live on the session's spec page: write them with trame_update_page {session_id} after tracking (the response returns specs_page_id).",
   {
     title: z.string(),
     status: z.enum(["active", "paused", "blocked", "done"]).optional(),
     client: z.string().optional(),
-    objective: z.string().optional(),
+    story: z.string().optional(),
     repo_path: z.string().optional(),
     branch: z.string().optional(),
     next_step: z.string().optional(),
@@ -221,15 +221,15 @@ server.tool(
 );
 
 server.tool(
-  "trame_new_objective",
-  "Create an objective (the story/epic sessions ladder up to). Include the brief: what are we trying to achieve, and 'done when'.",
+  "trame_new_story",
+  "Create a story (the epic sessions ladder up to). Include the brief: what are we trying to achieve, and 'done when'.",
   {
     title: z.string(),
     brief: z.string().optional(),
     client: z.string().optional(),
   },
   async (args: Record<string, unknown>) =>
-    text(await post("/api/objectives", args)),
+    text(await post("/api/stories", args)),
 );
 
 server.tool(
@@ -446,7 +446,7 @@ server.tool(
     title: z.string(),
     html: z.string(),
     client: z.string().optional(),
-    objective: z.string().optional(),
+    story: z.string().optional(),
   },
   async (args: Record<string, unknown>) =>
     text(await post("/api/reports", args)),

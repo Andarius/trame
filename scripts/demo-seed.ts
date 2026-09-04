@@ -51,12 +51,12 @@ if (claudeDir) {
   );
 }
 
-for (const [title, client, objective, status, branch, next_step] of SESSIONS) {
+for (const [title, client, story, status, branch, next_step] of SESSIONS) {
   const checkout = title.includes("Checkout redesign");
   await api("/api/sessions", {
     title,
     client,
-    objective,
+    story,
     status,
     branch,
     next_step,

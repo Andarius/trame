@@ -37,7 +37,7 @@ const seed = async (request: APIRequestContext) => {
     data: {
       title: "chip session e2e",
       client: "Chip Proj",
-      objective: "Chip Story",
+      story: "Chip Story",
       no_event: true,
       repo_path: "/tmp/chip-e2e",
     },
@@ -49,11 +49,11 @@ const seed = async (request: APIRequestContext) => {
       repo_path: "/tmp/other-e2e",
     },
   });
-  // objective creates the "Chip Proj B" story page itself
+  // story creates the "Chip Proj B" story page itself
   await request.post("/api/sessions", {
     data: {
       title: "beta session e2e",
-      objective: "Chip Proj B",
+      story: "Chip Proj B",
       no_event: true,
       repo_path: "/tmp/beta-e2e",
     },
