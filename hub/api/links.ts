@@ -43,7 +43,7 @@ async function subtreePages(db: Q, root: string): Promise<Map<string, Row>> {
        select p.id from pages p join tree t on p.parent_id = t.id
         where not p.deleted
      )
-     select p.id, p.parent_id, p.title, p.icon, p.story, p.content, p.sort_key
+     select p.id, p.parent_id, p.title, p.icon, p.brief, p.content, p.sort_key
        from pages p join tree t on t.id = p.id`,
     [root],
   );
@@ -196,7 +196,7 @@ async function renderPage(
 </head><body>
 ${crumb}
 <h1>${esc(page.icon ?? "")} ${esc(page.title) || "Untitled"}</h1>
-${page.story ? `<p class="muted">${esc(page.story)}</p>` : ""}
+${page.brief ? `<p class="muted">${esc(page.brief)}</p>` : ""}
 ${body}
 ${dbTables}
 ${childLinks}

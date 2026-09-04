@@ -297,7 +297,7 @@ const pageFor = (over: Record<string, unknown> = {}) => ({
 });
 
 Deno.test("ticketFromPage takes the objective from the summary", () => {
-  const out = ticketFromPage(pageFor({ story: "Prod keys are stale." }));
+  const out = ticketFromPage(pageFor({ brief: "Prod keys are stale." }));
   assertEquals("error" in out, false);
   assertEquals(
     (out as { objective: string }).objective,
@@ -326,7 +326,7 @@ Deno.test("ticketFromPage refuses a title too short for Cockpit", () => {
 });
 
 Deno.test("ticketFromPage carries the page id as the idempotency key", () => {
-  const out = ticketFromPage(pageFor({ story: "why" })) as { originId: string };
+  const out = ticketFromPage(pageFor({ brief: "why" })) as { originId: string };
   assertEquals(out.originId, "01a0581d-2a5b-7000-a6c8-3fa7a72789c1");
 });
 

@@ -145,13 +145,13 @@ export async function resolveObjective(title: string, clientId: string | null): 
   return row.id;
 }
 
-export async function createObjective(o: { title: string; story?: string; client?: string }): Promise<string> {
+export async function createObjective(o: { title: string; brief?: string; client?: string }): Promise<string> {
   const pg = await db();
   const clientId = o.client ? await resolveClient(o.client) : null;
   const row = (await pg.query(
-    `insert into pages (kind, title, story, client_id, parent_id, origin, owner_id)
+    `insert into pages (kind, title, brief, client_id, parent_id, origin, owner_id)
      values ('story',$1,$2,$3,$3,$4,${OWNER_ID_SQL(4)}) returning id`,
-    [o.title, o.story ?? "", clientId, NODE_ID],
+    [o.title, o.brief ?? "", clientId, NODE_ID],
   )).rows[0] as { id: string };
   return row.id;
 }
@@ -284,9 +284,9 @@ export async function searchAll(q: string) {
         where not deleted and (title ilike $1 or summary ilike $1 or coalesce(next_step,'') ilike $1)
        union all
        select case when kind='project' then 'client' else 'page' end, id::text, title,
-              coalesce(story,''), coalesce(icon,''), kind, coalesce(color,''), updated_at
+              coalesce(brief,''), coalesce(icon,''), kind, coalesce(color,''), updated_at
          from pages
-        where not deleted and (title ilike $1 or story ilike $1 or content::text ilike $1)
+        where not deleted and (title ilike $1 or brief ilike $1 or content::text ilike $1)
        union all
        select 'database', id::text, name, '', coalesce(icon,''), 'database', '', updated_at
          from udb_databases
@@ -540,16 +540,16 @@ export async function deleteSessionLink(id: string): Promise<void> {
   );
 }
 
-export async function updateObjective(o: { id: string; title?: string; story?: string; status?: string }): Promise<void> {
+export async function updateObjective(o: { id: string; title?: string; brief?: string; status?: string }): Promise<void> {
   const pg = await db();
   await pg.query(
     `update pages set
        title = coalesce($2, title),
-       story = coalesce($3, story),
+       brief = coalesce($3, brief),
        status = coalesce($4, status),
        origin = $5, updated_at = now()
      where id = $1`,
-    [o.id, o.title ?? null, o.story ?? null, o.status ?? null, NODE_ID],
+    [o.id, o.title ?? null, o.brief ?? null, o.status ?? null, NODE_ID],
   );
 }
 

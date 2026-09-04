@@ -16,7 +16,7 @@ create table if not exists pages (
   kind text not null default 'page',   -- project | story | page
   title text not null default '',
   icon text,
-  story text not null default '',       -- project blurb, shown as the page description
+  brief text not null default '',       -- what are we trying to achieve — shown as the page description
   client_id uuid,                        -- denormalized Project page id; the tree is authoritative
   status text not null default 'open',   -- open | archived — cf. app/page-status.ts
   content jsonb not null default '[]',    -- ordered blocks (LWW whole-doc; fine single-user)
@@ -325,6 +325,13 @@ alter table pages add column if not exists color text;
 -- jsonb et pas text[] : rien dans ce schéma n'utilise de tableau natif, alors
 -- que `content` et `views` sont déjà en jsonb.
 alter table pages add column if not exists tags jsonb not null default '[]';
+-- « story » désignait à la fois cette colonne et kind='story' — l'énoncé du but, c'est le brief.
+do $$ begin
+  if exists (select 1 from information_schema.columns
+             where table_name = 'pages' and column_name = 'story') then
+    alter table pages rename column story to brief;
+  end if;
+end $$;
 alter table pages drop constraint if exists pages_client_id_fkey;
 alter table sessions drop constraint if exists sessions_client_id_fkey;
 alter table reports drop constraint if exists reports_client_id_fkey;
@@ -400,7 +407,7 @@ comment on table pages is 'Notion-style page tree: one nestable hierarchy for ev
 comment on column pages.parent_id is 'Parent page; null = top level. Deliberately NO FK: LWW pull is updated_at-ordered so a child can arrive before its parent — readers tolerate orphans.';
 comment on column pages.kind is 'project | story | page. Behavioral: a plain page becomes a story (one-way) when a session attaches. Stories carry story/status and are what sessions ladder up to.';
 comment on column pages.icon is 'Emoji glyph, or an image URL / data URI.';
-comment on column pages.story is 'Project blurb, shown as the page description.';
+comment on column pages.brief is 'What are we trying to achieve — shown as the page description.';
 comment on column pages.status is 'open | archived — the page axis: is this THING still worth seeing. Distinct from sessions.status (the board columns), which says what is happening to the WORK; a story carries several sessions and cannot have one of those. Read for every kind (fold archived, filter the pickers); only kind=''story'' has an editor for it today.';
 comment on column pages.content is 'Ordered block list (jsonb). Whole-doc LWW — concurrent offline edits collide; acceptable single-user.';
 comment on column pages.sort_key is 'Fractional order key among siblings (base-36 midpoint string; sorts identically in SQL and JS).';

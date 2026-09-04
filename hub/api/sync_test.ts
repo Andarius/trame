@@ -65,7 +65,7 @@ const page = (id: string, title: string, updatedAt: string) => ({
     kind: "page",
     title,
     icon: null,
-    story: "",
+    brief: "",
     client_id: null,
     status: "open",
     content: [],

@@ -18,11 +18,11 @@ test.beforeAll(async ({ request }) => {
 
 test("a story page shows its brief, blocks and sessions", async ({ page, request }) => {
   await request.post("/api/objectives", {
-    data: { title: "Pages Project", story: "the pages e2e story" },
+    data: { title: "Pages Project", brief: "the pages e2e brief" },
   });
   await page.goto("/");
   await page.locator("aside").getByRole("button", { name: /Pages Project/ }).first().click();
-  await expect(page.getByPlaceholder(/add the story/)).toHaveValue("the pages e2e story");
+  await expect(page.getByPlaceholder(/add the brief/)).toHaveValue("the pages e2e brief");
   await expect(page.getByText("no sessions yet")).toBeVisible();
 
   // block editor: type, autosave, survive a reload

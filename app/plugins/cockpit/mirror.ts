@@ -311,7 +311,7 @@ export function groupByProject<S>(rows: Drained<S>[]): ProjectGroup<S>[] {
 export function ticketFromPage(page: {
   id: string;
   title: string;
-  story?: string;
+  brief?: string;
   content: unknown[];
 }): {
   originId: string;
@@ -332,7 +332,7 @@ export function ticketFromPage(page: {
     return t ? [t] : [];
   });
 
-  const objective = (page.story ?? "").trim() || paragraphs[0] || "";
+  const objective = (page.brief ?? "").trim() || paragraphs[0] || "";
   if (!objective) {
     return {
       error:

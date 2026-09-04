@@ -222,10 +222,10 @@ server.tool(
 
 server.tool(
   "trame_new_objective",
-  "Create an objective (the story/epic sessions ladder up to). Include the story: what are we trying to achieve, and 'done when'.",
+  "Create an objective (the story/epic sessions ladder up to). Include the brief: what are we trying to achieve, and 'done when'.",
   {
     title: z.string(),
-    story: z.string().optional(),
+    brief: z.string().optional(),
     client: z.string().optional(),
   },
   async (args: Record<string, unknown>) =>

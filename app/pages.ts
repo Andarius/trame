@@ -99,7 +99,7 @@ export async function createPage(
     kind?: string;
     icon?: string | null;
     client_id?: string | null;
-    story?: string;
+    brief?: string;
     content?: unknown[];
     tags?: string[];
     status?: string;
@@ -119,7 +119,7 @@ export async function createPage(
     : null;
   const row = (await pg.query(
     `insert into pages
-       (kind, title, icon, client_id, parent_id, sort_key, story, content, tags, status, owner_id, origin)
+       (kind, title, icon, client_id, parent_id, sort_key, brief, content, tags, status, owner_id, origin)
      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning id`,
     [
       ["project", "story"].includes(p.kind ?? "") ? p.kind : "page",
@@ -128,7 +128,7 @@ export async function createPage(
       p.client_id ?? null,
       parentId,
       await endKey(pg, parentId),
-      p.story ?? "",
+      p.brief ?? "",
       JSON.stringify(p.content ?? []),
       JSON.stringify(p.tags ?? []),
       p.status ?? "open",
@@ -144,7 +144,7 @@ export async function updatePage(
   patch: {
     title?: string;
     icon?: string | null;
-    story?: string;
+    brief?: string;
     status?: string;
     client_id?: string | null;
     content?: unknown[];
@@ -159,7 +159,7 @@ export async function updatePage(
   await pg.query(
     `update pages set
        title     = coalesce($2, title),
-       story     = coalesce($3, story),
+       brief     = coalesce($3, brief),
        status    = coalesce($4, status),
        content   = coalesce($5, content),
        icon      = case when $6 then $7 else icon end,
@@ -171,7 +171,7 @@ export async function updatePage(
     [
       id,
       patch.title ?? null,
-      patch.story ?? null,
+      patch.brief ?? null,
       patch.status ?? null,
       patch.content ? JSON.stringify(patch.content) : null,
       "icon" in patch,

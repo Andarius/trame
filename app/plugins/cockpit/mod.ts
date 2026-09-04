@@ -334,7 +334,7 @@ async function filePage(
   const page = await getPage(pageId) as unknown as {
     id: string;
     title: string;
-    story?: string;
+    brief?: string;
     content: unknown[];
     parent_id: string | null;
   } | null;

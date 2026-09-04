@@ -17,7 +17,7 @@ type PageRow = {
   kind: string;
   title: string;
   icon: string | null;
-  story: string;
+  brief: string;
   client_id: string | null;
   status: string;
   content: Json[];
@@ -76,7 +76,7 @@ export async function exportPage(id: string): Promise<Bundle | null> {
        union all
        select p.* from pages p join sub on p.parent_id = sub.id where not p.deleted
      )
-     select id, parent_id, kind, title, icon, story, client_id, status, content, sort_key, color from sub`,
+     select id, parent_id, kind, title, icon, brief, client_id, status, content, sort_key, color from sub`,
     [id],
   )).rows;
   if (!pages.length) return null;
@@ -282,7 +282,7 @@ export async function importPage(
         ? pageMap.get(p.client_id)!
         : null;
       await tx.query(
-        `insert into pages (id, parent_id, kind, title, icon, story, client_id, status, content, sort_key, color, owner_id, origin)
+        `insert into pages (id, parent_id, kind, title, icon, brief, client_id, status, content, sort_key, color, owner_id, origin)
          values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
         [
           pageMap.get(p.id),
@@ -290,7 +290,7 @@ export async function importPage(
           p.kind,
           p.title,
           p.icon,
-          p.story,
+          p.brief,
           clientId,
           p.status,
           JSON.stringify(remapContent(p.content, pageMap, dbMap)),

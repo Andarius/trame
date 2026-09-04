@@ -2974,20 +2974,20 @@ export function Page(
 
           {isStory && (
             <textarea
-              key={page.id + page.story}
+              key={page.id + page.brief}
               rows={2}
               className="resize-none rounded-md border border-transparent bg-transparent px-2 py-1.5 text-xs leading-relaxed text-ink-soft outline-none transition-colors placeholder:italic placeholder:text-ink-muted/50 hover:bg-well focus:border-chipline focus:bg-well"
-              defaultValue={page.story}
-              placeholder="add the story — what are we trying to achieve? (click to edit)"
+              defaultValue={page.brief}
+              placeholder="add the brief — what are we trying to achieve? (click to edit)"
               onBlur={(e) => {
-                if (e.target.value !== page.story) {
-                  patch({ story: e.target.value });
+                if (e.target.value !== page.brief) {
+                  patch({ brief: e.target.value });
                 }
               }}
             />
           )}
 
-          {/* Below the story, because the story becomes the ticket's
+          {/* Below the brief, because the brief becomes the ticket's
               objective: the offer sits next to the text it will send. */}
           <CockpitTicket
             pageId={pageId}

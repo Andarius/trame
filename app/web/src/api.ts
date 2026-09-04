@@ -28,7 +28,7 @@ export type Session = {
 export type Story = {
   id: string;
   title: string;
-  story: string;
+  brief: string;
   client_id: string | null;
   status: string;
 };
@@ -542,7 +542,7 @@ export type PageMeta = {
   owner_id: string | null;
 };
 export type PageDetail = PageMeta & {
-  story: string;
+  brief: string;
   updated_at: string;
   content: Block[];
   children: PageMeta[];
@@ -594,7 +594,7 @@ export const updatePage = (
   patch: {
     title?: string;
     icon?: string | null;
-    story?: string;
+    brief?: string;
     status?: string;
     client_id?: string | null;
     content?: Block[];

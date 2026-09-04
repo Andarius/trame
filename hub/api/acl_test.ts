@@ -102,7 +102,7 @@ const page = (
     kind: "page",
     title,
     icon: null,
-    story: "",
+    brief: "",
     client_id: null,
     status: "open",
     content: [],
