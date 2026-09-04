@@ -521,7 +521,21 @@ export function inSubtree<P extends TreePage>(
 
 // Read-only tag chips (board cards, session drawer). The vocabulary is fetched once
 // per page load — labels and colors barely move within a session.
+// A label with a colon renders split, like the page-header editor: a dim `cockpit`
+// half and a coloured `devops` half, the namespace hue read from the row of the
+// namespace itself. --tag-tint/--tag-shade follow the theme when defined.
 let tagVocab: Promise<Tag[]> | null = null;
+const tagSlug = (s: string) =>
+  s.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+const tagTint = (color: string): CSSProperties => ({
+  background: `color-mix(in srgb, ${color} var(--tag-tint, 16%), transparent)`,
+  color: `color-mix(in srgb, ${color} calc(100% - var(--tag-shade, 30%)), var(--color-ink, currentColor))`,
+});
+const NS_WASH: CSSProperties = {
+  background: "color-mix(in srgb, var(--color-ink-muted, #888) 10%, transparent)",
+  color: "var(--color-ink-muted, #888)",
+};
 export function TagChips({ keys }: { keys?: string[] }) {
   const [vocab, setVocab] = useState<Map<string, Tag> | null>(null);
   useEffect(() => {
@@ -534,17 +548,22 @@ export function TagChips({ keys }: { keys?: string[] }) {
     <div className="flex flex-wrap items-center gap-1">
       {keys.map((k) => {
         const t = vocab?.get(k);
-        const color = t?.color ?? "#6b7280";
+        const label = t?.label ?? k;
+        const colon = label.indexOf(":");
+        const ns = colon > 0 ? label.slice(0, colon) : null;
+        const name = colon > 0 ? label.slice(colon + 1) : label;
+        const nsRow = ns ? vocab?.get(tagSlug(ns)) : undefined;
         return (
           <span
             key={k}
-            className="rounded-full px-1.5 py-px text-[9.5px] font-medium leading-[14px]"
-            style={{
-              background: `color-mix(in srgb, ${color} 16%, transparent)`,
-              color: `color-mix(in srgb, ${color} 72%, var(--color-ink, currentColor))`,
-            }}
+            className="flex overflow-hidden rounded-full text-[9.5px] font-medium leading-[14px]"
           >
-            {t?.label ?? k}
+            {ns && (
+              <span className="px-1.5 py-px" style={nsRow?.color ? tagTint(nsRow.color) : NS_WASH}>
+                {ns}
+              </span>
+            )}
+            <span className="px-1.5 py-px" style={tagTint(t?.color ?? "#6b7280")}>{name}</span>
           </span>
         );
       })}
