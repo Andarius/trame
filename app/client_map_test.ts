@@ -1,6 +1,6 @@
 Deno.env.set(
   "TRACKER_CLIENTS",
-  '{"Obitrain":"Obitrain","Work":{"project":"Soren","tags":["Infra"]}}',
+  '{"Obitrain":"Obitrain","Work":{"project":"Soren","tags":["Infra"],"repos":["sre-config"]}}',
 );
 const tmp = await Deno.makeTempDir({ prefix: "trame-client-map-test-" });
 Deno.env.set("TRACKER_DATA_DIR", `${tmp}/pglite`);
@@ -13,11 +13,22 @@ Deno.env.set("TRACKER_APP_ROOT", new URL(".", import.meta.url).pathname);
 import { assertEquals } from "@std/assert";
 
 const { clientFor } = await import("./claude-import.ts");
+const { defaultTagsFor } = await import("./config.ts");
 
 Deno.test("clientFor maps path segments, aliases included", () => {
   assertEquals(clientFor("/home/me/Projects/Obitrain/obiapp"), "Obitrain");
   assertEquals(clientFor("/home/me/Projects/Work/sre-config"), "Soren");
   assertEquals(clientFor("/home/me/Projects/trame"), "Side-projects");
+});
+
+Deno.test("the repo whitelist gates tags, not the project", () => {
+  // the repo basename sits at the END of repo_path — must still match
+  assertEquals(defaultTagsFor("/home/me/Projects/Work/sre-config"), ["Infra"]);
+  assertEquals(defaultTagsFor("/home/me/Projects/Work/sre-config/packages/sctl"), ["Infra"]);
+  assertEquals(defaultTagsFor("/tmp/claude-1000/-home-me-Work-sre-config/x/wt-a"), ["Infra"]);
+  // a sibling repo keeps the project but gets no tags
+  assertEquals(defaultTagsFor("/home/me/Projects/Work/track-backend"), []);
+  assertEquals(clientFor("/home/me/Projects/Work/track-backend"), "Soren");
 });
 
 Deno.test("clientFor matches dash-encoded scratchpad worktrees", () => {
@@ -35,7 +46,7 @@ const { db, upsertSession } = await import("./db.ts");
 Deno.test("a story minted for a mapped repo carries the default tags", async () => {
   const id = await upsertSession({
     title: "sre-config — probe",
-    repo_path: "/home/me/Projects/Work/sre-config",
+    repo_path: "/home/me/Projects/Work/sre-config/packages/sctl",
     branch: "main",
     client: "Soren",
     story: "Blackbox probes",

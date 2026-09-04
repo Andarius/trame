@@ -2,7 +2,7 @@
 // Same SQL as the hub's Postgres — no dialect translation.
 import { PGlite } from "@electric-sql/pglite";
 import { v5 } from "@std/uuid";
-import { APP_ROOT, clientEntryFor, DATA_DIR, NODE_ID, OUTBOX } from "./config.ts";
+import { APP_ROOT, DATA_DIR, defaultTagsFor, NODE_ID, OUTBOX } from "./config.ts";
 import { pageBlocksToMarkdown } from "./page-markdown.ts";
 import { midKey } from "./udb.ts";
 
@@ -276,8 +276,8 @@ export async function upsertSession(s: Record<string, unknown>): Promise<string>
         .rows[0] as { page_id: string | null } | undefined
       : undefined;
     if (!cur?.page_id) {
-      const entry = typeof s.repo_path === "string" ? clientEntryFor(s.repo_path) : null;
-      s.page_id = await resolveStory(s.story, (s.client_id as string) ?? null, entry?.tags ?? []);
+      const tags = typeof s.repo_path === "string" ? defaultTagsFor(s.repo_path) : [];
+      s.page_id = await resolveStory(s.story, (s.client_id as string) ?? null, tags);
     }
   }
   // project = a page that has sessions: attaching promotes a plain page (one-way)
