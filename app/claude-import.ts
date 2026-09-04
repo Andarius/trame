@@ -153,13 +153,32 @@ function extractMeta(head: string, tail: string) {
 function cleanCodexPrompt(text: string): string | null {
   const line = text.trim().split("\n")[0].trim();
   if (
-    !line || line.startsWith("<") || line.startsWith("Caveat:") ||
+    !line || line.startsWith("<") || line.startsWith("#") || line.startsWith("Caveat:") ||
     line.startsWith("This session is being continued")
   ) return null;
   return line;
 }
 
-function extractCodexMeta(head: string, tail: string) {
+// Codex ≤0.152 logged prompts as event_msg/user_message; 0.153 logs response_item/message role=user.
+// deno-lint-ignore no-explicit-any
+function codexUserText(e: any): string | null {
+  const p = e.payload;
+  if (e.type === "event_msg" && p?.type === "user_message" && typeof p.message === "string") return p.message;
+  if (e.type === "response_item" && p?.type === "message" && p.role === "user" && Array.isArray(p.content)) {
+    const texts: string[] = [];
+    for (const c of p.content) if (c?.type === "input_text" && typeof c.text === "string") texts.push(c.text);
+    return texts.join("\n");
+  }
+  return null;
+}
+
+// deno-lint-ignore no-explicit-any
+const codexPrompt = (e: any): string | null => {
+  const text = codexUserText(e);
+  return text === null ? null : cleanCodexPrompt(text);
+};
+
+export function extractCodexMeta(head: string, tail: string) {
   let id: string | null = null, cwd: string | null = null, branch: string | null = null;
   let firstPrompt: string | null = null, subagent = false;
   for (const e of parseLines(head)) {
@@ -171,15 +190,12 @@ function extractCodexMeta(head: string, tail: string) {
       subagent = Boolean(p.parent_thread_id) || p.thread_source === "subagent" ||
         (p.source && typeof p.source === "object" && "subagent" in p.source);
     }
-    if (
-      !firstPrompt && e.type === "event_msg" && e.payload?.type === "user_message" &&
-      typeof e.payload.message === "string"
-    ) firstPrompt = cleanCodexPrompt(e.payload.message);
+    if (!firstPrompt) firstPrompt = codexPrompt(e);
   }
   let lastTs: string | null = null, hasActivity = firstPrompt !== null;
   for (const e of parseLines(tail)) {
     if (typeof e.timestamp === "string") lastTs = e.timestamp;
-    if (e.type === "event_msg" && e.payload?.type === "user_message") hasActivity = true;
+    if (codexPrompt(e) !== null) hasActivity = true;
   }
   if (branch === "HEAD" || branch === "") branch = null;
   return { id, cwd, firstPrompt, branch, lastTs, hasActivity, subagent };
