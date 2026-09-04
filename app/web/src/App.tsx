@@ -383,9 +383,7 @@ function PageNode(
             : "text-ink-muted hover:text-ink-soft"
         }${canDrag ? " touch-none active:cursor-grabbing" : ""}${
           isDragging ? " opacity-40" : ""
-        }${p.status === "done" && !active ? " opacity-60" : ""}${
-          isOver && canDrop ? " bg-copper/10 ring-1 ring-copper/40" : ""
-        }`}
+        }${isOver && canDrop ? " bg-copper/10 ring-1 ring-copper/40" : ""}`}
         style={{ paddingLeft: 8 + depth * 14 }}
       >
         <button
@@ -497,12 +495,8 @@ function isSharedIn(p: PageMeta, meId: string | null): boolean {
 
 // done stories sink below their open siblings; archived ones leave the main list
 // (stable sort: server order kept within each group)
-const sortDoneLast = (kids: PageMeta[]) =>
-  [...kids].sort((a, b) =>
-    (a.status === "done" ? 1 : 0) - (b.status === "done" ? 1 : 0)
-  );
 const splitArchived = (kids: PageMeta[]) => ({
-  normal: sortDoneLast(kids.filter((k) => k.status !== "archived")),
+  normal: kids.filter((k) => k.status !== "archived"),
   archived: kids.filter((k) => k.status === "archived"),
 });
 
@@ -736,7 +730,11 @@ function Sidebar(
 
   return (
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-    <aside className="flex w-[240px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-line bg-sidebar px-3 pb-3 pt-4">
+    <aside className="flex w-[240px] shrink-0 flex-col border-r border-line bg-sidebar">
+      {/* Seule la liste défile : le statut de synchro et l'accès aux réglages
+          restent visibles, sinon il faut dérouler tout l'arbre pour les
+          atteindre. */}
+      <div className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 pb-3 pt-4">
       <div className="mb-3 flex items-center gap-2.5 px-2">
         <LogoMark />
         <span className="text-[15px] font-semibold">Trame</span>
@@ -890,8 +888,8 @@ function Sidebar(
         );
       })}
       <NewChip label="New database" indent={26} onClick={onNewDb} />
-      <div className="flex-1" />
-      <div className="flex items-center gap-2 px-2 py-2 text-[11.5px] text-ink-muted">
+      </div>
+      <div className="flex shrink-0 items-center gap-2 border-t border-line px-5 py-2 text-[11.5px] text-ink-muted">
         <span
           className="h-[7px] w-[7px] rounded-full"
           style={{
@@ -1095,7 +1093,7 @@ export function App() {
   });
   const [group, setGroup] = useState<"none" | "story" | "project">(() => {
     const g = params.get("group");
-    return g === "story" || g === "objective"
+    return g === "story"
       ? "story"
       : g === "project"
       ? "project"
@@ -1859,7 +1857,12 @@ export function App() {
             const Panel = FRONTEND_PLUGINS.find((p) => p.id === pluginId)
               ?.Panel;
             return Panel
-              ? <Panel onOpenSettings={() => setModal("pluginSettings")} />
+              ? (
+                <Panel
+                  onOpenSettings={() => setModal("pluginSettings")}
+                  onOpenPage={openPage}
+                />
+              )
               : <p className="p-6 text-ink-muted">Unknown plugin.</p>;
           })()
           : view === "agents"

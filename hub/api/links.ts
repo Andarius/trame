@@ -49,7 +49,7 @@ async function subtreePages(db: Q, root: string): Promise<Map<string, Row>> {
        select p.id from pages p join tree t on p.parent_id = t.id
         where not p.deleted
      )
-     select p.id, p.parent_id, p.title, p.icon, p.story, p.content, p.sort_key
+     select p.id, p.parent_id, p.title, p.icon, p.brief, p.content, p.sort_key
        from pages p join tree t on t.id = p.id`,
     [root],
   );
@@ -166,7 +166,7 @@ async function buildPayload(
       id: page.id,
       title: page.title ?? "",
       icon: page.icon ?? null,
-      story: page.story ?? "",
+      brief: page.brief ?? "",
     },
     blocks,
     children,

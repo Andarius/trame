@@ -35,7 +35,7 @@ const SUB = "00000000-0000-4000-8000-0000000000f2";
 const PRIVATE = "00000000-0000-4000-8000-0000000000f3";
 const DB_ID = "00000000-0000-4000-8000-0000000000f4";
 await pg.query(
-  `insert into pages (id, title, story, content, origin) values
+  `insert into pages (id, title, brief, content, origin) values
    ($1, 'Roadmap', 'the plan', '[{"type":"heading","text":"Q3 {{tab}}"},{"type":"todo","text":"ship links","done":true},{"type":"text","text":"hello </script><b>world</b>"},{"type":"folder","path":"/home/me/secret-dir"},{"type":"subpage","page_id":"00000000-0000-4000-8000-0000000000f2"},{"type":"subpage","page_id":"00000000-0000-4000-8000-0000000000f3"},{"type":"html","html":"<h1>Widget</h1>","height":222,"data":{"secret":"PICKED"}}]', 't'),
    ($2, 'Sub Plan', '', '[]', 't'),
    ($3, 'Secret Page', '', '[]', 't')`,

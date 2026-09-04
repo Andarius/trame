@@ -37,7 +37,7 @@ const seed = async (request: APIRequestContext) => {
     data: {
       title: "chip session e2e",
       client: "Chip Proj",
-      objective: "Chip Story",
+      story: "Chip Story",
       no_event: true,
       repo_path: "/tmp/chip-e2e",
     },
@@ -49,11 +49,11 @@ const seed = async (request: APIRequestContext) => {
       repo_path: "/tmp/other-e2e",
     },
   });
-  // objective creates the "Chip Proj B" story page itself
+  // story creates the "Chip Proj B" story page itself
   await request.post("/api/sessions", {
     data: {
       title: "beta session e2e",
-      objective: "Chip Proj B",
+      story: "Chip Proj B",
       no_event: true,
       repo_path: "/tmp/beta-e2e",
     },
@@ -153,7 +153,7 @@ test("expanded ticket: journal pane and page-backed specs", async ({ page, reque
   await expect(page.getByPlaceholder("Untitled")).toHaveValue(/chip session e2e/);
 });
 
-test("item 🔗 links a session; chips render on both sides", async ({ page, request }) => {
+test("item ⋯ menu links a session; chips render on both sides", async ({ page, request }) => {
   await seed(request);
   const r = await request.post("/api/pages", {
     data: {
@@ -166,8 +166,10 @@ test("item 🔗 links a session; chips render on both sides", async ({ page, req
   });
   const { id: pid } = await r.json() as { id: string };
   await page.goto(`/?view=page&page=${pid}`);
-  await page.locator("li", { hasText: "migrate the widget" }).hover();
-  await page.getByTitle("link a session").click();
+  const item = page.locator("li", { hasText: "migrate the widget" });
+  await item.hover();
+  await item.getByLabel("Item actions").click();
+  await page.getByRole("menuitem", { name: "Link a session" }).click();
   await page.getByRole("button", { name: /chip session e2e/ }).click();
   // chip lands on the item, linking to the session
   await expect(page.getByTitle("session: chip session e2e")).toBeVisible();

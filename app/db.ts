@@ -128,30 +128,40 @@ export async function resolveHomeProject(repoPath: string): Promise<string | nul
 }
 
 // A Story is a kind='story' page nested under its Project (clientId). Find-or-create by
-// title; a same-titled plain page is reused (and promoted on attach) rather than duped.
-export async function resolveObjective(title: string, clientId: string | null): Promise<string> {
+// title — trimmed, case- and whitespace-insensitive, so wording drift does not mint a
+// duplicate. Another project's stories are off-limits; an unfiled plain page is still
+// reused (and promoted on attach) rather than duped. Exact spelling, then a story, then
+// the caller's own project win the tie.
+export async function resolveStory(title: string, clientId: string | null): Promise<string> {
+  const clean = title.trim().replace(/\s+/g, " ");
+  if (!clean) throw new Error("a story needs a title");
   const pg = await db();
   const hit = (await pg.query(
-    `select id from pages where kind in ('story','page') and title=$1 and not deleted
-      order by (kind='story') desc, updated_at desc limit 1`,
-    [title],
+    `select id from pages
+      where kind in ('story','page') and not deleted
+        and lower(regexp_replace(trim(title), '\\s+', ' ', 'g')) = lower($1)
+        and ($2::uuid is null or client_id = $2 or client_id is null)
+      order by (title = $1) desc, (kind='story') desc,
+               (client_id is not distinct from $2::uuid) desc, updated_at desc
+      limit 1`,
+    [clean, clientId],
   )).rows[0] as { id: string } | undefined;
   if (hit) return hit.id;
   const row = (await pg.query(
     `insert into pages (kind, title, client_id, parent_id, origin, owner_id)
      values ('story',$1,$2,$2,$3,${OWNER_ID_SQL(3)}) returning id`,
-    [title, clientId, NODE_ID],
+    [clean, clientId, NODE_ID],
   )).rows[0] as { id: string };
   return row.id;
 }
 
-export async function createObjective(o: { title: string; story?: string; client?: string }): Promise<string> {
+export async function createStory(o: { title: string; brief?: string; client?: string }): Promise<string> {
   const pg = await db();
   const clientId = o.client ? await resolveClient(o.client) : null;
   const row = (await pg.query(
-    `insert into pages (kind, title, story, client_id, parent_id, origin, owner_id)
+    `insert into pages (kind, title, brief, client_id, parent_id, origin, owner_id)
      values ('story',$1,$2,$3,$3,$4,${OWNER_ID_SQL(4)}) returning id`,
-    [o.title, o.story ?? "", clientId, NODE_ID],
+    [o.title, o.brief ?? "", clientId, NODE_ID],
   )).rows[0] as { id: string };
   return row.id;
 }
@@ -226,12 +236,6 @@ export async function upsertSession(s: Record<string, unknown>): Promise<string>
   if (s.claude_id && !s.agent) s.agent = "claude";
   // Accept human names (from the CLI/MCP) and resolve them to ids.
   if (typeof s.client === "string" && !s.client_id) s.client_id = await resolveClient(s.client);
-  if (typeof s.page === "string" && !s.page_id) s.page_id = await resolveObjective(s.page, (s.client_id as string) ?? null);
-  if (typeof s.objective === "string" && !s.page_id) {
-    s.page_id = await resolveObjective(s.objective, (s.client_id as string) ?? null);
-  }
-  // project = a page that has sessions: attaching promotes a plain page (one-way)
-  if (s.page_id) await promoteToProject(s.page_id as string, (s.client_id as string) ?? null);
   // One coding-agent transcript maps to one card, regardless of import vs skill tracking —
   // but only within a branch and among open cards. A session that moves on to another
   // branch earns its own card instead of retitling the one it just finished, and a card
@@ -258,20 +262,35 @@ export async function upsertSession(s: Record<string, unknown>): Promise<string>
     )).rows[0] as { id: string } | undefined;
     if (hit) s.id = hit.id;
   }
+  // Resolve the story name only now, with the session KNOWN: an attached session keeps
+  // its page whatever the wording — only an explicit page_id (the drawer) retargets.
+  // Resolving before the lookup minted a fresh story on every rewording and orphaned
+  // the old one.
+  if (s.page_id === undefined && typeof s.story === "string" && s.story.trim()) {
+    const cur = s.id
+      ? (await pg.query(`select page_id from sessions where id=$1 and not deleted`, [s.id]))
+        .rows[0] as { page_id: string | null } | undefined
+      : undefined;
+    if (!cur?.page_id) s.page_id = await resolveStory(s.story, (s.client_id as string) ?? null);
+  }
+  // project = a page that has sessions: attaching promotes a plain page (one-way)
+  if (s.page_id) await promoteToProject(s.page_id as string, (s.client_id as string) ?? null);
   const id = (s.id as string) ?? crypto.randomUUID();
   // Transcript linkage: null never clobbers (UI edits omit it); a fresh value wins.
+  // page_id is tri-state: absent = keep (a track call is not a detach), null = detach.
   await pg.query(
     `insert into sessions
        (id,title,status,client_id,page_id,repo_path,branch,next_step,pr_url,summary,claude_id,agent,last_touched,origin,updated_at)
      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$12,$13,now(),$11,now())
      on conflict (id) do update set
-       title=$2,status=$3,client_id=$4,page_id=$5,repo_path=$6,branch=$7,
+       title=$2,status=$3,client_id=$4,repo_path=$6,branch=$7,
+       page_id=case when $14 then $5 else sessions.page_id end,
        next_step=$8,pr_url=$9,summary=$10,claude_id=coalesce($12,sessions.claude_id),
        agent=coalesce($13,sessions.agent),
        last_touched=now(),origin=$11,updated_at=now()`,
     [id, s.title, await resolveStatusKey(pg, s.status), s.client_id ?? null, s.page_id ?? null,
       s.repo_path ?? null, s.branch ?? null, s.next_step ?? null, s.pr_url ?? null, s.summary ?? "", NODE_ID,
-      s.claude_id ?? null, s.agent ?? null],
+      s.claude_id ?? null, s.agent ?? null, s.page_id !== undefined],
   );
   return id;
 }
@@ -290,9 +309,9 @@ export async function searchAll(q: string) {
         where not deleted and (title ilike $1 or summary ilike $1 or coalesce(next_step,'') ilike $1)
        union all
        select case when kind='project' then 'client' else 'page' end, id::text, title,
-              coalesce(story,''), coalesce(icon,''), kind, coalesce(color,''), updated_at
+              coalesce(brief,''), coalesce(icon,''), kind, coalesce(color,''), updated_at
          from pages
-        where not deleted and (title ilike $1 or story ilike $1 or content::text ilike $1)
+        where not deleted and (title ilike $1 or brief ilike $1 or content::text ilike $1)
        union all
        select 'database', id::text, name, '', coalesce(icon,''), 'database', '', updated_at
          from udb_databases
@@ -307,6 +326,56 @@ export async function searchAll(q: string) {
 export async function setSessionStatus(id: string, status: string): Promise<void> {
   const pg = await db();
   await pg.query(`update sessions set status=$2, origin=$3, updated_at=now() where id=$1`, [id, status, NODE_ID]);
+}
+
+// tags (free labels on pages)
+
+const TAG_NS = "3c9e0b71-2f45-4d18-a6c3-8e5417b9d0aa";
+export const tagId = (key: string) => v5.generate(TAG_NS, new TextEncoder().encode(key));
+
+export const tagKey = (label: string) =>
+  label.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+
+// Find-or-create a tag by label. Unlike a status, a clash is the POINT: two people
+// typing "DevOps" must land on ONE tag, not on `devops-2`. The id falls out of the key
+// (same reason schema.sql seeds the built-in statuses with fixed ids), so two offline
+// nodes converge instead of forking; `do update` revives one deleted earlier.
+export async function ensureTag(t: { label: string; color?: string }): Promise<{ id: string; key: string }> {
+  const pg = await db();
+  const key = tagKey(t.label) || "tag";
+  const id = await tagId(key);
+  const last = (await pg.query(`select max(sort_key) as k from tags where not deleted`)).rows[0] as { k: string | null };
+  await pg.query(
+    `insert into tags (id, key, label, color, sort_key, origin)
+     values ($1,$2,$3,$4,$5,$6)
+     on conflict (id) do update set
+       label=excluded.label, deleted=false, origin=excluded.origin, updated_at=now()`,
+    [id, key, t.label, t.color ?? "#6b7280", midKey(last.k ?? "", ""), NODE_ID],
+  );
+  return { id, key };
+}
+
+export async function listTags() {
+  const pg = await db();
+  return (await pg.query(
+    `select id, key, label, color, sort_key from tags where not deleted order by sort_key, label`,
+  )).rows;
+}
+
+// key is immutable (pages.tags references it) — only label/color are patchable
+export async function updateTag(id: string, patch: { label?: string; color?: string }): Promise<void> {
+  const pg = await db();
+  await pg.query(
+    `update tags set label=coalesce($2,label), color=coalesce($3,color), origin=$4, updated_at=now() where id=$1`,
+    [id, patch.label ?? null, patch.color ?? null, NODE_ID],
+  );
+}
+
+// Soft-delete the vocabulary row. Pages keep the key and render it plainly.
+export async function deleteTag(id: string): Promise<void> {
+  const pg = await db();
+  await pg.query(`update tags set deleted=true, origin=$2, updated_at=now() where id=$1`, [id, NODE_ID]);
 }
 
 // statuses (kanban columns)
@@ -508,16 +577,16 @@ export async function deleteSessionLink(id: string): Promise<void> {
   );
 }
 
-export async function updateObjective(o: { id: string; title?: string; story?: string; status?: string }): Promise<void> {
+export async function updateStory(o: { id: string; title?: string; brief?: string; status?: string }): Promise<void> {
   const pg = await db();
   await pg.query(
     `update pages set
        title = coalesce($2, title),
-       story = coalesce($3, story),
+       brief = coalesce($3, brief),
        status = coalesce($4, status),
        origin = $5, updated_at = now()
      where id = $1`,
-    [o.id, o.title ?? null, o.story ?? null, o.status ?? null, NODE_ID],
+    [o.id, o.title ?? null, o.brief ?? null, o.status ?? null, NODE_ID],
   );
 }
 
@@ -533,10 +602,10 @@ export async function getReport(id: string) {
   return (await pg.query(`select * from reports where id=$1 and not deleted`, [id])).rows[0] ?? null;
 }
 
-export async function createReport(r: { title: string; html: string; client?: string; objective?: string }) {
+export async function createReport(r: { title: string; html: string; client?: string; story?: string }) {
   const pg = await db();
   const clientId = r.client ? await resolveClient(r.client) : null;
-  const pageId = r.objective ? await resolveObjective(r.objective, clientId) : null;
+  const pageId = r.story ? await resolveStory(r.story, clientId) : null;
   const row = (await pg.query(
     `insert into reports (title, html, client_id, page_id, origin) values ($1,$2,$3,$4,$5) returning id`,
     [r.title, r.html, clientId, pageId, NODE_ID],
@@ -545,7 +614,7 @@ export async function createReport(r: { title: string; html: string; client?: st
 }
 
 // Drain writes made by /trame:track while the app was closed/offline.
-// NOTE (scaffold): the outbox stores session fields only; client/objective-by-name
+// NOTE (scaffold): the outbox stores session fields only; client/story-by-name
 // resolution done by the online CLI path is skipped here. Good enough for v0.
 export async function drainOutbox(): Promise<number> {
   let text: string;
