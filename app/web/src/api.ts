@@ -31,6 +31,7 @@ export type Story = {
   brief: string;
   client_id: string | null;
   status: string;
+  tags: string[];
 };
 export type Project = {
   id: string;
