@@ -1103,7 +1103,9 @@ export function App() {
   const [colMenu, setColMenu] = useState(false);
   const [storyFilter, setStoryFilter] = useState<string[]>(
     params.get("story")?.split(",").filter(Boolean) ?? [],
-  ); // narrow sessions to the selected stories/projects (subtree union)
+  );
+  // "only sessions without a specs page" — a triage lens, mirrored to the URL
+  const [noSpecs, setNoSpecs] = useState(params.get("nospecs") === "1"); // narrow sessions to the selected stories/projects (subtree union)
   const toggleStoryFilter = (id: string) =>
     setStoryFilter((cur) =>
       cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
@@ -1283,8 +1285,26 @@ export function App() {
     put("full", openId ? (drawerFull ? "1" : "0") : null);
     put("group", group === "none" ? null : group);
     put("story", storyFilter.join(",") || null);
+    put("nospecs", noSpecs ? "1" : null);
     history.replaceState(null, "", u);
-  }, [view, pageId, dbId, clientId, pluginId, openId, drawerFull, group, storyFilter]);
+  }, [view, pageId, dbId, clientId, pluginId, openId, drawerFull, group, storyFilter, noSpecs]);
+  // Browser Back from the full-screen ticket returns to the view behind it (the
+  // board for a direct link) instead of leaving the app: the underlying view is
+  // written as its own history entry beneath the ticket, and popstate closes it.
+  useEffect(() => {
+    const onPop = () => setOpenId(null);
+    addEventListener("popstate", onPop);
+    return () => removeEventListener("popstate", onPop);
+  }, []);
+  useEffect(() => {
+    if (!(openId && drawerFull)) return;
+    const ticket = location.href;
+    const under = new URL(ticket);
+    under.searchParams.delete("session");
+    under.searchParams.delete("full");
+    history.replaceState(null, "", under);
+    history.pushState(null, "", ticket);
+  }, [openId, drawerFull]);
   // browser-tab title follows what's on screen (full session ticket > page/db/client/plugin view)
   useEffect(() => {
     const t = openId && drawerFull
@@ -1773,12 +1793,26 @@ export function App() {
               )}
           </div>
           {isSessions && board && (
-            <FilterBar
-              pages={board.pages}
-              filter={storyFilter}
-              onToggle={toggleStoryFilter}
-              onClear={() => setStoryFilter([])}
-            />
+            <>
+              <FilterBar
+                pages={board.pages}
+                filter={storyFilter}
+                onToggle={toggleStoryFilter}
+                onClear={() => setStoryFilter([])}
+              />
+              <button
+                type="button"
+                onClick={() => setNoSpecs((v) => !v)}
+                title="Only sessions without a specs page"
+                className={`shrink-0 rounded-md border px-2 py-1 text-[11.5px] ${
+                  noSpecs
+                    ? "border-copper/50 text-copper hover:bg-copper/10"
+                    : "border-transparent text-ink-muted hover:text-ink"
+                }`}
+              >
+                no specs
+              </button>
+            </>
           )}
         </header>
         {!board
@@ -1793,6 +1827,7 @@ export function App() {
               onOpenFull={(id) => openSession(id, true)}
               storyFilter={storyFilter}
               onFilterStory={toggleStoryFilter}
+              noSpecs={noSpecs}
               hideEmpty={hideEmpty}
               selected={selected}
               onToggleSelect={toggleSelected}
@@ -1805,6 +1840,7 @@ export function App() {
               board={board}
               onOpen={(id) => openSession(id)}
               onOpenFull={(id) => openSession(id, true)}
+              noSpecs={noSpecs}
               storyFilter={storyFilter}
               onFilterStory={toggleStoryFilter}
               selected={selected}

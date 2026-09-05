@@ -192,7 +192,7 @@ function Column(
 }
 
 export function Board(
-  { board, group, onMove, onOpen, onOpenFull, storyFilter, onFilterStory, hideEmpty, selected, onToggleSelect, onSelectMany }: {
+  { board, group, onMove, onOpen, onOpenFull, storyFilter, onFilterStory, noSpecs, hideEmpty, selected, onToggleSelect, onSelectMany }: {
     board: BoardData;
     group: "none" | "story" | "project";
     onMove: (id: string, status: Status) => void;
@@ -200,6 +200,7 @@ export function Board(
     onOpenFull?: (id: string) => void;
     storyFilter?: string[] | null;
     onFilterStory?: (id: string) => void;
+    noSpecs?: boolean;
     hideEmpty?: boolean;
     selected?: Set<string>;
     onToggleSelect?: (id: string) => void;
@@ -234,9 +235,13 @@ export function Board(
   const byId = pagesById(board.pages);
   // clicking a card's story chip narrows the board to that story's SUBTREE
   // (drag still uses the full set)
-  const visible = storyFilter?.length
+  const scoped = storyFilter?.length
     ? board.sessions.filter((s) => storyFilter.some((f) => inSubtree(s, f, byId)))
     : board.sessions;
+  // "no specs" = no specs page, or one that was deleted since (board.pages is live)
+  const visible = noSpecs
+    ? scoped.filter((s) => !s.specs_page_id || !byId.has(s.specs_page_id))
+    : scoped;
   // status columns come from the synced statuses table (already sort_key-ordered),
   // optionally hiding the empty ones
   const ordered = board.statuses.map((s) => s.key);

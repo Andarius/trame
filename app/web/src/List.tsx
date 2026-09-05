@@ -27,12 +27,13 @@ const COLS: [SortKey, string][] = [
 ];
 
 export function List(
-  { board, onOpen, onOpenFull, storyFilter, onFilterStory, selected, onToggleSelect, onSelectMany }: {
+  { board, onOpen, onOpenFull, storyFilter, onFilterStory, noSpecs, selected, onToggleSelect, onSelectMany }: {
     board: BoardData;
     onOpen: (id: string) => void;
     onOpenFull?: (id: string) => void;
     storyFilter?: string[] | null;
     onFilterStory?: (id: string) => void;
+    noSpecs?: boolean;
     selected?: Set<string>;
     onToggleSelect?: (id: string) => void;
     onSelectMany?: (ids: string[], on: boolean) => void;
@@ -60,9 +61,12 @@ export function List(
         return s.last_touched;
     }
   };
-  const filtered = storyFilter?.length
+  const scoped = storyFilter?.length
     ? board.sessions.filter((s) => storyFilter.some((f) => inSubtree(s, f, byId)))
     : board.sessions;
+  const filtered = noSpecs
+    ? scoped.filter((s) => !s.specs_page_id || !byId.has(s.specs_page_id))
+    : scoped;
   const sessions = [...filtered].sort((a, b) => {
     const av = key(a), bv = key(b);
     return (av < bv ? -1 : av > bv ? 1 : 0) * sort.dir;
