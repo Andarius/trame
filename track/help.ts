@@ -82,7 +82,7 @@ by full URL, never a bare \`#42\` — full links render as badges.
 - \`status\` — column key, inferred from the conversation: default \`active\`; \`paused\`, \`blocked\`, \`done\` only if evident. Columns are user-editable and an unknown key is parked on the first column — when unsure of a key (or an existing project/story name), \`GET /api/board\` returns them all (\`statuses\`, \`projects\`, \`stories\`).
 - \`client\` — **Project** name, resolved/created server-side. From the working dir: \`TRACKER_CLIENTS\` is a JSON map of path segment → project or \`{"project":"…","tags":["…"],"repos":["…"]}\` (e.g. \`{"Work":{"project":"Soren","tags":["infra"]}}\` files a \`/Work/\` repo — or a \`…-Work-…\` scratchpad worktree — under **Soren**, stamping the tags on newly minted stories — only for whitelisted \`repos\` when set); no match → **Side-projects**.
 - \`story\` — **Story** the session serves, found-or-created by name under the project; only if evident.
-- \`repo_path\` — the working dir (with \`branch\`, the upsert key among open sessions).
+- \`repo_path\` — the working dir (with \`branch\`, the upsert key among open sessions). A planned card (open, no branch) on the repo is adopted by the first track naming its story — or by any first track when it has no story anchor.
 - \`branch\` — current git branch.
 - \`next_step\` — one imperative line: the very next thing to do on resume; incorporate the user's note.
 - \`pr_url\` — PR/MR link, only if evident.
