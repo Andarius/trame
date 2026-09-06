@@ -132,9 +132,10 @@ export async function resolveHomeProject(repoPath: string): Promise<string | nul
 // duplicate. Another project's stories are off-limits; an unfiled plain page is still
 // reused (and promoted on attach) rather than duped. Exact spelling, then a story, then
 // the caller's own project win the tie.
-export async function resolveStory(title: string, clientId: string | null, tags: string[] = []): Promise<string> {
+// The find half of resolveStory: the page a story title names, or null. Never creates.
+async function findStory(title: string, clientId: string | null): Promise<string | null> {
   const clean = title.trim().replace(/\s+/g, " ");
-  if (!clean) throw new Error("a story needs a title");
+  if (!clean) return null;
   const pg = await db();
   const hit = (await pg.query(
     `select id from pages
@@ -146,7 +147,15 @@ export async function resolveStory(title: string, clientId: string | null, tags:
       limit 1`,
     [clean, clientId],
   )).rows[0] as { id: string } | undefined;
-  if (hit) return hit.id;
+  return hit?.id ?? null;
+}
+
+export async function resolveStory(title: string, clientId: string | null, tags: string[] = []): Promise<string> {
+  const clean = title.trim().replace(/\s+/g, " ");
+  if (!clean) throw new Error("a story needs a title");
+  const pg = await db();
+  const hit = await findStory(clean, clientId);
+  if (hit) return hit;
   // default tags (TRACKER_CLIENTS) stamp NEW stories only — an existing page's tags
   // belong to the user
   const keys: string[] = [];
@@ -265,6 +274,25 @@ export async function upsertSession(s: Record<string, unknown>): Promise<string>
       [s.repo_path, (s.branch as string) ?? ""],
     )).rows[0] as { id: string } | undefined;
     if (hit) s.id = hit.id;
+  }
+  // Still nothing: PLANNED work — an unbranched open card on this repo — adopts the
+  // first branch tracked for it, in the spirit of the transcript rule above, but scoped
+  // by the story anchor so unrelated work on the repo cannot hijack a plan: an anchored
+  // plan only matches a track naming the same story; an unanchored one matches any.
+  if (!s.id && s.repo_path && (s.branch as string)) {
+    const planned = (await pg.query(
+      `select id, page_id from sessions where repo_path=$1 and coalesce(branch,'')='' and not deleted
+         and status not in (select key from statuses where terminal and not deleted)
+       order by last_touched desc`,
+      [s.repo_path],
+    )).rows as { id: string; page_id: string | null }[];
+    if (planned.length) {
+      const storyId = typeof s.story === "string"
+        ? await findStory(s.story, (s.client_id as string) ?? null)
+        : null;
+      const hit = planned.find((p) => !p.page_id || p.page_id === storyId);
+      if (hit) s.id = hit.id;
+    }
   }
   // Resolve the story name only now, with the session KNOWN: an attached session keeps
   // its page whatever the wording — only an explicit page_id (the drawer) retargets.
