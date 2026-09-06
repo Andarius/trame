@@ -17,12 +17,12 @@ test.beforeAll(async ({ request }) => {
 });
 
 test("a story page shows its brief, blocks and sessions", async ({ page, request }) => {
-  await request.post("/api/objectives", {
-    data: { title: "Pages Project", story: "the pages e2e story" },
+  await request.post("/api/stories", {
+    data: { title: "Pages Project", brief: "the pages e2e brief" },
   });
   await page.goto("/");
   await page.locator("aside").getByRole("button", { name: /Pages Project/ }).first().click();
-  await expect(page.getByPlaceholder(/add the story/)).toHaveValue("the pages e2e story");
+  await expect(page.getByPlaceholder(/add the brief/)).toHaveValue("the pages e2e brief");
   await expect(page.getByText("no sessions yet")).toBeVisible();
 
   // block editor: type, autosave, survive a reload
@@ -50,7 +50,7 @@ test("sub-page nests under the project", async ({ page }) => {
 
 test("session linked to the project shows up with progress", async ({ page, request }) => {
   await request.post("/api/sessions", {
-    data: { title: "pages e2e session", objective: "Pages Project", no_event: true },
+    data: { title: "pages e2e session", story: "Pages Project", no_event: true },
   });
   await page.goto("/");
   await page.locator("aside").getByRole("button", { name: /Pages Project/ }).first().click();
@@ -74,7 +74,7 @@ test("attaching a session to a plain page promotes it to a project", async ({ pa
   await request.post("/api/pages", { data: { title: "Scratch notes", kind: "page" } });
   // attach by title (the CLI path) — must reuse the page, not mint a duplicate project
   await request.post("/api/sessions", {
-    data: { title: "promo e2e session", objective: "Scratch notes", no_event: true },
+    data: { title: "promo e2e session", story: "Scratch notes", no_event: true },
   });
   const pages = await (await request.get("/api/pages")).json();
   const hits = pages.filter((p: { title: string }) => p.title === "Scratch notes");
@@ -88,7 +88,7 @@ test("attaching a session to a plain page promotes it to a project", async ({ pa
   await nav.click();
   await expect(page.getByText("promo e2e session").first()).toBeVisible();
   // grouped board gains a lane for it
-  await page.goto("/?view=board&group=objective");
+  await page.goto("/?view=board&group=story");
   await expect(page.getByRole("main").getByText("Scratch notes", { exact: true })).toBeVisible();
 });
 
@@ -108,7 +108,7 @@ test("drawer picker offers plain pages and promotes on pick", async ({ page, req
 
 test("the Story picker lists each story once as ◇ (no ◎/□ duplicates)", async ({ page, request }) => {
   // a story with a distinctive title, plus a session to drive the drawer
-  await request.post("/api/sessions", { data: { title: "picker probe session", objective: "Picker Story", no_event: true } });
+  await request.post("/api/sessions", { data: { title: "picker probe session", story: "Picker Story", no_event: true } });
   await page.goto("/");
   await page.getByText("picker probe session").click();
   await page.getByRole("button", { name: /^◇ Picker Story|^none/ }).last().click(); // open the Story select

@@ -28,9 +28,10 @@ export type Session = {
 export type Story = {
   id: string;
   title: string;
-  story: string;
+  brief: string;
   client_id: string | null;
   status: string;
+  tags: string[];
 };
 export type Project = {
   id: string;
@@ -195,8 +196,8 @@ export const deleteSession = (id: string) =>
   post(`/api/sessions/${id}/delete`, {});
 export const addLog = (id: string, summary: string) =>
   post(`/api/sessions/${id}/events`, { summary });
-export const updateObjective = (id: string, patch: Record<string, unknown>) =>
-  post(`/api/objectives/${id}`, patch);
+export const updateStory = (id: string, patch: Record<string, unknown>) =>
+  post(`/api/stories/${id}`, patch);
 // the public link viewer (hub /l/<token>) has no /api — degrade gracefully there
 const isLinkView = () =>
   Boolean((globalThis as { __TRAME_LINK__?: unknown }).__TRAME_LINK__);
@@ -554,11 +555,13 @@ export type PageMeta = {
   status: string;
   client_id: string | null;
   color: string | null;
+  /** tag keys, not ids — a page stays readable before the vocabulary arrives */
+  tags: string[];
   sort_key: string;
   owner_id: string | null;
 };
 export type PageDetail = PageMeta & {
-  story: string;
+  brief: string;
   updated_at: string;
   content: Block[];
   children: PageMeta[];
@@ -613,13 +616,32 @@ export const updatePage = (
   patch: {
     title?: string;
     icon?: string | null;
-    story?: string;
+    brief?: string;
     status?: string;
     client_id?: string | null;
     content?: Block[];
     color?: string | null;
+    tags?: string[];
   },
 ) => post(`/api/pages/${id}`, patch).then(jsonOrThrow);
+
+export type Tag = {
+  id: string;
+  key: string;
+  label: string;
+  color: string;
+  sort_key: string;
+};
+export const listTags = () =>
+  fetch("/api/tags").then((r) => r.json() as Promise<Tag[]>);
+// find-or-create: the same label always resolves to the same tag
+export const ensureTag = (label: string, color?: string) =>
+  post("/api/tags", { label, color }).then((r) =>
+    r.json() as Promise<{ id: string; key: string }>
+  );
+export const updateTag = (id: string, patch: { label?: string; color?: string }) =>
+  post(`/api/tags/${id}`, patch).then(jsonOrThrow);
+export const deleteTag = (id: string) => post(`/api/tags/${id}/delete`, {});
 export const deletePage = (id: string) => post(`/api/pages/${id}/delete`, {});
 export const movePage = (
   id: string,

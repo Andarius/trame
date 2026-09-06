@@ -75,8 +75,12 @@ import {
   todayMark,
   touchTodo,
 } from "../../todo-marks.ts";
+import { PAGE_STATUSES } from "../../page-status.ts";
 import { DatabaseView } from "./udb/DatabaseTable";
 import { FolderBlock } from "./FolderBlock";
+import { TagEditor } from "./TagEditor";
+import { CockpitTicket } from "./plugins/cockpit/CockpitTicket";
+import { refOfContent } from "../../plugins/cockpit/mirror.ts";
 import { HtmlBlock } from "./HtmlBlock";
 
 // project chip palette (matches the client palette + a few extras)
@@ -91,11 +95,6 @@ const PROJECT_COLORS = [
   "#8b93a3",
 ];
 
-const PAGE_STATUS = [
-  { value: "open", label: "Open" },
-  { value: "done", label: "Done" },
-  { value: "archived", label: "Archived" },
-];
 
 type TextBlock = Extract<Block, { type: "text" | "heading" | "todo" }>;
 const isText = (b: Block): b is TextBlock =>
@@ -2793,6 +2792,10 @@ export function Page(
                 )}
               </div>
             )}
+            <TagEditor
+              tags={page.tags ?? []}
+              onChange={(tags) => patch({ tags })}
+            />
             <div className="flex shrink-0 items-center gap-1.5 pl-1">
               {(() => {
                 // agents with comments on this page but no live watcher heartbeat;
@@ -2925,7 +2928,7 @@ export function Page(
               <div className="w-[120px]">
                 <Select
                   value={page.status}
-                  options={PAGE_STATUS}
+                  options={[...PAGE_STATUSES]}
                   onChange={(status) => patch({ status })}
                 />
               </div>
@@ -2954,18 +2957,28 @@ export function Page(
 
           {isStory && (
             <textarea
-              key={page.id + page.story}
+              key={page.id + page.brief}
               rows={2}
               className="resize-none rounded-md border border-transparent bg-transparent px-2 py-1.5 text-xs leading-relaxed text-ink-soft outline-none transition-colors placeholder:italic placeholder:text-ink-muted/50 hover:bg-well focus:border-chipline focus:bg-well"
-              defaultValue={page.story}
-              placeholder="add the story — what are we trying to achieve? (click to edit)"
+              defaultValue={page.brief}
+              placeholder="add the brief — what are we trying to achieve? (click to edit)"
               onBlur={(e) => {
-                if (e.target.value !== page.story) {
-                  patch({ story: e.target.value });
+                if (e.target.value !== page.brief) {
+                  patch({ brief: e.target.value });
                 }
               }}
             />
           )}
+
+          {/* Below the brief, because the brief becomes the ticket's
+              objective: the offer sits next to the text it will send. */}
+          <CockpitTicket
+            pageId={pageId}
+            parentId={page.parent_id}
+            tags={page.tags ?? []}
+            reference={refOfContent(page.content ?? [])}
+            onDone={() => reload()}
+          />
 
           {(openCount > 0 || resolvedCount > 0) && (
             <div className="-mb-2 flex items-center gap-3 self-start">
@@ -3167,11 +3180,7 @@ export function Page(
                 type="button"
                 key={c.id}
                 className={`flex items-center gap-2 rounded-md px-1.5 py-1 text-left text-[13px] text-ink-soft hover:bg-panel${
-                  c.status === "done"
-                    ? " opacity-60"
-                    : c.status === "archived"
-                    ? " opacity-40"
-                    : ""
+                  c.status === "archived" ? " opacity-40" : ""
                 }`}
                 onClick={() => onOpenPage(c.id)}
               >

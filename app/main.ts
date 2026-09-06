@@ -45,7 +45,7 @@ import {
   addEvent,
   addTrackEvent,
   addSessionLink,
-  createObjective,
+  createStory,
   createReport,
   createStatus,
   db,
@@ -63,9 +63,13 @@ import {
   moveStatus,
   searchAll,
   setSessionStatus,
-  updateObjective,
+  updateStory,
   updateStatus,
   upsertSession,
+  deleteTag,
+  ensureTag,
+  listTags,
+  updateTag,
 } from "./db.ts";
 import { SPECS_WHEN } from "../track/help.ts";
 import { syncOnce } from "./sync.ts";
@@ -1106,12 +1110,12 @@ async function handler(req: Request): Promise<Response> {
     await deleteSession(dm[1]);
     return json({ ok: true });
   }
-  if (pathname === "/api/objectives" && req.method === "POST") {
-    return json({ id: await createObjective(await req.json()) });
+  if (pathname === "/api/stories" && req.method === "POST") {
+    return json({ id: await createStory(await req.json()) });
   }
-  const om = pathname.match(/^\/api\/objectives\/([^/]+)$/);
+  const om = pathname.match(/^\/api\/stories\/([^/]+)$/);
   if (om && req.method === "POST") {
-    await updateObjective({ id: om[1], ...(await req.json()) });
+    await updateStory({ id: om[1], ...(await req.json()) });
     return json({ ok: true });
   }
   if (pathname === "/api/reports" && req.method === "POST") {
@@ -1219,6 +1223,28 @@ async function handler(req: Request): Promise<Response> {
       else if (stm[2] === "/move") {
         await moveStatus(stm[1], (await req.json()).dir === -1 ? -1 : 1);
       } else await updateStatus(stm[1], await req.json());
+    } catch (e) {
+      return json({ error: (e as Error).message }, 400);
+    }
+    return json({ ok: true });
+  }
+
+  // tags — free labels on pages (create is find-or-create, cf. ensureTag)
+  if (pathname === "/api/tags") {
+    if (req.method === "POST") {
+      const b = await req.json();
+      if (typeof b.label !== "string" || !b.label.trim()) {
+        return json({ error: "label required" }, 400);
+      }
+      return json(await ensureTag({ label: b.label.trim(), color: b.color }));
+    }
+    return json(await listTags());
+  }
+  const tgm = pathname.match(/^\/api\/tags\/([^/]+)(\/delete)?$/);
+  if (tgm && req.method === "POST") {
+    try {
+      if (tgm[2] === "/delete") await deleteTag(tgm[1]);
+      else await updateTag(tgm[1], await req.json());
     } catch (e) {
       return json({ error: (e as Error).message }, 400);
     }
@@ -1390,9 +1416,15 @@ async function handler(req: Request): Promise<Response> {
     return json({ ok: true });
   }
 
-  // pages — the nestable tree; project pages also serve /api/objectives above
+  // pages — the nestable tree; story pages are also served by /api/stories above
   if (pathname === "/api/pages" && req.method === "POST") {
-    return json({ id: await createPage(await req.json()) });
+    try {
+      return json({ id: await createPage(await req.json()) });
+    } catch (e) {
+      // Same contract as the update route below: a rejected field is the
+      // caller's problem, not a 500.
+      return json({ error: (e as Error).message }, 400);
+    }
   }
   if (pathname === "/api/pages") return json(await listPages());
   // Share: export a page subtree to a portable bundle file another Trame user can import.

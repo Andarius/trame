@@ -3,7 +3,8 @@
 // tables come before their referrers (no FKs, but pulls apply in this order).
 // v3: dropped the frozen `clients` entity and the `objective_id` columns.
 // v4: sessions specs text column replaced by specs_page_id (specs are pages).
-export const PROTOCOL_VERSION = 4;
+// v5: tags entity + pages.tags (the keys a page carries); pages.story renamed to brief.
+export const PROTOCOL_VERSION = 5;
 
 export const ENTITIES = [
   {
@@ -15,6 +16,19 @@ export const ENTITIES = [
     cols: ["id", "node_id", "user_id", "origin", "updated_at", "deleted"],
   },
   {
+    name: "tags",
+    cols: [
+      "id",
+      "key",
+      "label",
+      "color",
+      "sort_key",
+      "origin",
+      "updated_at",
+      "deleted",
+    ],
+  },
+  {
     name: "pages",
     cols: [
       "id",
@@ -22,11 +36,12 @@ export const ENTITIES = [
       "kind",
       "title",
       "icon",
-      "story",
+      "brief",
       "client_id",
       "status",
       "content",
       "color",
+      "tags",
       "sort_key",
       "owner_id",
       "origin",

@@ -34,7 +34,7 @@ export type LinkDb = {
 };
 export type LinkData = {
   token: string;
-  page: { id: string; title: string; icon: string | null; story: string };
+  page: { id: string; title: string; icon: string | null; brief: string };
   blocks: LinkBlock[];
   children: { id: string; title: string; icon: string | null }[];
   subpages: Record<string, { title: string; icon: string | null }>;
@@ -235,8 +235,8 @@ export function LinkPage({ data }: { data: LinkData }) {
           {copied ? "Copied ✓" : "Copy as Markdown"}
         </button>
       </div>
-      {page.story && (
-        <p className="mb-4 text-[12.5px] text-ink-muted">{page.story}</p>
+      {page.brief && (
+        <p className="mb-4 text-[12.5px] text-ink-muted">{page.brief}</p>
       )}
 
       {blocks.map((b, i) => {

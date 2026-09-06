@@ -8,8 +8,9 @@ import {
   setPluginEnabled,
 } from "./settings.ts";
 import deployments from "./deployments/mod.ts";
+import cockpit from "./cockpit/mod.ts";
 
-export const PLUGINS: Plugin[] = [deployments];
+export const PLUGINS: Plugin[] = [deployments, cockpit];
 
 const byId = new Map(PLUGINS.map((p) => [p.id, p]));
 

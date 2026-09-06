@@ -16,7 +16,7 @@ import {
   type SessionLink,
   type Status,
 } from "./api";
-import { appConfirm, clientColor, pageOptions, Popover, Select, StatusDot, timeAgo } from "./ui";
+import { appConfirm, clientColor, pageOptions, Popover, Select, StatusDot, TagChips, timeAgo } from "./ui";
 import { PrChip } from "./md";
 import { SpecsEditor } from "./SpecsEditor";
 
@@ -375,6 +375,7 @@ export function Drawer(
       }}
     />
   );
+  const storyTags = board.stories.find((x) => x.id === pageId)?.tags;
   const storySelect = (
     <Select
       value={pageId}
@@ -393,6 +394,12 @@ export function Drawer(
         commit({ page_id: v || null });
       }}
     />
+  );
+  const storyRow = (
+    <div className="flex min-w-0 flex-1 items-center gap-1.5">
+      {storySelect}
+      <TagChips keys={storyTags} />
+    </div>
   );
   const branchInput = (
     <input
@@ -642,7 +649,7 @@ export function Drawer(
                   </div>
                   <div className="flex min-w-0 flex-col gap-1">
                     <span className={lblCls}>Story</span>
-                    {storySelect}
+                    {storyRow}
                   </div>
                 </div>
                 <div className="grid grid-cols-[minmax(120px,240px)_1fr] gap-3">
@@ -699,7 +706,7 @@ export function Drawer(
 
       <div className="flex flex-col gap-1 border-t border-line-soft px-4 py-3.5">
         <Row label="Project">{projectSelect}</Row>
-        <Row label="Story">{storySelect}</Row>
+        <Row label="Story">{storyRow}</Row>
         <Row label="Branch">{branchInput}</Row>
         <Row label="PR / MR">{prField}</Row>
 

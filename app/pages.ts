@@ -4,6 +4,7 @@
 import { db, resolveHomeProject } from "./db.ts";
 import { NODE_ID } from "./config.ts";
 import { getIdentity } from "./identity.ts";
+import { isPageStatus } from "./page-status.ts";
 import { midKey } from "./udb.ts";
 import {
   AGENT_AUTHOR_ID,
@@ -13,7 +14,7 @@ import {
 } from "./agent-comments.ts";
 
 const LIST_COLS =
-  "id, parent_id, kind, title, icon, status, client_id, color, sort_key, owner_id";
+  "id, parent_id, kind, title, icon, status, client_id, color, tags, sort_key, owner_id";
 const COMMENT_COLS =
   "id, page_id, block_id, anchor, body, author, author_avatar, author_id, resolved, meta, updated_at";
 
@@ -98,11 +99,16 @@ export async function createPage(
     kind?: string;
     icon?: string | null;
     client_id?: string | null;
-    story?: string;
+    brief?: string;
     content?: unknown[];
+    tags?: string[];
+    status?: string;
     repo_path?: string;
   },
 ): Promise<string> {
+  if (p.status != null && !isPageStatus(p.status)) {
+    throw new Error(`unknown page status: ${p.status}`);
+  }
   const pg = await db();
   // An agent-created page (repo_path given, no parent) files itself under the repo's
   // project; an explicit null parent still means root.
@@ -113,8 +119,8 @@ export async function createPage(
     : null;
   const row = (await pg.query(
     `insert into pages
-       (kind, title, icon, client_id, parent_id, sort_key, story, content, owner_id, origin)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id`,
+       (kind, title, icon, client_id, parent_id, sort_key, brief, content, tags, status, owner_id, origin)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning id`,
     [
       ["project", "story"].includes(p.kind ?? "") ? p.kind : "page",
       p.title ?? "",
@@ -122,8 +128,10 @@ export async function createPage(
       p.client_id ?? null,
       parentId,
       await endKey(pg, parentId),
-      p.story ?? "",
+      p.brief ?? "",
       JSON.stringify(p.content ?? []),
+      JSON.stringify(p.tags ?? []),
+      p.status ?? "open",
       (await getIdentity()).userId,
       NODE_ID,
     ],
@@ -136,29 +144,34 @@ export async function updatePage(
   patch: {
     title?: string;
     icon?: string | null;
-    story?: string;
+    brief?: string;
     status?: string;
     client_id?: string | null;
     content?: unknown[];
     color?: string | null;
+    tags?: string[];
   },
 ): Promise<void> {
+  if (patch.status != null && !isPageStatus(patch.status)) {
+    throw new Error(`unknown page status: ${patch.status}`);
+  }
   const pg = await db();
   await pg.query(
     `update pages set
        title     = coalesce($2, title),
-       story     = coalesce($3, story),
+       brief     = coalesce($3, brief),
        status    = coalesce($4, status),
        content   = coalesce($5, content),
        icon      = case when $6 then $7 else icon end,
        client_id = case when $8 then $9 else client_id end,
        color     = case when $11 then $12 else color end,
+       tags      = case when $13 then $14 else tags end,
        origin=$10, updated_at=now()
      where id=$1`,
     [
       id,
       patch.title ?? null,
-      patch.story ?? null,
+      patch.brief ?? null,
       patch.status ?? null,
       patch.content ? JSON.stringify(patch.content) : null,
       "icon" in patch,
@@ -168,6 +181,8 @@ export async function updatePage(
       NODE_ID,
       "color" in patch,
       patch.color ?? null,
+      "tags" in patch,
+      JSON.stringify(patch.tags ?? []),
     ],
   );
 }

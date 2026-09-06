@@ -58,7 +58,7 @@ function Modal(
 const label = "text-[10px] font-medium tracking-[0.8px] text-ink-muted/80";
 const input =
   "w-full bg-transparent outline-none placeholder:text-ink-muted/50 border-none p-0 text-ink";
-const STORY_PLACEHOLDER = "The story — why this matters.\n\nDone when:\n·  …\n·  …";
+const STORY_PLACEHOLDER = "The brief — why this matters.\n\nDone when:\n·  …\n·  …";
 const pill =
   "appearance-none rounded-md border border-chipline bg-transparent px-2 py-1 text-[11.5px] text-ink-soft outline-none";
 
@@ -101,8 +101,8 @@ export function NewSessionModal(
   const [title, setTitle] = useState("");
   const [status, setStatus] = useState<Status>(board.statuses[0]?.key ?? "active");
   const [client, setClient] = useState(board.projects[0]?.name ?? "");
-  const [objective, setObjective] = useState("");
-  const [newObjective, setNewObjective] = useState("");
+  const [story, setStory] = useState("");
+  const [newStory, setNewStory] = useState("");
   const [branch, setBranch] = useState("");
   const [nextStep, setNextStep] = useState("");
 
@@ -113,7 +113,7 @@ export function NewSessionModal(
       status,
       client: client || undefined,
       // an existing pick is a page id (plain pages get promoted); __new__ is a title
-      ...(objective === "__new__" ? { objective: newObjective || undefined } : { page_id: objective || undefined }),
+      ...(story === "__new__" ? { story: newStory || undefined } : { page_id: story || undefined }),
       branch: branch || undefined,
       next_step: nextStep || undefined,
     });
@@ -146,7 +146,7 @@ export function NewSessionModal(
           onChange={setClient}
         />
         <Select
-          value={objective}
+          value={story}
           className={pill}
           options={[
             { value: "", label: "◇ no story" },
@@ -156,7 +156,7 @@ export function NewSessionModal(
             ),
             { value: "__new__", label: "＋ new story…" },
           ]}
-          onChange={setObjective}
+          onChange={setStory}
         />
         <input
           className={`${pill} w-36`}
@@ -165,12 +165,12 @@ export function NewSessionModal(
           onChange={(e) => setBranch(e.target.value)}
         />
       </div>
-      {objective === "__new__" && (
+      {story === "__new__" && (
         <input
           className={`${pill} w-full`}
           placeholder="new story title (created on save)"
-          value={newObjective}
-          onChange={(e) => setNewObjective(e.target.value)}
+          value={newStory}
+          onChange={(e) => setNewStory(e.target.value)}
         />
       )}
       <div className="flex items-center gap-2 text-[12.5px]">
@@ -682,7 +682,7 @@ export function NewUdbModal(
   );
 }
 
-export function NewObjectiveModal(
+export function NewStoryModal(
   { board, onClose, onCreate }: {
     board: BoardData;
     onClose: () => void;
@@ -691,11 +691,11 @@ export function NewObjectiveModal(
 ) {
   const [title, setTitle] = useState("");
   const [client, setClient] = useState(board.projects[0]?.name ?? "");
-  const [story, setStory] = useState("");
+  const [brief, setBrief] = useState("");
 
   const submit = () => {
     if (!title.trim()) return;
-    onCreate({ title: title.trim(), client: client || undefined, story });
+    onCreate({ title: title.trim(), client: client || undefined, brief });
   };
 
   return (
@@ -720,11 +720,11 @@ export function NewObjectiveModal(
         <textarea
           className={`${input} min-h-[190px] resize-none text-[13px] leading-relaxed`}
           placeholder={STORY_PLACEHOLDER}
-          value={story}
-          onChange={(e) => setStory(e.target.value)}
+          value={brief}
+          onChange={(e) => setBrief(e.target.value)}
         />
         <span className="text-[10.5px] text-ink-muted/80">
-          The story — what are we trying to achieve? Sessions ladder up here.
+          The brief — what are we trying to achieve? Sessions ladder up here.
         </span>
       </div>
       <Footer

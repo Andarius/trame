@@ -38,12 +38,64 @@ export const REPORT_PATHS = (Deno.env.get("TRACKER_REPORT_PATHS") ?? "")
   .map((s) => s.trim())
   .filter(Boolean)
   .map((p) => p.replace(/^~(?=\/|$)/, home));
-// Client names to detect from a working-dir path (`/<Client>/`); anything else →
-// "Side-projects". Kept out of the repo — set per-machine, e.g. TRACKER_CLIENTS="Acme,Globex".
-export const CLIENTS = (Deno.env.get("TRACKER_CLIENTS") ?? "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
+// Working-dir → Project map, JSON: {"<path segment>": <entry>} where an entry is a
+// project name or {"project": "...", "tags": ["..."], "repos": ["..."]} — the tags are
+// stamped on story pages created for matching sessions, gated by the repo whitelist
+// when one is set. e.g. TRACKER_CLIENTS=
+// '{"Obitrain":"Obitrain","Work":{"project":"Soren","tags":["infra"],"repos":["sre-config"]}}'.
+// Anything unmatched → "Side-projects". Kept out of the repo — set per-machine.
+export type ClientEntry = { project: string; tags: string[]; repos?: string[] };
+export const CLIENT_MAP: Record<string, ClientEntry> = (() => {
+  const raw = (Deno.env.get("TRACKER_CLIENTS") ?? "").trim();
+  if (!raw) return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("not an object");
+    const map: Record<string, ClientEntry> = {};
+    for (const [seg, v] of Object.entries(parsed)) {
+      const entry = typeof v === "string" ? { project: v, tags: [] } : v as ClientEntry;
+      if (typeof entry?.project !== "string" || !entry.project.trim()) throw new Error(`"${seg}" needs a project name`);
+      const tags = entry.tags ?? [];
+      if (!Array.isArray(tags) || tags.some((t) => typeof t !== "string" || !t.trim())) {
+        throw new Error(`"${seg}" tags must be strings`);
+      }
+      if (entry.repos !== undefined && (!Array.isArray(entry.repos) ||
+        entry.repos.some((r) => typeof r !== "string" || !r.trim()))) {
+        throw new Error(`"${seg}" repos must be strings`);
+      }
+      map[seg] = { project: entry.project, tags, ...(entry.repos ? { repos: entry.repos } : {}) };
+    }
+    return map;
+  } catch (e) {
+    console.error(`TRACKER_CLIENTS ignored (want {"segment":"Project"|{project,tags}} JSON): ${(e as Error).message}`);
+    return {};
+  }
+})();
+
+// A path "contains" a segment as /<seg>/ or trailing /<seg> (the repo's own basename),
+// or dash-encoded under /tmp/claude-… (scratchpad worktrees carry the repo path that way).
+function hasSegment(path: string, seg: string): boolean {
+  if (path.includes(`/${seg}/`) || path.endsWith(`/${seg}`)) return true;
+  return path.startsWith("/tmp/claude-") &&
+    (path.includes(`-${seg}-`) || path.includes(`-${seg}/`));
+}
+
+// First map entry whose segment appears in the path.
+export function clientEntryFor(path: string): ClientEntry | null {
+  for (const [seg, entry] of Object.entries(CLIENT_MAP)) {
+    if (hasSegment(path, seg)) return entry;
+  }
+  return null;
+}
+
+// Tags to stamp on a NEW story for this working dir: the matching entry's tags,
+// gated by its repo whitelist when one is set.
+export function defaultTagsFor(path: string): string[] {
+  const entry = clientEntryFor(path);
+  if (!entry?.tags.length) return [];
+  if (!entry.repos) return entry.tags;
+  return entry.repos.some((r) => hasSegment(path, r)) ? entry.tags : [];
+}
 export const PORT = Number(Deno.env.get("TRACKER_PORT") ?? "8787");
 // Headless serve binds loopback by default — the API exposes local data (and plugin
 // state); set TRACKER_HOST=0.0.0.0 to deliberately serve over the LAN.
@@ -60,6 +112,13 @@ export const DEPLOYMENTS_POLL_ACTIVE_MS = Number(
   Deno.env.get("TRACKER_DEPLOYMENTS_POLL_ACTIVE_MS") ?? "10000",
 );
 export const DEPLOYMENTS_FIXTURE = Deno.env.get("TRACKER_DEPLOYMENTS_FIXTURE") ?? "";
+// Cockpit plugin: mirrors tickets from a Cockpit instance's /api/sync. One
+// cadence only — tickets move on human timescales, so there is no fast mode to
+// justify. Same offline fixture escape hatch as deployments.
+export const COCKPIT_POLL_IDLE_MS = Number(
+  Deno.env.get("TRACKER_COCKPIT_POLL_IDLE_MS") ?? "300000",
+);
+export const COCKPIT_FIXTURE = Deno.env.get("TRACKER_COCKPIT_FIXTURE") ?? "";
 // Pasted-image storage: files under ASSETS_DIR by default; an S3-compatible bucket
 // when TRACKER_S3_ENDPOINT + TRACKER_S3_BUCKET (+ keys) are set.
 export const ASSETS_DIR = Deno.env.get("TRACKER_ASSETS_DIR") ?? `${dataHome}/trame/assets`;
