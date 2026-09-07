@@ -11,6 +11,8 @@ type Mapping = {
   pageId: string;
   /** suffix only — the tag is always written `cockpit:<suffix>` */
   tag?: string;
+  /** false = file into this scope, never pull its tickets as pages */
+  mirror?: boolean;
 };
 type Slice = {
   baseUrl: string;
@@ -205,6 +207,21 @@ export function CockpitSettings() {
                   setMappings(next);
                 }}
               />
+              <label
+                className="flex items-center gap-1 text-[11px] text-ink-muted"
+                title="Pull this scope's tickets into the project as story pages. Off: only file tagged pages and sessions into it."
+              >
+                <input
+                  type="checkbox"
+                  checked={m.mirror !== false}
+                  onChange={(e) => {
+                    const next = [...rows];
+                    next[i] = { ...m, mirror: e.target.checked ? undefined : false };
+                    setMappings(next);
+                  }}
+                />
+                pull
+              </label>
               <button
                 type="button"
                 title="Remove"

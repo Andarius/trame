@@ -216,3 +216,42 @@ Deno.test("a tagged session under a filed user story is pending, once", async ()
     true,
   );
 });
+
+Deno.test("two mappings on one project: the story's tag decides which scope its sessions file into", async () => {
+  const { createPage } = await import("../../pages.ts");
+  const { upsertSession } = await import("../../db.ts");
+  const { adoptAsUserStory, loadPendingSessions } = await import(
+    "./mirror-store.ts"
+  );
+  const project = await createPage({
+    title: "Two-scope project",
+    kind: "project",
+  });
+  const story = await createPage({
+    title: "Billing lock",
+    kind: "story",
+    parent_id: project,
+    tags: ["cockpit-client"],
+  });
+  await adoptAsUserStory(story, "US-24");
+  const client = await upsertSession({
+    title: "billing — lock",
+    page_id: story,
+    tags: ["cockpit-client"],
+    next_step: "Review.",
+  });
+  await upsertSession({
+    title: "billing — devops-tagged",
+    page_id: story,
+    tags: ["cockpit-devops"],
+    next_step: "Nope.",
+  });
+  const maps = [
+    { pageId: project, tagKey: "cockpit-devops", tagLabel: "cockpit:devops" },
+    { pageId: project, tagKey: "cockpit-client", tagLabel: "cockpit:client" },
+  ];
+  assertEquals(
+    (await loadPendingSessions(maps)).map((p) => [p.sessionId, p.tagLabel]),
+    [[client, "cockpit:client"]],
+  );
+});

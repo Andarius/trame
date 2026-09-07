@@ -1,5 +1,6 @@
 import { assertEquals } from "@std/assert";
 import {
+  mappingFor,
   mappingTag,
   mappingTagLabel,
   parseMappings,
@@ -102,19 +103,29 @@ Deno.test("mappingTag falls back to the scope's own slug", () => {
 });
 
 Deno.test("mappingTag prefers the configured tag", () => {
-  assertEquals(mappingTag({ product: "devops", tag: "infra", pageId: "p" }), "infra");
+  assertEquals(
+    mappingTag({ product: "devops", tag: "infra", pageId: "p" }),
+    "infra",
+  );
 });
 
 Deno.test("mappingTag ignores a blank tag rather than stamping nothing", () => {
   // An empty string would tag every mirrored page with "", which renders as a
   // chip with no name and matches nothing.
-  assertEquals(mappingTag({ product: "devops", tag: "   ", pageId: "p" }), "devops");
+  assertEquals(
+    mappingTag({ product: "devops", tag: "   ", pageId: "p" }),
+    "devops",
+  );
 });
 
 Deno.test("parseMappings drops a tag that is not a slug", () => {
   // Kept as a mapping, minus the unusable tag: refusing the whole row would
   // silently unmap a project because of a cosmetic field.
-  const [m] = parseMappings([{ product: "devops", tag: "Not A Slug!", pageId: "p" }]);
+  const [m] = parseMappings([{
+    product: "devops",
+    tag: "Not A Slug!",
+    pageId: "p",
+  }]);
   assertEquals(m.tag, undefined);
   assertEquals(mappingTag(m), "devops");
 });
@@ -142,4 +153,36 @@ Deno.test("mappingTagLabel namespaces a configured tag too", () => {
     mappingTagLabel({ product: "devops", tag: "infra", pageId: "p" }),
     "cockpit:infra",
   );
+});
+
+Deno.test("parseMappings keeps only an explicit mirror: false", () => {
+  const [a, b, c] = parseMappings([
+    { product: "devops", pageId: "p", mirror: true },
+    { product: "client", pageId: "p", mirror: false },
+    { product: "mobile", pageId: "p" },
+  ]);
+  assertEquals("mirror" in a, false);
+  assertEquals(b.mirror, false);
+  assertEquals("mirror" in c, false);
+});
+
+Deno.test("mappingFor lets the page's tag choose between mappings on one project", () => {
+  const maps = parseMappings([
+    { product: "devops", pageId: "p" },
+    { product: "client", pageId: "p" },
+    { product: "mobile", pageId: "other" },
+  ]);
+  const key = (label: string) =>
+    label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  assertEquals(
+    mappingFor(maps, "p", ["cockpit-client"], key)?.product,
+    "client",
+  );
+  assertEquals(
+    mappingFor(maps, "p", ["cockpit-devops"], key)?.product,
+    "devops",
+  );
+  // untagged: the project's first mapping, as before tags existed
+  assertEquals(mappingFor(maps, "p", ["billing"], key)?.product, "devops");
+  assertEquals(mappingFor(maps, "nowhere", ["cockpit-client"], key), undefined);
 });
