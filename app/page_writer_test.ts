@@ -1,3 +1,4 @@
+import { testTempDir } from "./test_tmp.ts";
 import { assert, assertEquals, assertMatch, assertStringIncludes } from "@std/assert";
 
 Deno.test("page writer updates in place, keeping ids of unchanged blocks", async () => {
@@ -38,7 +39,7 @@ Deno.test("page writer updates in place, keeping ids of unchanged blocks", async
     },
   );
 
-  const tmp = await Deno.makeTempDir({ prefix: "trame-page-writer-test-" });
+  const tmp = testTempDir("trame-page-writer-test-");
   try {
     const port = await ready;
     const portFile = `${tmp}/port.json`;
