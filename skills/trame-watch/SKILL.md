@@ -1,13 +1,15 @@
 ---
-description: Watch a Trame page from this session — answer feedback live as it arrives
+name: trame-watch
+description: Watch a Trame page from this session — answer the user's block comments live as they arrive. Use when the user invokes $trame-watch or asks to watch, follow, or answer feedback on a Trame page or plan.
 allowed-tools: Bash(tramecli:*), Read, Write, Glob, Grep
 argument-hint: <page-id-or-title> | stop
 ---
 
+# Watch a Trame page
+
 Watch a Trame page from THIS session: show a presence badge, wake when the user leaves
 block comments, reply from full session context, and revise the page in place.
-
-$ARGUMENTS
+The optional argument is the page (an id or an exact title) or `stop`.
 
 ## Instructions
 
@@ -47,5 +49,5 @@ $ARGUMENTS
       thread and ask.
 5. Summarize for the user what was answered/changed, then RESTART the watcher (step 3)
    and keep watching.
-6. Watching ends only on `/trame:watch stop`, or implicitly when the session ends (the
+6. Watching ends only on `$trame-watch stop` (`/trame-watch stop` in Claude Code), or implicitly when the session ends (the
    watcher dies with it and the badge expires).

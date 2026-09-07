@@ -1,4 +1,4 @@
-// Writer invoked by the /trame:track slash command.
+// Writer invoked by the trame-track skill.
 // App-first: POST to the running Trame instance (found via the port file) — the server
 // handles upsert-by-repo+branch, client/story name resolution, and the worklog event.
 // Offline fallback: append to the outbox; the app drains it on next launch.
@@ -34,7 +34,7 @@ async function readInput(argv: string[]): Promise<Input> {
 
 // The Claude session UUID for this cwd, recorded by the UserPromptSubmit hook
 // (track/claude-hook.ts). Fresh-only: the hook fires on the very prompt that runs
-// /trame:track, so anything older belongs to a previous session.
+// trame-track, so anything older belongs to a previous session.
 async function claudeIdFor(cwd: string): Promise<string | undefined> {
   try {
     const map = JSON.parse(await Deno.readTextFile(CLAUDE_MAP)) as Record<

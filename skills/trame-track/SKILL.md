@@ -1,6 +1,7 @@
 ---
 name: trame-track
 description: Log, update, pause, block, complete, or list coding-agent work sessions in Trame. Use when the user invokes $trame-track, asks to track the current Claude Code or Codex session, save a next step, update its Trame status, or list open Trame sessions.
+allowed-tools: Bash(tramecli:*), Bash(pwd), Bash(git branch:*), Bash(git remote:*)
 ---
 
 # Track in Trame

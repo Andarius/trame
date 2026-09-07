@@ -143,7 +143,7 @@ ci: lint fmt-check-sql check test check-hub
 compile-cli:
     cd app && deno task compile:cli
 
-# Install the agent command/skills from a fresh build (interactive picker;
+# Install the agent skills from a fresh build (interactive picker;
 # or pass flags: `just setup --claude --codex --skills-dir ~/.gemini/skills`)
 [group('setup')]
 setup *args:

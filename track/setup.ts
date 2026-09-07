@@ -1,23 +1,29 @@
-// tramecli setup — install the agent command/skills from THIS binary. The docs are
+// tramecli setup — install the agent skills from THIS binary. The docs are
 // embedded at compile time (text imports) and call the bare `tramecli`, so a machine
 // needs neither deno nor a checkout (`just setup` compiles + runs it from a dev
 // checkout); setup makes that name resolve before writing them.
-import trackCmd from "../commands/trame/track.md" with { type: "text" };
-import watchCmd from "../commands/trame/watch.md" with { type: "text" };
 import trackSkill from "../skills/trame-track/SKILL.md" with { type: "text" };
 import trackSkillOpenai from "../skills/trame-track/agents/openai.yaml" with {
   type: "text",
 };
 import pageSkill from "../skills/trame-page/SKILL.md" with { type: "text" };
+import watchSkill from "../skills/trame-watch/SKILL.md" with { type: "text" };
 import * as p from "@clack/prompts";
 import { SETUP_HELP } from "./help.ts";
 
 export const EMBEDS = {
-  trackCmd,
-  watchCmd,
   trackSkill,
   trackSkillOpenai,
   pageSkill,
+  watchSkill,
+};
+
+// one Agent Skills layout for every agent, Claude Code included
+const SKILL_FILES: Record<string, string> = {
+  "trame-track/SKILL.md": trackSkill,
+  "trame-track/agents/openai.yaml": trackSkillOpenai,
+  "trame-page/SKILL.md": pageSkill,
+  "trame-watch/SKILL.md": watchSkill,
 };
 
 export type SetupPlan = {
@@ -79,16 +85,27 @@ async function write(path: string, text: string) {
   console.log(`installed → ${path}`);
 }
 
-export async function setup(plan: SetupPlan): Promise<void> {
-  if (plan.claude) {
-    await write(`${plan.home}/.claude/commands/trame/track.md`, trackCmd);
-    await write(`${plan.home}/.claude/commands/trame/watch.md`, watchCmd);
-    await write(`${plan.home}/.claude/skills/trame-page/SKILL.md`, pageSkill);
+// the pre-skills install: /trame:track + /trame:watch slash commands
+async function removeLegacyCommands(home: string) {
+  const dir = `${home}/.claude/commands/trame`;
+  for (const f of ["track.md", "watch.md"]) {
+    if (await Deno.remove(`${dir}/${f}`).then(() => true, () => false)) {
+      console.log(`removed ${dir}/${f} (now a skill)`);
+    }
   }
-  for (const dir of new Set(plan.skillDirs)) {
-    await write(`${dir}/trame-track/SKILL.md`, trackSkill);
-    await write(`${dir}/trame-track/agents/openai.yaml`, trackSkillOpenai);
-    await write(`${dir}/trame-page/SKILL.md`, pageSkill);
+  await Deno.remove(dir).catch(() => {});
+}
+
+export async function setup(plan: SetupPlan): Promise<void> {
+  const dirs = new Set(plan.skillDirs);
+  if (plan.claude) {
+    dirs.add(`${plan.home}/.claude/skills`);
+    await removeLegacyCommands(plan.home);
+  }
+  for (const dir of dirs) {
+    for (const [rel, text] of Object.entries(SKILL_FILES)) {
+      await write(`${dir}/${rel}`, text);
+    }
   }
 }
 
@@ -103,7 +120,7 @@ async function chooseInteractive(
       {
         value: "claude",
         label: "Claude Code",
-        hint: "the /trame:track + /trame:watch commands and the trame-page skill",
+        hint: "the trame-track, trame-page and trame-watch skills in ~/.claude/skills",
       },
       {
         value: "codex",
