@@ -1,11 +1,15 @@
-// Test-only: a temp dir that is removed when the test process exits.
-// Without this every `deno test -A` run left ~1G of PGlite dirs in /tmp.
+// Test-only: a temp dir removed when the test process unloads — best effort,
+// since a module-level crash never reaches `unload`. Without it every
+// `deno test -A` run left ~1G of PGlite dirs in /tmp.
 export function testTempDir(prefix: string): string {
   const dir = Deno.makeTempDirSync({ prefix });
   globalThis.addEventListener("unload", () => {
     try {
       Deno.removeSync(dir, { recursive: true });
-    } catch { /* already gone, or still held by a child — fine */ }
+    } catch (e) {
+      // Already gone is fine; anything else is a leak worth seeing.
+      if (!(e instanceof Deno.errors.NotFound)) throw e;
+    }
   });
   return dir;
 }
