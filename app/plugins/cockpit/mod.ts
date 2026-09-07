@@ -35,6 +35,7 @@ import {
   loadMirrorPages,
   loadPendingPages,
   loadSyncedPages,
+  mappedProjectOf,
   type MirrorResult,
 } from "./mirror-store.ts";
 
@@ -150,6 +151,7 @@ async function mirror(
   token: string,
   scopes: Scope[],
   pageId: string,
+  mapped: readonly string[],
   tickets: Ticket[],
   tagsByRef: ReadonlyMap<string, string[]>,
 ): Promise<MirrorResult> {
@@ -165,7 +167,7 @@ async function mirror(
     }
   }
 
-  const existing = await loadMirrorPages(pageId);
+  const existing = await loadMirrorPages(pageId, mapped);
   return applyMirror(pageId, planMirror(tickets, existing, live, tagsByRef));
 }
 
@@ -180,7 +182,7 @@ async function pollOnce(): Promise<CockpitState> {
       errors: (fixture.errors ?? []) as CockpitState["errors"],
       mirrored: [],
       filed: [],
-  skipped: [],
+      skipped: [],
     });
   }
 
@@ -200,7 +202,7 @@ async function pollOnce(): Promise<CockpitState> {
       errors: [],
       mirrored: [],
       filed: [],
-  skipped: [],
+      skipped: [],
     });
   }
 
@@ -294,6 +296,7 @@ async function pollOnce(): Promise<CockpitState> {
             token,
             g.refScopes,
             g.pageId,
+            mappings.map((m) => m.pageId),
             g.tickets,
             g.tagsByRef,
           ),
@@ -346,11 +349,14 @@ async function filePage(
     title: string;
     brief?: string;
     content: unknown[];
-    parent_id: string | null;
   } | null;
   if (!page) return { error: "unknown page", status: 404 };
 
-  const mapping = mappings.find((m) => m.pageId === page.parent_id);
+  const projectId = await mappedProjectOf(
+    page.id,
+    mappings.map((m) => m.pageId),
+  );
+  const mapping = mappings.find((m) => m.pageId === projectId);
   const scope = mapping && scopeOf(mapping);
   if (!scope) {
     return { error: "This page is not under a mapped project.", status: 400 };

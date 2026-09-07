@@ -360,12 +360,12 @@ Deno.test("ticketFromPage ignores marks when reading a paragraph", () => {
 
 const candidate = (
   pageId: string,
-  parentId: string,
+  projectId: string,
   tags: string[],
   text?: string,
 ) => ({
   pageId,
-  parentId,
+  projectId,
   tags,
   content: text ? [{ type: "text", text, id: "b" }] : [],
 });
