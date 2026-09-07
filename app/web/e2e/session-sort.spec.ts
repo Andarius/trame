@@ -5,7 +5,7 @@ for (const view of ["board", "list"]) {
     const suffix = crypto.randomUUID();
     const group = `sort-${suffix}`;
     const story = await (await request.post("/api/pages", {
-      data: { title: `Priority story ${suffix}`, kind: "story", tags: ["priority-p2"] },
+      data: { title: `Sorted story ${suffix}`, kind: "story", tags: ["priority-p2"] },
     })).json();
     for (const [name, tags, pageId] of [
       ["B", [group, "priority-p1"], null],
