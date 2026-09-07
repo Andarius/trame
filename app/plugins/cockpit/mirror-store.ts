@@ -1,13 +1,16 @@
 // The database side of mirroring. Kept apart from `mirror.ts` so the planner
 // stays pure and testable without a PGlite instance.
-import { db } from "../../db.ts";
+import { db, ensureSpecsPage } from "../../db.ts";
 import { createPage, deletePage, updatePage } from "../../pages.ts";
 import {
   type MirrorPage,
   type MirrorPlan,
   pendingOf,
   refOfContent,
+  stampMark,
   stampRef,
+  US_MARK,
+  usOfContent,
 } from "./mirror.ts";
 
 export type MirrorResult = {
@@ -166,6 +169,98 @@ export async function adoptAsMirror(
   await updatePage(pageId, { content: stampRef(content, reference) });
 }
 
+/** Stamp the user story a story page was filed as. */
+export async function adoptAsUserStory(
+  pageId: string,
+  reference: string,
+): Promise<void> {
+  const pg = await db();
+  const row = (await pg.query(
+    `select content from pages where id=$1 and not deleted`,
+    [pageId],
+  )).rows[0] as { content: unknown } | undefined;
+  if (!row) throw new Error(`unknown page ${pageId}`);
+  const content = Array.isArray(row.content) ? row.content : [];
+  await updatePage(pageId, { content: stampMark(content, US_MARK, reference) });
+}
+
+export type PendingSession = {
+  sessionId: string;
+  title: string;
+  nextStep: string | null;
+  /** the story's user story reference — where the ticket files */
+  userStory: string;
+  storyTitle: string;
+  tagLabel: string;
+  specs: unknown[];
+};
+
+/**
+ * Sessions tagged for a mapping whose story is a filed user story, and whose
+ * specs page carries no ticket reference yet — the push side's second inbox.
+ *
+ * The story must already be a user story: a ticket needs a container, and
+ * filing the story first is what a single pass does (pages, then sessions).
+ */
+export async function loadPendingSessions(
+  mappings: { pageId: string; tagKey: string; tagLabel: string }[],
+): Promise<PendingSession[]> {
+  const stories = await storiesOwnedBy(mappings.map((m) => m.pageId));
+  const byStory = new Map<string, { us: string; title: string; tagLabel: string }>();
+  for (const s of stories) {
+    const us = usOfContent(s.content);
+    const m = mappings.find((m) => m.pageId === s.projectId);
+    if (us && m) byStory.set(s.id, { us, title: s.title, tagLabel: m.tagLabel });
+  }
+  if (byStory.size === 0) return [];
+
+  const pg = await db();
+  const rows = (await pg.query(
+    `select s.id, s.title, s.next_step, s.page_id, s.tags, specs.content as specs
+       from sessions s
+       left join pages specs on specs.id = s.specs_page_id and not specs.deleted
+      where not s.deleted and s.page_id = any($1::uuid[])
+      order by s.last_touched desc`,
+    [[...byStory.keys()]],
+  )).rows as {
+    id: string;
+    title: string;
+    next_step: string | null;
+    page_id: string;
+    tags: unknown;
+    specs: unknown;
+  }[];
+
+  const out: PendingSession[] = [];
+  for (const r of rows) {
+    const story = byStory.get(r.page_id)!;
+    const tags = Array.isArray(r.tags) ? r.tags as string[] : [];
+    const m = mappings.find((m) => m.tagLabel === story.tagLabel);
+    if (!m || !tags.includes(m.tagKey)) continue;
+    const specs = Array.isArray(r.specs) ? r.specs : [];
+    if (refOfContent(specs)) continue;
+    out.push({
+      sessionId: r.id,
+      title: r.title,
+      nextStep: r.next_step,
+      userStory: story.us,
+      storyTitle: story.title,
+      tagLabel: story.tagLabel,
+      specs,
+    });
+  }
+  return out;
+}
+
+/** Stamp the ticket a session was filed as on its specs page, creating the page if needed. */
+export async function adoptSessionAsFiled(
+  sessionId: string,
+  reference: string,
+): Promise<void> {
+  const specsId = await ensureSpecsPage(sessionId);
+  await adoptAsMirror(specsId, reference);
+}
+
 export type SyncedPage = {
   pageId: string;
   ref: string;
@@ -188,7 +283,9 @@ export async function loadSyncedPages(): Promise<SyncedPage[]> {
     `select p.id, p.title, p.content, p.updated_at, parent.title as parent_title
        from pages p
        left join pages parent on parent.id = p.parent_id and not parent.deleted
-      where not p.deleted and p.content::text like '%trame:cockpit_ref=%'
+      where not p.deleted
+        and (p.content::text like '%trame:cockpit_ref=%'
+          or p.content::text like '%trame:cockpit_us=%')
       order by p.updated_at desc`,
   )).rows as {
     id: string;
@@ -200,7 +297,8 @@ export async function loadSyncedPages(): Promise<SyncedPage[]> {
 
   const out: SyncedPage[] = [];
   for (const r of rows) {
-    const ref = refOfContent(Array.isArray(r.content) ? r.content : []);
+    const content = Array.isArray(r.content) ? r.content : [];
+    const ref = refOfContent(content) ?? usOfContent(content);
     if (!ref) continue;
     out.push({
       pageId: r.id,

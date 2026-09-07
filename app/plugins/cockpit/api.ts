@@ -118,6 +118,8 @@ export function createTicket(
     title: string;
     objective: string;
     description: string | null;
+    /** `US-…` reference of the user story the ticket files under, if any */
+    userStory?: string | null;
   },
 ): Promise<Created> {
   return call(baseUrl, token, `/tickets/create?${scopeQuery(scope)}`, {
@@ -126,6 +128,24 @@ export function createTicket(
       origin_id: body.originId,
       title: body.title,
       objective: body.objective,
+      description: body.description,
+      user_story: body.userStory ?? null,
+    }),
+  });
+}
+
+/** Create a user story — same idempotency contract as createTicket. */
+export function createUserStory(
+  baseUrl: string,
+  token: string,
+  scope: Scope,
+  body: { originId: string; title: string; description: string | null },
+): Promise<Created> {
+  return call(baseUrl, token, `/user-stories/create?${scopeQuery(scope)}`, {
+    method: "POST",
+    body: JSON.stringify({
+      origin_id: body.originId,
+      title: body.title,
       description: body.description,
     }),
   });

@@ -22,18 +22,27 @@ import {
 import {
   CockpitError,
   createTicket,
+  createUserStory,
   fetchDelta,
   fetchRefs,
   fetchScopes,
   probe,
   type Ticket,
 } from "./api.ts";
-import { groupByProject, planMirror, ticketFromPage } from "./mirror.ts";
 import {
-  adoptAsMirror,
+  groupByProject,
+  isSessionTicket,
+  planMirror,
+  ticketFromSession,
+  userStoryFromPage,
+} from "./mirror.ts";
+import {
+  adoptAsUserStory,
+  adoptSessionAsFiled,
   applyMirror,
   loadMirrorPages,
   loadPendingPages,
+  loadPendingSessions,
   loadSyncedPages,
   mappedProjectOf,
   type MirrorResult,
@@ -168,7 +177,10 @@ async function mirror(
   }
 
   const existing = await loadMirrorPages(pageId, mapped);
-  return applyMirror(pageId, planMirror(tickets, existing, live, tagsByRef));
+  // A ticket filed from a session has its home on that session's specs page;
+  // mirroring it as a story would make a second copy under the project.
+  const ours = tickets.filter((t) => !isSessionTicket(t));
+  return applyMirror(pageId, planMirror(ours, existing, live, tagsByRef));
 }
 
 async function pollOnce(): Promise<CockpitState> {
@@ -237,6 +249,42 @@ async function pollOnce(): Promise<CockpitState> {
         // One page failing must not stop the rest, nor the pull that follows.
         errors.push({
           scope: page.title,
+          error: e instanceof CockpitError
+            ? `${e.status} — ${e.message}`
+            : String((e as Error)?.message ?? e),
+        });
+      }
+    }
+
+    // Sessions after pages: a story filed just above is a user story now, so
+    // its tagged sessions can file under it in the same pass.
+    const sessions = await loadPendingSessions(
+      mappings.map((m) => ({
+        pageId: m.pageId,
+        tagKey: tagKey(mappingTagLabel(m)),
+        tagLabel: mappingTagLabel(m),
+      })),
+    );
+    for (const s of sessions) {
+      const mapping = mappings.find((m) => mappingTagLabel(m) === s.tagLabel);
+      const scope = mapping && scopeOf(mapping);
+      if (!scope) continue;
+      const fields = ticketFromSession(
+        { id: s.sessionId, title: s.title, next_step: s.nextStep },
+        s.specs,
+        s.userStory,
+      );
+      if ("error" in fields) {
+        skipped.push({ title: s.title, reason: fields.error });
+        continue;
+      }
+      try {
+        const made = await createTicket(baseUrl, token, scope, fields);
+        await adoptSessionAsFiled(s.sessionId, made.reference);
+        filed.push({ title: s.title, reference: made.reference });
+      } catch (e) {
+        errors.push({
+          scope: s.title,
           error: e instanceof CockpitError
             ? `${e.status} — ${e.message}`
             : String((e as Error)?.message ?? e),
@@ -329,7 +377,7 @@ async function pollOnce(): Promise<CockpitState> {
 }
 
 /**
- * File one Trame page as a Cockpit ticket, and stamp it with the reference.
+ * File one story page as a Cockpit user story, and stamp it with the reference.
  *
  * The scope comes from the mapping on the page's project — a page can only
  * ever reach a scope this device was told to sync. The stamp is what stops the
@@ -362,11 +410,11 @@ async function filePage(
     return { error: "This page is not under a mapped project.", status: 400 };
   }
 
-  const fields = ticketFromPage(page);
+  const fields = userStoryFromPage(page);
   if ("error" in fields) return { error: fields.error, status: 422 };
 
-  const made = await createTicket(baseUrl, token, scope, fields);
-  await adoptAsMirror(pageId, made.reference);
+  const made = await createUserStory(baseUrl, token, scope, fields);
+  await adoptAsUserStory(pageId, made.reference);
   return made;
 }
 

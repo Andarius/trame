@@ -14,6 +14,10 @@ import { readMarks, stripMarks, writeMark } from "../../todo-marks.ts";
 import type { Ticket } from "./api.ts";
 
 export const REF_MARK = "cockpit_ref";
+/** A story filed as a user story carries this instead: it is a container, not a ticket mirror. */
+export const US_MARK = "cockpit_us";
+/** Tickets filed from sessions carry this origin prefix, so the pull leaves them alone. */
+export const SESSION_ORIGIN = "session:";
 
 /** A mirrored page as the planner needs to see it. */
 export type MirrorPage = {
@@ -111,17 +115,29 @@ export function ticketBlocks(t: Ticket): PageBlock[] {
   ];
 }
 
-/** The ticket a mirrored page stands for, or null when it is not one of ours. */
-export function refOfContent(content: unknown[]): string | null {
+function markOfContent(content: unknown[], key: string): string | null {
   for (const b of content) {
     if (typeof b !== "object" || b === null) continue;
     const text = (b as { text?: unknown }).text;
     if (typeof text !== "string") continue;
-    const ref = readMarks(text)[REF_MARK];
+    const ref = readMarks(text)[key];
     if (ref) return ref;
   }
   return null;
 }
+
+/** The ticket a mirrored page stands for, or null when it is not one of ours. */
+export const refOfContent = (content: unknown[]): string | null =>
+  markOfContent(content, REF_MARK);
+
+/** The user story a story page was filed as, or null. */
+export const usOfContent = (content: unknown[]): string | null =>
+  markOfContent(content, US_MARK);
+
+/** A ticket the push side made from a session — the pull must not mirror it. */
+export const isSessionTicket = (t: Ticket): boolean =>
+  String((t.meta?.sync as { origin_id?: unknown } | undefined)?.origin_id ?? "")
+    .startsWith(SESSION_ORIGIN);
 
 /** A mapping, as the pending filter needs to see it. */
 export type TagMapping = { pageId: string; tagKey: string; tagLabel: string };
@@ -149,7 +165,7 @@ export function pendingOf<T extends PendingCandidate>(
 ): { page: T; tagLabel: string }[] {
   const out: { page: T; tagLabel: string }[] = [];
   for (const page of candidates) {
-    if (refOfContent(page.content)) continue;
+    if (refOfContent(page.content) || usOfContent(page.content)) continue;
     const m = mappings.find((m) =>
       m.pageId === page.projectId && page.tags.includes(m.tagKey)
     );
@@ -295,14 +311,11 @@ export function groupByProject<S>(rows: Drained<S>[]): ProjectGroup<S>[] {
 }
 
 /**
- * What a Trame page offers Cockpit when it becomes a ticket.
- *
- * `objective` is mandatory server-side — it is the "why", and a ticket without
- * one is noise in a shared tracker. The page's own summary line is the natural
- * source; failing that, its first paragraph. We do NOT invent one: a page with
- * nothing to say should be refused, not filed with a placeholder.
+ * What a story page files as: a user story — the container its sessions'
+ * tickets go under. The brief is required (it is the story's "why"), and
+ * becomes the description together with the body.
  */
-export function ticketFromPage(page: {
+export function userStoryFromPage(page: {
   id: string;
   title: string;
   brief?: string;
@@ -310,38 +323,85 @@ export function ticketFromPage(page: {
 }): {
   originId: string;
   title: string;
-  objective: string;
   description: string | null;
 } | { error: string } {
   const title = page.title.trim();
   if (title.length < 3) {
     return { error: "The page needs a title of at least 3 characters." };
   }
+  const brief = (page.brief ?? "").trim();
+  if (!brief) {
+    return { error: "The page needs a summary — it becomes the user story's description." };
+  }
+  const paragraphs = textParagraphs(page.content);
+  return {
+    originId: page.id,
+    title,
+    description: [brief, ...paragraphs].join("\n\n"),
+  };
+}
 
-  const paragraphs = page.content.flatMap((b) => {
+function textParagraphs(content: unknown[]): string[] {
+  return content.flatMap((b) => {
     if (typeof b !== "object" || b === null) return [];
     const { type, text } = b as { type?: unknown; text?: unknown };
     if (type !== "text" || typeof text !== "string") return [];
     const t = stripMarks(text).trim();
     return t ? [t] : [];
   });
+}
 
-  const objective = (page.brief ?? "").trim() || paragraphs[0] || "";
-  if (!objective) {
-    return {
-      error:
-        "The page needs a summary or a first paragraph — Cockpit requires an objective.",
-    };
+/**
+ * Cockpit's description contract is strict: one `### Specs` heading, then
+ * bullets — no other headings, no checkboxes, no bold-only lines, no emoji.
+ * A specs page is freer than that, so every text or todo block becomes one
+ * bullet and headings are dropped: their words live on in the bullets below.
+ */
+export function specsDescription(content: unknown[]): string | null {
+  const bullets = content.flatMap((b) => {
+    if (typeof b !== "object" || b === null) return [];
+    const { type, text } = b as { type?: unknown; text?: unknown };
+    if ((type !== "text" && type !== "todo") || typeof text !== "string") return [];
+    const t = stripMarks(text)
+      .replace(/\p{Extended_Pictographic}|[\u{FE0F}\u{20E3}]/gu, "")
+      .replace(/^\s*[-*]\s*\[[ xX]\]\s*/, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    return t ? [`- ${t}`] : [];
+  });
+  return bullets.length ? ["### Specs", ...bullets].join("\n") : null;
+}
+
+/**
+ * What a session files as: a ticket under its story's user story. The
+ * objective is the session's next step — the one line that says what the
+ * work is — falling back to the first paragraph of its specs.
+ */
+export function ticketFromSession(
+  session: { id: string; title: string; next_step: string | null },
+  specs: unknown[],
+  userStory: string,
+): {
+  originId: string;
+  title: string;
+  objective: string;
+  description: string | null;
+  userStory: string;
+} | { error: string } {
+  const title = session.title.trim();
+  if (title.length < 3) {
+    return { error: "The session needs a title of at least 3 characters." };
   }
-
-  // The objective is already carried on its own; repeating it as the first
-  // line of the description would read as a duplicate in Cockpit's UI.
-  const rest = paragraphs.filter((t) => t !== objective);
+  const objective = (session.next_step ?? "").trim() || textParagraphs(specs)[0] || "";
+  if (!objective) {
+    return { error: "The session needs a next step or a specs paragraph — Cockpit requires an objective." };
+  }
   return {
-    originId: page.id,
+    originId: `${SESSION_ORIGIN}${session.id}`,
     title,
     objective,
-    description: rest.length ? rest.join("\n\n") : null,
+    description: specsDescription(specs),
+    userStory,
   };
 }
 
@@ -353,6 +413,10 @@ export function ticketFromPage(page: {
  * ticket — which would discard whatever they had written.
  */
 export function stampRef(content: unknown[], reference: string): unknown[] {
+  return stampMark(content, REF_MARK, reference);
+}
+
+export function stampMark(content: unknown[], key: string, value: string): unknown[] {
   const at = content.findIndex((b) =>
     typeof b === "object" && b !== null &&
     typeof (b as { text?: unknown }).text === "string"
@@ -362,15 +426,13 @@ export function stampRef(content: unknown[], reference: string): unknown[] {
       ...content,
       {
         type: "text",
-        text: `{{trame:${REF_MARK}=${reference}}}`,
+        text: `{{trame:${key}=${value}}}`,
         id: crypto.randomUUID(),
       },
     ];
   }
   const block = content[at] as { text: string };
   return content.map((b, i) =>
-    i === at
-      ? { ...block, text: writeMark(block.text, REF_MARK, reference) }
-      : b
+    i === at ? { ...block, text: writeMark(block.text, key, value) } : b
   );
 }
