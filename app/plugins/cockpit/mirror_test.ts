@@ -7,9 +7,11 @@ import {
   planMirror,
   REF_MARK,
   refOfContent,
+  specsDescription,
   ticketBlocks,
-  ticketFromPage,
+  ticketFromSession,
   ticketMarkdown,
+  userStoryFromPage,
 } from "./mirror.ts";
 import type { Ticket } from "./api.ts";
 
@@ -298,64 +300,87 @@ const pageFor = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-Deno.test("ticketFromPage takes the objective from the summary", () => {
-  const out = ticketFromPage(pageFor({ brief: "Prod keys are stale." }));
-  assertEquals("error" in out, false);
+Deno.test("userStoryFromPage needs a summary, and folds it into the description", () => {
+  const out = userStoryFromPage(pageFor({ brief: "Prod keys are stale." }));
+  assertEquals(out, {
+    originId: "01a0581d-2a5b-7000-a6c8-3fa7a72789c1",
+    title: "Rotate the prod keys",
+    description:
+      "Prod keys are stale.\n\nThe keys date from March.\n\nRotate, then revoke the old ones.",
+  });
+  assertEquals("error" in userStoryFromPage(pageFor()), true); // body alone is not a why
   assertEquals(
-    (out as { objective: string }).objective,
-    "Prod keys are stale.",
+    "error" in userStoryFromPage(pageFor({ brief: "why", title: "ab" })),
+    true,
   );
 });
 
-Deno.test("ticketFromPage falls back to the first paragraph", () => {
-  const out = ticketFromPage(pageFor()) as {
-    objective: string;
-    description: string;
-  };
-  assertEquals(out.objective, "The keys date from March.");
-  // and does not repeat it in the description
-  assertEquals(out.description, "Rotate, then revoke the old ones.");
-});
-
-Deno.test("ticketFromPage refuses a page with nothing to say", () => {
-  const out = ticketFromPage(pageFor({ content: [] }));
-  assertEquals("error" in out, true);
-});
-
-Deno.test("ticketFromPage files a brief alone — the body is optional", () => {
-  const out = ticketFromPage(
-    pageFor({ brief: "Prod keys are stale.", content: [] }),
-  ) as {
-    objective: string;
-    description: string | null;
-  };
-  assertEquals(out.objective, "Prod keys are stale.");
-  assertEquals(out.description, null);
-});
-
-Deno.test("ticketFromPage refuses a title too short for Cockpit", () => {
-  // The server enforces 3-200; failing here gives a better message than a 422.
-  assertEquals("error" in ticketFromPage(pageFor({ title: "ab" })), true);
-});
-
-Deno.test("ticketFromPage carries the page id as the idempotency key", () => {
-  const out = ticketFromPage(pageFor({ brief: "why" })) as { originId: string };
-  assertEquals(out.originId, "01a0581d-2a5b-7000-a6c8-3fa7a72789c1");
-});
-
-Deno.test("ticketFromPage ignores marks when reading a paragraph", () => {
-  const out = ticketFromPage(pageFor({
+Deno.test("userStoryFromPage ignores marks when reading a paragraph", () => {
+  const out = userStoryFromPage(pageFor({
+    brief: "why",
     content: [{
       type: "text",
-      text: "Why it matters {{trame:created_at=2026-09-02}}",
+      text: "How {{trame:created_at=2026-09-02}}",
       id: "b1",
-    }, { type: "text", text: "And how.", id: "b2" }],
-  })) as { objective: string };
-  assertEquals(out.objective, "Why it matters");
+    }],
+  })) as { description: string };
+  assertEquals(out.description, "why\n\nHow");
 });
 
-// The push side's inbox. The guard that matters is the reference: filing a page
-// that already stands for a ticket would mint a SECOND ticket for it.
+const SPECS = [
+  { type: "heading", text: "Open", id: "h1" },
+  {
+    type: "todo",
+    text: "- [ ] Restrict the identity {{trame:created_at=2026-09-05}}",
+    id: "t1",
+  },
+  { type: "heading", text: "Finding R01 — P1", id: "h2" },
+  {
+    type: "text",
+    text: "The deploy identity reads every ops secret ⚠️.",
+    id: "p1",
+  },
+  { type: "text", text: "  ", id: "p2" },
+];
+
+Deno.test("specsDescription meets Cockpit's contract: one heading, bullets, nothing else", () => {
+  // Headings, checkboxes, marks and emoji are all refused by Cockpit's validator.
+  assertEquals(
+    specsDescription(SPECS),
+    "### Specs\n- Restrict the identity\n- The deploy identity reads every ops secret .",
+  );
+  assertEquals(specsDescription([]), null);
+});
+
+Deno.test("ticketFromSession takes the objective from next_step, then the specs", () => {
+  const session = {
+    id: "s1",
+    title: "sre-config — R01",
+    next_step: "Restrict the identity.",
+  };
+  const out = ticketFromSession(session, SPECS, "US-7");
+  assertEquals(out, {
+    originId: "session:s1",
+    title: "sre-config — R01",
+    objective: "Restrict the identity.",
+    description:
+      "### Specs\n- Restrict the identity\n- The deploy identity reads every ops secret .",
+    userStory: "US-7",
+  });
+  const fromSpecs = ticketFromSession(
+    { ...session, next_step: null },
+    SPECS,
+    "US-7",
+  );
+  assertEquals(
+    (fromSpecs as { objective: string }).objective,
+    "The deploy identity reads every ops secret ⚠️.",
+  );
+  assertEquals(
+    "error" in ticketFromSession({ ...session, next_step: "" }, [], "US-7"),
+    true,
+  );
+});
 
 const candidate = (
   pageId: string,
@@ -393,6 +418,16 @@ Deno.test("pendingOf skips a page that already carries a reference", () => {
         ["cockpit-devops"],
         "{{trame:cockpit_ref=CKP-9}}",
       )],
+      MAPPINGS,
+    ),
+    [],
+  );
+});
+
+Deno.test("pendingOf skips a story already filed as a user story", () => {
+  assertEquals(
+    pendingOf(
+      [candidate("a", "proj", ["cockpit-devops"], "{{trame:cockpit_us=US-3}}")],
       MAPPINGS,
     ),
     [],

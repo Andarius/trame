@@ -224,7 +224,7 @@ server.tool(
 
 server.tool(
   "trame_new_story",
-  "Create a story (the epic sessions ladder up to). Include the brief: what are we trying to achieve, and 'done when'. A story bound for Cockpit needs that brief: it becomes the ticket's objective, and the filer skips a story without one.",
+  "Create a story (the epic sessions ladder up to). Include the brief: what are we trying to achieve, and 'done when'. A story bound for Cockpit needs that brief: the story files as a user story (the brief is its description), and each session tagged for Cockpit files as a ticket under it.",
   {
     title: z.string(),
     brief: z.string().optional(),

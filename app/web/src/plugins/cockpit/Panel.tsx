@@ -61,8 +61,12 @@ const STATUS: Record<string, { label: string; color: string }> = {
 
 const PRIORITY = ["", "low", "medium", "high", "urgent"];
 
-const ticketUrl = (baseUrl: string, ref: string) =>
-  `${baseUrl.replace(/\/+$/, "")}/ticket/${encodeURIComponent(ref)}`;
+const ticketUrl = (baseUrl: string, ref: string) => {
+  const base = baseUrl.replace(/\/+$/, "");
+  return ref.startsWith("US-")
+    ? `${base}/cockpit?u=${encodeURIComponent(ref)}`
+    : `${base}/ticket/${encodeURIComponent(ref)}`;
+};
 
 export function CockpitPanel(
   { onOpenSettings, onOpenPage }: {

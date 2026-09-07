@@ -171,3 +171,48 @@ Deno.test("a parent cycle terminates and owns nothing", async () => {
   assertEquals(await loadPendingPages([mapping(project)]), []);
   assertEquals(await mappedProjectOf(a, [project]), null);
 });
+
+Deno.test("a tagged session under a filed user story is pending, once", async () => {
+  const { createPage, getPage } = await import("../../pages.ts");
+  const { upsertSession } = await import("../../db.ts");
+  const { adoptAsUserStory, adoptSessionAsFiled, loadPendingSessions } =
+    await import(
+      "./mirror-store.ts"
+    );
+  const project = await createPage({ title: "US-land", kind: "project" });
+  const story = await createPage({
+    title: "Hardening",
+    kind: "story",
+    parent_id: project,
+    tags: [TAG],
+  });
+  const tagged = await upsertSession({
+    title: "sre — R01",
+    page_id: story,
+    tags: [TAG],
+    next_step: "Restrict the identity.",
+  });
+  await upsertSession({ title: "sre — untagged", page_id: story });
+
+  // no user story yet: nothing to file under
+  assertEquals(await loadPendingSessions([mapping(project)]), []);
+
+  await adoptAsUserStory(story, "US-9");
+  const pending = await loadPendingSessions([mapping(project)]);
+  assertEquals(pending.map((p) => [p.sessionId, p.userStory, p.storyTitle]), [
+    [tagged, "US-9", "Hardening"],
+  ]);
+  // the story itself is no longer a pending page either
+  const { loadPendingPages } = await import("./mirror-store.ts");
+  assertEquals(await loadPendingPages([mapping(project)]), []);
+
+  await adoptSessionAsFiled(tagged, "GEN-42");
+  assertEquals(await loadPendingSessions([mapping(project)]), []);
+  const { getSession } = await import("../../db.ts");
+  const specsId = (await getSession(tagged))!.specs_page_id as string;
+  const specs = await getPage(specsId) as unknown as { content: unknown[] };
+  assertEquals(
+    JSON.stringify(specs.content).includes("cockpit_ref=GEN-42"),
+    true,
+  );
+});
