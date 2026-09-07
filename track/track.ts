@@ -14,6 +14,7 @@ type Input = {
   status?: string;
   client?: string;
   story?: string;
+  tags?: string[];
   repo_path?: string;
   branch?: string;
   next_step?: string;

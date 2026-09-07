@@ -75,13 +75,14 @@ the page and reuse it for the PR.`;
 // skills/trame-track/fields.md).
 export const TRACK_FIELDS =
   `Only \`title\` is required. Send the full object on every update — an omitted field is
-cleared, except the transcript linkage. In markdown (\`summary\`, specs), reference PRs/MRs
+cleared, except transcript linkage, the story anchor, and tags. In markdown (\`summary\`, specs), reference PRs/MRs
 by full URL, never a bare \`#42\` — full links render as badges.
 
 - \`title\` — \`<repo-basename> — <short topic>\`; the card's heading.
 - \`status\` — column key, inferred from the conversation: default \`active\`; \`paused\`, \`blocked\`, \`done\` only if evident. Columns are user-editable and an unknown key is parked on the first column — when unsure of a key (or an existing project/story name), \`GET /api/board\` returns them all (\`statuses\`, \`projects\`, \`stories\`).
 - \`client\` — **Project** name, resolved/created server-side. From the working dir: \`TRACKER_CLIENTS\` is a JSON map of path segment → project or \`{"project":"…","tags":["…"],"repos":["…"]}\` (e.g. \`{"Work":{"project":"Soren","tags":["infra"]}}\` files a \`/Work/\` repo — or a \`…-Work-…\` scratchpad worktree — under **Soren**, stamping the tags on newly minted stories — only for whitelisted \`repos\` when set); no match → **Side-projects**.
 - \`story\` — **Story** the session serves, found-or-created by name under the project; only if evident.
+- \`tags\` — optional array of session tag keys from \`GET /api/tags\`, e.g. \`["priority-p1", "cockpit-devops"]\`. Omission preserves existing tags; \`[]\` clears them. Independent of story and specs-page tags. Create vocabulary labels such as \`priority:P1\` with \`POST /api/tags {"label":"priority:P1"}\`; store the returned \`key\`.
 - \`repo_path\` — the working dir (with \`branch\`, the upsert key among open sessions). A planned card (open, no branch) on the repo is adopted by the first track naming its story — or by any first track when it has no story anchor.
 - \`branch\` — current git branch.
 - \`next_step\` — one imperative line: the very next thing to do on resume; incorporate the user's note.

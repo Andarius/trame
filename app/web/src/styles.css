@@ -31,6 +31,11 @@
   --color-block: #0e1014;
   --color-chip-active-bg: #12291d;
   --color-chip-active-border: #1d4531;
+
+  /* Tag pills mix their stored hue with the ink of the current theme, so one hex
+     reads right in both. These two knobs are the whole difference between them. */
+  --tag-tint: 18%;
+  --tag-shade: 18%;
 }
 
 /* Light overrides: prefers-color-scheme covers "system" (no data-theme attr);
@@ -59,6 +64,9 @@
     --color-block: #eef0f3;
     --color-chip-active-bg: #e3f7ea;
     --color-chip-active-border: #bfe8cc;
+
+    --tag-tint: 14%;
+    --tag-shade: 26%;
   }
 }
 :root[data-theme="light"] {
@@ -83,6 +91,9 @@
   --color-block: #eef0f3;
   --color-chip-active-bg: #e3f7ea;
   --color-chip-active-border: #bfe8cc;
+
+  --tag-tint: 14%;
+  --tag-shade: 26%;
 }
 
 /* Dark is the unconditional fallback (matches @theme above), so no explicit

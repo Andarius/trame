@@ -227,6 +227,7 @@ Deno.test("a same-title project from a second node merges into the incumbent", a
       branch: null,
       next_step: null,
       specs_page_id: null,
+      tags: ["priority-p1", "infra"],
       pr_url: null,
       summary: "",
       claude_id: null,
@@ -255,10 +256,16 @@ Deno.test("a same-title project from a second node merges into the incumbent", a
   )).rows[0] as { client_id: string; parent_id: string };
   assertEquals(st, { client_id: OLD, parent_id: OLD });
   const se = (await pg.query(
-    `select client_id from sessions where id=$1`,
+    `select client_id, tags from sessions where id=$1`,
     [SESS],
-  )).rows[0] as { client_id: string };
+  )).rows[0] as { client_id: string; tags: string[] };
   assertEquals(se.client_id, OLD);
+  assertEquals(se.tags, ["priority-p1", "infra"]);
+  const snapshot = await (await sync({ cursor: null, mutations: [] })).json() as SyncResponse;
+  assertEquals(
+    snapshot.changes.find((c) => c.entity === "sessions" && c.id === SESS)?.value?.tags,
+    ["priority-p1", "infra"],
+  );
   const live = (await pg.query(
     `select id from pages where kind='project' and title='Obitrain' and not deleted`,
   )).rows;

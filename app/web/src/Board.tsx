@@ -13,12 +13,13 @@ import { useRef, useState } from "react";
 import type { BoardData, Session, Status } from "./api.ts";
 import {
   ClientChip,
-  inSubtree,
+  matchesSessionFilter,
   ObjectiveChip,
   pageGlyph,
   pagesById,
   projectOf,
   sessionAnchor,
+  sessionTagKeys,
   shiftRange,
   statusStyle,
   StatusDot,
@@ -57,7 +58,10 @@ function TicketBody(
           onClick={onFilterStory ? () => onFilterStory(chipPage.id) : undefined}
         />
       )}
-      {chipPage && <TagChips keys={board.stories.find((x) => x.id === chipPage.id)?.tags} />}
+      <TagChips
+        keys={sessionTagKeys(s, byId)}
+        onClick={onFilterStory ? (key) => onFilterStory(`tag:${key}`) : undefined}
+      />
       <div className="flex items-center gap-1.5">
         {client && (
           <ClientChip
@@ -236,7 +240,7 @@ export function Board(
   // clicking a card's story chip narrows the board to that story's SUBTREE
   // (drag still uses the full set)
   const scoped = storyFilter?.length
-    ? board.sessions.filter((s) => storyFilter.some((f) => inSubtree(s, f, byId)))
+    ? board.sessions.filter((s) => storyFilter.some((f) => matchesSessionFilter(s, f, byId)))
     : board.sessions;
   // "no specs" = no specs page, or one that was deleted since (board.pages is live)
   const visible = noSpecs

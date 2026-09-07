@@ -329,6 +329,7 @@ alter table pages add column if not exists color text;
 -- jsonb et pas text[] : rien dans ce schéma n'utilise de tableau natif, alors
 -- que `content` et `views` sont déjà en jsonb.
 alter table pages add column if not exists tags jsonb not null default '[]';
+alter table sessions add column if not exists tags jsonb not null default '[]';
 -- « story » désignait à la fois cette colonne et kind='story' — l'énoncé du but, c'est le brief.
 do $$ begin
   if exists (select 1 from information_schema.columns

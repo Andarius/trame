@@ -4,6 +4,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { v5 } from "@std/uuid";
 import { APP_ROOT, DATA_DIR, defaultTagsFor, NODE_ID, OUTBOX } from "./config.ts";
 import { pageBlocksToMarkdown } from "./page-markdown.ts";
+import { tagColor, tagKey } from "./tags.ts";
 import { midKey } from "./udb.ts";
 
 // Memoize a single init PROMISE so concurrent callers all await the same fully-initialized
@@ -69,7 +70,7 @@ export async function getBoard() {
   const stories = (await pg.query(`select * from pages where kind='story' and not deleted order by title`)).rows;
   const sessions = (await pg.query(`select * from sessions where not deleted order by last_touched desc`)).rows;
   const pages = (await pg.query(
-    `select id, parent_id, kind, title, icon, client_id, color from pages where not deleted order by title`,
+    `select id, parent_id, kind, title, icon, client_id, color, tags from pages where not deleted order by title`,
   )).rows;
   const statuses = (await pg.query(
     `select id, key, label, color, terminal, sort_key from statuses where not deleted order by sort_key`,
@@ -242,7 +243,13 @@ async function resolveStatusKey(pg: PGlite, key: unknown): Promise<string> {
   return rows.some((r) => r.key === want) ? want : rows[0].key;
 }
 
+export class SessionTagsError extends Error {}
+
 export async function upsertSession(s: Record<string, unknown>): Promise<string> {
+  if (s.tags !== undefined && (!Array.isArray(s.tags) ||
+    s.tags.some((tag) => typeof tag !== "string" || !tag.trim()))) {
+    throw new SessionTagsError("tags must be an array of non-empty tag keys");
+  }
   const pg = await db();
   // claude_id is the column name; the public writer says agent_id (Claude or Codex).
   s.claude_id ??= s.agent_id;
@@ -315,17 +322,19 @@ export async function upsertSession(s: Record<string, unknown>): Promise<string>
   // page_id is tri-state: absent = keep (a track call is not a detach), null = detach.
   await pg.query(
     `insert into sessions
-       (id,title,status,client_id,page_id,repo_path,branch,next_step,pr_url,summary,claude_id,agent,last_touched,origin,updated_at)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$12,$13,now(),$11,now())
+       (id,title,status,client_id,page_id,repo_path,branch,next_step,pr_url,summary,claude_id,agent,last_touched,origin,updated_at,tags)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$12,$13,now(),$11,now(),$16::jsonb)
      on conflict (id) do update set
        title=$2,status=$3,client_id=$4,repo_path=$6,branch=$7,
        page_id=case when $14 then $5 else sessions.page_id end,
+       tags=case when $15 then excluded.tags else sessions.tags end,
        next_step=$8,pr_url=$9,summary=$10,claude_id=coalesce($12,sessions.claude_id),
        agent=coalesce($13,sessions.agent),
        last_touched=now(),origin=$11,updated_at=now()`,
     [id, s.title, await resolveStatusKey(pg, s.status), s.client_id ?? null, s.page_id ?? null,
       s.repo_path ?? null, s.branch ?? null, s.next_step ?? null, s.pr_url ?? null, s.summary ?? "", NODE_ID,
-      s.claude_id ?? null, s.agent ?? null, s.page_id !== undefined],
+      s.claude_id ?? null, s.agent ?? null, s.page_id !== undefined,
+      s.tags !== undefined, JSON.stringify(s.tags ?? [])],
   );
   return id;
 }
@@ -368,9 +377,8 @@ export async function setSessionStatus(id: string, status: string): Promise<void
 const TAG_NS = "3c9e0b71-2f45-4d18-a6c3-8e5417b9d0aa";
 export const tagId = (key: string) => v5.generate(TAG_NS, new TextEncoder().encode(key));
 
-export const tagKey = (label: string) =>
-  label.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+// Re-exported: the slug rule now lives in tags.ts, which the web bundle can import too.
+export { tagKey };
 
 // Find-or-create a tag by label. Unlike a status, a clash is the POINT: two people
 // typing "DevOps" must land on ONE tag, not on `devops-2`. The id falls out of the key
@@ -386,7 +394,7 @@ export async function ensureTag(t: { label: string; color?: string }): Promise<{
      values ($1,$2,$3,$4,$5,$6)
      on conflict (id) do update set
        label=excluded.label, deleted=false, origin=excluded.origin, updated_at=now()`,
-    [id, key, t.label, t.color ?? "#6b7280", midKey(last.k ?? "", ""), NODE_ID],
+    [id, key, t.label, t.color ?? tagColor(key), midKey(last.k ?? "", ""), NODE_ID],
   );
   return { id, key };
 }
@@ -593,6 +601,7 @@ export async function getSession(id: string, eventLimit = 20) {
     pr_url: s.pr_url,
     next_step: s.next_step,
     specs_page_id: s.specs_page_id ?? null,
+    tags: s.tags,
     specs: specPage ? pageBlocksToMarkdown(specPage.content ?? []) : null,
     project: project && { id: project.id, name: project.title },
     story,

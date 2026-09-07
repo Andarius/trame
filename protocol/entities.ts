@@ -4,7 +4,8 @@
 // v3: dropped the frozen `clients` entity and the `objective_id` columns.
 // v4: sessions specs text column replaced by specs_page_id (specs are pages).
 // v5: tags entity + pages.tags (the keys a page carries); pages.story renamed to brief.
-export const PROTOCOL_VERSION = 5;
+// v6: session-owned tags, independent of story and specs-page tags.
+export const PROTOCOL_VERSION = 6;
 
 export const ENTITIES = [
   {
@@ -123,6 +124,7 @@ export const ENTITIES = [
       "branch",
       "next_step",
       "specs_page_id",
+      "tags",
       "pr_url",
       "summary",
       "claude_id",

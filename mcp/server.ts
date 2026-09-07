@@ -194,6 +194,8 @@ server.tool(
     status: z.enum(["active", "paused", "blocked", "done"]).optional(),
     client: z.string().optional(),
     story: z.string().optional(),
+    tags: z.array(z.string().trim().min(1)).optional()
+      .describe("Session tag keys from /api/tags, e.g. priority-p1. Omit to preserve; [] clears. Independent of story/specs tags."),
     repo_path: z.string().optional(),
     branch: z.string().optional(),
     next_step: z.string().optional(),

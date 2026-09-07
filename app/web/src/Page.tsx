@@ -2792,10 +2792,6 @@ export function Page(
                 )}
               </div>
             )}
-            <TagEditor
-              tags={page.tags ?? []}
-              onChange={(tags) => patch({ tags })}
-            />
             <div className="flex shrink-0 items-center gap-1.5 pl-1">
               {(() => {
                 // agents with comments on this page but no live watcher heartbeat;
@@ -2834,7 +2830,7 @@ export function Page(
           {(() => {
             const created = uuid7Time(page.id);
             return (
-              <div className="-mt-2.5 flex items-center gap-1.5 px-1 text-[10.5px] text-ink-muted/70">
+              <div className="-mt-2.5 flex flex-wrap items-center gap-1.5 px-1 text-[10.5px] text-ink-muted/70">
                 {created && (
                   <span title={created.toLocaleString()}>
                     Created {created.toLocaleDateString(undefined, {
@@ -2873,6 +2869,11 @@ export function Page(
                 >
                   markdown
                 </button>
+                {/* with the metadata, not on the title row — there they fought the title for space */}
+                <TagEditor
+                  tags={page.tags ?? []}
+                  onChange={(tags) => patch({ tags })}
+                />
               </div>
             );
           })()}

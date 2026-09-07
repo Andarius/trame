@@ -67,6 +67,7 @@ import {
   pageGlyph,
   Popover,
   setStatuses,
+  TagChips,
 } from "./ui";
 import { FRONTEND_PLUGINS } from "./plugins";
 import { PluginsModal } from "./plugins/PluginsModal";
@@ -165,7 +166,7 @@ function GearIcon({ size = 15 }: { size?: number }) {
 }
 
 // active session-filter chips plus an autocomplete input to add more
-// stories/projects; sessions shown are the union of the selected subtrees
+// stories/projects/tags; sessions shown are the union of the selected filters
 function FilterBar(
   { pages, filter, onToggle, onClear }: {
     pages: BoardData["pages"];
@@ -211,12 +212,14 @@ function FilterBar(
             title="Remove filter"
             className="flex max-w-full shrink-0 items-center gap-1.5 rounded-md border border-copper/50 px-2 py-1 text-[11.5px] text-copper hover:bg-copper/10"
           >
-            <EntityIcon
-              icon={fp?.icon}
-              fallback={pageGlyph(fp?.kind ?? "story")}
-              className="shrink-0 text-[9px]"
-            />
-            <span className="truncate">{fp?.title ?? "story"}</span>
+            {id.startsWith("tag:") ? <TagChips keys={[id.slice(4)]} /> : <>
+              <EntityIcon
+                icon={fp?.icon}
+                fallback={pageGlyph(fp?.kind ?? "story")}
+                className="shrink-0 text-[9px]"
+              />
+              <span className="truncate">{fp?.title ?? "story"}</span>
+            </>}
             <span className="shrink-0 text-[11px]">✕</span>
           </button>
         );
