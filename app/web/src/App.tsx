@@ -50,6 +50,7 @@ import { Board } from "./Board";
 import { Drawer } from "./Drawer";
 import { Explore } from "./Explore";
 import { List } from "./List";
+import { SessionSort, sortSessionBoard, type Sort } from "./SessionSort";
 import {
   ImportClaudeModal,
   NewSessionModal,
@@ -1107,6 +1108,8 @@ export function App() {
   const [storyFilter, setStoryFilter] = useState<string[]>(
     params.get("story")?.split(",").filter(Boolean) ?? [],
   );
+  const [sessionSort, setSessionSort] = useState<Sort[]>([{ key: "touched", dir: -1 }]);
+  const sortedBoard = useMemo(() => board ? sortSessionBoard(board, sessionSort) : null, [board, sessionSort]);
   // "only sessions without a specs page" — a triage lens, mirrored to the URL
   const [noSpecs, setNoSpecs] = useState(params.get("nospecs") === "1"); // narrow sessions to the selected stories/projects (subtree union)
   const toggleStoryFilter = (id: string) =>
@@ -1818,12 +1821,13 @@ export function App() {
             </>
           )}
         </header>
+        {isSessions && <SessionSort sort={sessionSort} onChange={setSessionSort} />}
         {!board
           ? <p className="p-6 text-ink-muted">Loading…</p>
           : view === "board"
           ? (
             <Board
-              board={board}
+              board={sortedBoard ?? board}
               group={group}
               onMove={onMove}
               onOpen={(id) => openSession(id)}
@@ -1840,7 +1844,9 @@ export function App() {
           : view === "list"
           ? (
             <List
-              board={board}
+              board={sortedBoard ?? board}
+              sort={sessionSort}
+              onSortChange={setSessionSort}
               onOpen={(id) => openSession(id)}
               onOpenFull={(id) => openSession(id, true)}
               noSpecs={noSpecs}
