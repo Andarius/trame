@@ -13,6 +13,7 @@ import { getPluginSettings, isPluginEnabled } from "../settings.ts";
 import { ensureTag, tagKey } from "../../db.ts";
 import {
   type Mapping,
+  mappingFor,
   mappingTagLabel,
   parseMappings,
   type Scope,
@@ -314,7 +315,9 @@ async function pollOnce(): Promise<CockpitState> {
   if (wantsMirror) {
     const groups = groupByProject(
       drained.map((d) => ({
-        pageId: d.m.pageId,
+        // mirror: false keeps the scope out of the pull — its tickets stay in
+        // the panel, none of them becomes a story page.
+        pageId: d.m.mirror === false ? "" : d.m.pageId,
         scope: d.scope,
         // The mapping names the tag — the scope's slug by default, always
         // under `cockpit:` — so a shared project says which product each
@@ -397,6 +400,7 @@ async function filePage(
     title: string;
     brief?: string;
     content: unknown[];
+    tags?: string[];
   } | null;
   if (!page) return { error: "unknown page", status: 404 };
 
@@ -404,7 +408,7 @@ async function filePage(
     page.id,
     mappings.map((m) => m.pageId),
   );
-  const mapping = mappings.find((m) => m.pageId === projectId);
+  const mapping = mappingFor(mappings, projectId, page.tags ?? [], tagKey);
   const scope = mapping && scopeOf(mapping);
   if (!scope) {
     return { error: "This page is not under a mapped project.", status: 400 };

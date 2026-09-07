@@ -12,6 +12,10 @@ export type Mapping = {
   // Trame project page the mirrored stories live under. Empty until phase 3
   // needs it; the editor collects it now so the mapping is complete.
   pageId: string;
+  // False = file tagged pages and sessions into this scope, but do not pull its
+  // tickets back as story pages. Absent = true. A product with hundreds of
+  // tickets can hold one of your stories without flooding the project.
+  mirror?: boolean;
   // Suffix of the tag stamped on this mapping's pages, and of the one that
   // offers to file a page as a ticket. Empty = the scope's own slug, which is
   // the sane default but a poor fit when your vocabulary already names the
@@ -89,6 +93,7 @@ export function parseMappings(raw: unknown): Mapping[] {
       flow: typeof e.flow === "string" ? e.flow.trim() : undefined,
       pageId: typeof e.pageId === "string" ? e.pageId.trim() : "",
       ...(SLUG_RE.test(rawTag) ? { tag: rawTag } : {}),
+      ...(e.mirror === false ? { mirror: false } : {}),
     };
     const scope = scopeOf(m);
     if (!scope) continue;
@@ -100,4 +105,19 @@ export function parseMappings(raw: unknown): Mapping[] {
     out.push(m);
   }
   return out;
+}
+
+/**
+ * The mapping a page under `projectId` files through. Two mappings may share
+ * one project, so the page's own `cockpit:*` tag decides between them; with no
+ * such tag, the project's first mapping — the pre-tag behaviour.
+ */
+export function mappingFor(
+  mappings: readonly Mapping[],
+  projectId: string | null,
+  tagKeys: readonly string[],
+  keyOf: (label: string) => string,
+): Mapping | undefined {
+  const here = mappings.filter((m) => m.pageId === projectId);
+  return here.find((m) => tagKeys.includes(keyOf(mappingTagLabel(m)))) ?? here[0];
 }

@@ -209,7 +209,9 @@ export async function loadPendingSessions(
   const byStory = new Map<string, { us: string; title: string; tagLabel: string }>();
   for (const s of stories) {
     const us = usOfContent(s.content);
-    const m = mappings.find((m) => m.pageId === s.projectId);
+    // Two mappings can share a project: the story's own tag says which one.
+    const here = mappings.filter((m) => m.pageId === s.projectId);
+    const m = here.find((m) => s.tags.includes(m.tagKey)) ?? here[0];
     if (us && m) byStory.set(s.id, { us, title: s.title, tagLabel: m.tagLabel });
   }
   if (byStory.size === 0) return [];
