@@ -16,8 +16,8 @@
 // anything else ("planned", "needs spec") is a tag.
 
 export const PAGE_STATUSES = [
-  { value: "open", label: "Open" },
-  { value: "archived", label: "Archived" }, // folds away, leaves the pickers
+  { value: "open", label: "Open", color: "#7bd88f" },
+  { value: "archived", label: "Archived", color: "#6b7280" }, // folds away, leaves the pickers
 ] as const;
 
 export type PageStatus = (typeof PAGE_STATUSES)[number]["value"];
