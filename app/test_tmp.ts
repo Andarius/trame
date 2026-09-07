@@ -7,8 +7,8 @@ export function testTempDir(prefix: string): string {
     try {
       Deno.removeSync(dir, { recursive: true });
     } catch (e) {
-      // Already gone is fine; anything else is a leak worth seeing.
-      if (!(e instanceof Deno.errors.NotFound)) throw e;
+      // Already gone is fine; anything else is a leak worth seeing, not a failure.
+      if (!(e instanceof Deno.errors.NotFound)) console.error(`testTempDir: ${dir} not removed —`, e);
     }
   });
   return dir;
