@@ -16,39 +16,97 @@ export type MirrorResult = {
   removed: number;
 };
 
+type OwnedStory = {
+  id: string;
+  title: string;
+  content: unknown[];
+  tags: string[];
+  status: string;
+  /** the nearest live mapped ancestor */
+  projectId: string;
+  parentTitle: string | null;
+};
+
 /**
- * The mirrored pages living under a mapping's project.
+ * Every live story whose nearest mapped ancestor is one of `mapped`.
  *
- * Only pages carrying a reference mark count: a note the user wrote by hand in
- * the same project is not ours, and must never be picked up by the reconcile
- * and retired.
+ * A story nested under another story is still the project's, so the walk goes
+ * up until it meets a mapped page — and stops there, so a project mapped
+ * inside another project owns its own subtree. UNION over (story, ancestor)
+ * pairs is what ends a cycle: a repeated pair adds no row, so there is no
+ * depth cap to silently drop a deep-but-valid tree. The target must itself be
+ * live: `parent_id` has no FK, so a deleted or missing project can still be
+ * pointed at.
  */
-export async function loadMirrorPages(parentId: string): Promise<MirrorPage[]> {
+async function storiesOwnedBy(
+  mapped: readonly string[],
+): Promise<OwnedStory[]> {
+  const ids = [...new Set(mapped.filter(Boolean))];
+  if (ids.length === 0) return [];
   const pg = await db();
   const rows = (await pg.query(
-    `select id, title, content, tags, status from pages
-      where parent_id = $1 and kind = 'story' and not deleted`,
-    [parentId],
+    `with recursive up(id, anc) as (
+       select p.id, p.parent_id
+         from pages p
+        where not p.deleted and p.kind = 'story' and p.parent_id is not null
+       union
+       select up.id, a.parent_id
+         from up join pages a on a.id = up.anc and not a.deleted
+        where up.anc <> all($1::uuid[]) and a.parent_id is not null
+     )
+     select p.id, p.title, p.content, p.tags, p.status, up.anc as project_id,
+            parent.title as parent_title
+       from up
+       join pages p on p.id = up.id
+       join pages target on target.id = up.anc and not target.deleted
+       left join pages parent on parent.id = p.parent_id
+      where up.anc = any($1::uuid[])
+      order by p.updated_at desc`,
+    [ids],
   )).rows as {
     id: string;
     title: string;
     content: unknown;
     tags: unknown;
     status: string;
+    project_id: string;
+    parent_title: string | null;
   }[];
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    content: Array.isArray(r.content) ? r.content : [],
+    tags: Array.isArray(r.tags) ? r.tags as string[] : [],
+    status: r.status,
+    projectId: r.project_id,
+    parentTitle: r.parent_title,
+  }));
+}
 
+/**
+ * The mirrored pages a mapping's project owns, however deep they sit.
+ *
+ * Only pages carrying a reference mark count: a note the user wrote by hand in
+ * the same project is not ours, and must never be picked up by the reconcile
+ * and retired. `mapped` is every mapped project, so a project mapped inside
+ * this one keeps its own pages.
+ */
+export async function loadMirrorPages(
+  projectId: string,
+  mapped: readonly string[] = [projectId],
+): Promise<MirrorPage[]> {
   const out: MirrorPage[] = [];
-  for (const r of rows) {
-    const content = Array.isArray(r.content) ? r.content : [];
-    const ref = refOfContent(content);
+  for (const s of await storiesOwnedBy([projectId, ...mapped])) {
+    if (s.projectId !== projectId) continue;
+    const ref = refOfContent(s.content);
     if (ref) {
       out.push({
-        id: r.id,
+        id: s.id,
         ref,
-        title: r.title,
-        content,
-        tags: Array.isArray(r.tags) ? r.tags as string[] : [],
-        status: r.status,
+        title: s.title,
+        content: s.content,
+        tags: s.tags,
+        status: s.status,
       });
     }
   }
@@ -172,47 +230,15 @@ export type PendingPage = {
 export async function loadPendingPages(
   mappings: { pageId: string; tagKey: string; tagLabel: string }[],
 ): Promise<PendingPage[]> {
-  const parents = [...new Set(mappings.map((m) => m.pageId).filter(Boolean))];
-  if (parents.length === 0) return [];
-
-  const pg = await db();
-  // Every live story with its nearest mapped ancestor: a story nested under
-  // another story is still the project's, so the walk stops at the first hit.
-  const rows = (await pg.query(
-    `with recursive up as (
-       select p.id, p.parent_id as anc, 1 as depth
-         from pages p
-        where not p.deleted and p.kind = 'story' and p.parent_id is not null
-       union all
-       select up.id, a.parent_id, up.depth + 1
-         from up join pages a on a.id = up.anc and not a.deleted
-        where up.anc <> all($1::uuid[]) and a.parent_id is not null and up.depth < 32
-     )
-     select p.id, p.title, p.tags, p.content, up.anc as project_id,
-            parent.title as parent_title
-       from up
-       join pages p on p.id = up.id
-       left join pages parent on parent.id = p.parent_id
-      where up.anc = any($1::uuid[])
-      order by p.updated_at desc`,
-    [parents],
-  )).rows as {
-    id: string;
-    title: string;
-    tags: unknown;
-    content: unknown;
-    project_id: string;
-    parent_title: string | null;
-  }[];
-
+  const stories = await storiesOwnedBy(mappings.map((m) => m.pageId));
   return pendingOf(
-    rows.map((r) => ({
-      pageId: r.id,
-      projectId: r.project_id,
-      tags: Array.isArray(r.tags) ? r.tags as string[] : [],
-      content: Array.isArray(r.content) ? r.content : [],
-      title: r.title,
-      parentTitle: r.parent_title,
+    stories.map((s) => ({
+      pageId: s.id,
+      projectId: s.projectId,
+      tags: s.tags,
+      content: s.content,
+      title: s.title,
+      parentTitle: s.parentTitle,
     })),
     mappings,
   ).map(({ page, tagLabel }) => ({
@@ -223,23 +249,27 @@ export async function loadPendingPages(
   }));
 }
 
-/** The nearest of `candidates` above `pageId`, or null when none is an ancestor. */
+/** The nearest live page of `candidates` above `pageId`, or null. */
 export async function mappedProjectOf(
   pageId: string,
   candidates: readonly string[],
 ): Promise<string | null> {
-  if (candidates.length === 0) return null;
+  const ids = [...new Set(candidates.filter(Boolean))];
+  if (ids.length === 0) return null;
   const pg = await db();
   const rows = (await pg.query(
-    `with recursive up as (
-       select parent_id as anc, 1 as depth from pages where id = $1 and not deleted
-       union all
-       select a.parent_id, up.depth + 1
+    `with recursive up(anc) as (
+       select parent_id from pages where id = $1 and not deleted
+       union
+       select a.parent_id
          from up join pages a on a.id = up.anc and not a.deleted
-        where up.anc <> all($2::uuid[]) and up.depth < 32
+        where up.anc <> all($2::uuid[])
      )
-     select anc from up where anc = any($2::uuid[]) limit 1`,
-    [pageId, [...candidates]],
-  )).rows as { anc: string }[];
-  return rows[0]?.anc ?? null;
+     select target.id
+       from up join pages target on target.id = up.anc and not target.deleted
+      where up.anc = any($2::uuid[])
+      limit 1`,
+    [pageId, ids],
+  )).rows as { id: string }[];
+  return rows[0]?.id ?? null;
 }
