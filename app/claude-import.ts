@@ -323,7 +323,7 @@ export async function scanClaudeSessions(
   // dedup marker: ignore `deleted` on purpose — a deleted card must never resurrect
   if (found.length) {
     const pg = await db();
-    // a session counts as imported if a card carries its UUID as id (import) or claude_id (/trame:track)
+    // a session counts as imported if a card carries its UUID as id (import) or claude_id (trame-track)
     const ids = found.map((s) => s.claudeId);
     const existing = new Set(
       ((await pg.query(

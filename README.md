@@ -21,7 +21,7 @@ the hub. (Design + migration story: `docs-site/src/content/docs/hub-api.md`.)
    └─ sync ─┐  POST /sync (mutations ⇅ changes)  ┌─ sync
             ├──────────▶  Deno API @ hub  ◀──────┤   (auth boundary; Docker, home LAN)
             └── WSS ◀──  "changed, pull now"  ──▶┘        └─▶ Postgres (source of truth)
- /trame:track ─▶ local app if running, else local outbox.jsonl (app drains on launch)
+ /trame-track ─▶ local app if running, else local outbox.jsonl (app drains on launch)
 ```
 
 ## Demo
@@ -75,15 +75,14 @@ app/                       Deno-desktop app
 mcp/server.ts              Trame MCP server (stdio): board, pages, comments, html blocks, reports, sync
 track/cli.ts               tramecli — the compiled agent CLI (writers + list/answer/setup/mcp)
 track/help.ts              the agent contract strings: CLI --help, MCP capabilities, stub stamping
-track/track.ts             the /trame:track session writer (app or outbox)
+track/track.ts             the $trame-track session writer (app or outbox)
 track/page.ts              the $trame-page writer (Markdown → atomic page create)
 track/comment.ts           agent page comments (title/quote resolution + attribution)
 track/watch.ts             the comment watcher — agents auto-answer human replies (`tramecli answer`)
 track/page-watch.ts        page-scoped poller behind `tramecli watch` — wakes a session on feedback
 track/claude-hook.ts       UserPromptSubmit hook: records cwd → Claude session id for track.ts
 bin/quickstart.sh          curl-able laptop setup: clone + packaged app + agent integrations
-commands/trame/{track,watch}.md  the slash commands — embedded in tramecli, installed by `tramecli setup`
-skills/trame-{track,page}/ agent skills (Codex & friends) — embedded in tramecli, installed by `tramecli setup`
+skills/trame-{track,page,watch}/ the agent skills (Claude Code, Codex & friends) — embedded in tramecli, installed by `tramecli setup`
 ```
 
 ## Setup
@@ -175,17 +174,18 @@ for sessions, and `$trame-page` to create or comment on standalone Trame pages.
 Codex exposes `CODEX_THREAD_ID`, so the session writer automatically links the card
 to the current resumable session; no hook is needed.
 
-In Claude Code, `/trame:track` records the current session as a card on the board — it
-reads the repo, branch, and a one-line note from the conversation and writes straight to
-your local PGlite (syncing to the hub when online, else queued in the outbox). From any
-repo: `/trame:track` to log the session, or `/trame:track paused|blocked|done "note"` to
-set its status with a note. Setup also installs the `trame-page` skill into
-`~/.claude/skills/` — picked up automatically when you ask to save a document, note, or
-plan as a Trame page. (The docs call the bare `tramecli`; setup links the binary into
-`~/.local/bin` when that name is not already on PATH.)
+In Claude Code the same skills land in `~/.claude/skills/`: `/trame-track` records the
+current session as a card on the board — it reads the repo, branch, and a one-line note
+from the conversation and writes straight to your local PGlite (syncing to the hub when
+online, else queued in the outbox). From any repo: `/trame-track` to log the session, or
+`/trame-track paused|blocked|done "note"` to set its status with a note. `trame-page` is
+picked up automatically when you ask to save a document, note, or plan as a Trame page,
+and `/trame-watch <page>` answers feedback on a page live from the session. (The docs
+call the bare `tramecli`; setup links the binary into `~/.local/bin` when that name is
+not already on PATH.)
 
-For the card's **Resume** button to work, the writer needs the Claude session UUID — slash
-commands can't see their own session id, so a `UserPromptSubmit` hook records it per-cwd into
+For the card's **Resume** button to work, the writer needs the Claude session UUID — skills
+can't see their own session id, so a `UserPromptSubmit` hook records it per-cwd into
 `~/.local/share/trame/claude-sessions.json`. Register it in `~/.claude/settings.json`
 (per machine):
 ```json
@@ -197,7 +197,7 @@ commands can't see their own session id, so a `UserPromptSubmit` hook records it
   }] }]
 }
 ```
-Without the hook `/trame:track` still works — the card just has no transcript link. Cards
+Without the hook `/trame-track` still works — the card just has no transcript link. Cards
 imported from the app's Claude Code + Codex dialog carry the UUID as their id and never need it.
 
 ### 5. Page comments & the agent watcher

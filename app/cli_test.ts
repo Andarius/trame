@@ -206,19 +206,28 @@ Deno.test("setup embeds call the bare binary and install everywhere", async () =
     await setup({ claude: true, skillDirs: [`${home}/.agents/skills`], home });
     for (
       const f of [
-        `${home}/.claude/commands/trame/track.md`,
-        `${home}/.claude/commands/trame/watch.md`,
+        `${home}/.claude/skills/trame-track/SKILL.md`,
         `${home}/.claude/skills/trame-page/SKILL.md`,
+        `${home}/.claude/skills/trame-watch/SKILL.md`,
         `${home}/.agents/skills/trame-track/SKILL.md`,
         `${home}/.agents/skills/trame-track/agents/openai.yaml`,
         `${home}/.agents/skills/trame-page/SKILL.md`,
+        `${home}/.agents/skills/trame-watch/SKILL.md`,
       ]
     ) {
       await Deno.stat(f);
     }
     assertStringIncludes(
-      await Deno.readTextFile(`${home}/.claude/commands/trame/track.md`),
+      await Deno.readTextFile(`${home}/.claude/skills/trame-track/SKILL.md`),
       "tramecli track --help",
+    );
+    // a legacy slash-command install is cleaned up
+    await Deno.mkdir(`${home}/.claude/commands/trame`, { recursive: true });
+    await Deno.writeTextFile(`${home}/.claude/commands/trame/track.md`, "old");
+    await setup({ claude: true, skillDirs: [], home });
+    assertEquals(
+      await Deno.stat(`${home}/.claude/commands/trame`).then(() => true, () => false),
+      false,
     );
   } finally {
     await Deno.remove(home, { recursive: true });

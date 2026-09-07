@@ -1,5 +1,5 @@
 // Shared agent-contract strings — the single source of truth read by tramecli --help,
-// the MCP server (mcp/server.ts), and the installed command/skill stubs. Edit here only.
+// the MCP server (mcp/server.ts), and the installed skill stubs. Edit here only.
 import app from "../app/deno.json" with { type: "json" };
 
 // TRAME_BUILD is baked into the compiled CLI (scripts/build-cli.ts): the release
@@ -177,11 +177,11 @@ Pipe ONE JSON object on stdin (or pass it as the single argument):
   they cannot measure; never guess (a visible footer must mean real data).`;
 
 export const SETUP_HELP =
-  `tramecli setup — install the agent command/skills from this binary
+  `tramecli setup — install the agent skills from this binary
 
   tramecli setup                   pick targets interactively (TTY only)
-  tramecli setup --claude          /trame:track, /trame:watch + trame-page into ~/.claude
-  tramecli setup --codex           $trame-track + $trame-page into ~/.agents/skills
+  tramecli setup --claude          trame-track, trame-page, trame-watch into ~/.claude/skills
+  tramecli setup --codex           the same skills into ~/.agents/skills
   tramecli setup --skills-dir DIR  any Agent Skills directory (repeatable)
 
 The docs are embedded in the binary and call the bare \`tramecli\`; when that name is
@@ -206,7 +206,7 @@ Commands:
   watch      wait for human feedback on page(s); exits 0 when feedback is ready
   answer     daemon: auto-answer human replies on agent comment threads
   list       print open sessions grouped by story
-  setup      install the agent command/skills embedded in this binary
+  setup      install the agent skills embedded in this binary
   mcp        serve the Trame MCP server on stdio
   --version  print the CLI version (the app's is at GET /api/status)
 

@@ -1,6 +1,6 @@
 // Claude Code UserPromptSubmit hook: record which Claude session is live in each cwd.
 // Slash commands can't see their own session id, so this sidecar map is how
-// /trame:track (track.ts) learns the Claude UUID to attach to the card.
+// trame-track (track.ts) learns the Claude UUID to attach to the card.
 //
 // Register in ~/.claude/settings.json (UserPromptSubmit → deno run -A this file).
 // Input (stdin): hook JSON with { session_id, transcript_path, cwd }.

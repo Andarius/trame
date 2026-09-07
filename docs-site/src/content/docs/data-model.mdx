@@ -6,12 +6,12 @@ import DataModelTree from '../../components/DataModelTree.astro';
 
 ## A session
 
-One card per `repo × branch`: a tracked stretch of coding-agent work, logged from the conversation (`/trame:track`, `$trame-track`, MCP `trame_track`) and resumable later. Tracking the same repo + branch again **updates** the card instead of duplicating it. Its status is the board column:
+One card per `repo × branch`: a tracked stretch of coding-agent work, logged from the conversation (`/trame-track`, `$trame-track`, MCP `trame_track`) and resumable later. Tracking the same repo + branch again **updates** the card instead of duplicating it. Its status is the board column:
 
 ```mermaid
 stateDiagram-v2
     direction LR
-    [*] --> active : /trame:track
+    [*] --> active : /trame-track
     active --> paused
     paused --> active : resume
     active --> blocked
