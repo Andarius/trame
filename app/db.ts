@@ -250,6 +250,9 @@ export async function upsertSession(s: Record<string, unknown>): Promise<string>
     s.tags.some((tag) => typeof tag !== "string" || !tag.trim()))) {
     throw new SessionTagsError("tags must be an array of non-empty tag keys");
   }
+  // A label (`cockpit:devops`) slugs to the same key a page stores; storing it raw
+  // would make the session invisible to every key-based lookup.
+  if (Array.isArray(s.tags)) s.tags = [...new Set((s.tags as string[]).map(tagKey))];
   const pg = await db();
   // claude_id is the column name; the public writer says agent_id (Claude or Codex).
   s.claude_id ??= s.agent_id;
