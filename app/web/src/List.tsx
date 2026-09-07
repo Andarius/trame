@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { BoardData } from "./api.ts";
+import type { Sort, SortKey } from "./SessionSort";
 import {
   ClientChip,
   EntityIcon,
@@ -19,7 +20,6 @@ import {
 
 const GRID = "grid grid-cols-[18px_1fr_110px_280px_150px_90px] items-center gap-4";
 
-type SortKey = "title" | "status" | "location" | "branch" | "touched";
 const COLS: [SortKey, string][] = [
   ["title", "SESSION"],
   ["status", "STATUS"],
@@ -29,8 +29,10 @@ const COLS: [SortKey, string][] = [
 ];
 
 export function List(
-  { board, onOpen, onOpenFull, storyFilter, onFilterStory, noSpecs, selected, onToggleSelect, onSelectMany }: {
+  { board, sort, onSortChange, onOpen, onOpenFull, storyFilter, onFilterStory, noSpecs, selected, onToggleSelect, onSelectMany }: {
     board: BoardData;
+    sort: Sort[];
+    onSortChange: (sort: Sort[]) => void;
     onOpen: (id: string) => void;
     onOpenFull?: (id: string) => void;
     storyFilter?: string[] | null;
@@ -41,41 +43,23 @@ export function List(
     onSelectMany?: (ids: string[], on: boolean) => void;
   },
 ) {
-  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "touched", dir: -1 });
   const [anchorId, setAnchorId] = useState<string | null>(null); // last-clicked checkbox, for shift-ranges
-  const statusOrder = board.statuses.map((s) => s.key); // synced column order
   const byId = pagesById(board.pages);
 
-  const key = (s: BoardData["sessions"][number]): string | number => {
-    switch (sort.key) {
-      case "title":
-        return s.title.toLowerCase();
-      case "status":
-        return statusOrder.indexOf(s.status);
-      case "location": {
-        const project = board.projects.find((c) => c.id === projectOf(s, byId))?.name ?? "";
-        const story = storyOf(s, byId)?.title ?? "";
-        return `${project} ${story}`.toLowerCase();
-      }
-      case "branch":
-        return (s.branch ?? "").toLowerCase();
-      case "touched":
-        return s.last_touched;
-    }
-  };
   const scoped = storyFilter?.length
     ? board.sessions.filter((s) => storyFilter.some((f) => matchesSessionFilter(s, f, byId)))
     : board.sessions;
   const filtered = noSpecs
     ? scoped.filter((s) => !s.specs_page_id || !byId.has(s.specs_page_id))
     : scoped;
-  const sessions = [...filtered].sort((a, b) => {
-    const av = key(a), bv = key(b);
-    return (av < bv ? -1 : av > bv ? 1 : 0) * sort.dir;
-  });
-  // clicking the active column flips direction; a fresh column starts asc (touched: newest-first)
-  const onSort = (k: SortKey) =>
-    setSort((s) => s.key === k ? { key: k, dir: s.dir === 1 ? -1 : 1 } : { key: k, dir: k === "touched" ? -1 : 1 });
+  const sessions = filtered;
+  const onSort = (key: SortKey, append: boolean) => {
+    const current = sort.find((s) => s.key === key);
+    const field: Sort = { key, dir: current ? (current.dir === 1 ? -1 : 1) : key === "touched" ? -1 : 1 };
+    onSortChange(append
+      ? current ? sort.map((s) => s.key === key ? field : s) : [...sort, field]
+      : [field]);
+  };
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-3">
@@ -90,13 +74,15 @@ export function List(
         {COLS.map(([k, label]) => (
           <button type="button"
             key={k}
-            onClick={() => onSort(k)}
+            title="Click to sort; Shift-click to add a sort field"
+            onClick={(e) => onSort(k, e.shiftKey)}
             className={`flex items-center gap-1 tracking-[0.7px] transition-colors hover:text-ink-soft ${
-              sort.key === k ? "text-ink-soft" : ""
+              sort.some((s) => s.key === k) ? "text-ink-soft" : ""
             }`}
           >
             {label}
-            <span className="text-[7px] leading-none">{sort.key === k ? (sort.dir === 1 ? "▲" : "▼") : ""}</span>
+            <span className="text-[7px] leading-none">{sort.some((s) => s.key === k)
+              ? `${sort.findIndex((s) => s.key === k) + 1}${sort.find((s) => s.key === k)?.dir === 1 ? "▲" : "▼"}` : ""}</span>
           </button>
         ))}
       </div>
