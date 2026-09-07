@@ -19,6 +19,7 @@ export type Session = {
   branch: string | null;
   next_step: string | null;
   specs_page_id: string | null;
+  tags: string[];
   pr_url: string | null;
   summary: string;
   last_touched: string;
@@ -634,14 +635,21 @@ export type Tag = {
 };
 export const listTags = () =>
   fetch("/api/tags").then((r) => r.json() as Promise<Tag[]>);
+export let tagRevision = 0;
+export const TAGS_CHANGED = "trame:tags-changed";
+function tagsChanged<T>(value: T): T {
+  tagRevision++;
+  dispatchEvent(new Event(TAGS_CHANGED));
+  return value;
+}
 // find-or-create: the same label always resolves to the same tag
 export const ensureTag = (label: string, color?: string) =>
   post("/api/tags", { label, color }).then((r) =>
     r.json() as Promise<{ id: string; key: string }>
-  );
+  ).then(tagsChanged);
 export const updateTag = (id: string, patch: { label?: string; color?: string }) =>
-  post(`/api/tags/${id}`, patch).then(jsonOrThrow);
-export const deleteTag = (id: string) => post(`/api/tags/${id}/delete`, {});
+  post(`/api/tags/${id}`, patch).then(jsonOrThrow).then(tagsChanged);
+export const deleteTag = (id: string) => post(`/api/tags/${id}/delete`, {}).then(tagsChanged);
 export const deletePage = (id: string) => post(`/api/pages/${id}/delete`, {});
 export const movePage = (
   id: string,

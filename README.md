@@ -140,6 +140,11 @@ deno task dev           # opens the desktop window (Deno 2.9+)
 
 ### 4. Wire session tracking
 
+Sessions have their own tags, independent of story and specs-page tags. Use the
+**Tags** picker in either the side panel or full-screen session view to add or
+remove multiple tags, including labels such as `priority:P1`. Session tags appear
+on board cards and list rows. The CLI/MCP writer contract below documents tag keys.
+
 Agents talk to Trame through **`tramecli`**, one compiled binary that wraps the
 writers (`track`, `page`, `comment`, `watch`, `list`) — its `--help` carries the
 full agent contract, including the field-composition conventions:
@@ -253,6 +258,11 @@ that spawns a terminal).
 > hub and never sent back to the UI, and each is bound to the forge host you configured.
 
 ## How sync works
+
+Hub and clients must use the same protocol version. Deploy the hub schema and API
+before restarting updated clients; older clients keep local data but cannot sync
+until upgraded. Session tags require protocol 6.
+
 - **Transport**: HTTPS to the Deno API on `:8443` (TLS terminated by the API with the hub's
   private-CA cert — `just hub-ca` fetches the CA once per laptop). Every request carries a
   **per-device bearer token**, minted on the hub and stored sha-256 at rest, revocable.

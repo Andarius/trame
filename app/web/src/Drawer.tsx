@@ -19,6 +19,7 @@ import {
 import { appConfirm, clientColor, pageOptions, Popover, Select, StatusDot, TagChips, timeAgo } from "./ui";
 import { PrChip } from "./md";
 import { SpecsEditor } from "./SpecsEditor";
+import { TagEditor } from "./TagEditor";
 
 // How the Resume button places the session; the last pick is the default, persisted.
 const RESUME_MODES: { mode: ResumeMode; label: string; hint: string }[] = [
@@ -98,6 +99,8 @@ export function Drawer(
   const [status, setStatus] = useState<Status>(session.status);
   const [client, setClient] = useState(board.projects.find((c) => c.id === session.client_id)?.name ?? "");
   const [pageId, setPageId] = useState(session.page_id ?? "");
+  const [tags, setTags] = useState(session.tags ?? []);
+  useEffect(() => setTags(session.tags ?? []), [session.tags]);
   const [branch, setBranch] = useState(session.branch ?? "");
   const [nextStep, setNextStep] = useState(session.next_step ?? "");
   const [prUrl, setPrUrl] = useState(session.pr_url ?? "");
@@ -376,6 +379,14 @@ export function Drawer(
     />
   );
   const storyTags = board.stories.find((x) => x.id === pageId)?.tags;
+  const sessionTags = Array.isArray(session.tags) ? (
+    <div role="group" aria-label="Session tags" className="min-w-0 py-1">
+      <TagEditor tags={tags} onChange={(next) => {
+        setTags(next);
+        commit({ tags: next });
+      }} />
+    </div>
+  ) : null;
   const storySelect = (
     <Select
       value={pageId}
@@ -593,7 +604,10 @@ export function Drawer(
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto min-[1000px]:flex-row min-[1000px]:overflow-hidden">
           <div className="flex-1 px-8 pb-6 pt-3 min-[1000px]:min-h-0 min-[1000px]:overflow-y-auto">
             <div className="mx-auto flex max-w-[860px] flex-col gap-5">
-              {titleField}
+              <div className="flex flex-col gap-2">
+                {titleField}
+                {sessionTags}
+              </div>
               <div className="flex flex-col gap-3">
                 <div className="grid grid-cols-[minmax(120px,180px)_1fr_1fr] gap-3">
                   <div className="flex min-w-0 flex-col gap-1">
@@ -700,6 +714,7 @@ export function Drawer(
 
       <div className="flex flex-col gap-3 px-4 pb-4">
         {titleField}
+        {sessionTags}
         {statusPills}
         {resumeBlock}
       </div>

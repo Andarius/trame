@@ -3,15 +3,17 @@ import type { BoardData } from "./api.ts";
 import {
   ClientChip,
   EntityIcon,
-  inSubtree,
+  matchesSessionFilter,
   pageGlyph,
   pagesById,
   projectOf,
   sessionAnchor,
+  sessionTagKeys,
   shiftRange,
   statusStyle,
   StatusDot,
   storyOf,
+  TagChips,
   timeAgo,
 } from "./ui";
 
@@ -62,7 +64,7 @@ export function List(
     }
   };
   const scoped = storyFilter?.length
-    ? board.sessions.filter((s) => storyFilter.some((f) => inSubtree(s, f, byId)))
+    ? board.sessions.filter((s) => storyFilter.some((f) => matchesSessionFilter(s, f, byId)))
     : board.sessions;
   const filtered = noSpecs
     ? scoped.filter((s) => !s.specs_page_id || !byId.has(s.specs_page_id))
@@ -135,9 +137,15 @@ export function List(
                 setAnchorId(s.id);
               }}
             />
-            <span className={`truncate text-[12.5px] font-medium ${done ? "text-ink-muted" : ""}`}>
-              {s.title}
-            </span>
+            <div className="flex min-w-0 flex-col gap-1">
+              <span className={`truncate text-[12.5px] font-medium ${done ? "text-ink-muted" : ""}`}>
+                {s.title}
+              </span>
+              <TagChips
+                keys={sessionTagKeys(s, byId)}
+                onClick={onFilterStory ? (key) => onFilterStory(`tag:${key}`) : undefined}
+              />
+            </div>
             <span className="flex items-center gap-1.5 text-[11.5px]" style={{ color: statusStyle(s.status).color }}>
               <StatusDot status={s.status} size={7} /> {statusStyle(s.status).label}
             </span>

@@ -7,7 +7,7 @@ Deno.env.set("TRACKER_SETTINGS_FILE", `${tmp}/settings.json`);
 Deno.env.set("TRACKER_PORT_FILE", `${tmp}/port.json`);
 Deno.env.set("TRACKER_APP_ROOT", new URL(".", import.meta.url).pathname);
 
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import { ENTITIES } from "../protocol/entities.ts";
 
 /**
@@ -63,3 +63,41 @@ Deno.test("a page keeps its tags through create and update", async () => {
   await updatePage(id, { tags: [] });
   assertEquals(await tagsOf(id), [], "clearing is possible");
 });
+
+Deno.test("session tags survive tracking, replacement, clearing, and schema reapplication", async () => {
+  const { db, getSession, upsertSession } = await import("./db.ts");
+  const pg = await db();
+  const id = await upsertSession({ title: "Tagged session", tags: ["priority-p1", "infra"] });
+  const otherId = await upsertSession({ title: "Untagged session" });
+  assertEquals((await getSession(id))?.tags, ["priority-p1", "infra"]);
+  assertEquals((await getSession(otherId))?.tags, []);
+
+  await upsertSession({ id, title: "Renamed session", summary: "Tracking update" });
+  await pg.exec(await Deno.readTextFile(new URL("../db/schema.sql", import.meta.url)));
+  assertEquals((await getSession(id))?.tags, ["priority-p1", "infra"]);
+
+  await upsertSession({ id, title: "Renamed session", tags: ["priority-p2"] });
+  assertEquals((await getSession(id))?.tags, ["priority-p2"]);
+  assertEquals((await getSession(otherId))?.tags, []);
+  await upsertSession({ id, title: "Renamed session", tags: [] });
+  assertEquals((await getSession(id))?.tags, []);
+});
+
+for (const [name, tags] of [
+  ["null", null],
+  ["string", "priority-p1"],
+  ["non-string key", [42]],
+  ["blank key", [" "]],
+] as const) {
+  Deno.test(`invalid session tags (${name}) cannot mutate a session`, async () => {
+    const { getSession, SessionTagsError, upsertSession } = await import("./db.ts");
+    const id = await upsertSession({ title: "Original", tags: ["priority-p1"] });
+    await assertRejects(
+      () => upsertSession({ id, title: "Invalid update", tags }),
+      SessionTagsError,
+    );
+    const session = await getSession(id);
+    assertEquals(session?.title, "Original");
+    assertEquals(session?.tags, ["priority-p1"]);
+  });
+}

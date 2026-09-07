@@ -1,6 +1,20 @@
-import { useEffect, useState } from "react";
-import { ensureTag, listTags, type Tag } from "./api";
+import { type CSSProperties, useEffect, useState } from "react";
+import { splitTagLabel, TAG_COLORS, tagKey } from "../../tags.ts";
+import { ensureTag, listTags, type Tag, updateTag } from "./api";
 import { Popover } from "./ui";
+
+/** Fill + text for a hue, mixed with the theme's ink so one hex reads in both. */
+const tint = (color: string): CSSProperties => ({
+  background: `color-mix(in srgb, ${color} var(--tag-tint), transparent)`,
+  color:
+    `color-mix(in srgb, ${color} calc(100% - var(--tag-shade)), var(--color-ink))`,
+});
+
+/** The namespace half before anyone colours it: a wash of ink, not of hue. */
+const NEUTRAL_NS: CSSProperties = {
+  background: "color-mix(in srgb, var(--color-ink-muted) 10%, transparent)",
+  color: "var(--color-ink-muted)",
+};
 
 /**
  * Tag chips on a page, with a picker to add one.
@@ -8,6 +22,12 @@ import { Popover } from "./ui";
  * A page stores tag KEYS, not ids: a key with no vocabulary row still renders,
  * as its own slug. That is the whole point of storing the key — a page pulled
  * from another device before its tags arrived is readable rather than blank.
+ *
+ * A label with a colon renders split: `cockpit:devops` is a dim `cockpit` half
+ * and a coloured `devops` half. The prefix repeats on every tag a source writes,
+ * so it stops earning full contrast — and its colour comes from the tag row of
+ * the namespace ITSELF (`cockpit`), which is why every `cockpit:*` pill shares
+ * one hue instead of each carrying its own copy.
  */
 export function TagEditor(
   { tags, onChange }: { tags: string[]; onChange: (next: string[]) => void },
@@ -16,6 +36,10 @@ export function TagEditor(
   const [known, setKnown] = useState<Tag[]>([]);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
+  // which half of which chip has its swatches open
+  const [picking, setPicking] = useState<{ key: string; ns: boolean } | null>(
+    null,
+  );
 
   // On mount, not on open: the chips below render a label out of this list, so
   // waiting for the picker showed every tag as its raw key until you clicked.
@@ -25,8 +49,15 @@ export function TagEditor(
 
   const byKey = new Map(known.map((t) => [t.key, t]));
   const trimmed = query.trim();
+  // A row that only exists to colour a namespace is not itself a tag to put on
+  // a page — offering `cockpit` next to `cockpit:devops` would just be a trap.
+  const namespaces = new Set(
+    known.map((t) => splitTagLabel(t.label).ns).filter((n): n is string => !!n)
+      .map(tagKey),
+  );
   const matches = known.filter((t) =>
     !tags.includes(t.key) &&
+    !namespaces.has(t.key) &&
     t.label.toLowerCase().includes(trimmed.toLowerCase())
   );
   // Only offer creation when nothing already carries that label, so two tags
@@ -46,27 +77,97 @@ export function TagEditor(
     }
   };
 
+  // Colouring a namespace creates its vocabulary row on the spot: until someone
+  // picks a hue there is nothing to store, so the row is the pick.
+  const recolor = async (
+    row: Tag | undefined,
+    label: string,
+    color: string,
+  ) => {
+    if (row) await updateTag(row.id, { color });
+    else await ensureTag(label, color);
+    setPicking(null);
+    setKnown(await listTags());
+  };
+
   return (
-    <div className="flex flex-wrap items-center gap-1">
+    <div className="flex flex-wrap items-center gap-1.5">
       {tags.map((key) => {
         const t = byKey.get(key);
+        const { ns, value } = splitTagLabel(t?.label ?? key);
+        const nsRow = ns ? byKey.get(tagKey(ns)) : undefined;
+        const valStyle = tint(t?.color ?? TAG_COLORS[0]);
+        const picked = picking?.key === key;
         return (
           <span
             key={key}
-            className="group inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-0.5 text-[11px] text-ink-muted"
-            style={t
-              ? { borderColor: `${t.color}66`, color: t.color }
-              : undefined}
+            className="group relative inline-flex items-stretch text-[11px] leading-[1.45]"
           >
-            {t?.label ?? key}
+            {ns && (
+              <button
+                type="button"
+                title={`Colour every ${ns}: tag`}
+                className="cursor-pointer rounded-l-full py-px pl-[9px] pr-[7px]"
+                style={nsRow ? tint(nsRow.color) : NEUTRAL_NS}
+                onClick={() =>
+                  setPicking(picked && picking.ns ? null : { key, ns: true })}
+              >
+                {ns}
+              </button>
+            )}
             <button
               type="button"
-              title="remove"
-              className="opacity-0 transition-opacity hover:text-ink group-hover:opacity-100"
+              title={t ? "Colour this tag" : `Unknown tag: ${key}`}
+              disabled={!t}
+              className={`cursor-pointer py-px pl-[9px] pr-[7px] font-medium ${
+                ns ? "" : "rounded-l-full"
+              }`}
+              style={valStyle}
+              onClick={() =>
+                setPicking(picked && !picking.ns ? null : { key, ns: false })}
+            >
+              {value}
+            </button>
+            <button
+              type="button"
+              title="Remove"
+              className="rounded-r-full py-px pr-[6px] text-[8px] opacity-0 transition-opacity hover:opacity-100 group-hover:opacity-55"
+              style={valStyle}
               onClick={() => onChange(tags.filter((k) => k !== key))}
             >
               ✕
             </button>
+            {picked && (
+              <Popover
+                onClose={() => setPicking(null)}
+                style={{ minWidth: 0 }}
+              >
+                <div className="flex gap-1">
+                  {TAG_COLORS.map((c) => {
+                    const row = picking.ns ? nsRow : t;
+                    return (
+                      <button
+                        type="button"
+                        key={c}
+                        title={c}
+                        className={`h-[19px] w-[19px] rounded-md ${
+                          row?.color === c
+                            ? "ring-2 ring-ink ring-offset-1 ring-offset-panel-modal"
+                            : ""
+                        }`}
+                        style={{ background: c }}
+                        onClick={() =>
+                          recolor(
+                            row,
+                            picking.ns ? ns! : (t?.label ?? key),
+                            c,
+                          )}
+                      />
+                    );
+                  })}
+                </div>
+              </Popover>
+            )}
           </span>
         );
       })}
@@ -75,10 +176,10 @@ export function TagEditor(
         <button
           type="button"
           title="add a tag"
-          className="rounded-md border border-dashed border-chipline px-1.5 py-0.5 text-[11px] text-ink-muted hover:text-ink-soft"
+          className="rounded-full border border-dashed border-chipline px-[7px] text-[11px] leading-[1.45] text-ink-muted hover:border-solid hover:text-ink-soft"
           onClick={() => setOpen((o) => !o)}
         >
-          ＋
+          +
         </button>
         {open && (
           <Popover

@@ -66,6 +66,7 @@ import {
   updateStory,
   updateStatus,
   upsertSession,
+  SessionTagsError,
   deleteTag,
   ensureTag,
   listTags,
@@ -1043,7 +1044,13 @@ async function handler(req: Request): Promise<Response> {
   }
   if (pathname === "/api/sessions" && req.method === "POST") {
     const body = await req.json();
-    const id = await upsertSession(body);
+    let id: string;
+    try {
+      id = await upsertSession(body);
+    } catch (e) {
+      if (e instanceof SessionTagsError) return json({ error: e.message }, 400);
+      throw e;
+    }
     // A summary from track/MCP is a worklog entry, not just a field.
     if (
       typeof body.summary === "string" && body.summary.trim() && !body.no_event

@@ -1,5 +1,5 @@
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
-import { listTags, type Status, type StatusDef, type Tag } from "./api";
+import { listTags, type Status, type StatusDef, type Tag, tagRevision, TAGS_CHANGED } from "./api";
 
 type StatusStyle = { label: string; color: string; terminal: boolean };
 
@@ -519,12 +519,30 @@ export function inSubtree<P extends TreePage>(
   return false;
 }
 
-// Read-only tag chips (board cards, session drawer). The vocabulary is fetched once
-// per page load — labels and colors barely move within a session.
+export function sessionTagKeys<P extends TreePage & { tags?: string[] }>(
+  s: { page_id: string | null; tags?: string[] },
+  byId: Map<string, P>,
+): string[] {
+  const page = storyOf(s, byId) ?? sessionAnchor(s, byId);
+  return [...new Set([...(s.tags ?? []), ...(page?.tags ?? [])])];
+}
+
+export function matchesSessionFilter<P extends TreePage & { tags?: string[] }>(
+  s: { page_id: string | null; tags?: string[] },
+  filter: string,
+  byId: Map<string, P>,
+): boolean {
+  return filter.startsWith("tag:")
+    ? sessionTagKeys(s, byId).includes(filter.slice(4))
+    : inSubtree(s, filter, byId);
+}
+
+// Share one vocabulary fetch across chips, refreshing after local tag edits.
 // A label with a colon renders split, like the page-header editor: a dim `cockpit`
 // half and a coloured `devops` half, the namespace hue read from the row of the
 // namespace itself. --tag-tint/--tag-shade follow the theme when defined.
 let tagVocab: Promise<Tag[]> | null = null;
+let tagVocabRevision = -1;
 const tagSlug = (s: string) =>
   s.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -536,12 +554,20 @@ const NS_WASH: CSSProperties = {
   background: "color-mix(in srgb, var(--color-ink-muted, #888) 10%, transparent)",
   color: "var(--color-ink-muted, #888)",
 };
-export function TagChips({ keys }: { keys?: string[] }) {
+export function TagChips({ keys, onClick }: { keys?: string[]; onClick?: (key: string) => void }) {
   const [vocab, setVocab] = useState<Map<string, Tag> | null>(null);
   useEffect(() => {
-    (tagVocab ??= listTags())
-      .then((ts) => setVocab(new Map(ts.map((t) => [t.key, t]))))
-      .catch(() => {});
+    const refresh = () => {
+      if (!tagVocab || tagVocabRevision !== tagRevision) {
+        tagVocab = listTags();
+        tagVocabRevision = tagRevision;
+      }
+      tagVocab.then((ts) => setVocab(new Map(ts.map((t) => [t.key, t]))))
+        .catch(() => {});
+    };
+    refresh();
+    addEventListener(TAGS_CHANGED, refresh);
+    return () => removeEventListener(TAGS_CHANGED, refresh);
   }, []);
   if (!keys?.length) return null;
   return (
@@ -553,9 +579,15 @@ export function TagChips({ keys }: { keys?: string[] }) {
         const ns = colon > 0 ? label.slice(0, colon) : null;
         const name = colon > 0 ? label.slice(colon + 1) : label;
         const nsRow = ns ? vocab?.get(tagSlug(ns)) : undefined;
+        const Chip = onClick ? "button" : "span";
         return (
-          <span
+          <Chip
             key={k}
+            type={onClick ? "button" : undefined}
+            aria-label={onClick ? `Filter by tag ${label}` : undefined}
+            onPointerDown={onClick ? (e) => e.stopPropagation() : undefined}
+            onDoubleClick={onClick ? (e) => e.stopPropagation() : undefined}
+            onClick={onClick ? (e) => { e.stopPropagation(); onClick(k); } : undefined}
             className="flex overflow-hidden rounded-full text-[9.5px] font-medium leading-[14px]"
           >
             {ns && (
@@ -564,7 +596,7 @@ export function TagChips({ keys }: { keys?: string[] }) {
               </span>
             )}
             <span className="px-1.5 py-px" style={tagTint(t?.color ?? "#6b7280")}>{name}</span>
-          </span>
+          </Chip>
         );
       })}
     </div>
