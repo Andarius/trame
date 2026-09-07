@@ -2927,11 +2927,20 @@ export function Page(
           {isStory && (
             <div className="flex items-center gap-3">
               <div className="w-[120px]">
-                <Select
-                  value={page.status}
-                  options={[...PAGE_STATUSES]}
-                  onChange={(status) => patch({ status })}
-                />
+                {(() => {
+                  const def = PAGE_STATUSES.find((s) => s.value === page.status);
+                  return (
+                    <Select
+                      value={page.status}
+                      className="rounded-md px-2.5 py-1.5 text-xs font-medium outline-none"
+                      triggerStyle={def
+                        ? { background: `color-mix(in srgb, ${def.color} 13%, transparent)`, color: def.color }
+                        : undefined}
+                      options={PAGE_STATUSES.map((s) => ({ value: s.value, label: s.label, dot: s.color }))}
+                      onChange={(status) => patch({ status })}
+                    />
+                  );
+                })()}
               </div>
               {client && (
                 <ClientChip

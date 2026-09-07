@@ -1750,7 +1750,7 @@ export function App() {
                       refresh();
                     }
                   })}
-                className="rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-blocked"
+                className="rounded-md border border-blocked/40 px-2.5 py-1 text-[11.5px] text-blocked/80 hover:bg-blocked/15 hover:text-blocked"
               >
                 Delete
               </button>
@@ -1771,7 +1771,7 @@ export function App() {
                     });
                   }
                 }}
-                className="rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-blocked"
+                className="rounded-md border border-blocked/40 px-2.5 py-1 text-[11.5px] text-blocked/80 hover:bg-blocked/15 hover:text-blocked"
               >
                 Delete
               </button>
