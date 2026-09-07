@@ -45,6 +45,7 @@ type State = {
     closed: string[];
   }[];
   filed: { title: string; reference: string }[];
+  skipped: { title: string; reason: string }[];
 };
 
 // Cockpit's execution statuses. Colours reuse the board's status vocabulary so
@@ -202,6 +203,16 @@ export function CockpitPanel(
               <span className="text-ink-soft">{f.title}</span>{" "}
               <span className="font-mono text-[10.5px]">{f.reference}</span>
             </span>
+          ))}
+        </div>
+      )}
+
+      {state.skipped?.length > 0 && (
+        <div className="border-b border-line px-3 py-1.5 text-[11px] text-ink-muted">
+          {state.skipped.map((s) => (
+            <div key={s.title}>
+              Skipped <span className="text-ink-soft">{s.title}</span> — {s.reason}
+            </div>
           ))}
         </div>
       )}

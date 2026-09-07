@@ -322,6 +322,18 @@ Deno.test("ticketFromPage refuses a page with nothing to say", () => {
   assertEquals("error" in out, true);
 });
 
+Deno.test("ticketFromPage refuses an objective with no description", () => {
+  // A summary alone is not a ticket: Cockpit needs both fields filled.
+  const out = ticketFromPage(
+    pageFor({ brief: "Prod keys are stale.", content: [] }),
+  );
+  assertEquals("error" in out, true);
+  const only = ticketFromPage(pageFor({
+    content: [{ type: "text", text: "The keys date from March.", id: "b1" }],
+  }));
+  assertEquals("error" in only, true);
+});
+
 Deno.test("ticketFromPage refuses a title too short for Cockpit", () => {
   // The server enforces 3-200; failing here gives a better message than a 422.
   assertEquals("error" in ticketFromPage(pageFor({ title: "ab" })), true);
@@ -338,7 +350,7 @@ Deno.test("ticketFromPage ignores marks when reading a paragraph", () => {
       type: "text",
       text: "Why it matters {{trame:created_at=2026-09-02}}",
       id: "b1",
-    }],
+    }, { type: "text", text: "And how.", id: "b2" }],
   })) as { objective: string };
   assertEquals(out.objective, "Why it matters");
 });
@@ -435,13 +447,38 @@ Deno.test("planMirror pulls the ticket's status onto its page", () => {
   assertEquals(plan.update[0].status, "archived");
 });
 
-Deno.test("planMirror never lets a local status stop the pull", () => {
-  // The page is the mirror's to write: archiving one here is undone next pass
-  // if the ticket is still live. Closing a ticket is a decision for Cockpit.
-  const t = ticket({ status: "in_progress" });
-  const plan = planMirror([t], [pageOf(t, "p1", [], "archived")], ["CKP-1"]);
-  assertEquals(plan.update[0].status, "open");
-});
+for (
+  const status of [
+    "todo",
+    "in_progress",
+    "to_verify",
+    "to_fix",
+    "done",
+    "cancelled",
+    "unknown",
+  ]
+) {
+  Deno.test(`planMirror preserves an archived page while syncing ${status}`, () => {
+    const before = ticket();
+    const t = ticket({ status, title: "Updated ticket" });
+    let page = pageOf(before, "p1", ["local-tag"], "archived");
+    for (let poll = 0; poll < 2; poll++) {
+      const plan = planMirror([t], [page], ["CKP-1"]);
+      const update = plan.update[0];
+      assertEquals(update.status, "archived");
+      assertEquals(update.title, "CKP-1 — Updated ticket");
+      assertEquals(update.tags, ["local-tag"]);
+      assertEquals(refOfContent(update.blocks), "CKP-1");
+      page = { ...page, ...update, content: update.blocks };
+    }
+    page.status = "open";
+    assertEquals(
+      planMirror([ticket({ status: "todo" })], [page], ["CKP-1"]).update[0]
+        .status,
+      "open",
+    );
+  });
+}
 
 Deno.test("planMirror gives a new page the ticket's status", () => {
   const plan = planMirror([ticket({ status: "cancelled" })], [], ["CKP-1"]);

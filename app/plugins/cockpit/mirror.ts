@@ -46,17 +46,8 @@ export type MirrorPlan = {
   remove: { id: string; ref: string }[];
 };
 
-// Status, one way only.
-//
-// Cockpit tracks six execution states; a Trame page has two, because the state
-// of the WORK lives on sessions here (cf. app/page-status.ts). So a ticket
-// says whether its page is still worth looking at, and nothing more: live
-// tickets stay in the tree, finished ones fold into `Archived (n)`.
-//
-// Nothing travels the other way. `archived` means both "we shipped it" and "we
-// dropped it", and Cockpit needs to know which — so a page cannot ask for a
-// status without guessing, and a wrong guess cancels a ticket someone
-// delivered. Closing a ticket is a decision that belongs in Cockpit.
+// Cockpit completion archives pages; archived pages require an explicit local reopen.
+// Archiving is a visibility choice, not a Cockpit done/cancelled transition.
 
 const TO_PAGE: Record<string, string> = {
   todo: "open",
@@ -209,7 +200,7 @@ export function planMirror(
       // Union, never replace: a reader may have tagged this page themselves,
       // and re-mirroring must not quietly strip that.
       tags: [...new Set([...page.tags, ...ours])],
-      status: pageStatusOf(t.status),
+      status: page.status === "archived" ? "archived" : pageStatusOf(t.status),
     });
   }
 
@@ -319,7 +310,7 @@ export function ticketFromPage(page: {
   originId: string;
   title: string;
   objective: string;
-  description: string | null;
+  description: string;
 } | { error: string } {
   const title = page.title.trim();
   if (title.length < 3) {
@@ -345,11 +336,17 @@ export function ticketFromPage(page: {
   // The objective is already carried on its own; repeating it as the first
   // line of the description would read as a duplicate in Cockpit's UI.
   const rest = paragraphs.filter((t) => t !== objective);
+  if (rest.length === 0) {
+    return {
+      error:
+        "The page needs a body below the objective — Cockpit requires a description.",
+    };
+  }
   return {
     originId: page.id,
     title,
     objective,
-    description: rest.length ? rest.join("\n\n") : null,
+    description: rest.join("\n\n"),
   };
 }
 
