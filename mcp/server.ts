@@ -224,7 +224,7 @@ server.tool(
 
 server.tool(
   "trame_new_story",
-  "Create a story (the epic sessions ladder up to). Include the brief: what are we trying to achieve, and 'done when'.",
+  "Create a story (the epic sessions ladder up to). Include the brief: what are we trying to achieve, and 'done when'. A story bound for Cockpit needs that brief AND at least one body paragraph (write it with trame_update_page) — the filer skips anything less.",
   {
     title: z.string(),
     brief: z.string().optional(),

@@ -60,6 +60,8 @@ export type CockpitState = {
   mirrored: ({ pageId: string; scopes: string[] } & MirrorResult)[];
   // Pages this pass pushed INTO Cockpit, newest pass only.
   filed: { title: string; reference: string }[];
+  // Tagged pages left alone because Cockpit would refuse them — not errors.
+  skipped: { title: string; reason: string }[];
 };
 
 let state: CockpitState = {
@@ -70,6 +72,7 @@ let state: CockpitState = {
   errors: [],
   mirrored: [],
   filed: [],
+  skipped: [],
 };
 let pollRunning: Promise<CockpitState> | null = null;
 
@@ -177,6 +180,7 @@ async function pollOnce(): Promise<CockpitState> {
       errors: (fixture.errors ?? []) as CockpitState["errors"],
       mirrored: [],
       filed: [],
+  skipped: [],
     });
   }
 
@@ -196,12 +200,14 @@ async function pollOnce(): Promise<CockpitState> {
       errors: [],
       mirrored: [],
       filed: [],
+  skipped: [],
     });
   }
 
   const errors: CockpitState["errors"] = [];
   const mirrored: CockpitState["mirrored"] = [];
   const filed: CockpitState["filed"] = [];
+  const skipped: CockpitState["skipped"] = [];
   const wantsMirror = slice.mirror === true;
 
   // Push BEFORE pulling: a page filed now comes back in the same pass as a
@@ -217,7 +223,10 @@ async function pollOnce(): Promise<CockpitState> {
     for (const page of pending) {
       try {
         const out = await filePage(baseUrl, token, mappings, page.pageId);
-        if ("error" in out) {
+        if ("error" in out && out.status === 422) {
+          // The page's own fault (empty, short title): report, don't alarm.
+          skipped.push({ title: page.title, reason: out.error });
+        } else if ("error" in out) {
           errors.push({ scope: page.title, error: out.error });
         } else {
           filed.push({ title: page.title, reference: out.reference });
@@ -312,6 +321,7 @@ async function pollOnce(): Promise<CockpitState> {
     errors,
     mirrored,
     filed,
+    skipped,
   });
 }
 
