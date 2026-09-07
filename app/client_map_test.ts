@@ -1,8 +1,9 @@
+import { testTempDir } from "./test_tmp.ts";
 Deno.env.set(
   "TRACKER_CLIENTS",
   '{"Obitrain":"Obitrain","Work":{"project":"Soren","tags":["Infra"],"repos":["sre-config"]}}',
 );
-const tmp = await Deno.makeTempDir({ prefix: "trame-client-map-test-" });
+const tmp = testTempDir("trame-client-map-test-");
 Deno.env.set("TRACKER_DATA_DIR", `${tmp}/pglite`);
 Deno.env.set("TRACKER_NODE_ID", "client-map-test");
 Deno.env.set("TRACKER_OUTBOX", `${tmp}/outbox.jsonl`);

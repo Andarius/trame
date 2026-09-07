@@ -1,3 +1,4 @@
+import { testTempDir } from "./test_tmp.ts";
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 
 // The session watcher against a fake app: it must badge a comment "seen" at pickup and
@@ -52,7 +53,7 @@ Deno.test("page watcher badges seen at pickup, claims answering, then exits", as
     },
   );
 
-  const tmp = await Deno.makeTempDir({ prefix: "trame-page-watch-test-" });
+  const tmp = testTempDir("trame-page-watch-test-");
   try {
     const portFile = `${tmp}/port.json`;
     await Deno.writeTextFile(portFile, JSON.stringify({ port: await ready }));

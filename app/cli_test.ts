@@ -1,3 +1,4 @@
+import { testTempDir } from "./test_tmp.ts";
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { boardRows, formatBoard, run } from "../track/cli.ts";
 import { ensureOnPath, EMBEDS, setup } from "../track/setup.ts";
@@ -152,7 +153,7 @@ Deno.test("boardRows flattens open sessions for --json", () => {
 // Regression: setup used to skip linking whenever SOME `tramecli` answered, so a
 // stale copy kept serving old code behind freshly installed docs.
 Deno.test("setup relinks tramecli at this build, and flags one shadowing it", async () => {
-  const tmp = await Deno.makeTempDir({ prefix: "trame-onpath-test-" });
+  const tmp = testTempDir("trame-onpath-test-");
   const path = Deno.env.get("PATH") ?? "";
   try {
     const home = `${tmp}/home`;
@@ -200,7 +201,7 @@ Deno.test("setup embeds call the bare binary and install everywhere", async () =
       assertEquals(text.includes(legacy), false, `${name}: ${legacy}`);
     }
   }
-  const home = await Deno.makeTempDir();
+  const home = testTempDir("trame-test-");
   try {
     await setup({ claude: true, skillDirs: [`${home}/.agents/skills`], home });
     for (

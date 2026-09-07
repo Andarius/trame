@@ -1,9 +1,10 @@
+import { testTempDir } from "./test_tmp.ts";
 // Round-trip tests for the page-share bundle (export → import). Runs against an
 // isolated PGlite in a temp dir — set the env BEFORE importing any app module (config
 // reads it at load), so the app code is pulled in via dynamic import inside each test.
 //
 //   deno test -A share_test.ts   (or `just test`)
-const tmp = await Deno.makeTempDir({ prefix: "trame-share-test-" });
+const tmp = testTempDir("trame-share-test-");
 Deno.env.set("TRACKER_DATA_DIR", `${tmp}/pglite`);
 Deno.env.set("TRACKER_NODE_ID", "share-test");
 Deno.env.set("TRACKER_OUTBOX", `${tmp}/outbox.jsonl`);

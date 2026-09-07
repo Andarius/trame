@@ -1,6 +1,7 @@
+import { testTempDir } from "./test_tmp.ts";
 // Isolated PGlite in a temp dir — set the env BEFORE importing any app module (config
 // reads it at load), so app code is pulled in via dynamic import inside the tests.
-const tmp = await Deno.makeTempDir({ prefix: "trame-watch-test-" });
+const tmp = testTempDir("trame-watch-test-");
 Deno.env.set("TRACKER_DATA_DIR", `${tmp}/pglite`);
 Deno.env.set("TRACKER_NODE_ID", "watch-test");
 Deno.env.set("TRACKER_OUTBOX", `${tmp}/outbox.jsonl`);

@@ -1,3 +1,4 @@
+import { testTempDir } from "./test_tmp.ts";
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { addComment } from "../track/comment.ts";
 
@@ -42,7 +43,7 @@ Deno.test("comment writer resolves page and block text and detects Codex", async
     },
   );
 
-  const tmp = await Deno.makeTempDir({ prefix: "trame-comment-writer-test-" });
+  const tmp = testTempDir("trame-comment-writer-test-");
   try {
     const port = await ready;
     const portFile = `${tmp}/port.json`;

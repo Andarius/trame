@@ -1,4 +1,5 @@
-const tmp = await Deno.makeTempDir({ prefix: "trame-cockpit-store-test-" });
+import { testTempDir } from "../../test_tmp.ts";
+const tmp = testTempDir("trame-cockpit-store-test-");
 Deno.env.set("TRACKER_DATA_DIR", `${tmp}/pglite`);
 Deno.env.set("TRACKER_NODE_ID", "cockpit-store-test");
 Deno.env.set("TRACKER_OUTBOX", `${tmp}/outbox.jsonl`);
