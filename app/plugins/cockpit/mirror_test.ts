@@ -322,16 +322,15 @@ Deno.test("ticketFromPage refuses a page with nothing to say", () => {
   assertEquals("error" in out, true);
 });
 
-Deno.test("ticketFromPage refuses an objective with no description", () => {
-  // A summary alone is not a ticket: Cockpit needs both fields filled.
+Deno.test("ticketFromPage files a brief alone — the body is optional", () => {
   const out = ticketFromPage(
     pageFor({ brief: "Prod keys are stale.", content: [] }),
-  );
-  assertEquals("error" in out, true);
-  const only = ticketFromPage(pageFor({
-    content: [{ type: "text", text: "The keys date from March.", id: "b1" }],
-  }));
-  assertEquals("error" in only, true);
+  ) as {
+    objective: string;
+    description: string | null;
+  };
+  assertEquals(out.objective, "Prod keys are stale.");
+  assertEquals(out.description, null);
 });
 
 Deno.test("ticketFromPage refuses a title too short for Cockpit", () => {

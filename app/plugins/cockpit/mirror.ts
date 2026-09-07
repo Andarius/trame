@@ -311,7 +311,7 @@ export function ticketFromPage(page: {
   originId: string;
   title: string;
   objective: string;
-  description: string;
+  description: string | null;
 } | { error: string } {
   const title = page.title.trim();
   if (title.length < 3) {
@@ -337,17 +337,11 @@ export function ticketFromPage(page: {
   // The objective is already carried on its own; repeating it as the first
   // line of the description would read as a duplicate in Cockpit's UI.
   const rest = paragraphs.filter((t) => t !== objective);
-  if (rest.length === 0) {
-    return {
-      error:
-        "The page needs a body below the objective — Cockpit requires a description.",
-    };
-  }
   return {
     originId: page.id,
     title,
     objective,
-    description: rest.join("\n\n"),
+    description: rest.length ? rest.join("\n\n") : null,
   };
 }
 
