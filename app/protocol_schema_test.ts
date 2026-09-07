@@ -68,7 +68,8 @@ Deno.test("a page keeps its tags through create and update", async () => {
 Deno.test("session tags survive tracking, replacement, clearing, and schema reapplication", async () => {
   const { db, getSession, upsertSession } = await import("./db.ts");
   const pg = await db();
-  const id = await upsertSession({ title: "Tagged session", tags: ["priority-p1", "infra"] });
+  // labels slug to keys on the way in, so `priority:P1` and `priority-p1` are one tag
+  const id = await upsertSession({ title: "Tagged session", tags: ["priority:P1", "priority-p1", "infra"] });
   const otherId = await upsertSession({ title: "Untagged session" });
   assertEquals((await getSession(id))?.tags, ["priority-p1", "infra"]);
   assertEquals((await getSession(otherId))?.tags, []);
