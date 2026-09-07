@@ -176,12 +176,24 @@ export async function loadPendingPages(
   if (parents.length === 0) return [];
 
   const pg = await db();
+  // Every live story with its nearest mapped ancestor: a story nested under
+  // another story is still the project's, so the walk stops at the first hit.
   const rows = (await pg.query(
-    `select p.id, p.title, p.tags, p.content, p.parent_id,
+    `with recursive up as (
+       select p.id, p.parent_id as anc, 1 as depth
+         from pages p
+        where not p.deleted and p.kind = 'story' and p.parent_id is not null
+       union all
+       select up.id, a.parent_id, up.depth + 1
+         from up join pages a on a.id = up.anc and not a.deleted
+        where up.anc <> all($1::uuid[]) and a.parent_id is not null and up.depth < 32
+     )
+     select p.id, p.title, p.tags, p.content, up.anc as project_id,
             parent.title as parent_title
-       from pages p
+       from up
+       join pages p on p.id = up.id
        left join pages parent on parent.id = p.parent_id
-      where not p.deleted and p.kind = 'story' and p.parent_id = any($1::uuid[])
+      where up.anc = any($1::uuid[])
       order by p.updated_at desc`,
     [parents],
   )).rows as {
@@ -189,14 +201,14 @@ export async function loadPendingPages(
     title: string;
     tags: unknown;
     content: unknown;
-    parent_id: string;
+    project_id: string;
     parent_title: string | null;
   }[];
 
   return pendingOf(
     rows.map((r) => ({
       pageId: r.id,
-      parentId: r.parent_id,
+      projectId: r.project_id,
       tags: Array.isArray(r.tags) ? r.tags as string[] : [],
       content: Array.isArray(r.content) ? r.content : [],
       title: r.title,
@@ -209,4 +221,25 @@ export async function loadPendingPages(
     parentTitle: page.parentTitle,
     tagLabel,
   }));
+}
+
+/** The nearest of `candidates` above `pageId`, or null when none is an ancestor. */
+export async function mappedProjectOf(
+  pageId: string,
+  candidates: readonly string[],
+): Promise<string | null> {
+  if (candidates.length === 0) return null;
+  const pg = await db();
+  const rows = (await pg.query(
+    `with recursive up as (
+       select parent_id as anc, 1 as depth from pages where id = $1 and not deleted
+       union all
+       select a.parent_id, up.depth + 1
+         from up join pages a on a.id = up.anc and not a.deleted
+        where up.anc <> all($2::uuid[]) and up.depth < 32
+     )
+     select anc from up where anc = any($2::uuid[]) limit 1`,
+    [pageId, [...candidates]],
+  )).rows as { anc: string }[];
+  return rows[0]?.anc ?? null;
 }

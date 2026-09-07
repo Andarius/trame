@@ -129,7 +129,8 @@ export type TagMapping = { pageId: string; tagKey: string; tagLabel: string };
 /** A candidate page, as the pending filter needs to see it. */
 export type PendingCandidate = {
   pageId: string;
-  parentId: string;
+  /** nearest mapped ancestor — a story nested under a story still counts */
+  projectId: string;
   tags: string[];
   content: unknown[];
 };
@@ -150,7 +151,7 @@ export function pendingOf<T extends PendingCandidate>(
   for (const page of candidates) {
     if (refOfContent(page.content)) continue;
     const m = mappings.find((m) =>
-      m.pageId === page.parentId && page.tags.includes(m.tagKey)
+      m.pageId === page.projectId && page.tags.includes(m.tagKey)
     );
     if (m) out.push({ page, tagLabel: m.tagLabel });
   }

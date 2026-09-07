@@ -35,6 +35,7 @@ import {
   loadMirrorPages,
   loadPendingPages,
   loadSyncedPages,
+  mappedProjectOf,
   type MirrorResult,
 } from "./mirror-store.ts";
 
@@ -346,11 +347,14 @@ async function filePage(
     title: string;
     brief?: string;
     content: unknown[];
-    parent_id: string | null;
   } | null;
   if (!page) return { error: "unknown page", status: 404 };
 
-  const mapping = mappings.find((m) => m.pageId === page.parent_id);
+  const projectId = await mappedProjectOf(
+    page.id,
+    mappings.map((m) => m.pageId),
+  );
+  const mapping = mappings.find((m) => m.pageId === projectId);
   const scope = mapping && scopeOf(mapping);
   if (!scope) {
     return { error: "This page is not under a mapped project.", status: 400 };
