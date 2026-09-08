@@ -8,9 +8,12 @@ import {
   REF_MARK,
   refOfContent,
   specsDescription,
+  stampMark,
   ticketBlocks,
   ticketFromSession,
   ticketMarkdown,
+  ticketStatusOf,
+  US_MARK,
   userStoryFromPage,
 } from "./mirror.ts";
 import type { Ticket } from "./api.ts";
@@ -517,4 +520,74 @@ for (
 Deno.test("planMirror gives a new page the ticket's status", () => {
   const plan = planMirror([ticket({ status: "cancelled" })], [], ["CKP-1"]);
   assertEquals(plan.create[0].status, "archived");
+});
+
+Deno.test("converted US pages reserve their GEN reference without being rewritten or retired", () => {
+  const source = ticket({ reference: "GEN-1" });
+  const existing = [{
+    id: "page",
+    ref: source.reference,
+    title: "Converted US",
+    tags: [],
+    status: "open",
+    content: stampMark(ticketBlocks(source), US_MARK, "US-80"),
+  }];
+  for (
+    const [tickets, refs] of [[[], []], [[source], [source.reference]], [
+      [],
+      null,
+    ]] as const
+  ) {
+    assertEquals(planMirror([...tickets], existing, refs), {
+      create: [],
+      update: [],
+      remove: [],
+    });
+  }
+});
+
+Deno.test("initial ticket status preserves supported values and maps Trame execution states", () => {
+  for (
+    const [status, terminal, expected] of [
+      ["todo", false, "todo"],
+      ["active", false, "in_progress"],
+      ["paused", false, "in_progress"],
+      ["blocked", false, "in_progress"],
+      ["done", true, "done"],
+      ["cancelled", true, "cancelled"],
+      ["delivered", true, "done"],
+      ["queued", false, "todo"],
+    ] as const
+  ) assertEquals(ticketStatusOf(status, terminal), expected);
+  const out = ticketFromSession(
+    { id: "loose", title: "Standalone", next_step: "Fix deployment" },
+    [],
+    null,
+  );
+  assertEquals("error" in out ? out : out.userStory, null);
+});
+
+Deno.test("mirroring an imported page preserves its authored blocks and comment anchors", () => {
+  const content = [{
+    id: "todo-anchor",
+    type: "todo",
+    text: "Check Grafana",
+    done: false,
+  }];
+  const page: MirrorPage = {
+    id: "local-page",
+    ref: "GEN-900",
+    title: "Grafana",
+    content,
+    tags: [],
+    status: "open",
+  };
+  const plan = planMirror(
+    [ticket({ reference: "GEN-900", meta: { sync: { origin_id: page.id } } })],
+    [page],
+    ["GEN-900"],
+  );
+  assertEquals(plan.update[0].blocks, content);
+  assertEquals(plan.create, []);
+  assertEquals(plan.remove, []);
 });

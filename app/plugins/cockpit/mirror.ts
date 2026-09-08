@@ -11,7 +11,7 @@ import {
 } from "../../page-markdown.ts";
 import { mergePageBlocks } from "../../page-merge.ts";
 import { readMarks, stripMarks, writeMark } from "../../todo-marks.ts";
-import type { Ticket } from "./api.ts";
+import type { Ticket, TicketStatus } from "./api.ts";
 
 export const REF_MARK = "cockpit_ref";
 /** A story filed as a user story carries this instead: it is a container, not a ticket mirror. */
@@ -142,6 +142,29 @@ export const isSessionTicket = (t: Ticket): boolean =>
 /** A mapping, as the pending filter needs to see it. */
 export type TagMapping = { pageId: string; tagKey: string; tagLabel: string };
 
+export type FilingSkip = { title: string; reason: string };
+
+/** Resolve an explicit tag within its owning project, refusing ambiguous routing. */
+export function taggedMapping<T extends TagMapping>(
+  mappings: readonly T[],
+  projectId: string,
+  tags: readonly string[],
+): T | { error: string } | undefined {
+  const cockpitTags = tags.filter((t) => t.startsWith("cockpit-"));
+  const matches = mappings.filter((m) =>
+    m.pageId === projectId && tags.includes(m.tagKey)
+  );
+  if (!cockpitTags.length && !matches.length) return undefined;
+  if (
+    matches.length !== 1 || cockpitTags.some((t) => t !== matches[0].tagKey)
+  ) {
+    return {
+      error: "Cockpit tags do not select exactly one mapping in this project.",
+    };
+  }
+  return matches[0];
+}
+
 /** A candidate page, as the pending filter needs to see it. */
 export type PendingCandidate = {
   pageId: string;
@@ -162,13 +185,19 @@ export type PendingCandidate = {
 export function pendingOf<T extends PendingCandidate>(
   candidates: readonly T[],
   mappings: readonly TagMapping[],
+  skipped: FilingSkip[] = [],
 ): { page: T; tagLabel: string }[] {
   const out: { page: T; tagLabel: string }[] = [];
   for (const page of candidates) {
     if (refOfContent(page.content) || usOfContent(page.content)) continue;
-    const m = mappings.find((m) =>
-      m.pageId === page.projectId && page.tags.includes(m.tagKey)
-    );
+    const m = taggedMapping(mappings, page.projectId, page.tags);
+    if (m && "error" in m) {
+      skipped.push({
+        title: "title" in page ? String(page.title) : page.pageId,
+        reason: m.error,
+      });
+      continue;
+    }
     if (m) out.push({ page, tagLabel: m.tagLabel });
   }
   return out;
@@ -197,6 +226,7 @@ export function planMirror(
     const title = `${t.reference} — ${t.title}`;
     const ours = tagsByRef.get(t.reference) ?? [];
     const page = byRef.get(t.reference);
+    if (page && usOfContent(page.content)) continue;
     if (!page) {
       plan.create.push({
         ref: t.reference,
@@ -213,7 +243,11 @@ export function planMirror(
       id: page.id,
       ref: t.reference,
       title,
-      blocks: mergePageBlocks(page.content, blocks),
+      blocks:
+        (t.meta?.sync as { origin_id?: string } | undefined)?.origin_id ===
+            page.id
+          ? page.content
+          : mergePageBlocks(page.content, blocks),
       // Union, never replace: a reader may have tagged this page themselves,
       // and re-mirroring must not quietly strip that.
       tags: [...new Set([...page.tags, ...ours])],
@@ -224,7 +258,9 @@ export function planMirror(
   if (liveRefs) {
     const live = new Set(liveRefs);
     for (const p of existing) {
-      if (!live.has(p.ref)) plan.remove.push({ id: p.id, ref: p.ref });
+      if (!live.has(p.ref) && !usOfContent(p.content)) {
+        plan.remove.push({ id: p.id, ref: p.ref });
+      }
     }
   }
   return plan;
@@ -331,7 +367,10 @@ export function userStoryFromPage(page: {
   }
   const brief = (page.brief ?? "").trim();
   if (!brief) {
-    return { error: "The page needs a summary — it becomes the user story's description." };
+    return {
+      error:
+        "The page needs a summary — it becomes the user story's description.",
+    };
   }
   const paragraphs = textParagraphs(page.content);
   return {
@@ -361,7 +400,9 @@ export function specsDescription(content: unknown[]): string | null {
   const bullets = content.flatMap((b) => {
     if (typeof b !== "object" || b === null) return [];
     const { type, text } = b as { type?: unknown; text?: unknown };
-    if ((type !== "text" && type !== "todo") || typeof text !== "string") return [];
+    if ((type !== "text" && type !== "todo") || typeof text !== "string") {
+      return [];
+    }
     const t = stripMarks(text)
       .replace(/\p{Extended_Pictographic}|[\u{FE0F}\u{20E3}]/gu, "")
       .replace(/^\s*[-*]\s*\[[ xX]\]\s*/, "")
@@ -380,21 +421,25 @@ export function specsDescription(content: unknown[]): string | null {
 export function ticketFromSession(
   session: { id: string; title: string; next_step: string | null },
   specs: unknown[],
-  userStory: string,
+  userStory: string | null,
 ): {
   originId: string;
   title: string;
   objective: string;
   description: string | null;
-  userStory: string;
+  userStory: string | null;
 } | { error: string } {
   const title = session.title.trim();
   if (title.length < 3) {
     return { error: "The session needs a title of at least 3 characters." };
   }
-  const objective = (session.next_step ?? "").trim() || textParagraphs(specs)[0] || "";
+  const objective = (session.next_step ?? "").trim() ||
+    textParagraphs(specs)[0] || "";
   if (!objective) {
-    return { error: "The session needs a next step or a specs paragraph — Cockpit requires an objective." };
+    return {
+      error:
+        "The session needs a next step or a specs paragraph — Cockpit requires an objective.",
+    };
   }
   return {
     originId: `${SESSION_ORIGIN}${session.id}`,
@@ -405,18 +450,29 @@ export function ticketFromSession(
   };
 }
 
-/**
- * Put the reference mark on a page's first block, keeping everything else.
- *
- * Used when a local page becomes a ticket: the page already has the reader's
- * own content, so it is stamped in place rather than rewritten from the
- * ticket — which would discard whatever they had written.
- */
+/** Map initial execution state while keeping the original label in sync metadata. */
+export function ticketStatusOf(
+  status: string,
+  terminal: boolean,
+): TicketStatus {
+  if (
+    ["todo", "in_progress", "to_verify", "done", "cancelled"].includes(status)
+  ) return status as TicketStatus;
+  if (terminal) return "done";
+  return ["active", "paused", "blocked"].includes(status)
+    ? "in_progress"
+    : "todo";
+}
+
 export function stampRef(content: unknown[], reference: string): unknown[] {
   return stampMark(content, REF_MARK, reference);
 }
 
-export function stampMark(content: unknown[], key: string, value: string): unknown[] {
+export function stampMark(
+  content: unknown[],
+  key: string,
+  value: string,
+): unknown[] {
   const at = content.findIndex((b) =>
     typeof b === "object" && b !== null &&
     typeof (b as { text?: unknown }).text === "string"

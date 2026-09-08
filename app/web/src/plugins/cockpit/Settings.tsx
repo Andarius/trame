@@ -344,11 +344,12 @@ export function CockpitSettings() {
             onChange={(e) => save({ autoFile: e.target.checked })}
           />
           <span>
-            <span className="text-[12px]">File tagged pages as tickets</span>
+            <span className="text-[12px]">File tagged USs and tickets</span>
             <span className="mt-0.5 block text-[11px] text-ink-muted">
-              Tagging a story under a mapped project sends it to Cockpit on the
-              next pass. Turn this off to keep filing a deliberate click — the
-              panel then lists what is waiting instead of sending it.
+              A tagged story sends its US and all its tickets on the next pass.
+              Tickets without a US need their own Cockpit tag. Tags other than
+              cockpit:* stay in sync. Titles, descriptions and statuses are sent
+              only when an item is created.
             </span>
           </span>
         </label>

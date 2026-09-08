@@ -1,6 +1,4 @@
-// Cockpit plugin: a lens on the tickets a Cockpit instance lets us see, and
-// optionally a mirror of them as story pages. No writes back to Cockpit yet —
-// that is phase 4.
+// Cockpit plugin: file tagged work and optionally mirror mapped tickets as story pages.
 //
 // Like `deployments`, live state is a module-level cache fed by a
 // self-rescheduling poll. Mirroring is the one thing that reaches PGlite, and
@@ -8,12 +6,12 @@
 // what lands in the local database syncs to the hub and can be shared by link,
 // so it is never a side effect of merely enabling the plugin.
 import { COCKPIT_FIXTURE, COCKPIT_POLL_IDLE_MS } from "../../config.ts";
+import { legacyParents } from "./migration.ts";
 import type { Plugin, PluginSettings } from "../types.ts";
 import { getPluginSettings, isPluginEnabled } from "../settings.ts";
 import { ensureTag, tagKey } from "../../db.ts";
 import {
   type Mapping,
-  mappingFor,
   mappingTagLabel,
   parseMappings,
   type Scope,
@@ -24,35 +22,41 @@ import {
   CockpitError,
   createTicket,
   createUserStory,
-  fetchDelta,
   fetchRefs,
   fetchScopes,
+  fetchTickets,
   probe,
+  requireImportSupport,
+  syncTags,
   type Ticket,
 } from "./api.ts";
 import {
   groupByProject,
   isSessionTicket,
   planMirror,
+  refOfContent,
   ticketFromSession,
+  ticketStatusOf,
   userStoryFromPage,
+  usOfContent,
 } from "./mirror.ts";
 import {
+  adoptAsMirror,
   adoptAsUserStory,
   adoptSessionAsFiled,
   applyMirror,
   loadMirrorPages,
+  loadPageRoutes,
   loadPendingPages,
   loadPendingSessions,
   loadSyncedPages,
-  mappedProjectOf,
+  loadTagSyncItems,
   type MirrorResult,
 } from "./mirror-store.ts";
 
 const ID = "cockpit";
 const DEFAULT_IDLE_SECONDS = COCKPIT_POLL_IDLE_MS / 1000;
 const MIN_IDLE_SECONDS = 30;
-const MAX_PAGES = 20; // guard: a broken cursor must not loop forever
 
 // `mapping`, not `scope`: a Cockpit ticket ALREADY has a `scope` field
 // (front | back | product), and reusing the name would silently overwrite it.
@@ -121,30 +125,6 @@ const ordered = (items: ScopedTicket[]) =>
       b.priority - a.priority ||
       b.updated_at.localeCompare(a.updated_at),
   );
-
-/**
- * Drain one scope's delta.
- *
- * Phase 2 keeps no watermark: the panel is a live view, so each pass starts
- * from scratch and the cache is whatever the server last said. Watermarks
- * arrive with mirroring in phase 3, where re-reading everything would mean
- * rewriting every page on every tick.
- */
-async function drain(
-  baseUrl: string,
-  token: string,
-  scope: Scope,
-): Promise<Ticket[]> {
-  const out: Ticket[] = [];
-  let since: string | null = null;
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const delta = await fetchDelta(baseUrl, token, scope, since);
-    out.push(...delta.tickets);
-    if (!delta.has_more || !delta.next_since) break;
-    since = delta.next_since;
-  }
-  return out;
-}
 
 /**
  * Mirror one project's group — see `groupByProject` for why the unit is the
@@ -227,13 +207,27 @@ async function pollOnce(): Promise<CockpitState> {
 
   // Push BEFORE pulling: a page filed now comes back in the same pass as a
   // ticket, so one poll leaves Trame and Cockpit agreeing instead of two.
-  if (slice.autoFile !== false) {
+  let canFile = slice.autoFile !== false;
+  let canSyncTags = false;
+  if (canFile) {
+    try {
+      canSyncTags = (await requireImportSupport(baseUrl, token)).tags;
+    } catch (e) {
+      errors.push({
+        scope: "export",
+        error: e instanceof Error ? e.message : String(e),
+      });
+      canFile = false;
+    }
+  }
+  if (canFile) {
     const pending = await loadPendingPages(
       mappings.map((m) => ({
         pageId: m.pageId,
         tagKey: tagKey(mappingTagLabel(m)),
         tagLabel: mappingTagLabel(m),
       })),
+      skipped,
     );
     for (const page of pending) {
       try {
@@ -265,9 +259,10 @@ async function pollOnce(): Promise<CockpitState> {
         tagKey: tagKey(mappingTagLabel(m)),
         tagLabel: mappingTagLabel(m),
       })),
+      skipped,
     );
     for (const s of sessions) {
-      const mapping = mappings.find((m) => mappingTagLabel(m) === s.tagLabel);
+      const mapping = mappings[s.mappingIndex];
       const scope = mapping && scopeOf(mapping);
       if (!scope) continue;
       const fields = ticketFromSession(
@@ -280,7 +275,11 @@ async function pollOnce(): Promise<CockpitState> {
         continue;
       }
       try {
-        const made = await createTicket(baseUrl, token, scope, fields);
+        const made = await createTicket(baseUrl, token, scope, {
+          ...fields,
+          status: ticketStatusOf(s.status, s.terminal),
+          sourceStatus: s.status,
+        });
         await adoptSessionAsFiled(s.sessionId, made.reference);
         filed.push({ title: s.title, reference: made.reference });
       } catch (e) {
@@ -296,12 +295,44 @@ async function pollOnce(): Promise<CockpitState> {
 
   // Drain first, mirror second. Mirroring is grouped by target project below,
   // so it cannot start until every scope aiming at that project has answered.
+  if (canSyncTags) {
+    try {
+      const items = await loadTagSyncItems(mappings.map((m) => ({
+        pageId: m.pageId,
+        tagKey: tagKey(mappingTagLabel(m)),
+        tagLabel: mappingTagLabel(m),
+      })));
+      for (const item of items) {
+        const scope = scopeOf(mappings[item.mappingIndex]);
+        if (!scope) continue;
+        try {
+          await syncTags(baseUrl, token, scope, item);
+        } catch (error) {
+          errors.push({
+            scope: `tags: ${item.title}`,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    } catch (error) {
+      errors.push({
+        scope: "tags",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   const drained = await Promise.all(
     mappings.map(async (m: Mapping) => {
       const scope = scopeOf(m)!; // parseMappings dropped the malformed ones
       const key = scopeKey(scope);
       try {
-        return { m, scope, key, tickets: await drain(baseUrl, token, scope) };
+        return {
+          m,
+          scope,
+          key,
+          tickets: await fetchTickets(baseUrl, token, scope),
+        };
       } catch (e) {
         const detail = e instanceof CockpitError
           ? `${e.status} — ${e.message}`
@@ -386,7 +417,7 @@ async function pollOnce(): Promise<CockpitState> {
  * ever reach a scope this device was told to sync. The stamp is what stops the
  * next pass from making a second ticket beside it.
  */
-async function filePage(
+export async function filePage(
   baseUrl: string,
   token: string,
   mappings: Mapping[],
@@ -401,17 +432,48 @@ async function filePage(
     brief?: string;
     content: unknown[];
     tags?: string[];
+    status: string;
+    kind: string;
   } | null;
   if (!page) return { error: "unknown page", status: 404 };
+  if (page.kind !== "story") {
+    return {
+      error: "Only story pages can be filed; documentation stays in Trame.",
+      status: 422,
+    };
+  }
+  const reference = usOfContent(page.content) ?? refOfContent(page.content);
+  if (reference) return { reference, created: false };
 
-  const projectId = await mappedProjectOf(
-    page.id,
-    mappings.map((m) => m.pageId),
-  );
-  const mapping = mappingFor(mappings, projectId, page.tags ?? [], tagKey);
-  const scope = mapping && scopeOf(mapping);
+  const routes = await loadPageRoutes(mappings.map((m) => ({
+    pageId: m.pageId,
+    tagKey: tagKey(mappingTagLabel(m)),
+    tagLabel: mappingTagLabel(m),
+  })));
+  const route = routes.get(pageId);
+  if (route && "error" in route) return { error: route.error, status: 422 };
+  if (!route) {
+    return { error: "This page has no valid Cockpit routing.", status: 400 };
+  }
+  const scope = scopeOf(mappings[route.mappingIndex]);
   if (!scope) {
     return { error: "This page is not under a mapped project.", status: 400 };
+  }
+  if (route.userStory) {
+    const fields = ticketFromSession(
+      { id: page.id, title: page.title, next_step: page.brief ?? null },
+      page.content,
+      route.userStory,
+    );
+    if ("error" in fields) return { error: fields.error, status: 422 };
+    const made = await createTicket(baseUrl, token, scope, {
+      ...fields,
+      originId: page.id,
+      status: ticketStatusOf(page.status, page.status === "archived"),
+      sourceStatus: page.status,
+    });
+    await adoptAsMirror(page.id, made.reference);
+    return made;
   }
 
   const fields = userStoryFromPage(page);
@@ -432,9 +494,9 @@ const cockpit: Plugin = {
   id: ID,
   label: "Cockpit",
   glyph: "⌗",
-  description: "Tickets from the projects you map, read-only.",
+  description: "File tagged work in Cockpit and mirror mapped tickets.",
   // Usable from the settings pane before the plugin is switched on.
-  ungatedRoutes: ["/test", "/scopes"],
+  ungatedRoutes: ["/test", "/scopes", "/migration"],
 
   badge: () =>
     state.tickets.filter((t) =>
@@ -458,6 +520,32 @@ const cockpit: Plugin = {
 
   async routes(req, subPath) {
     if (subPath === "/state") return json(state);
+    if (subPath === "/migration") {
+      if (req.method !== "GET") {
+        return json({
+          error: "Migration writes are only available through the local CLI.",
+        }, 405);
+      }
+      const slice = await getPluginSettings(ID);
+      const baseUrl = str(slice.baseUrl);
+      const token = str(slice.token);
+      if (!baseUrl || !token) return json({ error: "not configured" }, 400);
+      try {
+        return json({
+          baseUrl,
+          parents: await legacyParents(
+            parseMappings(slice.projects),
+            baseUrl,
+            token,
+          ),
+        });
+      } catch (e) {
+        return json(
+          { error: e instanceof Error ? e.message : String(e) },
+          e instanceof CockpitError ? e.status : 500,
+        );
+      }
+    }
     // What actually reached Cockpit, read off the pages themselves rather than
     // off the last poll: the answer must survive a restart, and a page filed
     // by another device arrives through sync with its mark already on it.

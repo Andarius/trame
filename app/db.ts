@@ -1,3 +1,4 @@
+import { checkStoryParent, storyAbove } from "./hierarchy.ts";
 // Local database = PGlite (embedded Postgres, persisted to DATA_DIR).
 // Same SQL as the hub's Postgres — no dialect translation.
 import { PGlite } from "@electric-sql/pglite";
@@ -157,6 +158,7 @@ export async function resolveStory(title: string, clientId: string | null, tags:
   const pg = await db();
   const hit = await findStory(clean, clientId);
   if (hit) return hit;
+  await checkStoryParent(clientId);
   // default tags (TRACKER_CLIENTS) stamp NEW stories only — an existing page's tags
   // belong to the user
   const keys: string[] = [];
@@ -172,6 +174,7 @@ export async function resolveStory(title: string, clientId: string | null, tags:
 export async function createStory(o: { title: string; brief?: string; client?: string }): Promise<string> {
   const pg = await db();
   const clientId = o.client ? await resolveClient(o.client) : null;
+  await checkStoryParent(clientId);
   const row = (await pg.query(
     `insert into pages (kind, title, brief, client_id, parent_id, origin, owner_id)
      values ('story',$1,$2,$3,$3,$4,${OWNER_ID_SQL(4)}) returning id`,
@@ -319,7 +322,10 @@ export async function upsertSession(s: Record<string, unknown>): Promise<string>
     }
   }
   // project = a page that has sessions: attaching promotes a plain page (one-way)
-  if (s.page_id) await promoteToProject(s.page_id as string, (s.client_id as string) ?? null);
+  if (s.page_id) {
+    s.page_id = await storyAbove(s.page_id as string) ?? s.page_id;
+    await promoteToProject(s.page_id as string, (s.client_id as string) ?? null);
+  }
   const id = (s.id as string) ?? crypto.randomUUID();
   // Transcript linkage: null never clobbers (UI edits omit it); a fresh value wins.
   // page_id is tri-state: absent = keep (a track call is not a detach), null = detach.
@@ -512,7 +518,7 @@ export async function listEvents(sessionId: string, limit?: number) {
   const pg = await db();
   return (await pg.query(
     `select id, at, summary, kind, agent from session_events where session_id=$1 and not deleted
-     order by at desc${limit ? " limit $2" : ""}`,
+     order by at desc, id desc${limit ? " limit $2" : ""}`,
     limit ? [sessionId, limit] : [sessionId],
   )).rows;
 }
