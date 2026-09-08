@@ -2,6 +2,7 @@
 // The tree is returned flat (parent_id + sort_key) — the frontend assembles it and
 // tolerates orphans (sync can deliver a child before its parent).
 import { db, resolveHomeProject } from "./db.ts";
+import { checkStoryParent, isUserStory } from "./hierarchy.ts";
 import { NODE_ID } from "./config.ts";
 import { getIdentity } from "./identity.ts";
 import { isPageStatus } from "./page-status.ts";
@@ -117,6 +118,7 @@ export async function createPage(
     : p.repo_path
     ? await resolveHomeProject(p.repo_path)
     : null;
+  if (isUserStory(p)) await checkStoryParent(parentId);
   const row = (await pg.query(
     `insert into pages
        (kind, title, icon, client_id, parent_id, sort_key, brief, content, tags, status, owner_id, origin)
@@ -187,6 +189,21 @@ export async function updatePage(
   );
 }
 
+async function subtreeHasStory(id: string): Promise<boolean> {
+  const pg = await db();
+  return (await pg.query(
+    `with recursive subtree as (
+       select id, kind, content from pages where id=$1 and not deleted
+       union
+       select p.id, p.kind, p.content from pages p join subtree s on p.parent_id=s.id
+        where not p.deleted and p.kind <> 'project'
+     ) select kind, content from subtree`,
+    [id],
+  )).rows.some((row) =>
+    isUserStory(row as { kind: string; content: unknown[] })
+  );
+}
+
 // Reparent and/or reorder. sort_key is computed here from the neighbor the client
 // dropped next to (before_id/after_id) so concurrent moves can't share a key.
 export async function movePage(
@@ -213,6 +230,9 @@ export async function movePage(
       [parentId, id],
     )).rows[0];
     if (hit) throw new Error("cannot move a page under itself");
+  }
+  if (parentId !== cur.parent_id && parentId && await subtreeHasStory(id)) {
+    await checkStoryParent(parentId);
   }
   const anchor = to.before_id ?? to.after_id;
   let key: string;

@@ -14,6 +14,7 @@ import { assert, assertEquals } from "@std/assert";
 Deno.test("getSession resolves the card the drawer shows", async () => {
   const {
     addEvent,
+    db,
     addSessionLink,
     addTrackEvent,
     deleteSession,
@@ -44,6 +45,9 @@ Deno.test("getSession resolves the card the drawer shows", async () => {
   for (const s of ["first", "second", "third"]) {
     await addEvent(id, s, "track", "claude");
   }
+
+  // Equal timestamps still preserve the time-ordered event IDs.
+  await (await db()).query(`update session_events set at='2026-01-01T00:00:00Z' where session_id=$1`, [id]);
 
   const card = await getSession(id);
   assert(card);

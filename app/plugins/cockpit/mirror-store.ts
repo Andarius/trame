@@ -1,14 +1,16 @@
 // The database side of mirroring. Kept apart from `mirror.ts` so the planner
 // stays pure and testable without a PGlite instance.
-import { db, ensureSpecsPage } from "../../db.ts";
+import { db, ensureSpecsPage, listTags } from "../../db.ts";
 import { createPage, deletePage, updatePage } from "../../pages.ts";
 import {
+  type FilingSkip,
   type MirrorPage,
   type MirrorPlan,
-  pendingOf,
   refOfContent,
   stampMark,
   stampRef,
+  taggedMapping,
+  type TagMapping,
   US_MARK,
   usOfContent,
 } from "./mirror.ts";
@@ -184,70 +186,178 @@ export async function adoptAsUserStory(
   await updatePage(pageId, { content: stampMark(content, US_MARK, reference) });
 }
 
+type PageRoute = {
+  mappingIndex: number;
+  userStory: string | null;
+  storyTitle: string | null;
+} | { error: string };
+
+/** Resolve routing through legacy nesting without crossing mapped project boundaries. */
+export async function loadPageRoutes(
+  mappings: TagMapping[],
+): Promise<Map<string, PageRoute>> {
+  const pg = await db();
+  const pages = (await pg.query(
+    `select id, parent_id, kind, title, tags, content from pages where not deleted`,
+  )).rows as {
+    id: string;
+    parent_id: string | null;
+    kind: string;
+    title: string;
+    tags: string[];
+    content: unknown[];
+  }[];
+  const byId = new Map(pages.map((p) => [p.id, p]));
+  const mapped = new Set(mappings.map((m) => m.pageId));
+  const routes = new Map<string, PageRoute>();
+  for (const page of pages) {
+    const chain: typeof pages = [];
+    const seen = new Set<string>();
+    let parent: typeof page | undefined = page;
+    while (parent && !mapped.has(parent.id) && !seen.has(parent.id)) {
+      seen.add(parent.id);
+      chain.push(parent);
+      if (parent.kind === "project") {
+        parent = undefined;
+        break;
+      }
+      parent = parent.parent_id ? byId.get(parent.parent_id) : undefined;
+    }
+    if (!parent || !mapped.has(parent.id)) continue;
+    const usIndex = chain.findIndex((p) =>
+      /^US-\d+$/.test(usOfContent(p.content) ?? "")
+    );
+    const userStory = usIndex < 0 ? null : usOfContent(chain[usIndex].content);
+    if (
+      usIndex < 0 &&
+      chain.slice(1).some((p) => p.kind === "story" && !refOfContent(p.content))
+    ) continue;
+    const candidates = usIndex < 0
+      ? chain.slice(0, 1)
+      : chain.slice(0, usIndex + 1);
+    const usMapping = usIndex < 0
+      ? undefined
+      : taggedMapping(mappings, parent.id, chain[usIndex].tags);
+    if (usIndex >= 0 && (!usMapping || "error" in usMapping)) {
+      routes.set(page.id, {
+        error: usMapping && "error" in usMapping
+          ? usMapping.error
+          : "The nearest linked US has no valid Cockpit routing tag.",
+      });
+      continue;
+    }
+    let selected = usMapping && !("error" in usMapping) ? usMapping : undefined;
+    let error: string | undefined;
+    for (const candidate of candidates) {
+      const explicit = taggedMapping(mappings, parent.id, candidate.tags);
+      if (explicit && "error" in explicit) {
+        error = explicit.error;
+        break;
+      }
+      if (explicit && selected && explicit !== selected) {
+        error = "The item's Cockpit tag conflicts with its US mapping.";
+        break;
+      }
+      selected ??= explicit;
+    }
+    if (error) routes.set(page.id, { error });
+    else if (selected) {
+      routes.set(page.id, {
+        mappingIndex: mappings.indexOf(selected),
+        userStory,
+        storyTitle: usIndex < 0 ? null : chain[usIndex].title,
+      });
+    }
+  }
+  return routes;
+}
+
 export type PendingSession = {
   sessionId: string;
   title: string;
   nextStep: string | null;
-  /** the story's user story reference — where the ticket files */
-  userStory: string;
-  storyTitle: string;
+  status: string;
+  terminal: boolean;
+  userStory: string | null;
+  storyTitle: string | null;
+  mappingIndex: number;
   tagLabel: string;
   specs: unknown[];
 };
 
-/**
- * Sessions tagged for a mapping whose story is a filed user story, and whose
- * specs page carries no ticket reference yet — the push side's second inbox.
- *
- * The story must already be a user story: a ticket needs a container, and
- * filing the story first is what a single pass does (pages, then sessions).
- */
+/** Select inherited US tickets and explicitly tagged standalone tickets within live mappings. */
 export async function loadPendingSessions(
-  mappings: { pageId: string; tagKey: string; tagLabel: string }[],
+  mappings: TagMapping[],
+  skipped: FilingSkip[] = [],
 ): Promise<PendingSession[]> {
-  const stories = await storiesOwnedBy(mappings.map((m) => m.pageId));
-  const byStory = new Map<string, { us: string; title: string; tagLabel: string }>();
-  for (const s of stories) {
-    const us = usOfContent(s.content);
-    // Two mappings can share a project: the story's own tag says which one.
-    const here = mappings.filter((m) => m.pageId === s.projectId);
-    const m = here.find((m) => s.tags.includes(m.tagKey)) ?? here[0];
-    if (us && m) byStory.set(s.id, { us, title: s.title, tagLabel: m.tagLabel });
-  }
-  if (byStory.size === 0) return [];
-
+  const ids = [...new Set(mappings.map((m) => m.pageId).filter(Boolean))];
+  if (!ids.length) return [];
+  const routes = await loadPageRoutes(mappings);
   const pg = await db();
   const rows = (await pg.query(
-    `select s.id, s.title, s.next_step, s.page_id, s.tags, specs.content as specs
+    `select s.id, s.title, s.next_step, s.page_id, s.client_id, s.tags, s.status,
+            coalesce(st.terminal, false) as terminal, specs.content as specs
        from sessions s
        left join pages specs on specs.id = s.specs_page_id and not specs.deleted
-      where not s.deleted and s.page_id = any($1::uuid[])
-      order by s.last_touched desc`,
-    [[...byStory.keys()]],
+       left join pages project on project.id = s.client_id and not project.deleted and project.kind = 'project'
+       left join statuses st on st.key = s.status and not st.deleted
+      where not s.deleted and (s.page_id = any($1::uuid[])
+         or (s.page_id is null and s.client_id = any($2::uuid[]) and project.id is not null))
+      order by s.last_touched desc, s.id`,
+    [[...routes.keys()], ids],
   )).rows as {
     id: string;
     title: string;
     next_step: string | null;
-    page_id: string;
+    page_id: string | null;
+    client_id: string | null;
+    status: string;
+    terminal: boolean;
     tags: unknown;
     specs: unknown;
   }[];
 
   const out: PendingSession[] = [];
   for (const r of rows) {
-    const story = byStory.get(r.page_id)!;
-    const tags = Array.isArray(r.tags) ? r.tags as string[] : [];
-    const m = mappings.find((m) => m.tagLabel === story.tagLabel);
-    if (!m || !tags.includes(m.tagKey)) continue;
     const specs = Array.isArray(r.specs) ? r.specs : [];
     if (refOfContent(specs)) continue;
+    const route = r.page_id ? routes.get(r.page_id) : undefined;
+    if (route && "error" in route) {
+      skipped.push({ title: r.title, reason: route.error });
+      continue;
+    }
+    // Attached sessions need a linked US; standalone sessions need their own tag.
+    if (r.page_id && !route?.userStory) continue;
+    const inherited = route ? mappings[route.mappingIndex] : undefined;
+    const tags = Array.isArray(r.tags) ? r.tags as string[] : [];
+    const explicit = taggedMapping(
+      mappings,
+      inherited?.pageId ?? r.client_id!,
+      tags,
+    );
+    if (explicit && "error" in explicit) {
+      skipped.push({ title: r.title, reason: explicit.error });
+      continue;
+    }
+    if (inherited && explicit && inherited !== explicit) {
+      skipped.push({
+        title: r.title,
+        reason: "The ticket's Cockpit tag conflicts with its US mapping.",
+      });
+      continue;
+    }
+    const m = inherited ?? explicit;
+    if (!m) continue;
     out.push({
       sessionId: r.id,
       title: r.title,
       nextStep: r.next_step,
-      userStory: story.us,
-      storyTitle: story.title,
-      tagLabel: story.tagLabel,
+      status: r.status,
+      terminal: r.terminal,
+      userStory: route?.userStory ?? null,
+      storyTitle: route?.storyTitle ?? null,
+      mappingIndex: mappings.indexOf(m),
+      tagLabel: m.tagLabel,
       specs,
     });
   }
@@ -300,7 +410,7 @@ export async function loadSyncedPages(): Promise<SyncedPage[]> {
   const out: SyncedPage[] = [];
   for (const r of rows) {
     const content = Array.isArray(r.content) ? r.content : [];
-    const ref = refOfContent(content) ?? usOfContent(content);
+    const ref = usOfContent(content) ?? refOfContent(content);
     if (!ref) continue;
     out.push({
       pageId: r.id,
@@ -328,25 +438,26 @@ export type PendingPage = {
  * would keep offering to file pages that came FROM Cockpit.
  */
 export async function loadPendingPages(
-  mappings: { pageId: string; tagKey: string; tagLabel: string }[],
+  mappings: TagMapping[],
+  skipped: FilingSkip[] = [],
 ): Promise<PendingPage[]> {
   const stories = await storiesOwnedBy(mappings.map((m) => m.pageId));
-  return pendingOf(
-    stories.map((s) => ({
-      pageId: s.id,
-      projectId: s.projectId,
-      tags: s.tags,
-      content: s.content,
-      title: s.title,
-      parentTitle: s.parentTitle,
-    })),
-    mappings,
-  ).map(({ page, tagLabel }) => ({
-    pageId: page.pageId,
-    title: page.title,
-    parentTitle: page.parentTitle,
-    tagLabel,
-  }));
+  const routes = await loadPageRoutes(mappings);
+  return stories.flatMap((page) => {
+    if (refOfContent(page.content) || usOfContent(page.content)) return [];
+    const route = routes.get(page.id);
+    if (!route) return [];
+    if ("error" in route) {
+      skipped.push({ title: page.title, reason: route.error });
+      return [];
+    }
+    return [{
+      pageId: page.id,
+      title: page.title,
+      parentTitle: page.parentTitle,
+      tagLabel: mappings[route.mappingIndex].tagLabel,
+    }];
+  });
 }
 
 /** The nearest live page of `candidates` above `pageId`, or null. */
@@ -372,4 +483,114 @@ export async function mappedProjectOf(
     [pageId, ids],
   )).rows as { id: string }[];
   return rows[0]?.id ?? null;
+}
+
+export type TagSyncItem = {
+  reference: string;
+  sourceId: string;
+  title: string;
+  tags: string[];
+  mappingIndex: number;
+};
+
+/** Read tags from mapped exported pages or their session, resolving current display labels. */
+export async function loadTagSyncItems(
+  mappings: TagMapping[],
+): Promise<TagSyncItem[]> {
+  const projectIds = [
+    ...new Set(mappings.map((m) => m.pageId).filter(Boolean)),
+  ];
+  if (!projectIds.length) return [];
+  const pg = await db();
+  const [pagesResult, sessionsResult, catalogue] = await Promise.all([
+    pg.query(
+      `select id, title, parent_id, tags, content from pages where not deleted`,
+    ),
+    pg.query(
+      `select id, title, page_id, client_id, specs_page_id, tags from sessions where not deleted and specs_page_id is not null`,
+    ),
+    listTags(),
+  ]);
+  type Page = {
+    id: string;
+    title: string;
+    parent_id: string | null;
+    tags: string[];
+    content: unknown[];
+  };
+  type Session = {
+    id: string;
+    title: string;
+    page_id: string | null;
+    client_id: string | null;
+    specs_page_id: string;
+    tags: string[];
+  };
+  const pages = new Map(
+    (pagesResult.rows as Page[]).map((page) => [page.id, page]),
+  );
+  const sessions = new Map<string, Session[]>();
+  for (const session of sessionsResult.rows as Session[]) {
+    sessions.set(session.specs_page_id, [
+      ...(sessions.get(session.specs_page_id) ?? []),
+      session,
+    ]);
+  }
+  const labels = new Map(
+    (catalogue as { key: string; label: string }[]).map((
+      tag,
+    ) => [tag.key, tag.label]),
+  );
+  const out: TagSyncItem[] = [];
+  for (const page of pages.values()) {
+    const reference = usOfContent(page.content) ?? refOfContent(page.content);
+    if (!reference || !/^(GEN|US)-\d+$/.test(reference)) continue;
+    const owners = reference.startsWith("GEN-")
+      ? sessions.get(page.id) ?? [undefined]
+      : [undefined];
+    for (const session of owners) {
+      const ancestors: Page[] = [];
+      const start = session
+        ? session.page_id ?? session.client_id
+        : page.parent_id;
+      let cursor = pages.get(start ?? "");
+      const seen = new Set([page.id]);
+      while (cursor && !seen.has(cursor.id)) {
+        ancestors.push(cursor);
+        if (projectIds.includes(cursor.id)) break;
+        seen.add(cursor.id);
+        cursor = pages.get(cursor.parent_id ?? "");
+      }
+      const project = ancestors.at(-1);
+      if (!project || !projectIds.includes(project.id)) continue;
+      const keys = session?.tags ?? page.tags;
+      const ownMapping = taggedMapping(mappings, project.id, keys);
+      if (ownMapping && "error" in ownMapping) continue;
+      let inherited: ReturnType<typeof taggedMapping>;
+      for (const ancestor of ancestors) {
+        inherited = taggedMapping(mappings, project.id, ancestor.tags);
+        if (inherited) break;
+      }
+      if (inherited && "error" in inherited) continue;
+      if (ownMapping && inherited && ownMapping !== inherited) continue;
+      const mapping = ownMapping ?? inherited;
+      if (!mapping) continue;
+      const tags = [
+        ...new Set(keys.flatMap((key) => {
+          const label = labels.get(key);
+          return !label || /^cockpit-/i.test(key) || /^cockpit\s*:/i.test(label)
+            ? []
+            : [label];
+        })),
+      ].sort();
+      out.push({
+        reference,
+        sourceId: `trame:${session ? `session:${session.id}` : page.id}`,
+        title: session?.title ?? page.title,
+        tags,
+        mappingIndex: mappings.indexOf(mapping),
+      });
+    }
+  }
+  return out;
 }

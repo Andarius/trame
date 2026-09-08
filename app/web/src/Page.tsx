@@ -80,7 +80,7 @@ import { DatabaseView } from "./udb/DatabaseTable";
 import { FolderBlock } from "./FolderBlock";
 import { TagEditor } from "./TagEditor";
 import { CockpitTicket } from "./plugins/cockpit/CockpitTicket";
-import { refOfContent } from "../../plugins/cockpit/mirror.ts";
+import { refOfContent, usOfContent } from "../../plugins/cockpit/mirror.ts";
 import { HtmlBlock } from "./HtmlBlock";
 
 // project chip palette (matches the client palette + a few extras)
@@ -2986,7 +2986,7 @@ export function Page(
             pageId={pageId}
             parentId={page.parent_id}
             tags={page.tags ?? []}
-            reference={refOfContent(page.content ?? [])}
+            reference={usOfContent(page.content ?? []) ?? refOfContent(page.content ?? [])}
             onDone={() => reload()}
           />
 

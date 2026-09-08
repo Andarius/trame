@@ -60,7 +60,7 @@ export function CockpitTicket(
     return (
       <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-ink-muted">
         <a
-          href={`${baseUrl}/ticket/${encodeURIComponent(ref)}`}
+          href={ref.startsWith("US-") ? `${baseUrl}/cockpit?u=${encodeURIComponent(ref)}` : `${baseUrl}/ticket/${encodeURIComponent(ref)}`}
           target="_blank"
           rel="noreferrer"
           className="inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-0.5 text-ink-soft transition-colors hover:border-chipline"

@@ -5,6 +5,13 @@
 // allows even if a mapping is wrong.
 import { type Scope, scopeQuery } from "./scope.ts";
 
+export type TicketStatus =
+  | "todo"
+  | "in_progress"
+  | "to_verify"
+  | "done"
+  | "cancelled";
+
 export type Ticket = {
   id: string;
   reference: string;
@@ -120,6 +127,8 @@ export function createTicket(
     description: string | null;
     /** `US-…` reference of the user story the ticket files under, if any */
     userStory?: string | null;
+    status?: TicketStatus;
+    sourceStatus?: string;
   },
 ): Promise<Created> {
   return call(baseUrl, token, `/tickets/create?${scopeQuery(scope)}`, {
@@ -130,6 +139,8 @@ export function createTicket(
       objective: body.objective,
       description: body.description,
       user_story: body.userStory ?? null,
+      status: body.status,
+      source_status: body.sourceStatus,
     }),
   });
 }
@@ -140,7 +151,7 @@ export function createUserStory(
   token: string,
   scope: Scope,
   body: { originId: string; title: string; description: string | null },
-): Promise<Created> {
+): Promise<Created & { id: string }> {
   return call(baseUrl, token, `/user-stories/create?${scopeQuery(scope)}`, {
     method: "POST",
     body: JSON.stringify({
@@ -154,7 +165,14 @@ export function createUserStory(
 export function fetchScopes(
   baseUrl: string,
   token: string,
-): Promise<{ scopes: GrantedScope[] }> {
+): Promise<{
+  scopes: GrantedScope[];
+  capabilities?: {
+    initial_ticket_status?: boolean;
+    user_story_ids?: boolean;
+    tags?: boolean;
+  };
+}> {
   return call(baseUrl, token, "/scopes");
 }
 
@@ -218,4 +236,77 @@ export async function probe(baseUrl: string, token: string): Promise<Probe> {
     kind: "http",
     detail: body.error ?? `HTTP ${res.status}`,
   };
+}
+
+/** Read a complete scope, refusing a truncated or broken cursor. */
+export async function fetchTickets(
+  baseUrl: string,
+  token: string,
+  scope: Scope,
+): Promise<Ticket[]> {
+  const tickets: Ticket[] = [];
+  let since: string | null = null;
+  for (let page = 0; page < 20; page++) {
+    const delta = await fetchDelta(baseUrl, token, scope, since);
+    tickets.push(...delta.tickets);
+    if (!delta.has_more) return tickets;
+    if (!delta.next_since || delta.next_since === since) {
+      throw new Error("Cockpit returned an invalid ticket cursor.");
+    }
+    since = delta.next_since;
+  }
+  throw new Error("Cockpit ticket scope exceeds the 20-page import limit.");
+}
+
+/** Retain the original ticket beneath its converted US with an atomic retry receipt. */
+export function attachLegacyTicket(
+  baseUrl: string,
+  token: string,
+  reference: string,
+  expectedUpdatedAt: string,
+  userStory: string,
+  pageId: string,
+): Promise<{ reference: string; updated_at: string }> {
+  return call(baseUrl, token, `/tickets/${encodeURIComponent(reference)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      expected_updated_at: expectedUpdatedAt,
+      fields: { user_story_id: userStory },
+      meta: { trame_migration: { page_id: pageId, user_story: userStory } },
+    }),
+  });
+}
+
+/** Refuse exports to older servers that silently discard initial status fields. */
+export async function requireImportSupport(
+  baseUrl: string,
+  token: string,
+): Promise<{ tags: boolean }> {
+  const { capabilities } = await fetchScopes(baseUrl, token);
+  if (
+    capabilities?.initial_ticket_status !== true ||
+    capabilities.user_story_ids !== true
+  ) {
+    throw new Error(
+      "Update Cockpit before exporting: its API does not support status-preserving imports and US identities yet.",
+    );
+  }
+  return { tags: capabilities.tags === true };
+}
+
+/** Replace this source's tags without touching tags owned by Cockpit or other sources. */
+export function syncTags(
+  baseUrl: string,
+  token: string,
+  scope: Scope,
+  item: { reference: string; sourceId: string; tags: string[] },
+): Promise<{ reference: string; changed: boolean }> {
+  return call(baseUrl, token, `/tags?${scopeQuery(scope)}`, {
+    method: "POST",
+    body: JSON.stringify({
+      reference: item.reference,
+      source_id: item.sourceId,
+      tags: item.tags,
+    }),
+  });
 }

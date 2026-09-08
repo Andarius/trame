@@ -99,3 +99,131 @@ Deno.test("probe trims a trailing slash off the base URL", async () => {
   );
   assertEquals(seen, "https://cockpit.test/api/sync/tickets");
 });
+
+Deno.test("ticket creation sends nullable US and initial status without losing the source label", async () => {
+  const { createTicket } = await import("./api.ts");
+  const original = globalThis.fetch;
+  globalThis.fetch = async (_input, init) => {
+    assertEquals(await new Response(String(init?.body)).json(), {
+      origin_id: "session:one",
+      title: "Standalone",
+      objective: "Keep history",
+      description: null,
+      user_story: null,
+      status: "in_progress",
+      source_status: "blocked",
+    });
+    return Response.json({
+      reference: "GEN-1",
+      updated_at: "now",
+      created: false,
+    });
+  };
+  try {
+    assertEquals(
+      (await createTicket("https://cockpit.test", "token", {
+        kind: "product",
+        slug: "devops",
+      }, {
+        originId: "session:one",
+        title: "Standalone",
+        objective: "Keep history",
+        description: null,
+        userStory: null,
+        status: "in_progress",
+        sourceStatus: "blocked",
+      })).created,
+      false,
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+Deno.test("scope reads reject incomplete pagination instead of accepting a partial migration", async () => {
+  const { fetchTickets } = await import("./api.ts");
+  const original = globalThis.fetch;
+  try {
+    for (const cursor of [null, "repeated", "advancing"] as const) {
+      let calls = 0;
+      globalThis.fetch = () =>
+        Promise.resolve(Response.json({
+          now: "now",
+          tickets: [],
+          has_more: true,
+          next_since: cursor === "advancing" ? String(++calls) : cursor,
+        }));
+      let failed = false;
+      try {
+        await fetchTickets("https://cockpit.test", "token", {
+          kind: "product",
+          slug: "devops",
+        });
+      } catch {
+        failed = true;
+      }
+      assertEquals(failed, true);
+    }
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+Deno.test("import preflight rejects older servers before any write", async () => {
+  const { requireImportSupport } = await import("./api.ts");
+  const original = globalThis.fetch;
+  try {
+    for (const supported of [false, true]) {
+      globalThis.fetch = (url, init) => {
+        assertEquals(String(url), "https://cockpit.test/api/sync/scopes");
+        assertEquals(init?.method, undefined);
+        return Promise.resolve(Response.json({
+          scopes: [],
+          ...(supported
+            ? {
+              capabilities: {
+                initial_ticket_status: true,
+                user_story_ids: true,
+              },
+            }
+            : {}),
+        }));
+      };
+      let failed = false;
+      try {
+        await requireImportSupport("https://cockpit.test", "token");
+      } catch {
+        failed = true;
+      }
+      assertEquals(failed, !supported);
+    }
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+Deno.test("tag sync sends empty sets too, with the selected scope and source identity", async () => {
+  const { syncTags } = await import("./api.ts");
+  await withFetch((url, init) => {
+    assertEquals(url, "https://cockpit.test/api/sync/tags?product=devops");
+    assertEquals(init?.method, "POST");
+    assertEquals(JSON.parse(String(init?.body)), {
+      reference: "GEN-42",
+      source_id: "trame:session:abc",
+      tags: [],
+    });
+    return reply(200, { reference: "GEN-42", changed: true });
+  }, async () => {
+    assertEquals(
+      await syncTags("https://cockpit.test", "tok", {
+        kind: "product",
+        slug: "devops",
+      }, {
+        reference: "GEN-42",
+        sourceId: "trame:session:abc",
+        tags: [],
+      }),
+      { reference: "GEN-42", changed: true },
+    );
+  });
+});
