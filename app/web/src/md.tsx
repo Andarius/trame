@@ -6,8 +6,8 @@
 // green|yellow|red|copper|gray — handy for table cells).
 // Underscore emphasis is intentionally NOT supported so snake_case survives.
 import { Fragment, type ReactNode, useEffect, useState } from "react";
-import { openInBrowser, type PrInfo, prInfo } from "./api";
-import { Popover } from "./ui";
+import { getEvents, openInBrowser, type PrInfo, prInfo, type SessionEvent } from "./api";
+import { Modal, Popover, timeAgo } from "./ui";
 
 // ```mermaid fences render as diagrams. The lib (~1.5 MB) is dynamically imported so
 // pages without diagrams never load it. The svg-string injection is the one exception
@@ -542,9 +542,7 @@ type TableOps = {
   autoEditItem?: string;
   // session links on list items: resolver returns the chip for a linked item,
   // onLinkItem puts "Link a session" in the item's ⋯ menu
-  getItemLink?: (
-    item: string,
-  ) => { title: string; color: string; open: () => void } | null;
+  getItemLinks?: (item: string) => ItemLink[];
   onLinkItem?: (item: string) => void;
 };
 
@@ -595,31 +593,95 @@ function ItemMenu({ actions }: { actions: { label: string; icon: string; run: ()
   );
 }
 
+// The linked-session chip and its feed: the session's worklog, newest first, each
+// entry rendered as Markdown. Fetched on open — the page payload carries the links,
+// never the entries.
+export type ItemLink = { title: string; color: string; sessionId: string; open: () => void };
+
+function SessionFeed({ lk, onClose }: { lk: ItemLink; onClose: () => void }) {
+  const [events, setEvents] = useState<SessionEvent[] | "failed" | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setEvents(null);
+    getEvents(lk.sessionId)
+      .then((e) => alive && setEvents(Array.isArray(e) ? e : "failed"))
+      .catch(() => alive && setEvents("failed"));
+    return () => {
+      alive = false;
+    };
+  }, [lk.sessionId]);
+  const feed = Array.isArray(events) ? events : [];
+  return (
+    <Modal width={720} onClose={onClose}>
+      <button
+        type="button"
+        onClick={() => {
+          onClose();
+          lk.open();
+        }}
+        className="flex items-center gap-2 text-left text-[13px] font-medium text-ink hover:text-copper"
+      >
+        <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: lk.color }} />
+        <span className="min-w-0 truncate">{lk.title}</span>
+        <span className="ml-auto shrink-0 text-[11px] font-normal text-ink-muted">open the card →</span>
+      </button>
+      <div className={`ml-[3px] flex flex-col gap-3.5 pl-3.5 ${feed.length ? "border-l border-line" : ""}`}>
+        {feed.map((e) => (
+          <div key={e.id} className="relative">
+            <span className="absolute -left-[18px] top-[5px] h-[7px] w-[7px] rounded-full bg-chipline" />
+            <div className="text-[10.5px] text-ink-muted">
+              {e.agent ? `${e.agent} · ` : ""}
+              <span className="font-medium text-ink-soft/90">{e.kind}</span> · {timeAgo(e.at)}
+            </div>
+            {e.summary && <Markdown className="text-[12.5px] text-ink-soft" text={e.summary} />}
+          </div>
+        ))}
+        <span className="text-[11px] text-ink-muted/60">
+          {events === null
+            ? "loading…"
+            : events === "failed"
+            ? "worklog unavailable"
+            : feed.length === 0
+            ? "No entries yet"
+            : ""}
+        </span>
+      </div>
+    </Modal>
+  );
+}
+
+export function LinkChip({ lk }: { lk: ItemLink }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span
+      className="relative ml-1 shrink-0 self-center"
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        title={`session: ${lk.title} — open the worklog`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen(true)}
+        className="inline-flex max-w-[200px] items-center gap-1.5 rounded-md border border-chipline/60 px-1.5 py-0.5 align-middle text-[10px] leading-none text-ink-muted transition-colors hover:border-copper/50 hover:text-copper"
+      >
+        <span className="h-[6px] w-[6px] shrink-0 rounded-full" style={{ background: lk.color }} />
+        <span className="truncate">{lk.title}</span>
+      </button>
+      {open && <SessionFeed lk={lk} onClose={() => setOpen(false)} />}
+    </span>
+  );
+}
+
 // trailing per-item affordances: the linked-session chip and the ⋯ menu
 function itemTrail(t: string, ops?: TableOps): ReactNode {
-  const lk = ops?.getItemLink?.(t);
+  const lks = ops?.getItemLinks?.(t) ?? [];
   const actions = [];
-  if (!lk && ops?.onLinkItem) actions.push({ label: "Link a session", icon: "🔗", run: () => ops.onLinkItem!(t) });
+  if (!lks.length && ops?.onLinkItem) actions.push({ label: "Link a session", icon: "🔗", run: () => ops.onLinkItem!(t) });
   return (
     <>
-      {lk && (
-        <button
-          type="button"
-          title={`session: ${lk.title}`}
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            lk.open();
-          }}
-          className="ml-1 inline-flex max-w-[200px] shrink-0 items-center gap-1.5 self-center rounded-md border border-chipline/60 px-1.5 py-0.5 align-middle text-[10px] leading-none text-ink-muted transition-colors hover:border-copper/50 hover:text-copper"
-        >
-          <span
-            className="h-[6px] w-[6px] shrink-0 rounded-full"
-            style={{ background: lk.color }}
-          />
-          <span className="truncate">{lk.title}</span>
-        </button>
-      )}
+      {lks.map((lk) => <LinkChip key={lk.sessionId} lk={lk} />)}
       {actions.length > 0 && <ItemMenu actions={actions} />}
     </>
   );
@@ -1229,6 +1291,9 @@ function renderBlocks(
     while (i < lines.length && lines[i].trim() && !isBlockStart(lines[i])) {
       buf.push(lines[i++]);
     }
+    // a block starter no branch above consumed (a pipe row with no separator line)
+    // would leave i unmoved and spin the outer loop — take it as plain text
+    if (!buf.length) buf.push(lines[i++]);
     out.push(
       <p
         key={key++}
@@ -1258,7 +1323,7 @@ export function Markdown(
     onEditItem,
     onSplitItem,
     autoEditItem,
-    getItemLink,
+    getItemLinks,
     onLinkItem,
   }: {
     text: string;
@@ -1272,9 +1337,7 @@ export function Markdown(
     onEditItem?: (item: string, next: string) => void;
     onSplitItem?: (item: string, before: string, after: string) => void;
     autoEditItem?: string;
-    getItemLink?: (
-      item: string,
-    ) => { title: string; color: string; open: () => void } | null;
+    getItemLinks?: TableOps["getItemLinks"];
     onLinkItem?: (item: string) => void;
   },
 ) {
@@ -1289,7 +1352,7 @@ export function Markdown(
         onEditItem,
         onSplitItem,
         autoEditItem,
-        getItemLink,
+        getItemLinks,
         onLinkItem,
       })}
     </div>

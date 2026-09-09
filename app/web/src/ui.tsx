@@ -1,4 +1,5 @@
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { listTags, type Status, type StatusDef, type Tag, tagRevision, TAGS_CHANGED } from "./api";
 
 type StatusStyle = { label: string; color: string; terminal: boolean };
@@ -113,6 +114,40 @@ export function shiftRange(ordered: string[], anchorId: string | null, id: strin
   if (ai < 0 || i < 0) return null;
   const [lo, hi] = ai < i ? [ai, i] : [i, ai];
   return ordered.slice(lo, hi + 1);
+}
+
+// Centered overlay panel: Escape or a backdrop click closes it, ⌘/Ctrl+Enter submits
+// when the caller takes an action.
+export function Modal(
+  { width = 560, onClose, onSubmit, children }: {
+    width?: number;
+    onClose: () => void;
+    onSubmit?: () => void;
+    children: ReactNode;
+  },
+) {
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) onSubmit?.();
+    };
+    addEventListener("keydown", h);
+    return () => removeEventListener("keydown", h);
+  }, [onClose, onSubmit]);
+  // portalled: a modal opened from inside the page editor must not sit under the
+  // block's [data-block-id], or selecting its text offers a comment on that block
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/45 pt-[16vh]" onClick={onClose}>
+      <div
+        className="flex max-h-[76vh] flex-col gap-3 overflow-y-auto rounded-xl border border-overlay-border bg-panel-modal p-5 shadow-2xl shadow-black/50"
+        style={{ width }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    </div>,
+    document.body,
+  );
 }
 
 // Anchored popover. A stack tracks nesting so Escape / outside clicks only close the

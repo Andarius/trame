@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   applyUpdate,
   type BoardData,
@@ -23,37 +23,8 @@ import {
 } from "./api";
 import { applyScale, getScale, SCALES } from "./scale";
 import { applyTheme, getTheme, type Theme } from "./theme";
-import { pageOptions, Popover, Select, StatusDot, timeAgo } from "./ui";
+import { Modal, pageOptions, Popover, Select, StatusDot, timeAgo } from "./ui";
 import { dataUriToIcon } from "./udb/cells";
-
-function Modal(
-  { width = 560, onClose, onSubmit, children }: {
-    width?: number;
-    onClose: () => void;
-    onSubmit: () => void;
-    children: ReactNode;
-  },
-) {
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) onSubmit();
-    };
-    addEventListener("keydown", h);
-    return () => removeEventListener("keydown", h);
-  }, [onClose, onSubmit]);
-  return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/45 pt-[16vh]" onClick={onClose}>
-      <div
-        className="flex max-h-[76vh] flex-col gap-3 overflow-y-auto rounded-xl border border-overlay-border bg-panel-modal p-5 shadow-2xl shadow-black/50"
-        style={{ width }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {children}
-      </div>
-    </div>
-  );
-}
 
 const label = "text-[10px] font-medium tracking-[0.8px] text-ink-muted/80";
 const input =

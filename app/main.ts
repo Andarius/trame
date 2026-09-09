@@ -107,7 +107,7 @@ import {
   updatePage,
 } from "./pages.ts";
 import { exportPage, importPage } from "./share.ts";
-import { agentIdentity } from "./agent-comments.ts";
+import { agentIdentity, resolveCommentBlock } from "./agent-comments.ts";
 import { listPresence, touchPresence } from "./presence.ts";
 import {
   createProperty,
@@ -1058,16 +1058,32 @@ async function handler(req: Request): Promise<Response> {
       await addTrackEvent(id, body.summary, typeof body.agent === "string" ? body.agent : null);
     }
     // Planned-work backlinks (plan/TODO pages) ride the same POST; dedupe by
-    // page+block so repeated tracking doesn't pile up chips.
+    // page+block+anchor so repeated tracking doesn't pile up chips, while two items
+    // of the same list block stay distinct.
     if (Array.isArray(body.links) && body.links.length) {
+      const key = (l: { page_id: string; block_id?: string | null; anchor?: string | null }) =>
+        `${l.page_id}:${l.block_id ?? ""}:${l.anchor ?? ""}`;
       const have = new Set(
-        (await linksForSession(id) as { page_id: string; block_id: string | null }[])
-          .map((l) => `${l.page_id}:${l.block_id ?? ""}`),
+        (await linksForSession(id) as { page_id: string; block_id: string | null; anchor: string }[])
+          .map(key),
       );
       for (const l of body.links) {
         if (typeof l?.page_id !== "string") continue;
-        if (have.has(`${l.page_id}:${l.block_id ?? ""}`)) continue;
-        await addSessionLink(id, l.page_id, l.block_id ?? null, l.anchor ?? "");
+        // an agent knows the task's text, not its block id: resolve the anchor to a
+        // block the way page comments do (a todo is a block, so this covers todos)
+        let blockId: string | null = l.block_id ?? null;
+        if (!blockId && typeof l.anchor === "string" && l.anchor.trim()) {
+          const page = await getPage(l.page_id) as { content?: unknown } | null;
+          try {
+            blockId = resolveCommentBlock(page?.content, { block_text: l.anchor }).id;
+          } catch {
+            blockId = null; // no unique match — fall back to a page-level link
+          }
+        }
+        const want = { page_id: l.page_id, block_id: blockId, anchor: l.anchor ?? "" };
+        if (have.has(key(want))) continue;
+        have.add(key(want));
+        await addSessionLink(id, l.page_id, blockId, want.anchor);
       }
     }
     // Nudge every write path (skill, writer, MCP, raw curl) toward a specs page.

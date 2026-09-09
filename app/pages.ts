@@ -71,7 +71,8 @@ export async function getPage(id: string) {
     [id],
   )).rows;
   const comments = await commentsForPage(id);
-  // session links anchored to this page's items (render as chips on the lines)
+  // session links anchored to this page's items (render as chips on the lines;
+  // the chip's panel fetches that session's worklog on open)
   const links = (await pg.query(
     `select l.id, l.session_id, l.block_id, l.anchor,
             s.title as session_title, s.status as session_status

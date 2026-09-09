@@ -90,3 +90,33 @@ Deno.test("createPage files an agent page under the repo's project", async () =>
     null,
   );
 });
+
+// A goal's task line carries a chip for the session working on it: getPage must return
+// the link anchored to that block, resolved to the session's title and status.
+Deno.test("getPage resolves the session link anchored to a page item", async () => {
+  const { createPage, getPage } = await import("./pages.ts");
+  const { addSessionLink, upsertSession } = await import("./db.ts");
+
+  const blockId = crypto.randomUUID();
+  const pageId = await createPage({
+    title: "70.3 goal",
+    kind: "story",
+    content: [{ type: "todo", text: "Restart the pool", done: false, id: blockId }],
+  });
+  const sessionId = await upsertSession({
+    title: "pool block",
+    status: "blocked",
+    repo_path: "/repos/tri",
+  });
+  await addSessionLink(sessionId, pageId, blockId, "Restart the pool");
+
+  const page = await getPage(pageId) as unknown as {
+    links: { block_id: string; anchor: string; session_id: string; session_title: string; session_status: string }[];
+  };
+  assertEquals(page.links.length, 1);
+  assertEquals(page.links[0].block_id, blockId);
+  assertEquals(page.links[0].anchor, "Restart the pool");
+  assertEquals(page.links[0].session_id, sessionId);
+  assertEquals(page.links[0].session_title, "pool block");
+  assertEquals(page.links[0].session_status, "blocked");
+});
