@@ -47,7 +47,7 @@ import {
   timeAgo,
   uuid7Time,
 } from "./ui";
-import { type ItemLink, LinkChip, Markdown } from "./md";
+import { type ItemLink, LinkChip, Markdown, PageActivityChip } from "./md";
 import { blocksToMarkdown } from "./page-serialize";
 
 // Stable block id so a comment survives edits/reorders of the surrounding text.
@@ -2643,6 +2643,8 @@ export function Page(
   const client = board.projects.find((c) => c.id === page.client_id);
   const isProject = page.kind === "project";
   const isStory = page.kind === "story";
+  // distinct sessions linked anywhere on the page — the Activity chip's subject
+  const linkedSessions = new Set((page.links ?? []).map((l) => l.session_id).filter(Boolean)).size;
   // sessions come from the polled board (not the fetch-once getPage) so they stay live.
   // subtree semantics: anything anchored to this page or any page nested under it.
   const byId = pagesById(board.pages);
@@ -2823,6 +2825,7 @@ export function Page(
               onKeyDown={(e) =>
                 e.key === "Enter" && (e.target as HTMLInputElement).blur()}
             />
+            {linkedSessions > 0 && <PageActivityChip pageId={page.id} sessions={linkedSessions} />}
             {isProject && (
               <div className="relative shrink-0">
                 <button

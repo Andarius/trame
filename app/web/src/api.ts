@@ -109,6 +109,16 @@ export const getEvents = (id: string) =>
   fetch(`/api/sessions/${id}/events`).then((r) =>
     r.json() as Promise<SessionEvent[]>
   );
+// the page's merged worklog — each entry carries the session it came from
+export type PageEvent = SessionEvent & {
+  session_id: string;
+  session_title: string | null;
+  session_status: string;
+};
+export const getPageEvents = (id: string) =>
+  fetch(`/api/pages/${id}/events`).then((r) =>
+    r.json() as Promise<PageEvent[]>
+  );
 
 export type FileHit = { path: string; name: string; mtime: string };
 export type Settings = {

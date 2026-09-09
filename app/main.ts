@@ -59,6 +59,7 @@ import {
   getSession,
   linksForSession,
   listEvents,
+  listPageEvents,
   listReports,
   moveStatus,
   searchAll,
@@ -1469,6 +1470,8 @@ async function handler(req: Request): Promise<Response> {
       return json({ error: (e as Error).message }, 400);
     }
   }
+  const pgev = pathname.match(/^\/api\/pages\/([^/]+)\/events$/);
+  if (pgev && req.method === "GET") return json(await listPageEvents(pgev[1]));
   const pgexp = pathname.match(/^\/api\/pages\/([^/]+)\/export$/);
   if (pgexp && req.method === "POST") {
     const bundle = await exportPage(pgexp[1]);

@@ -100,3 +100,43 @@ Deno.test("getSession resolves the card the drawer shows", async () => {
   await deleteSession(id);
   assertEquals(await getSession(id), null);
 });
+
+// The page-level feed: every linked session's worklog on one timeline. A session
+// linked to several lines must still contribute each entry once.
+Deno.test("listPageEvents merges the page's sessions, once per entry", async () => {
+  const { addEvent, addSessionLink, listPageEvents, resolveClient, upsertSession } = await import("./db.ts");
+  const { createPage } = await import("./pages.ts");
+
+  const clientId = await resolveClient("Feed Co");
+  const pageId = await createPage({ title: "Feed page", kind: "page", parent_id: clientId });
+  const otherId = await createPage({ title: "Other page", kind: "page", parent_id: clientId });
+
+  const a = await upsertSession({ title: "a — one", status: "active", repo_path: "/repos/a" });
+  const b = await upsertSession({ title: "b — two", status: "done", repo_path: "/repos/b" });
+  const off = await upsertSession({ title: "off — elsewhere", status: "active", repo_path: "/repos/off" });
+
+  // `a` works on two lines of the same page — two links, one worklog
+  await addSessionLink(a, pageId, null, "first task");
+  await addSessionLink(a, pageId, null, "second task");
+  await addSessionLink(b, pageId, null, "third task");
+  await addSessionLink(off, otherId, null, "not here");
+
+  await addEvent(a, "a1", "track", "claude");
+  await addEvent(b, "b1", "track", "codex");
+  await addEvent(a, "a2", "track", "claude");
+  await addEvent(off, "off1", "track", null);
+
+  const feed = await listPageEvents(pageId) as {
+    id: string;
+    summary: string;
+    session_id: string;
+    session_title: string;
+    session_status: string;
+  }[];
+
+  assertEquals(feed.map((e) => e.summary), ["a2", "b1", "a1"]); // newest first
+  assertEquals(new Set(feed.map((e) => e.id)).size, 3); // two links ≠ two copies
+  assertEquals(feed.find((e) => e.summary === "b1")!.session_title, "b — two");
+  assertEquals(feed.find((e) => e.summary === "b1")!.session_status, "done");
+  assert(!feed.some((e) => e.session_id === off)); // another page's session stays out
+});
