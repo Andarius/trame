@@ -8,6 +8,7 @@ import trackSkillOpenai from "../skills/trame-track/agents/openai.yaml" with {
 };
 import pageSkill from "../skills/trame-page/SKILL.md" with { type: "text" };
 import watchSkill from "../skills/trame-watch/SKILL.md" with { type: "text" };
+import prePush from "./pre-push.sh" with { type: "text" };
 import * as p from "@clack/prompts";
 import { SETUP_HELP } from "./help.ts";
 
@@ -16,7 +17,11 @@ export const EMBEDS = {
   trackSkillOpenai,
   pageSkill,
   watchSkill,
+  prePush,
 };
+
+/** In the hook's header: how we recognise a hook we wrote, and may overwrite. */
+const HOOK_MARK = "trame pre-push guard";
 
 // one Agent Skills layout for every agent, Claude Code included
 const SKILL_FILES: Record<string, string> = {
@@ -96,6 +101,32 @@ async function removeLegacyCommands(home: string) {
   await Deno.remove(dir).catch(() => {});
 }
 
+/**
+ * Write the pre-push guard into `cwd`'s repo, honouring core.hooksPath, and return
+ * its path. A hook we did not write is never clobbered — the caller reports that.
+ */
+export async function installHook(cwd = Deno.cwd()): Promise<string> {
+  const res = await new Deno.Command("git", {
+    args: ["rev-parse", "--git-path", "hooks"],
+    cwd,
+    stdout: "piped",
+    stderr: "null",
+  }).output();
+  if (!res.success) {
+    throw new Error(`not a git repository: ${cwd}`);
+  }
+  const dir = new TextDecoder().decode(res.stdout).trim();
+  const path = `${dir.startsWith("/") ? dir : `${cwd}/${dir}`}/pre-push`;
+  const existing = await Deno.readTextFile(path).catch(() => null);
+  if (existing !== null && !existing.includes(HOOK_MARK)) {
+    throw new Error(`${path} exists and is not ours — move it aside first`);
+  }
+  await Deno.mkdir(path.replace(/\/[^/]+$/, ""), { recursive: true });
+  await Deno.writeTextFile(path, prePush);
+  await Deno.chmod(path, 0o755).catch(() => {}); // no-op on Windows
+  return path;
+}
+
 export async function setup(plan: SetupPlan): Promise<void> {
   const dirs = new Set(plan.skillDirs);
   if (plan.claude) {
@@ -169,9 +200,11 @@ export async function run(argv: string[]): Promise<number> {
   }
   const skillDirs: string[] = [];
   let claude = false;
+  let hook = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--claude") claude = true;
+    else if (a === "--hook") hook = true;
     else if (a === "--codex") skillDirs.push(`${home}/.agents/skills`);
     else if (a === "--skills-dir") {
       const dir = argv[++i];
@@ -185,7 +218,7 @@ export async function run(argv: string[]): Promise<number> {
       return 2;
     }
   }
-  const interactive = !claude && !skillDirs.length;
+  const interactive = !claude && !skillDirs.length && !hook;
   if (interactive) {
     if (!Deno.stdout.isTerminal()) {
       console.error(SETUP_HELP);
@@ -198,6 +231,14 @@ export async function run(argv: string[]): Promise<number> {
   }
   const warning = await ensureOnPath(home);
   await setup({ claude, skillDirs, home });
+  if (hook) {
+    try {
+      console.log(`installed → ${await installHook()}`);
+    } catch (e) {
+      console.error((e as Error).message);
+      return 1;
+    }
+  }
   if (warning) console.error(`warning: ${warning}`);
   if (interactive) p.outro("Trame agent integrations installed.");
   return 0;

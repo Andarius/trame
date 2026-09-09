@@ -156,11 +156,11 @@ reset-local:
     rm -rf "${XDG_DATA_HOME:-$HOME/.local/share}/trame"
     echo "local data cleared"
 
-# Enable the git pre-commit hook (lint + typecheck on staged code)
+# Enable the git hooks (pre-commit: lint + typecheck; pre-push: `tramecli setup --hook`)
 [group('dev')]
 hooks:
     git config core.hooksPath .githooks
-    @echo "pre-commit hook enabled (.githooks). Bypass a commit with --no-verify."
+    @echo "hooks enabled (.githooks). Bypass one with --no-verify."
 
 # Seed + serve an isolated demo instance on :8799 (fictional data — the README screenshots)
 [group('docs')]

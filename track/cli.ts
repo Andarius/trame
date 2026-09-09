@@ -38,6 +38,8 @@ type Board = {
     next_step: string | null;
     pr_url: string | null;
     page_id: string | null;
+    repo_path: string | null;
+    last_touched: string;
     deleted: boolean;
   }[];
   stories: { id: string; title: string }[];
@@ -52,12 +54,16 @@ export function boardRows(board: Board) {
   const storyTitle = new Map(board.stories.map((s) => [s.id, s.title]));
   return board.sessions
     .filter((s) => !s.deleted && !terminal.has(s.status))
-    .map(({ id, title, status, branch, next_step, pr_url, page_id }) => ({
+    .map((
+      { id, title, status, branch, next_step, pr_url, page_id, repo_path, last_touched },
+    ) => ({
       id,
       title,
       status,
       story: (page_id && storyTitle.get(page_id)) ?? null,
       branch,
+      repo_path,
+      last_touched,
       next_step,
       pr_url,
     }));
