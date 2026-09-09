@@ -3,6 +3,7 @@
 // composition conventions from track/help.ts (the single source of truth).
 import pc from "picocolors";
 import { PORT_FILE } from "../app/config.ts";
+import { newer } from "../app/update.ts";
 import { main as trackMain } from "./track.ts";
 import { main as pageMain } from "./page.ts";
 import { main as commentMain } from "./comment.ts";
@@ -129,18 +130,19 @@ async function list(json: boolean): Promise<void> {
 const RELEASES = "https://github.com/Andarius/trame/releases/latest";
 
 /**
- * The line to print when this CLI and the running app disagree on version, or null.
- * `just setup` only exists in a checkout — an installed CLI is replaced from the
- * release page (the snap ships both, so it cannot drift).
+ * The line to print when the running app is newer than this CLI, or null. A CLI
+ * ahead of the app is a dev build, not news. `just setup` only exists in a
+ * checkout — an installed CLI is replaced from the release page (the snap ships
+ * both, so it cannot drift).
  */
 export function staleWarning(
   cli: string,
   app: string | undefined,
   execPath: string,
 ): string | null {
-  if (!app || app === cli.split("+")[0]) return null;
+  if (!app || !newer(app, cli.split("+")[0])) return null;
   const how = execPath.includes("/dist/tramecli") ? "`just setup`" : RELEASES;
-  return `tramecli ${cli} does not match Trame ${app} — update the CLI: ${how}`;
+  return `a new tramecli is available: ${app} (you have ${cli}) — ${how}`;
 }
 
 // stderr, never blocking: a CLI behind the app writes with a stale contract, and the

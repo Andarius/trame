@@ -19,8 +19,8 @@ export type UpdateInfo = {
   applied: boolean; // a newer image is already in place — next launch runs it
 };
 
-const newer = (a: string, b: string): boolean => {
-  // true when a > b (plain x.y.z)
+/** true when a > b (plain x.y.z) — also the CLI's own staleness check. */
+export const newer = (a: string, b: string): boolean => {
   const pa = a.split(".").map(Number), pb = b.split(".").map(Number);
   for (let i = 0; i < 3; i++) {
     if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) > (pb[i] ?? 0);

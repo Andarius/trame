@@ -278,8 +278,10 @@ Deno.test("staleWarning fires only on a mismatch, and points at the right instal
     ["0.13.0", "0.13.0", "/home/x/.local/bin/tramecli", null],
     ["0.13.0+abc123", "0.13.0", "/home/x/.local/bin/tramecli", null], // build stamp is not skew
     ["0.13.0", undefined, "/home/x/.local/bin/tramecli", null],
+    ["0.14.0", "0.13.0", "/home/x/.local/bin/tramecli", null], // dev build ahead: not news
     ["0.13.0", "0.14.0", "/home/x/.local/bin/tramecli", "releases/latest"],
     ["0.13.0", "0.14.0", "/home/x/trame/dist/tramecli", "`just setup`"],
+    ["0.13.0", "0.14.0", "/home/x/.local/bin/tramecli", "a new tramecli is available"],
   ];
   for (const [cli, app, execPath, want] of cases) {
     const line = staleWarning(cli, app, execPath);
