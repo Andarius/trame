@@ -183,16 +183,22 @@ export const SETUP_HELP =
   tramecli setup --claude          trame-track, trame-page, trame-watch into ~/.claude/skills
   tramecli setup --codex           the same skills into ~/.agents/skills
   tramecli setup --skills-dir DIR  any Agent Skills directory (repeatable)
+  tramecli setup --hook            the git pre-push guard, into the repo you run it from
 
 The docs are embedded in the binary and call the bare \`tramecli\`; when that name is
 not on PATH the binary links itself into ~/.local/bin first. From a dev checkout,
-\`just setup\` compiles a fresh binary and runs this.`;
+\`just setup\` compiles a fresh binary and runs this.
+
+\`--hook\` writes the pre-push guard into the repo you run it from (core.hooksPath is
+honoured): it refuses a push whose Trame session is missing or older than the commits
+being pushed. Bypass one push with \`git push --no-verify\`.`;
 
 export const LIST_HELP = `tramecli list — print open sessions grouped by story
 
 Reads the board from the running Trame app; writes nothing. Sessions whose status
 column is terminal (e.g. done) are omitted. --json prints flat rows
-({id, title, status, story, branch, next_step, pr_url}) for jq.`;
+({id, title, status, story, branch, repo_path, last_touched, next_step, pr_url})
+for jq — what the pre-push hook filters on.`;
 
 export const OVERVIEW =
   `tramecli ${VERSION} — agent CLI for Trame, the local-first session tracker

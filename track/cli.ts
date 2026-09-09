@@ -3,6 +3,7 @@
 // composition conventions from track/help.ts (the single source of truth).
 import pc from "picocolors";
 import { PORT_FILE } from "../app/config.ts";
+import { newer } from "../app/update.ts";
 import { main as trackMain } from "./track.ts";
 import { main as pageMain } from "./page.ts";
 import { main as commentMain } from "./comment.ts";
@@ -38,6 +39,8 @@ type Board = {
     next_step: string | null;
     pr_url: string | null;
     page_id: string | null;
+    repo_path: string | null;
+    last_touched: string;
     deleted: boolean;
   }[];
   stories: { id: string; title: string }[];
@@ -52,12 +55,16 @@ export function boardRows(board: Board) {
   const storyTitle = new Map(board.stories.map((s) => [s.id, s.title]));
   return board.sessions
     .filter((s) => !s.deleted && !terminal.has(s.status))
-    .map(({ id, title, status, branch, next_step, pr_url, page_id }) => ({
+    .map((
+      { id, title, status, branch, next_step, pr_url, page_id, repo_path, last_touched },
+    ) => ({
       id,
       title,
       status,
       story: (page_id && storyTitle.get(page_id)) ?? null,
       branch,
+      repo_path,
+      last_touched,
       next_step,
       pr_url,
     }));
@@ -120,11 +127,48 @@ async function list(json: boolean): Promise<void> {
   );
 }
 
+const RELEASES = "https://github.com/Andarius/trame/releases/latest";
+
+/**
+ * The line to print when the running app is newer than this CLI, or null. A CLI
+ * ahead of the app is a dev build, not news. `just setup` only exists in a
+ * checkout — an installed CLI is replaced from the release page (the snap ships
+ * both, so it cannot drift).
+ */
+export function staleWarning(
+  cli: string,
+  app: string | undefined,
+  execPath: string,
+): string | null {
+  if (!app || !newer(app, cli.split("+")[0])) return null;
+  const how = execPath.includes("/dist/tramecli") ? "`just setup`" : RELEASES;
+  return `a new tramecli is available: ${app} (you have ${cli}) — ${how}`;
+}
+
+// stderr, never blocking: a CLI behind the app writes with a stale contract, and the
+// symptom (a field the app never sent) is unreadable at the other end.
+async function warnIfStale(): Promise<void> {
+  try {
+    const { port } = JSON.parse(await Deno.readTextFile(PORT_FILE));
+    const status = await fetch(`http://127.0.0.1:${port}/api/status`, {
+      signal: AbortSignal.timeout(1000),
+    }).then((r) => r.json()) as { version?: string };
+    const line = staleWarning(VERSION, status.version, Deno.execPath());
+    if (line) console.error(line);
+  } catch { /* no port file, or the app is down: nothing to compare against */ }
+}
+
+// the commands that speak to the app — the ones a version mismatch breaks
+const APP_COMMANDS = new Set(
+  ["track", "page", "comment", "watch", "answer", "list", "mcp"],
+);
+
 export async function run(argv: string[]): Promise<number> {
   const [cmd, ...raw] = argv;
   const json = raw.includes("--json");
   const rest = raw.filter((a) => a !== "--json");
   const wantsHelp = rest.includes("-h") || rest.includes("--help");
+  if (!wantsHelp && APP_COMMANDS.has(cmd ?? "")) await warnIfStale();
   switch (cmd) {
     case undefined:
     case "-h":

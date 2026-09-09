@@ -1,7 +1,7 @@
 import { testTempDir } from "./test_tmp.ts";
-import { assertEquals, assertStringIncludes } from "@std/assert";
-import { boardRows, formatBoard, run } from "../track/cli.ts";
-import { ensureOnPath, EMBEDS, setup } from "../track/setup.ts";
+import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
+import { boardRows, formatBoard, run, staleWarning } from "../track/cli.ts";
+import { ensureOnPath, EMBEDS, installHook, setup } from "../track/setup.ts";
 import {
   COMMENT_HELP,
   OVERVIEW,
@@ -52,6 +52,8 @@ Deno.test("formatBoard groups open sessions by story and hides terminal columns"
         next_step: "merge it",
         pr_url: null,
         page_id: "st-1",
+        repo_path: "/home/dev/repo",
+        last_touched: "2026-09-09T18:42:40.564Z",
         deleted: false,
       },
       {
@@ -62,6 +64,8 @@ Deno.test("formatBoard groups open sessions by story and hides terminal columns"
         next_step: null,
         pr_url: null,
         page_id: "st-1",
+        repo_path: "/home/dev/repo",
+        last_touched: "2026-09-09T18:42:40.564Z",
         deleted: false,
       },
       {
@@ -72,6 +76,8 @@ Deno.test("formatBoard groups open sessions by story and hides terminal columns"
         next_step: null,
         pr_url: null,
         page_id: null,
+        repo_path: "/home/dev/repo",
+        last_touched: "2026-09-09T18:00:00.000Z",
         deleted: false,
       },
       {
@@ -82,6 +88,8 @@ Deno.test("formatBoard groups open sessions by story and hides terminal columns"
         next_step: null,
         pr_url: null,
         page_id: null,
+        repo_path: "/home/dev/repo",
+        last_touched: "2026-09-09T18:00:00.000Z",
         deleted: true,
       },
     ],
@@ -120,6 +128,8 @@ Deno.test("boardRows flattens open sessions for --json", () => {
         next_step: "merge it",
         pr_url: null,
         page_id: "st-1",
+        repo_path: "/home/dev/repo",
+        last_touched: "2026-09-09T18:42:40.564Z",
         deleted: false,
       },
       {
@@ -130,6 +140,8 @@ Deno.test("boardRows flattens open sessions for --json", () => {
         next_step: null,
         pr_url: null,
         page_id: null,
+        repo_path: "/home/dev/repo",
+        last_touched: "2026-09-09T18:00:00.000Z",
         deleted: false,
       },
     ],
@@ -145,6 +157,9 @@ Deno.test("boardRows flattens open sessions for --json", () => {
     status: "active",
     story: "Ship the thing",
     branch: "fix/thing",
+    // the pre-push hook matches on these two and compares the stamp to the commit
+    repo_path: "/home/dev/repo",
+    last_touched: "2026-09-09T18:42:40.564Z",
     next_step: "merge it",
     pr_url: null,
   }]);
@@ -231,5 +246,46 @@ Deno.test("setup embeds call the bare binary and install everywhere", async () =
     );
   } finally {
     await Deno.remove(home, { recursive: true });
+  }
+});
+
+// The guard only runs if git finds it: `core.hooksPath` moves the directory, and a
+// hook we did not write must survive us.
+Deno.test("setup --hook writes the pre-push guard where git looks for it", async () => {
+  const tmp = testTempDir("trame-hook-test-");
+  const git = (args: string[], cwd = tmp) =>
+    new Deno.Command("git", { args, cwd, stdout: "null", stderr: "null" }).output();
+  await git(["init", "-q"]);
+
+  const path = await installHook(tmp);
+  assertEquals(path, `${tmp}/.git/hooks/pre-push`);
+  assertStringIncludes(await Deno.readTextFile(path), "tramecli list --json");
+  assertEquals((await Deno.stat(path)).mode! & 0o111, 0o111, "executable");
+  assertEquals(await installHook(tmp), path, "idempotent");
+
+  await Deno.mkdir(`${tmp}/.githooks`, { recursive: true });
+  await git(["config", "core.hooksPath", ".githooks"]);
+  assertEquals(await installHook(tmp), `${tmp}/.githooks/pre-push`);
+
+  await Deno.writeTextFile(`${tmp}/.githooks/pre-push`, "#!/bin/sh\nsomeone else\n");
+  await assertRejects(() => installHook(tmp), Error, "not ours");
+});
+
+// `just setup` only exists in a checkout — an installed CLI is replaced from the
+// release page, so the advice has to follow the binary.
+Deno.test("staleWarning fires only on a mismatch, and points at the right install", () => {
+  const cases: [string, string | undefined, string, string | null][] = [
+    ["0.13.0", "0.13.0", "/home/x/.local/bin/tramecli", null],
+    ["0.13.0+abc123", "0.13.0", "/home/x/.local/bin/tramecli", null], // build stamp is not skew
+    ["0.13.0", undefined, "/home/x/.local/bin/tramecli", null],
+    ["0.14.0", "0.13.0", "/home/x/.local/bin/tramecli", null], // dev build ahead: not news
+    ["0.13.0", "0.14.0", "/home/x/.local/bin/tramecli", "releases/latest"],
+    ["0.13.0", "0.14.0", "/home/x/trame/dist/tramecli", "`just setup`"],
+    ["0.13.0", "0.14.0", "/home/x/.local/bin/tramecli", "a new tramecli is available"],
+  ];
+  for (const [cli, app, execPath, want] of cases) {
+    const line = staleWarning(cli, app, execPath);
+    if (want === null) assertEquals(line, null, `${cli} vs ${app}`);
+    else assertStringIncludes(line ?? "", want);
   }
 });
