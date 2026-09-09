@@ -47,7 +47,7 @@ import {
   timeAgo,
   uuid7Time,
 } from "./ui";
-import { Markdown } from "./md";
+import { type ItemLink, LinkChip, Markdown } from "./md";
 import { blocksToMarkdown } from "./page-serialize";
 
 // Stable block id so a comment survives edits/reorders of the surrounding text.
@@ -984,6 +984,16 @@ export function BlockEditor(
   // a todo's visible text when it took focus — a blur only counts as an edit if it moved
   const editStart = useRef<string | null>(null);
 
+  // every session linked to a line, as the chips render them (a task can pass
+  // through several sessions — showing only the first would hide the others)
+  const chipsFor = (ls: SessionLink[]): ItemLink[] =>
+    ls.filter((l) => l.session_id).map((l) => ({
+      title: l.session_title ?? "session",
+      color: statusStyle(l.session_status ?? "active").color,
+      sessionId: l.session_id!,
+      open: () => onOpenSession?.(l.session_id!),
+    }));
+
   const syncSel = (i: number, el: HTMLTextAreaElement) => {
     const { selectionStart: s, selectionEnd: e } = el;
     if (s === e) return setSel((cur) => (cur && cur.i === i ? null : cur));
@@ -1837,18 +1847,12 @@ export function BlockEditor(
                   autoEditItem={autoItem && autoItem.id === b.id
                     ? autoItem.item
                     : undefined}
-                  getItemLink={(item) => {
-                    const l = links?.find((x) =>
-                      x.block_id === b.id && x.anchor === item
-                    );
-                    return l
-                      ? {
-                        title: l.session_title ?? "session",
-                        color: statusStyle(l.session_status ?? "active").color,
-                        open: () => onOpenSession?.(l.session_id!),
-                      }
-                      : null;
-                  }}
+                  getItemLinks={(item) =>
+                    chipsFor(
+                      links?.filter((x) =>
+                        x.block_id === b.id && x.anchor === item
+                      ) ?? [],
+                    )}
                   onLinkItem={b.id && onLinkItem
                     ? (item) => onLinkItem(b.id as string, item)
                     : undefined}
@@ -2057,6 +2061,14 @@ export function BlockEditor(
                   }
                 }}
               />
+              {/* a todo is its own block, not a list item — carry its chips here, after
+                  the textarea so edit mode does not move them left of the task text */}
+              {b.type === "todo" &&
+                chipsFor(links?.filter((x) => x.block_id === b.id) ?? []).map((lk) => (
+                  <span key={lk.sessionId} className="mt-[3px] shrink-0">
+                    <LinkChip lk={lk} />
+                  </span>
+                ))}
               {menuIdx === i && items.length > 0 && (
                 <Popover
                   onClose={() => setMenuIdx(null)}
