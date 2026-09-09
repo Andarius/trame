@@ -2693,6 +2693,59 @@ export function Page(
       </span>
     </div>
   );
+  const sessionsPanel = (atTop: boolean) => (
+    <div
+      className={`flex flex-col gap-1 border-line-soft ${
+        atTop ? "border-b pb-3" : "border-t pt-3"
+      }`}
+    >
+      <span className="text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+        SESSIONS
+      </span>
+      {sessionsByStory.map(({ story, list }) => {
+        const doneInStory = list.filter((s) =>
+          statusStyle(s.status).terminal
+        ).length;
+        return (
+          <div
+            key={story.id}
+            className="flex flex-col gap-0.5 pt-2 first:pt-0"
+          >
+            <div className="flex items-center gap-2 px-1">
+              <EntityIcon
+                icon={story.icon}
+                fallback="◇"
+                className="text-[11px] text-ink-muted"
+              />
+              <span className="text-[12px] font-semibold text-ink-soft">
+                {story.title || "Untitled"}
+              </span>
+              <div className="h-1 w-[60px] overflow-hidden rounded-full bg-line">
+                <div
+                  className="h-full rounded-full bg-copper"
+                  style={{
+                    width: `${(doneInStory / list.length) * 100}%`,
+                  }}
+                />
+              </div>
+              <span className="text-[10px] text-ink-muted">
+                {doneInStory} / {list.length}
+              </span>
+            </div>
+            <div className="flex flex-col pl-1">
+              {list.map(sessionRow)}
+            </div>
+          </div>
+        );
+      })}
+      {ungroupedSessions.map(sessionRow)}
+      {sessions.length === 0 && (
+        <span className="py-1 text-[11.5px] text-ink-muted">
+          no sessions yet
+        </span>
+      )}
+    </div>
+  );
   const blockIds = new Set(
     blocks.filter(isText).map((b) => b.id).filter(Boolean) as string[],
   );
@@ -3002,6 +3055,8 @@ export function Page(
             onDone={() => reload()}
           />
 
+          {sessions.length > 0 && sessionsPanel(true)}
+
           {(openCount > 0 || resolvedCount > 0) && (
             <div className="-mb-2 flex items-center gap-3 self-start">
               {commentMode === "inline"
@@ -3235,56 +3290,8 @@ export function Page(
             </button>
           </div>
 
-          {/* also shown when a just-promoted page (stale kind) already has sessions */}
-          {(isStory || sessions.length > 0) && (
-            <div className="flex flex-col gap-1 border-t border-line-soft pt-3">
-              <span className="text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
-                SESSIONS
-              </span>
-              {sessionsByStory.map(({ story, list }) => {
-                const doneInStory = list.filter((s) =>
-                  statusStyle(s.status).terminal
-                ).length;
-                return (
-                  <div
-                    key={story.id}
-                    className="flex flex-col gap-0.5 pt-2 first:pt-0"
-                  >
-                    <div className="flex items-center gap-2 px-1">
-                      <EntityIcon
-                        icon={story.icon}
-                        fallback="◇"
-                        className="text-[11px] text-ink-muted"
-                      />
-                      <span className="text-[12px] font-semibold text-ink-soft">
-                        {story.title || "Untitled"}
-                      </span>
-                      <div className="h-1 w-[60px] overflow-hidden rounded-full bg-line">
-                        <div
-                          className="h-full rounded-full bg-copper"
-                          style={{
-                            width: `${(doneInStory / list.length) * 100}%`,
-                          }}
-                        />
-                      </div>
-                      <span className="text-[10px] text-ink-muted">
-                        {doneInStory} / {list.length}
-                      </span>
-                    </div>
-                    <div className="flex flex-col pl-1">
-                      {list.map(sessionRow)}
-                    </div>
-                  </div>
-                );
-              })}
-              {ungroupedSessions.map(sessionRow)}
-              {sessions.length === 0 && (
-                <span className="py-1 text-[11.5px] text-ink-muted">
-                  no sessions yet
-                </span>
-              )}
-            </div>
-          )}
+          {/* empty state stays at the bottom; sessions themselves sit up top */}
+          {isStory && sessions.length === 0 && sessionsPanel(false)}
         </div>
       </div>
       {commentMode === "panel" && panelOpen && (
