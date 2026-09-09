@@ -126,11 +126,47 @@ async function list(json: boolean): Promise<void> {
   );
 }
 
+const RELEASES = "https://github.com/Andarius/trame/releases/latest";
+
+/**
+ * The line to print when this CLI and the running app disagree on version, or null.
+ * `just setup` only exists in a checkout — an installed CLI is replaced from the
+ * release page (the snap ships both, so it cannot drift).
+ */
+export function staleWarning(
+  cli: string,
+  app: string | undefined,
+  execPath: string,
+): string | null {
+  if (!app || app === cli.split("+")[0]) return null;
+  const how = execPath.includes("/dist/tramecli") ? "`just setup`" : RELEASES;
+  return `tramecli ${cli} does not match Trame ${app} — update the CLI: ${how}`;
+}
+
+// stderr, never blocking: a CLI behind the app writes with a stale contract, and the
+// symptom (a field the app never sent) is unreadable at the other end.
+async function warnIfStale(): Promise<void> {
+  try {
+    const { port } = JSON.parse(await Deno.readTextFile(PORT_FILE));
+    const status = await fetch(`http://127.0.0.1:${port}/api/status`, {
+      signal: AbortSignal.timeout(1000),
+    }).then((r) => r.json()) as { version?: string };
+    const line = staleWarning(VERSION, status.version, Deno.execPath());
+    if (line) console.error(line);
+  } catch { /* no port file, or the app is down: nothing to compare against */ }
+}
+
+// the commands that speak to the app — the ones a version mismatch breaks
+const APP_COMMANDS = new Set(
+  ["track", "page", "comment", "watch", "answer", "list", "mcp"],
+);
+
 export async function run(argv: string[]): Promise<number> {
   const [cmd, ...raw] = argv;
   const json = raw.includes("--json");
   const rest = raw.filter((a) => a !== "--json");
   const wantsHelp = rest.includes("-h") || rest.includes("--help");
+  if (!wantsHelp && APP_COMMANDS.has(cmd ?? "")) await warnIfStale();
   switch (cmd) {
     case undefined:
     case "-h":

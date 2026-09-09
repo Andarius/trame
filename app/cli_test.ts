@@ -1,6 +1,6 @@
 import { testTempDir } from "./test_tmp.ts";
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
-import { boardRows, formatBoard, run } from "../track/cli.ts";
+import { boardRows, formatBoard, run, staleWarning } from "../track/cli.ts";
 import { ensureOnPath, EMBEDS, installHook, setup } from "../track/setup.ts";
 import {
   COMMENT_HELP,
@@ -269,4 +269,21 @@ Deno.test("setup --hook writes the pre-push guard where git looks for it", async
 
   await Deno.writeTextFile(`${tmp}/.githooks/pre-push`, "#!/bin/sh\nsomeone else\n");
   await assertRejects(() => installHook(tmp), Error, "not ours");
+});
+
+// `just setup` only exists in a checkout — an installed CLI is replaced from the
+// release page, so the advice has to follow the binary.
+Deno.test("staleWarning fires only on a mismatch, and points at the right install", () => {
+  const cases: [string, string | undefined, string, string | null][] = [
+    ["0.13.0", "0.13.0", "/home/x/.local/bin/tramecli", null],
+    ["0.13.0+abc123", "0.13.0", "/home/x/.local/bin/tramecli", null], // build stamp is not skew
+    ["0.13.0", undefined, "/home/x/.local/bin/tramecli", null],
+    ["0.13.0", "0.14.0", "/home/x/.local/bin/tramecli", "releases/latest"],
+    ["0.13.0", "0.14.0", "/home/x/trame/dist/tramecli", "`just setup`"],
+  ];
+  for (const [cli, app, execPath, want] of cases) {
+    const line = staleWarning(cli, app, execPath);
+    if (want === null) assertEquals(line, null, `${cli} vs ${app}`);
+    else assertStringIncludes(line ?? "", want);
+  }
 });
