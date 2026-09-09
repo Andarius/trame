@@ -523,6 +523,22 @@ export async function listEvents(sessionId: string, limit?: number) {
   )).rows;
 }
 
+// The page's own worklog: every entry of every session linked to it, merged newest
+// first. `distinct` because a session linked to several lines joins once per link.
+export async function listPageEvents(pageId: string, limit = 100) {
+  const pg = await db();
+  return (await pg.query(
+    `select distinct e.id, e.at, e.summary, e.kind, e.agent, e.session_id,
+            s.title as session_title, s.status as session_status
+       from session_events e
+       join session_links l on l.session_id = e.session_id and not l.deleted
+       join sessions s on s.id = e.session_id and not s.deleted
+      where l.page_id=$1 and not e.deleted
+      order by e.at desc, e.id desc limit $2`,
+    [pageId, limit],
+  )).rows;
+}
+
 export async function countEvents(sessionId: string): Promise<number> {
   const pg = await db();
   const row = (await pg.query(

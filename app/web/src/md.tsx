@@ -6,8 +6,8 @@
 // green|yellow|red|copper|gray — handy for table cells).
 // Underscore emphasis is intentionally NOT supported so snake_case survives.
 import { Fragment, type ReactNode, useEffect, useState } from "react";
-import { getEvents, openInBrowser, type PrInfo, prInfo, type SessionEvent } from "./api";
-import { Modal, Popover, timeAgo } from "./ui";
+import { getEvents, getPageEvents, openInBrowser, type PageEvent, type PrInfo, prInfo, type SessionEvent } from "./api";
+import { Modal, Popover, statusStyle, timeAgo } from "./ui";
 
 // ```mermaid fences render as diagrams. The lib (~1.5 MB) is dynamically imported so
 // pages without diagrams never load it. The svg-string injection is the one exception
@@ -610,7 +610,6 @@ function SessionFeed({ lk, onClose }: { lk: ItemLink; onClose: () => void }) {
       alive = false;
     };
   }, [lk.sessionId]);
-  const feed = Array.isArray(events) ? events : [];
   return (
     <Modal width={720} onClose={onClose}>
       <button
@@ -625,28 +624,95 @@ function SessionFeed({ lk, onClose }: { lk: ItemLink; onClose: () => void }) {
         <span className="min-w-0 truncate">{lk.title}</span>
         <span className="ml-auto shrink-0 text-[11px] font-normal text-ink-muted">open the card →</span>
       </button>
-      <div className={`ml-[3px] flex flex-col gap-3.5 pl-3.5 ${feed.length ? "border-l border-line" : ""}`}>
-        {feed.map((e) => (
-          <div key={e.id} className="relative">
-            <span className="absolute -left-[18px] top-[5px] h-[7px] w-[7px] rounded-full bg-chipline" />
-            <div className="text-[10.5px] text-ink-muted">
+      <FeedList events={events} />
+    </Modal>
+  );
+}
+
+// The timeline both chips render. An entry carrying `session_title` came from the
+// page feed, where several sessions are merged and each line has to name its own.
+type FeedEvent = SessionEvent & Partial<Pick<PageEvent, "session_title" | "session_status">>;
+
+function FeedList({ events }: { events: FeedEvent[] | "failed" | null }) {
+  const feed = Array.isArray(events) ? events : [];
+  return (
+    <div className={`ml-[3px] flex flex-col gap-3.5 pl-3.5 ${feed.length ? "border-l border-line" : ""}`}>
+      {feed.map((e) => (
+        <div key={e.id} className="relative">
+          <span className="absolute -left-[18px] top-[5px] h-[7px] w-[7px] rounded-full bg-chipline" />
+          <div className="flex items-center gap-1.5 text-[10.5px] text-ink-muted">
+            {e.session_title && (
+              <>
+                <span
+                  className="h-[6px] w-[6px] shrink-0 rounded-full"
+                  style={{ background: statusStyle(e.session_status ?? "active").color }}
+                />
+                <span className="max-w-[240px] truncate font-medium text-ink-soft/90">{e.session_title}</span>
+                <span>·</span>
+              </>
+            )}
+            <span className="truncate">
               {e.agent ? `${e.agent} · ` : ""}
               <span className="font-medium text-ink-soft/90">{e.kind}</span> · {timeAgo(e.at)}
-            </div>
-            {e.summary && <Markdown className="text-[12.5px] text-ink-soft" text={e.summary} />}
+            </span>
           </div>
-        ))}
-        <span className="text-[11px] text-ink-muted/60">
-          {events === null
-            ? "loading…"
-            : events === "failed"
-            ? "worklog unavailable"
-            : feed.length === 0
-            ? "No entries yet"
-            : ""}
-        </span>
-      </div>
-    </Modal>
+          {e.summary && <Markdown className="text-[12.5px] text-ink-soft" text={e.summary} />}
+        </div>
+      ))}
+      <span className="text-[11px] text-ink-muted/60">
+        {events === null
+          ? "loading…"
+          : events === "failed"
+          ? "worklog unavailable"
+          : feed.length === 0
+          ? "No entries yet"
+          : ""}
+      </span>
+    </div>
+  );
+}
+
+// Page-level twin of LinkChip: every session linked anywhere on the page, one
+// timeline. Same rule — entries are fetched on open, never carried by the page.
+export function PageActivityChip({ pageId, sessions }: { pageId: string; sessions: number }) {
+  const [open, setOpen] = useState(false);
+  const [events, setEvents] = useState<PageEvent[] | "failed" | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    setEvents(null);
+    getPageEvents(pageId)
+      .then((e) => alive && setEvents(Array.isArray(e) ? e : "failed"))
+      .catch(() => alive && setEvents("failed"));
+    return () => {
+      alive = false;
+    };
+  }, [open, pageId]);
+  return (
+    <>
+      <button
+        type="button"
+        title="every session linked to this page — one worklog"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen(true)}
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-chipline/60 px-2 py-1 text-[11px] leading-none text-ink-muted transition-colors hover:border-copper/50 hover:text-copper"
+      >
+        <span>Activity</span>
+        <span className="text-ink-muted/70">{sessions}</span>
+      </button>
+      {open && (
+        <Modal width={720} onClose={() => setOpen(false)}>
+          <div className="flex items-center gap-2 text-[13px] font-medium text-ink">
+            <span>Page activity</span>
+            <span className="ml-auto shrink-0 text-[11px] font-normal text-ink-muted">
+              {Array.isArray(events) ? `${events.length} entries · ${sessions} sessions` : ""}
+            </span>
+          </div>
+          <FeedList events={events} />
+        </Modal>
+      )}
+    </>
   );
 }
 

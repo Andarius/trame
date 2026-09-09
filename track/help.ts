@@ -88,7 +88,7 @@ by full URL, never a bare \`#42\` — full links render as badges.
 - \`next_step\` — one imperative line: the very next thing to do on resume; incorporate the user's note.
 - \`pr_url\` — PR/MR link, only if evident.
 - \`summary\` — worklog entry, 1–3 lines, PR-description style: outcome first, plus decisions and dead-ends worth remembering ("X fails because Y") — no implementation narration.
-- \`links\` — optional backlink chips to plan/TODO pages: \`[{ "page_id", "anchor"?, "block_id"? }]\`; deduped server-side, only ever appended. Pass the task line's exact text as \`anchor\` (marks may be omitted) and the chip lands on that todo, carrying this card's worklog — so each \`summary\` reads as an update under the task. No unique match, or no anchor at all, files the chip on the page.
+- \`links\` — optional backlink chips to plan/TODO pages: \`[{ "page_id", "anchor"?, "block_id"? }]\`; deduped server-side, only ever appended. Pass the task line's exact text as \`anchor\` (marks may be omitted) and the chip lands on that todo, carrying this card's worklog — so each \`summary\` reads as an update under the task. No unique match, or no anchor at all, files the chip on the page. Every session linked to a page also feeds that page's **Activity** timeline — all their worklogs merged newest-first, read without opening a card.
 
 Specs
 
@@ -130,7 +130,7 @@ Example:
     "next_step": "Re-run the chart e2e suite after the flex fix",
     "pr_url": "https://github.com/obitrain/obi-chart/pull/42",
     "summary": "Legend no longer overflows narrow panels; flex-wrap was a dead-end (breaks export).",
-    "links": [{ "page_id": "<plan-page-id>" }]
+    "links": [{ "page_id": "<plan-page-id>", "anchor": "Fix the legend overflow" }]
   }`;
 
 export const PAGE_HELP =
