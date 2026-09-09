@@ -25,6 +25,8 @@ stale=0
 
 while read -r local_ref local_sha _remote_ref _remote_sha; do
   [ "$local_sha" = "$zero" ] && continue # branch deletion
+  # tags and other refs carry no session: a release tag points at merged work
+  case "$local_ref" in refs/heads/*) ;; *) continue ;; esac
 
   session=$(jq -r --arg repo "$repo" --arg name "$repo_name" \
     --arg branch "${local_ref#refs/heads/}" '
