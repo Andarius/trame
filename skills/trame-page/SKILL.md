@@ -44,10 +44,12 @@ Never use session-card fields as a substitute for a requested document or page r
 ## Markdown dialect
 
 Trame renders GFM plus page extensions — `{{tab}}`/`{{fold}}` section headings,
-checkable todos, status lists, `{{color:pills}}`, mermaid diagrams, highlighted code
-fences, live PR chips, interactive tables, `{{trame:folder=…}}` directory listings;
-no raw HTML or entities. Run `tramecli page --help` for the full dialect before
-composing, and use the extensions instead of flattening structure into plain prose.
+checkable todos, status lists, `{{<color>:<text>}}` pills (`{{green:done}}`; color is
+green|yellow|red|copper|gray and comes first — `{{color:green}}` is not a pill),
+mermaid diagrams, highlighted code fences, live PR chips, interactive tables,
+`{{trame:folder=…}}` directory listings; no raw HTML or entities. Run
+`tramecli page --help` for the full dialect before composing, and use the
+extensions instead of flattening structure into plain prose.
 
 ## Todo lines
 
