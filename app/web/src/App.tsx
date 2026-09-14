@@ -340,6 +340,8 @@ function PageNode(
     onOpenPage,
     onOpenDb,
     onNewChild,
+    onStar,
+    starred,
     meId,
   }: {
     p: PageMeta;
@@ -353,6 +355,8 @@ function PageNode(
     onOpenPage: (id: string) => void;
     onOpenDb: (id: string) => void;
     onNewChild: (parentId: string) => void;
+    onStar: (id: string) => void;
+    starred: Set<string>;
     meId: string | null;
   },
 ) {
@@ -424,6 +428,17 @@ function PageNode(
         </button>
         <button
           type="button"
+          className={`shrink-0 rounded px-1 text-[11px] hover:text-copper ${
+            starred.has(p.id) ? "text-copper" : "hidden text-ink-muted group-hover:block"
+          }`}
+          title={starred.has(p.id) ? "unstar" : "star — pin this page on top"}
+          onClick={() => onStar(p.id)}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          ★
+        </button>
+        <button
+          type="button"
           className="hidden shrink-0 rounded px-1 text-[12px] text-ink-muted hover:text-ink group-hover:block"
           title="new sub-page"
           onClick={() => onNewChild(p.id)}
@@ -485,6 +500,8 @@ function PageNode(
         onOpenPage={onOpenPage}
         onOpenDb={onOpenDb}
         onNewChild={onNewChild}
+        onStar={onStar}
+        starred={starred}
         meId={meId}
       />
     );
@@ -569,6 +586,8 @@ function Sidebar(
     onNewProject,
     onImportPage,
     onMovePage,
+    starred,
+    toggleStar,
     udbs,
     dbId,
     onOpenDb,
@@ -591,6 +610,8 @@ function Sidebar(
     onNewProject: () => void;
     onImportPage: () => void;
     onMovePage: (id: string, parentId: string | null) => void;
+    starred: Set<string>;
+    toggleStar: (id: string) => void;
     udbs: UdbMeta[];
     dbId: string | null;
     onOpenDb: (id: string) => void;
@@ -728,6 +749,8 @@ function Sidebar(
       onOpenPage={openGuarded}
       onOpenDb={onOpenDb}
       onNewChild={(id) => onNewPage(id)}
+      onStar={toggleStar}
+      starred={starred}
       meId={meId}
     />
   );
@@ -793,6 +816,44 @@ function Sidebar(
       })}
       {/* one tree, three root sections: projects (what sessions ladder up to),
           pages shared in by other users, and unfiled pages (the inbox to triage) */}
+      {[...starred].some((id) => byId.has(id)) && (
+        <>
+          <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+            STARRED
+          </div>
+          {[...starred].flatMap((id) => byId.get(id) ?? []).map((p) => {
+            const active = view === "page" && p.id === pageId;
+            const path: string[] = [];
+            for (let a = byId.get(p.parent_id ?? ""); a; a = byId.get(a.parent_id ?? "")) path.unshift(a.title);
+            return (
+              <button
+                type="button"
+                key={p.id}
+                onClick={() => onOpenPage(p.id)}
+                title={[...path, p.title].join(" / ")}
+                className={`group flex items-center gap-1.5 rounded-md py-[5px] pl-[22px] pr-1 text-left text-[13px] ${
+                  active ? "bg-active-row font-medium text-ink" : "text-ink-muted hover:text-ink-soft"
+                }`}
+              >
+                <span className={`text-[12px] ${active ? "text-copper" : ""}`}>
+                  <EntityIcon icon={p.icon} fallback={pageGlyph(p.kind)} />
+                </span>
+                <span className="flex-1 truncate">{p.title || "Untitled"}</span>
+                <span
+                  className="hidden px-1 text-[11px] text-copper group-hover:block"
+                  title="unstar"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleStar(p.id);
+                  }}
+                >
+                  ★
+                </span>
+              </button>
+            );
+          })}
+        </>
+      )}
       <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
         PROJECTS
       </div>
@@ -828,6 +889,8 @@ function Sidebar(
                 onOpenPage={openGuarded}
                 onOpenDb={onOpenDb}
                 onNewChild={(id) => onNewPage(id)}
+                onStar={toggleStar}
+                starred={starred}
                 meId={meId}
               />
             ),
@@ -856,6 +919,8 @@ function Sidebar(
             onOpenPage={openGuarded}
             onOpenDb={onOpenDb}
             onNewChild={(id) => onNewPage(id)}
+            onStar={toggleStar}
+            starred={starred}
             meId={meId}
           />
         ))}
@@ -1485,10 +1550,30 @@ export function App() {
     ? currentPlugin?.label ?? "Plugin"
     : "Explore";
 
+  // starred pages: per-browser shortcuts to deep pages (Soren → Weekly → …)
+  const [starred, setStarred] = useState<Set<string>>(() => {
+    try {
+      return new Set<string>(JSON.parse(localStorage.getItem("trame:starred") ?? "[]"));
+    } catch {
+      return new Set<string>();
+    }
+  });
+  useEffect(() => {
+    localStorage.setItem("trame:starred", JSON.stringify([...starred]));
+  }, [starred]);
+  const toggleStar = (id: string) =>
+    setStarred((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
   return (
     <div className="flex h-full">
       <Sidebar
         view={view}
+        starred={starred}
+        toggleStar={toggleStar}
         onNav={(v) => {
           setExploreReturn(null);
           setView(v);
@@ -1537,6 +1622,16 @@ export function App() {
                     <EntityIcon icon={currentPage.icon} className="shrink-0 text-[11px]" size={14} />
                     <span className="truncate">{currentPage.title || "Untitled"}</span>
                   </span>
+                  <button
+                    type="button"
+                    className={`ml-1 shrink-0 text-[13px] hover:text-copper ${
+                      starred.has(currentPage.id) ? "text-copper" : "text-ink-muted/40"
+                    }`}
+                    title={starred.has(currentPage.id) ? "unstar" : "star — pin this page in the sidebar"}
+                    onClick={() => toggleStar(currentPage.id)}
+                  >
+                    ★
+                  </button>
                 </div>
               )
               : view === "database" && currentDb
