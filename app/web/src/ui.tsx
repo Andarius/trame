@@ -210,7 +210,16 @@ export function Select(
   },
 ) {
   const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [hi, setHi] = useState(0); // keyboard-highlighted row in the filtered list
   const current = options.find((o) => o.value === value);
+  const searchable = options.length > 8;
+  const needle = q.trim().toLowerCase();
+  const shown = needle ? options.filter((o) => o.label.toLowerCase().includes(needle)) : options;
+  const pick = (v: string) => {
+    onChange(v);
+    setOpen(false);
+  };
   const dot = (color?: string) =>
     color && <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: color }} />;
   // one fixed-width slot for every row so logos, dots and markerless rows keep their labels aligned
@@ -233,7 +242,11 @@ export function Select(
           "rounded-md border border-chipline bg-transparent px-2 py-1.5 text-xs text-ink outline-none focus:border-copper/60"
         }`}
         style={triggerStyle}
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setQ("");
+          setHi(0);
+          setOpen(true);
+        }}
       >
         {marker(current)}
         <span className={`flex-1 truncate ${current ? "" : "text-ink-muted/60"}`}>
@@ -242,22 +255,48 @@ export function Select(
         <span className="text-[10px] text-ink-muted/70">▾</span>
       </button>
       {open && (
-        <Popover onClose={() => setOpen(false)} className="max-h-56 w-full overflow-y-auto">
-          {options.map((o) => (
-            <button
-              key={o.value}
-              type="button"
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-ink-soft hover:bg-panel"
-              onClick={() => {
-                onChange(o.value);
-                setOpen(false);
+        <Popover onClose={() => setOpen(false)} className="w-full">
+          {searchable && (
+            <input
+              autoFocus
+              value={q}
+              placeholder="Search…"
+              className="mb-1 w-full rounded-md border border-chipline bg-transparent px-2 py-1 text-xs text-ink outline-none placeholder:text-ink-muted/60 focus:border-copper/60"
+              onChange={(e) => {
+                setQ(e.target.value);
+                setHi(0);
               }}
-            >
-              {marker(o)}
-              <span className="flex-1 truncate">{o.label}</span>
-              {o.value === value && <span className="text-[10px] text-copper">✓</span>}
-            </button>
-          ))}
+              onKeyDown={(e) => {
+                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                  e.preventDefault();
+                  const d = e.key === "ArrowDown" ? 1 : -1;
+                  setHi((i) => Math.max(0, Math.min(shown.length - 1, i + d)));
+                } else if (e.key === "Enter" && shown[hi]) {
+                  e.preventDefault();
+                  pick(shown[hi].value);
+                }
+              }}
+            />
+          )}
+          <div className="max-h-56 overflow-y-auto">
+            {shown.map((o, i) => (
+              <button
+                key={o.value}
+                type="button"
+                ref={searchable && i === hi ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
+                className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-ink-soft hover:bg-panel ${
+                  searchable && i === hi ? "bg-copper/10 text-ink" : ""
+                }`}
+                onMouseDown={(e) => e.preventDefault()} // keep focus in the search box
+                onClick={() => pick(o.value)}
+              >
+                {marker(o)}
+                <span className="flex-1 truncate">{o.label}</span>
+                {o.value === value && <span className="text-[10px] text-copper">✓</span>}
+              </button>
+            ))}
+            {!shown.length && <div className="px-2 py-1 text-xs text-ink-muted/70">No match</div>}
+          </div>
         </Popover>
       )}
     </div>
