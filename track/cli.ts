@@ -14,6 +14,7 @@ import { run as setupRun } from "./setup.ts";
 import { serve as mcpServe } from "../mcp/server.ts";
 import {
   COMMENT_HELP,
+  CONVERT_HELP,
   LIST_HELP,
   OVERVIEW,
   PAGE_HELP,
@@ -27,6 +28,7 @@ const HELP_TOPICS: Record<string, string> = {
   page: PAGE_HELP,
   comment: COMMENT_HELP,
   list: LIST_HELP,
+  convert: CONVERT_HELP,
   setup: SETUP_HELP,
 };
 
@@ -106,16 +108,17 @@ export function formatBoard(board: Board, color = false): string {
   ).join("\n");
 }
 
-async function list(json: boolean): Promise<void> {
-  let port: number;
+async function appBase(): Promise<string> {
   try {
-    port = JSON.parse(await Deno.readTextFile(PORT_FILE)).port;
+    const { port } = JSON.parse(await Deno.readTextFile(PORT_FILE));
+    return `http://127.0.0.1:${port}`;
   } catch {
-    throw new Error(
-      "Trame app is not running (no port file) — nothing to list.",
-    );
+    throw new Error("Trame app is not running (no port file).");
   }
-  const res = await fetch(`http://127.0.0.1:${port}/api/board`, {
+}
+
+async function list(json: boolean): Promise<void> {
+  const res = await fetch(`${await appBase()}/api/board`, {
     signal: AbortSignal.timeout(5000),
   });
   if (!res.ok) throw new Error(`/api/board → HTTP ${res.status}`);
@@ -124,6 +127,33 @@ async function list(json: boolean): Promise<void> {
     json
       ? JSON.stringify(boardRows(board))
       : formatBoard(board, Deno.stdout.isTerminal()),
+  );
+}
+
+// The page becomes a card whose specs are that page — the page header's
+// "Convert to session" button, from a terminal. Idempotent server-side.
+async function convert(
+  pageId: string | undefined,
+  json: boolean,
+): Promise<void> {
+  if (!pageId) throw new Error("usage: tramecli convert <page-id>");
+  const base = await appBase();
+  const res = await fetch(`${base}/api/pages/${pageId}/session`, {
+    method: "POST",
+    signal: AbortSignal.timeout(5000),
+  });
+  const body = await res.json() as {
+    id: string;
+    created: boolean;
+    error?: string;
+  };
+  if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+  console.log(
+    json
+      ? JSON.stringify(body)
+      : `ok: session ${body.id} ${
+        body.created ? "created from" : "already specced by"
+      } this page — ${base}/?session=${body.id}`,
   );
 }
 
@@ -160,7 +190,7 @@ async function warnIfStale(): Promise<void> {
 
 // the commands that speak to the app — the ones a version mismatch breaks
 const APP_COMMANDS = new Set(
-  ["track", "page", "comment", "watch", "answer", "list", "mcp"],
+  ["track", "page", "comment", "watch", "answer", "list", "convert", "mcp"],
 );
 
 export async function run(argv: string[]): Promise<number> {
@@ -207,6 +237,10 @@ export async function run(argv: string[]): Promise<number> {
     case "list":
       if (wantsHelp) console.log(LIST_HELP);
       else await list(json);
+      return 0;
+    case "convert":
+      if (wantsHelp) console.log(CONVERT_HELP);
+      else await convert(rest[0], json);
       return 0;
     case "setup":
       if (wantsHelp) {

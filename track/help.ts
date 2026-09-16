@@ -200,6 +200,19 @@ column is terminal (e.g. done) are omitted. --json prints flat rows
 ({id, title, status, story, branch, repo_path, last_touched, next_step, pr_url})
 for jq — what the pre-push hook filters on.`;
 
+export const CONVERT_HELP = `tramecli convert — turn a page into a session card
+
+  tramecli convert <page-id>
+
+The page becomes the card's specs (specs_page_id) — same page, no copy; the card
+anchors to the nearest story above it and inherits that branch's project. Same call as
+the page header's "Convert to session" button. Idempotent: the card id derives from the
+page id, so converting again returns the existing card (--json prints
+{id, created:false}) instead of forking a second one.
+
+Then track it as usual — \`repo_path\`/\`branch\` land on the card on the first
+\`tramecli track\` that names it.`;
+
 export const OVERVIEW =
   `tramecli ${VERSION} — agent CLI for Trame, the local-first session tracker
 
@@ -212,6 +225,7 @@ Commands:
   watch      wait for human feedback on page(s); exits 0 when feedback is ready
   answer     daemon: auto-answer human replies on agent comment threads
   list       print open sessions grouped by story
+  convert    turn a page into a session card whose specs are that page
   setup      install the agent skills embedded in this binary
   mcp        serve the Trame MCP server on stdio
   --version  print the CLI version (the app's is at GET /api/status)
