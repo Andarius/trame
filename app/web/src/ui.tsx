@@ -209,12 +209,21 @@ export function Popover(
   );
 }
 
+const MENU_MIN = 320; // width a searchable list needs: title + project pill
+
 // Custom <select> replacement — native selects render with the platform theme (a light
 // GTK dropdown in the desktop webview) and can't be styled.
 export function Select(
   { value, options, onChange, placeholder, className, triggerStyle }: {
     value: string;
-    options: { value: string; label: string; dot?: string; icon?: string | null }[]; // dot = color swatch, icon = logo/emoji (project chips)
+    // dot = color swatch, icon = logo/emoji (project chips), chip = the owning project's pill
+    options: {
+      value: string;
+      label: string;
+      dot?: string;
+      icon?: string | null;
+      chip?: { name: string; color?: string | null };
+    }[];
     onChange: (v: string) => void;
     placeholder?: string;
     className?: string; // trigger styling; defaults to the app's field look
@@ -222,12 +231,15 @@ export function Select(
   },
 ) {
   const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
   const [q, setQ] = useState("");
   const [hi, setHi] = useState(0); // keyboard-highlighted row in the filtered list
   const current = options.find((o) => o.value === value);
   const searchable = options.length > 8;
   const needle = q.trim().toLowerCase();
-  const shown = needle ? options.filter((o) => o.label.toLowerCase().includes(needle)) : options;
+  const haystack = (o: { label: string; chip?: { name: string } }) =>
+    (o.chip ? `${o.label} ${o.chip.name}` : o.label).toLowerCase();
+  const shown = needle ? options.filter((o) => haystack(o).includes(needle)) : options;
   const pick = (v: string) => {
     onChange(v);
     setOpen(false);
@@ -245,8 +257,11 @@ export function Select(
         {o?.icon ? <EntityIcon icon={o.icon} className="text-[11px]" size={slot} /> : dot(o?.dot)}
       </span>
     );
+  // a wide searchable list hangs off the right edge when the trigger sits there (drawer)
+  const rect = open ? wrap.current?.getBoundingClientRect() : undefined;
+  const flip = searchable && !!rect && rect.left + MENU_MIN > globalThis.innerWidth;
   return (
-    <div className="relative">
+    <div className="relative" ref={wrap}>
       <button
         type="button"
         className={`flex w-full items-center gap-2 text-left ${
@@ -267,7 +282,14 @@ export function Select(
         <span className="text-[10px] text-ink-muted/70">▾</span>
       </button>
       {open && (
-        <Popover onClose={() => setOpen(false)} className="w-full">
+        <Popover
+          onClose={() => setOpen(false)}
+          className="w-full"
+          style={{
+            ...(searchable ? { minWidth: MENU_MIN } : {}),
+            ...(flip ? { left: "auto", right: 0 } : {}),
+          }}
+        >
           {searchable && (
             <input
               autoFocus
@@ -304,6 +326,11 @@ export function Select(
               >
                 {marker(o)}
                 <span className="flex-1 truncate">{o.label}</span>
+                {o.chip && (
+                  <span className="shrink-0">
+                    <ClientChip name={o.chip.name} color={o.chip.color} />
+                  </span>
+                )}
                 {o.value === value && <span className="text-[10px] text-copper">✓</span>}
               </button>
             ))}
@@ -536,8 +563,15 @@ export function ObjectiveChip(
 // the parent page's title. Values are page ids.
 export function pageOptions(
   stories: { id: string; title: string }[],
-  pages: { id: string; parent_id: string | null; kind: string; title: string }[],
-): { value: string; label: string }[] {
+  pages: {
+    id: string;
+    parent_id: string | null;
+    kind: string;
+    title: string;
+    icon: string | null;
+    color: string | null;
+  }[],
+): { value: string; label: string; chip?: { name: string; color: string | null } }[] {
   const titleCount = new Map<string, number>();
   for (const p of pages) titleCount.set(p.title, (titleCount.get(p.title) ?? 0) + 1);
   const byId = new Map(pages.map((p) => [p.id, p]));
@@ -545,9 +579,19 @@ export function pageOptions(
     const parent = p.parent_id ? byId.get(p.parent_id) : undefined;
     return (titleCount.get(p.title) ?? 0) > 1 && parent ? `${p.title} · ${parent.title}` : p.title;
   };
+  // the owning project as a colored pill — same-looking titles read apart at a glance
+  const chipOf = (id: string) => {
+    for (const p of ancestry(byId.get(id), byId)) {
+      if (p.kind === "project") return { name: p.title, color: p.color };
+    }
+  };
   return [
-    ...stories.map((o) => ({ value: o.id, label: `◇ ${o.title}` })),
-    ...pages.filter((p) => p.kind === "page").map((p) => ({ value: p.id, label: `□ ${disambig(p)}` })),
+    ...stories.map((o) => ({ value: o.id, label: `◇ ${o.title}`, chip: chipOf(o.id) })),
+    ...pages.filter((p) => p.kind === "page").map((p) => ({
+      value: p.id,
+      label: `□ ${disambig(p)}`,
+      chip: chipOf(p.id),
+    })),
   ];
 }
 
