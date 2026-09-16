@@ -4,6 +4,7 @@
 // hub (window.__TRAME_LINK__); the only requests this page makes are its assets.
 import { useEffect, useRef, useState } from "react";
 import { Markdown } from "../md";
+import { ExpandIcon } from "../ui";
 import { BRIDGE } from "../HtmlBlock";
 import { fmtNumber, OptionChip } from "../udb/cells";
 import { blocksToMarkdown } from "../page-serialize";
@@ -125,11 +126,13 @@ function DbTable({ db }: { db: LinkDb }) {
 }
 
 // same sandboxed iframe as the app's HtmlBlock, sans editing (data-back is off:
-// the bridge's send() posts to us and we simply ignore it)
+// the bridge's send() posts to us and we simply ignore it). Embeds break out of
+// the prose column and can go full screen — a document is wider than its text.
 function HtmlFrame({ b }: { b: LinkBlock }) {
   const frame = useRef<HTMLIFrameElement | null>(null);
   const pinned = typeof b.height === "number";
   const [height, setHeight] = useState(pinned ? b.height! : 300);
+  const [full, setFull] = useState(false);
   useEffect(() => {
     if (pinned) return;
     const onMsg = (e: MessageEvent) => {
@@ -141,16 +144,41 @@ function HtmlFrame({ b }: { b: LinkBlock }) {
     addEventListener("message", onMsg);
     return () => removeEventListener("message", onMsg);
   }, [pinned]);
+  useEffect(() => {
+    if (!full) return;
+    const h = (e: KeyboardEvent) => e.key === "Escape" && setFull(false);
+    addEventListener("keydown", h);
+    return () => removeEventListener("keydown", h);
+  }, [full]);
   return (
-    <iframe
-      ref={frame}
-      sandbox="allow-scripts"
-      allow="clipboard-write"
-      srcDoc={(b.html ?? "") + BRIDGE}
-      style={{ height }}
-      className="my-1 w-full rounded-lg border border-line bg-canvas"
-      title="embedded document"
-    />
+    <div
+      className={full
+        ? "fixed inset-0 z-50 flex flex-col bg-canvas"
+        : "group/html relative left-1/2 my-1 -translate-x-1/2"}
+      style={full ? undefined : { width: "min(1400px, 100vw - 3rem)" }}
+    >
+      <iframe
+        ref={frame}
+        sandbox="allow-scripts"
+        allow="clipboard-write; fullscreen"
+        srcDoc={(b.html ?? "") + BRIDGE}
+        style={full ? undefined : { height }}
+        className={full
+          ? "min-h-0 w-full flex-1 border-0 bg-canvas"
+          : "w-full rounded-lg border border-line bg-canvas"}
+        title="embedded document"
+      />
+      <button
+        type="button"
+        onClick={() => setFull((v) => !v)}
+        title={full ? "leave full screen (esc)" : "full screen"}
+        className={`absolute right-2 top-2 flex items-center rounded-md border border-chipline bg-panel px-2 py-[4px] text-ink-soft transition-opacity hover:border-copper hover:text-copper ${
+          full ? "" : "opacity-0 group-hover/html:opacity-100"
+        }`}
+      >
+        <ExpandIcon open={full} />
+      </button>
+    </div>
   );
 }
 
