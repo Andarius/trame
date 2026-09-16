@@ -16,6 +16,9 @@ const TITLES = [
   "Editor pill e2e",
   "Editor live e2e",
   "Editor list split e2e",
+  "Editor undo e2e",
+  "Editor insert e2e",
+  "Editor tab e2e",
 ];
 
 // retry-safe: wipe our fixture pages so a re-run starts clean
@@ -189,4 +192,98 @@ test("Enter in a rendered list item splits it and keeps typing flowing", async (
       return p.content[0]?.text;
     })
     .toBe("- alpha\n- gamma\n- beta");
+});
+
+test("Ctrl+Z undoes a block delete and a typed run", async ({ page, request }) => {
+  const id = await newPage(request, "Editor undo e2e", [
+    { id: "u-a", type: "text", text: "alpha" },
+    { id: "u-b", type: "text", text: "" },
+    { id: "u-c", type: "text", text: "gamma" },
+  ]);
+  await page.goto(`/?view=page&page=${id}`);
+  const texts = () =>
+    page.locator("textarea").evaluateAll((els) =>
+      els.map((e) => (e as HTMLTextAreaElement).value)
+    );
+
+  // Backspace on the empty block deletes it and refocuses a sibling textarea —
+  // Ctrl+Z must still reach the editor's undo stack from there
+  await page.locator("textarea").nth(1).focus();
+  await page.keyboard.press("Backspace");
+  await expect.poll(texts).toEqual(["alpha", "gamma"]);
+  expect(await page.evaluate(() => document.activeElement?.tagName)).toBe("TEXTAREA");
+  await page.keyboard.press("Control+z");
+  await expect.poll(texts).toEqual(["alpha", "", "gamma"]);
+
+  // a typed run stays with the browser's native undo, and undoes as one step
+  await page.locator("textarea").first().focus();
+  await page.keyboard.press("End");
+  await page.keyboard.type("XYZ", { delay: 80 });
+  await expect.poll(texts).toEqual(["alphaXYZ", "", "gamma"]);
+  await page.keyboard.press("Control+z");
+  await expect.poll(texts).toEqual(["alpha", "", "gamma"]);
+});
+
+test("a page opening on an html block stays writable around it", async ({ page, request }) => {
+  const id = await newPage(request, "Editor insert e2e", [
+    { id: "i-h", type: "html", html: "<!doctype html><title>Preview</title><body><h1>doc</h1>" },
+    { id: "i-t", type: "heading", text: "Implementation progress" },
+  ]);
+  await page.goto(`/?view=page&page=${id}`);
+  const types = async () =>
+    ((await (await request.get(`/api/pages/${id}`)).json()) as {
+      content: { type: string }[];
+    }).content.map((b) => b.type);
+
+  // Enter on a block's first column opens a writable line above it
+  await page.locator("textarea").first().focus();
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("above the heading");
+  await expect.poll(types).toEqual(["html", "text", "heading"]);
+
+  // the strip above a leading html block — nothing else can reach that slot
+  await page.getByTitle("write above this block").click();
+  await page.keyboard.type("above the preview");
+  await expect.poll(types).toEqual(["text", "html", "text", "heading"]);
+
+  // the ⋮⋮ handle reaches an html block too — drop it on the heading row
+  const htmlRow = page.locator("div.group", { has: page.locator("iframe") }).first();
+  await htmlRow.hover();
+  await htmlRow.getByTitle("Drag to move").hover();
+  await page.mouse.down();
+  await page.locator("[data-block-id]").last().hover();
+  await page.mouse.up();
+  await expect.poll(types).toEqual(["text", "text", "heading", "html"]);
+});
+
+test("a tab drags along its strip, carrying its whole section", async ({ page, request }) => {
+  const id = await newPage(request, "Editor tab e2e", [
+    { id: "t-a", type: "heading", text: "Overview {{tab}}" },
+    { id: "t-b", type: "text", text: "overview body" },
+    { id: "t-c", type: "heading", text: "Map {{tab}}" },
+    { id: "t-d", type: "text", text: "map body" },
+    // a plain heading inside the tab: it belongs to Map, and must travel with it
+    { id: "t-e", type: "heading", text: "Details" },
+    { id: "t-f", type: "text", text: "details body" },
+  ]);
+  await page.goto(`/?view=page&page=${id}`);
+  const map = page.getByRole("button", { name: "Map" });
+  await map.hover();
+  await page.mouse.down();
+  const overview = page.getByRole("button", { name: "Overview" });
+  await overview.hover();
+  // the bar marks the side it lands on — left, since Map is dragged leftwards
+  expect(await overview.evaluate((el) => getComputedStyle(el).boxShadow))
+    .toMatch(/rgb\(201, 138, 99\).*-2px/);
+  await page.mouse.up();
+  await expect
+    .poll(async () =>
+      ((await (await request.get(`/api/pages/${id}`)).json()) as {
+        content: { id: string }[];
+      }).content.map((b) => b.id)
+    )
+    .toEqual(["t-c", "t-d", "t-e", "t-f", "t-a", "t-b"]);
+  // the dragged tab stays the one you are looking at
+  await expect(page.locator("p", { hasText: "map body" })).toBeVisible();
 });

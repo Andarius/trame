@@ -23,6 +23,7 @@ import {
   openInBrowser,
   type PageComment,
   type PageDetail,
+  pageToSession,
   pingPresence,
   type Presence,
   type Session,
@@ -47,7 +48,7 @@ import {
   timeAgo,
   uuid7Time,
 } from "./ui";
-import { Markdown } from "./md";
+import { type ItemLink, LinkChip, Markdown, PageActivityChip } from "./md";
 import { blocksToMarkdown } from "./page-serialize";
 
 // Stable block id so a comment survives edits/reorders of the surrounding text.
@@ -921,6 +922,27 @@ function FormatBar(
   );
 }
 
+// React rewrites node.defaultValue on every render of a controlled textarea, which
+// mutates its text child and resets the browser's undo grouping — Ctrl+Z then crawls
+// back one character per press. While the field is focused, report the live value so
+// React's `defaultValue !== value` guard skips the write; unfocused it behaves
+// normally, so the text child re-syncs on the render that follows a blur.
+const defaultValueProp = Object.getOwnPropertyDescriptor(
+  HTMLTextAreaElement.prototype,
+  "defaultValue",
+)!;
+const keepNativeUndo = (el: HTMLTextAreaElement) => {
+  if (Object.getOwnPropertyDescriptor(el, "defaultValue")) return;
+  Object.defineProperty(el, "defaultValue", {
+    get: () =>
+      document.activeElement === el
+        ? el.value
+        : defaultValueProp.get!.call(el) as string,
+    set: (v: string) => defaultValueProp.set!.call(el, v),
+    configurable: true,
+  });
+};
+
 export function BlockEditor(
   {
     blocks,
@@ -983,6 +1005,19 @@ export function BlockEditor(
   const rootRef = useRef<HTMLDivElement>(null);
   // a todo's visible text when it took focus — a blur only counts as an edit if it moved
   const editStart = useRef<string | null>(null);
+  // has the focused field taken a keystroke since it got focus? decides who owns
+  // Ctrl+Z — the browser's native undo or ours (see the undo stack below)
+  const typed = useRef(false);
+
+  // every session linked to a line, as the chips render them (a task can pass
+  // through several sessions — showing only the first would hide the others)
+  const chipsFor = (ls: SessionLink[]): ItemLink[] =>
+    ls.filter((l) => l.session_id).map((l) => ({
+      title: l.session_title ?? "session",
+      color: statusStyle(l.session_status ?? "active").color,
+      sessionId: l.session_id!,
+      open: () => onOpenSession?.(l.session_id!),
+    }));
 
   const syncSel = (i: number, el: HTMLTextAreaElement) => {
     const { selectionStart: s, selectionEnd: e } = el;
@@ -1111,6 +1146,16 @@ export function BlockEditor(
     ];
     onChange(next);
     setFocusIdx(i + 1);
+  };
+  // an empty writable line at `at` — Enter on a block's first column, and the
+  // strip above a page that opens on a non-text block
+  const insertAt = (at: number, indent = 0) => {
+    onChange([
+      ...blocks.slice(0, at),
+      { type: "text", text: "", ...(indent ? { indent } : {}), id: genId() } as Block,
+      ...blocks.slice(at),
+    ]);
+    setFocusIdx(at);
   };
   // toggling done sinks the item below the open ones of its contiguous todo run
   // (and un-checking lifts it back to the end of the open section).
@@ -1301,7 +1346,9 @@ export function BlockEditor(
     setFocusIdx(j);
   };
   // undo history for structural edits (drag reorder, block delete) — Ctrl/⌘+Z
-  // outside a textarea restores; text edits keep the browser's native undo
+  // restores, except while a field holds keystrokes of its own (those keep the
+  // browser's native undo). A block textarea merely refocused after a delete has
+  // nothing native to give, so deferring to it would swallow the shortcut.
   const undoStack = useRef<Block[][]>([]);
   const snapshot = () => {
     undoStack.current.push(blocks);
@@ -1312,8 +1359,9 @@ export function BlockEditor(
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || (e.key !== "z" && e.key !== "Z")) return;
-      const tag = (document.activeElement as HTMLElement | null)?.tagName;
-      if (tag === "TEXTAREA" || tag === "INPUT") return;
+      const el = document.activeElement as HTMLElement | null;
+      const inField = el?.tagName === "TEXTAREA" || el?.tagName === "INPUT";
+      if (inField && (typed.current || !rootRef.current?.contains(el))) return;
       const prev = undoStack.current.pop();
       if (!prev) return;
       e.preventDefault();
@@ -1326,6 +1374,7 @@ export function BlockEditor(
   // Pointer events, NOT html5 dnd — WebKitGTK (the desktop webview) drops dragstart.
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
+  const [tabDrag, setTabDrag] = useState<number | null>(null); // heading block being dragged along its strip
   const moveTo = (from: number, to: number) => {
     if (from === to) return;
     // a heading drags its whole section (every block up to the next heading)
@@ -1344,6 +1393,43 @@ export function BlockEditor(
     next.splice(to > from ? to - len + 1 : to, 0, ...moved);
     onChange(next);
   };
+  // fixed width keeps it inside the 24px block gutter (pl-6) — with p-1 the
+  // glyph's font-dependent width could overlap the todo checkbox and swallow its clicks
+  const dragHandle = (i: number) => (
+    <button
+      type="button"
+      title="Drag to move"
+      onMouseDown={(e) => {
+        e.preventDefault(); // no text selection while dragging
+        setDragIdx(i);
+      }}
+      className={`absolute left-0.5 top-[2px] w-[18px] overflow-hidden py-1 text-center cursor-grab select-none text-[13px] leading-none text-ink-muted hover:text-ink ${
+        dragIdx === null ? "hidden group-hover:block" : "block"
+      }`}
+    >
+      ⋮⋮
+    </button>
+  );
+  // a bar on the edge the block would land on — moveTo drops it below the row
+  // when dragged downwards, above it when dragged up
+  const dropClass = (i: number) =>
+    overIdx !== i || dragIdx === null || dragIdx === i
+      ? ""
+      : dragIdx < i
+      ? "shadow-[0_2px_0_0_#c98a63]"
+      : "shadow-[0_-2px_0_0_#c98a63]";
+  // handle + drop target for blocks that render no text row of their own
+  const dragRow = (i: number, child: React.ReactNode) => (
+    <div
+      className={`group relative pl-6 ${dropClass(i)}`}
+      onMouseMove={() => {
+        if (dragIdx !== null && overIdx !== i) setOverIdx(i);
+      }}
+    >
+      {dragHandle(i)}
+      {child}
+    </div>
+  );
   useEffect(() => {
     if (dragIdx === null) return;
     const up = () => {
@@ -1354,6 +1440,12 @@ export function BlockEditor(
     document.addEventListener("mouseup", up);
     return () => document.removeEventListener("mouseup", up);
   }, [dragIdx, overIdx, blocks]);
+  useEffect(() => {
+    if (tabDrag === null) return;
+    const up = () => setTabDrag(null);
+    document.addEventListener("mouseup", up);
+    return () => document.removeEventListener("mouseup", up);
+  }, [tabDrag]);
   // a comment target picked in place (💬 on a table row or a text selection),
   // awaiting its body
   const [pendingNote, setPendingNote] = useState(
@@ -1512,8 +1604,8 @@ export function BlockEditor(
         }
         heads.get(group)!.push({
           i,
-          title: (b as TextBlock).text.replace(/\s*\{\{tab\}\}\s*/i, " ")
-            .trim(),
+          title: stripMarks((b as TextBlock).text)
+            .replace(/\s*\{\{tab\}\}\s*/i, " ").trim(),
         });
         of.set(i, { kind: "tab", group, tab: heads.get(group)!.length - 1 });
       } else if (m) {
@@ -1529,8 +1621,38 @@ export function BlockEditor(
     return { heads, of };
   })();
 
+  // a tab owns every block filed under it (plain headings included), so its span
+  // comes from tabMeta, not from the next-heading rule moveTo uses
+  const tabSpan = (i: number) => {
+    const t = tabMeta.of.get(i);
+    let len = 1;
+    while (i + len < blocks.length) {
+      const m = tabMeta.of.get(i + len);
+      if (!m || m.kind !== "tab" || m.group !== t?.group || m.tab !== t?.tab) {
+        break;
+      }
+      len++;
+    }
+    return len;
+  };
+  const moveTab = (from: number, to: number) => {
+    if (from === to) return;
+    snapshot();
+    const len = tabSpan(from);
+    const next = [...blocks];
+    const moved = next.splice(from, len);
+    // dragged right: land after the target's whole tab, not inside it
+    next.splice(to < from ? to : to - len + tabSpan(to), 0, ...moved);
+    onChange(next);
+  };
+
   return (
-    <div ref={rootRef} className="flex flex-col">
+    <div
+      ref={rootRef}
+      className="flex flex-col"
+      onFocusCapture={() => (typed.current = false)}
+      onInputCapture={() => (typed.current = true)}
+    >
       {viewSel && (
         <FormatBar
           fixed
@@ -1552,6 +1674,17 @@ export function BlockEditor(
           ]}
         />
       )}
+      {blocks.length > 0 && !isText(blocks[0]) && (
+        <button
+          type="button"
+          title="write above this block"
+          onClick={() => insertAt(0)}
+          className="flex h-4 w-full items-center gap-2 text-[10px] text-transparent transition-colors hover:text-ink-muted"
+        >
+          <span>+ write here</span>
+          <span className="h-px flex-1 bg-current opacity-40" />
+        </button>
+      )}
       {blocks.map((b, i) => {
         // section groups: strip/accordion on the marked heading, hide inactive blocks
         const tm = tabMeta.of.get(i);
@@ -1565,7 +1698,7 @@ export function BlockEditor(
             // a heading being renamed renders as its normal editable row
             const renaming = isHead && (focusIdx === i || activeId === bid0);
             if (isHead && !renaming) {
-              const title = (b as TextBlock).text
+              const title = stripMarks((b as TextBlock).text)
                 .replace(/\s*\{\{fold\}\}\s*/i, " ").trim();
               return (
                 <div
@@ -1606,12 +1739,28 @@ export function BlockEditor(
                     <button
                       key={h.i}
                       type="button"
-                      title="double-click to rename"
-                      className={`-mb-px border-b-2 px-3 py-1.5 text-[12.5px] transition-colors ${
+                      title="drag to reorder · double-click to rename"
+                      className={`-mb-px cursor-grab border-b-2 px-3 py-1.5 text-[12.5px] transition-colors ${
                         ti === active
                           ? "border-copper font-medium text-copper"
                           : "border-transparent text-ink-muted hover:text-ink-soft"
+                      } ${
+                        // drop indicator: a bar on the side the tab would land on
+                        tabDrag === null || tabDrag === h.i
+                          ? ""
+                          : h.i < tabDrag
+                          ? "cursor-grabbing hover:shadow-[-2px_0_0_0_#c98a63]"
+                          : "cursor-grabbing hover:shadow-[2px_0_0_0_#c98a63]"
                       }`}
+                      onMouseDown={(e) => {
+                        e.preventDefault(); // no text selection while dragging
+                        setTabDrag(h.i);
+                      }}
+                      onMouseUp={() => {
+                        if (tabDrag === null || tabDrag === h.i) return;
+                        moveTab(tabDrag, h.i);
+                        setActiveTabs((m) => ({ ...m, [gid]: ti }));
+                      }}
                       onClick={() =>
                         setActiveTabs((m) => ({ ...m, [gid]: ti }))}
                       onDoubleClick={() => setFocusIdx(h.i)}
@@ -1627,23 +1776,31 @@ export function BlockEditor(
         }
         if (b.type === "folder") {
           return (
-            <FolderBlock
-              key={b.id ?? i}
-              block={b}
-              onPatch={(patch) => setBlock(i, patch)}
-              onRemove={() => remove(i)}
-              onOpenReport={onOpenReport}
-            />
+            <Fragment key={b.id ?? i}>
+              {dragRow(
+                i,
+                <FolderBlock
+                  block={b}
+                  onPatch={(patch) => setBlock(i, patch)}
+                  onRemove={() => remove(i)}
+                  onOpenReport={onOpenReport}
+                />,
+              )}
+            </Fragment>
           );
         }
         if (b.type === "html") {
           return (
-            <HtmlBlock
-              key={b.id ?? i}
-              block={b}
-              onPatch={(patch) => setBlock(i, patch)}
-              onRemove={() => remove(i)}
-            />
+            <Fragment key={b.id ?? i}>
+              {dragRow(
+                i,
+                <HtmlBlock
+                  block={b}
+                  onPatch={(patch) => setBlock(i, patch)}
+                  onRemove={() => remove(i)}
+                />,
+              )}
+            </Fragment>
           );
         }
         if (!isText(b)) {
@@ -1725,9 +1882,7 @@ export function BlockEditor(
                     : "rounded-md ring-2 ring-copper/60"
                   : ""
               } ${
-                overIdx === i && dragIdx !== null && dragIdx !== i
-                  ? "shadow-[0_-2px_0_0_#c98a63]"
-                  : ""
+                dropClass(i)
               }`}
               // nested blocks shift right; overrides the base pl-6 (24px)
               style={b.indent ? { paddingLeft: 24 + b.indent * 20 } : undefined}
@@ -1735,22 +1890,7 @@ export function BlockEditor(
                 if (dragIdx !== null && overIdx !== i) setOverIdx(i);
               }}
             >
-              <button
-                type="button"
-                title="Drag to move"
-                onMouseDown={(e) => {
-                  e.preventDefault(); // no text selection while dragging
-                  setDragIdx(i);
-                }}
-                // fixed width keeps it inside the 24px block gutter (pl-6) — with
-                // p-1 the glyph's font-dependent width could overlap the todo
-                // checkbox and swallow its clicks
-                className={`absolute left-0.5 top-[2px] w-[18px] overflow-hidden py-1 text-center cursor-grab select-none text-[13px] leading-none text-ink-muted hover:text-ink ${
-                  dragIdx === null ? "hidden group-hover:block" : "block"
-                }`}
-              >
-                ⋮⋮
-              </button>
+              {dragHandle(i)}
               {b.type === "todo" && (
                 // same visual language as session-report lists: ○ open, ✓ done
                 <button
@@ -1837,18 +1977,12 @@ export function BlockEditor(
                   autoEditItem={autoItem && autoItem.id === b.id
                     ? autoItem.item
                     : undefined}
-                  getItemLink={(item) => {
-                    const l = links?.find((x) =>
-                      x.block_id === b.id && x.anchor === item
-                    );
-                    return l
-                      ? {
-                        title: l.session_title ?? "session",
-                        color: statusStyle(l.session_status ?? "active").color,
-                        open: () => onOpenSession?.(l.session_id!),
-                      }
-                      : null;
-                  }}
+                  getItemLinks={(item) =>
+                    chipsFor(
+                      links?.filter((x) =>
+                        x.block_id === b.id && x.anchor === item
+                      ) ?? [],
+                    )}
                   onLinkItem={b.id && onLinkItem
                     ? (item) => onLinkItem(b.id as string, item)
                     : undefined}
@@ -1857,7 +1991,10 @@ export function BlockEditor(
               <textarea
                 ref={(el) => {
                   refs.current[i] = el;
-                  if (el) grow(el);
+                  if (el) {
+                    keepNativeUndo(el);
+                    grow(el);
+                  }
                 }}
                 rows={1}
                 value={b.text}
@@ -2015,7 +2152,9 @@ export function BlockEditor(
                   if (e.key === "Enter" && !e.shiftKey) {
                     if (isSnippet && !(snippetDone && atEnd)) return;
                     e.preventDefault();
-                    insertAfter(i);
+                    if (el.selectionStart === 0 && el.selectionEnd === 0 && b.text) {
+                      insertAt(i, b.indent ?? 0);
+                    } else insertAfter(i);
                   } else if (
                     e.key === "Backspace" && b.text === "" && blocks.length > 1
                   ) {
@@ -2057,6 +2196,14 @@ export function BlockEditor(
                   }
                 }}
               />
+              {/* a todo is its own block, not a list item — carry its chips here, after
+                  the textarea so edit mode does not move them left of the task text */}
+              {b.type === "todo" &&
+                chipsFor(links?.filter((x) => x.block_id === b.id) ?? []).map((lk) => (
+                  <span key={lk.sessionId} className="mt-[3px] shrink-0">
+                    <LinkChip lk={lk} />
+                  </span>
+                ))}
               {menuIdx === i && items.length > 0 && (
                 <Popover
                   onClose={() => setMenuIdx(null)}
@@ -2347,7 +2494,7 @@ export function Page(
     board: BoardData;
     udbs: UdbMeta[];
     onOpenPage: (id: string) => void;
-    onOpenSession: (id: string) => void;
+    onOpenSession: (id: string, full?: boolean) => void;
     onOpenClient: (id: string) => void;
     onOpenReport: (path: string) => void;
     onChanged: () => void; // sidebar tree cares about title/icon/structure changes
@@ -2631,6 +2778,8 @@ export function Page(
   const client = board.projects.find((c) => c.id === page.client_id);
   const isProject = page.kind === "project";
   const isStory = page.kind === "story";
+  // distinct sessions linked anywhere on the page — the Activity chip's subject
+  const linkedSessions = new Set((page.links ?? []).map((l) => l.session_id).filter(Boolean)).size;
   // sessions come from the polled board (not the fetch-once getPage) so they stay live.
   // subtree semantics: anything anchored to this page or any page nested under it.
   const byId = pagesById(board.pages);
@@ -2758,6 +2907,7 @@ export function Page(
               onKeyDown={(e) =>
                 e.key === "Enter" && (e.target as HTMLInputElement).blur()}
             />
+            {linkedSessions > 0 && <PageActivityChip pageId={page.id} sessions={linkedSessions} />}
             {isProject && (
               <div className="relative shrink-0">
                 <button
@@ -2869,6 +3019,33 @@ export function Page(
                 >
                   markdown
                 </button>
+                {!isProject && !isStory && (() => {
+                  // the card whose specs are this page — off the polled board, so the
+                  // pill tells the truth without a fetch of its own
+                  const card = board.sessions.find((x) =>
+                    x.specs_page_id === page.id
+                  );
+                  return (
+                    <button
+                      type="button"
+                      title={card
+                        ? "Open the session this page is the specs of"
+                        : "Track this page as a session — the page becomes the card's specs"}
+                      className="rounded-md border border-copper/40 bg-copper/[0.06] px-2 py-0.5 text-copper transition-colors hover:border-copper/60 hover:bg-copper/10"
+                      onClick={() => {
+                        if (card) return onOpenSession(card.id, true);
+                        pageToSession(page.id)
+                          .then((r) => {
+                            onChanged(); // the drawer renders only once the board has the card
+                            onOpenSession(r.id, true);
+                          })
+                          .catch((e: Error) => appConfirm(e.message, "OK"));
+                      }}
+                    >
+                      {card ? "▦ Open session ↗" : "▦ Convert to session"}
+                    </button>
+                  );
+                })()}
                 {/* with the metadata, not on the title row — there they fought the title for space */}
                 <TagEditor
                   tags={page.tags ?? []}

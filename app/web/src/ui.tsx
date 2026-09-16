@@ -1,5 +1,18 @@
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { listTags, type Status, type StatusDef, type Tag, tagRevision, TAGS_CHANGED } from "./api";
+
+// expand / collapse (full-screen) glyph — inline SVG so it renders on WebKitGTK
+export function ExpandIcon({ open }: { open: boolean }) {
+  return (
+    <svg
+      width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+    >
+      <path d={open ? "M2 6h4V2M14 6h-4V2M2 10h4v4M14 10h-4v4" : "M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4"} />
+    </svg>
+  );
+}
 
 type StatusStyle = { label: string; color: string; terminal: boolean };
 
@@ -115,6 +128,40 @@ export function shiftRange(ordered: string[], anchorId: string | null, id: strin
   return ordered.slice(lo, hi + 1);
 }
 
+// Centered overlay panel: Escape or a backdrop click closes it, ⌘/Ctrl+Enter submits
+// when the caller takes an action.
+export function Modal(
+  { width = 560, onClose, onSubmit, children }: {
+    width?: number;
+    onClose: () => void;
+    onSubmit?: () => void;
+    children: ReactNode;
+  },
+) {
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) onSubmit?.();
+    };
+    addEventListener("keydown", h);
+    return () => removeEventListener("keydown", h);
+  }, [onClose, onSubmit]);
+  // portalled: a modal opened from inside the page editor must not sit under the
+  // block's [data-block-id], or selecting its text offers a comment on that block
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/45 pt-[16vh]" onClick={onClose}>
+      <div
+        className="flex max-h-[76vh] flex-col gap-3 overflow-y-auto rounded-xl border border-overlay-border bg-panel-modal p-5 shadow-2xl shadow-black/50"
+        style={{ width }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 // Anchored popover. A stack tracks nesting so Escape / outside clicks only close the
 // topmost one (e.g. a Select open inside the PropertyEditor).
 const popoverStack: symbol[] = [];
@@ -175,7 +222,16 @@ export function Select(
   },
 ) {
   const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [hi, setHi] = useState(0); // keyboard-highlighted row in the filtered list
   const current = options.find((o) => o.value === value);
+  const searchable = options.length > 8;
+  const needle = q.trim().toLowerCase();
+  const shown = needle ? options.filter((o) => o.label.toLowerCase().includes(needle)) : options;
+  const pick = (v: string) => {
+    onChange(v);
+    setOpen(false);
+  };
   const dot = (color?: string) =>
     color && <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: color }} />;
   // one fixed-width slot for every row so logos, dots and markerless rows keep their labels aligned
@@ -198,7 +254,11 @@ export function Select(
           "rounded-md border border-chipline bg-transparent px-2 py-1.5 text-xs text-ink outline-none focus:border-copper/60"
         }`}
         style={triggerStyle}
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setQ("");
+          setHi(0);
+          setOpen(true);
+        }}
       >
         {marker(current)}
         <span className={`flex-1 truncate ${current ? "" : "text-ink-muted/60"}`}>
@@ -207,22 +267,48 @@ export function Select(
         <span className="text-[10px] text-ink-muted/70">▾</span>
       </button>
       {open && (
-        <Popover onClose={() => setOpen(false)} className="max-h-56 w-full overflow-y-auto">
-          {options.map((o) => (
-            <button
-              key={o.value}
-              type="button"
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-ink-soft hover:bg-panel"
-              onClick={() => {
-                onChange(o.value);
-                setOpen(false);
+        <Popover onClose={() => setOpen(false)} className="w-full">
+          {searchable && (
+            <input
+              autoFocus
+              value={q}
+              placeholder="Search…"
+              className="mb-1 w-full rounded-md border border-chipline bg-transparent px-2 py-1 text-xs text-ink outline-none placeholder:text-ink-muted/60 focus:border-copper/60"
+              onChange={(e) => {
+                setQ(e.target.value);
+                setHi(0);
               }}
-            >
-              {marker(o)}
-              <span className="flex-1 truncate">{o.label}</span>
-              {o.value === value && <span className="text-[10px] text-copper">✓</span>}
-            </button>
-          ))}
+              onKeyDown={(e) => {
+                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                  e.preventDefault();
+                  const d = e.key === "ArrowDown" ? 1 : -1;
+                  setHi((i) => Math.max(0, Math.min(shown.length - 1, i + d)));
+                } else if (e.key === "Enter" && shown[hi]) {
+                  e.preventDefault();
+                  pick(shown[hi].value);
+                }
+              }}
+            />
+          )}
+          <div className="max-h-56 overflow-y-auto">
+            {shown.map((o, i) => (
+              <button
+                key={o.value}
+                type="button"
+                ref={searchable && i === hi ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
+                className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-ink-soft hover:bg-panel ${
+                  searchable && i === hi ? "bg-copper/10 text-ink" : ""
+                }`}
+                onMouseDown={(e) => e.preventDefault()} // keep focus in the search box
+                onClick={() => pick(o.value)}
+              >
+                {marker(o)}
+                <span className="flex-1 truncate">{o.label}</span>
+                {o.value === value && <span className="text-[10px] text-copper">✓</span>}
+              </button>
+            ))}
+            {!shown.length && <div className="px-2 py-1 text-xs text-ink-muted/70">No match</div>}
+          </div>
         </Popover>
       )}
     </div>

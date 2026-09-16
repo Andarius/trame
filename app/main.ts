@@ -59,9 +59,11 @@ import {
   getSession,
   linksForSession,
   listEvents,
+  listPageEvents,
   listReports,
   moveStatus,
   searchAll,
+  sessionFromPage,
   setSessionStatus,
   updateStory,
   updateStatus,
@@ -107,7 +109,7 @@ import {
   updatePage,
 } from "./pages.ts";
 import { exportPage, importPage } from "./share.ts";
-import { agentIdentity } from "./agent-comments.ts";
+import { agentIdentity, resolveCommentBlock } from "./agent-comments.ts";
 import { listPresence, touchPresence } from "./presence.ts";
 import {
   createProperty,
@@ -367,6 +369,27 @@ async function resumeInExisting(
   if (r.ok) return { ok: true };
   const disabled = /disabled in the settings|AccessDenied/i.test(r.err);
   return { ok: false, reason: disabled ? "api-disabled" : "no-konsole" };
+}
+
+// konsole gates sendText behind EnableSecuritySensitiveDBusAPI. An empty write is a
+// no-op that still trips the gate, so bulk resume can check once up front rather than
+// opening tabs it turns out it can't fill.
+async function konsoleCanType(): Promise<boolean> {
+  const svc = await activeKonsoleService();
+  if (!svc) return false;
+  const session = await qdbus(
+    svc,
+    "/Windows/1",
+    "org.kde.konsole.Window.currentSession",
+  );
+  if (!session) return false;
+  const r = await qdbusRaw([
+    svc,
+    `/Sessions/${session}`,
+    "org.kde.konsole.Session.sendText",
+    "",
+  ]);
+  return r.ok;
 }
 
 // Open a new tab in the active konsole window (D-Bus) and run `command` in it.
@@ -872,10 +895,10 @@ async function handler(req: Request): Promise<Response> {
       mode: launchMode,
     });
   }
-  // Bulk resume (the post-reboot case): every session in one shot. konsole gets a
-  // single window with one tab per session via --tabs-from-file (no D-Bus, commands
-  // allowed); ghostty gets one window per session (tabs aren't remotely scriptable);
-  // anything else loops plain terminal windows.
+  // Bulk resume (the post-reboot case): every session in one shot. konsole gets one
+  // tab per session in the active window over D-Bus (--tabs-from-file is inert as of
+  // konsole 26.08); ghostty gets one window per session (tabs aren't remotely
+  // scriptable); anything else loops plain terminal windows.
   if (pathname === "/api/resume-all" && req.method === "POST") {
     const { sessions } = await req.json() as {
       sessions: { id: string; repoPath: string; agent?: string }[];
@@ -904,36 +927,15 @@ async function handler(req: Request): Promise<Response> {
       });
     }
     if (!items.length) return json({ error: "no resumable sessions" }, 400);
-    const haveKonsole = await new Deno.Command("konsole", {
-      args: ["--version"],
-      stdout: "null",
-      stderr: "null",
-    }).output().then((r) => r.success).catch(() => false);
-    if (Deno.build.os === "linux" && haveKonsole && !ghosttyRunning()) {
-      // one line per tab: title/workdir/command, ";;"-separated, trailing newline
-      // required. Values must not contain ";;" or newlines — repo basename is the
-      // only free-form part, so sanitize it.
-      const lines = items.map((it) => {
-        const name = (it.repo.split("/").filter(Boolean).pop() ?? "session")
-          .replace(/;|\n/g, " ");
-        return `title: ${name};; workdir: ${it.repo};; command: /bin/bash -lc ${
-          shq(`${it.cmd}; exec ${Deno.env.get("SHELL") ?? "bash"}`)
-        }`;
-      });
-      const file = await Deno.makeTempFile({
-        prefix: "trame-tabs-",
-        suffix: ".txt",
-      });
-      await Deno.writeTextFile(file, lines.join("\n") + "\n");
-      try {
-        new Deno.Command("konsole", {
-          args: ["--tabs-from-file", file],
-          stdout: "null",
-          stderr: "null",
-        }).spawn();
-        return json({ ok: true, launched: items.length, mode: "konsole-tabs" });
-      } catch {
-        // konsole vanished between the probe and the spawn — fall through
+    if (
+      Deno.build.os === "linux" && !ghosttyRunning() && await konsoleCanType()
+    ) {
+      let tabbed = 0;
+      for (const it of items) {
+        if ((await tabInExisting(it.repo, it.cmd)).ok) tabbed++;
+      }
+      if (tabbed) {
+        return json({ ok: true, launched: tabbed, mode: "konsole-tabs" });
       }
     }
     let launched = 0;
@@ -1058,16 +1060,32 @@ async function handler(req: Request): Promise<Response> {
       await addTrackEvent(id, body.summary, typeof body.agent === "string" ? body.agent : null);
     }
     // Planned-work backlinks (plan/TODO pages) ride the same POST; dedupe by
-    // page+block so repeated tracking doesn't pile up chips.
+    // page+block+anchor so repeated tracking doesn't pile up chips, while two items
+    // of the same list block stay distinct.
     if (Array.isArray(body.links) && body.links.length) {
+      const key = (l: { page_id: string; block_id?: string | null; anchor?: string | null }) =>
+        `${l.page_id}:${l.block_id ?? ""}:${l.anchor ?? ""}`;
       const have = new Set(
-        (await linksForSession(id) as { page_id: string; block_id: string | null }[])
-          .map((l) => `${l.page_id}:${l.block_id ?? ""}`),
+        (await linksForSession(id) as { page_id: string; block_id: string | null; anchor: string }[])
+          .map(key),
       );
       for (const l of body.links) {
         if (typeof l?.page_id !== "string") continue;
-        if (have.has(`${l.page_id}:${l.block_id ?? ""}`)) continue;
-        await addSessionLink(id, l.page_id, l.block_id ?? null, l.anchor ?? "");
+        // an agent knows the task's text, not its block id: resolve the anchor to a
+        // block the way page comments do (a todo is a block, so this covers todos)
+        let blockId: string | null = l.block_id ?? null;
+        if (!blockId && typeof l.anchor === "string" && l.anchor.trim()) {
+          const page = await getPage(l.page_id) as { content?: unknown } | null;
+          try {
+            blockId = resolveCommentBlock(page?.content, { block_text: l.anchor }).id;
+          } catch {
+            blockId = null; // no unique match — fall back to a page-level link
+          }
+        }
+        const want = { page_id: l.page_id, block_id: blockId, anchor: l.anchor ?? "" };
+        if (have.has(key(want))) continue;
+        have.add(key(want));
+        await addSessionLink(id, l.page_id, blockId, want.anchor);
       }
     }
     // Nudge every write path (skill, writer, MCP, raw curl) toward a specs page.
@@ -1449,6 +1467,17 @@ async function handler(req: Request): Promise<Response> {
     }
     try {
       return json({ id: await importPage(bundle, body.parent_id ?? null) });
+    } catch (e) {
+      return json({ error: (e as Error).message }, 400);
+    }
+  }
+  const pgev = pathname.match(/^\/api\/pages\/([^/]+)\/events$/);
+  if (pgev && req.method === "GET") return json(await listPageEvents(pgev[1]));
+  // a page becomes a card whose specs are that page (idempotent: same page, same card)
+  const pgses = pathname.match(/^\/api\/pages\/([^/]+)\/session$/);
+  if (pgses && req.method === "POST") {
+    try {
+      return json(await sessionFromPage(pgses[1]));
     } catch (e) {
       return json({ error: (e as Error).message }, 400);
     }

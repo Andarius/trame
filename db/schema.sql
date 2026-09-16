@@ -439,7 +439,7 @@ comment on table sessions is 'Coding-agent work sessions — the kanban cards. U
 comment on column sessions.status is 'active | paused | blocked | done — the board columns.';
 comment on column sessions.page_id is 'The anchor: the page this session ladders up to. Attaching promotes a plain page to kind=''story''. Story/project are derived by walking the tree up from it.';
 comment on column sessions.next_step is 'One imperative line — what to do next.';
-comment on column sessions.specs_page_id is 'The session''s spec page (deterministic id, lazily created subpage of the story).';
+comment on column sessions.specs_page_id is 'The session''s spec page: either a lazily created subpage of the story (deterministic id) or an existing page adopted as the card''s specs.';
 comment on column sessions.claude_id is 'Claude Code or Codex transcript UUID (the name predates Codex). Imported cards also carry it as their id.';
 comment on column sessions.agent is 'Transcript provider: claude or codex. Null on manual cards.';
 comment on column sessions.summary is 'Last "what happened" blurb; a changed value is also appended to session_events as the worklog.';

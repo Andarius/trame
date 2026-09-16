@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   type BoardData,
   deleteReportFile,
@@ -25,6 +25,9 @@ type Selected = {
 };
 
 const HOME_RE = /^\/home\/[^/]+\/|^\/Users\/[^/]+\//;
+// section headers share the folder "collapsed" set under sentinel keys
+const SEC_PUBLISHED = "§published";
+const SEC_FILES = "§files";
 
 type FolderNode = {
   name: string;
@@ -49,6 +52,7 @@ export function Explore(
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Selected | null>(null);
   const [selKey, setSelKey] = useState("");
+  const [multi, setMulti] = useState<Set<string>>(new Set()); // extra file paths (ctrl/shift-click)
   const [refreshing, setRefreshing] = useState(false);
   const [starred, setStarred] = useState<string[]>([]);
   const [roots, setRoots] = useState<string[]>([]);
@@ -60,12 +64,15 @@ export function Explore(
       return new Set();
     }
   });
+  const persistCollapsed = (next: Set<string>) => {
+    localStorage.setItem("trame:explore-collapsed", JSON.stringify([...next]));
+    return next;
+  };
   const toggleFolder = (full: string) =>
     setCollapsed((prev) => {
       const next = new Set(prev);
       next.has(full) ? next.delete(full) : next.add(full);
-      localStorage.setItem("trame:explore-collapsed", JSON.stringify([...next]));
-      return next;
+      return persistCollapsed(next);
     });
   const [htmlFilter, setHtmlFilter] = useState<"smart" | "all">("smart");
   const [kindFilter, setKindFilter] = useState<"both" | "html" | "excalidraw">("both");
@@ -113,12 +120,31 @@ export function Explore(
   };
 
   const selectDb = (r: ReportMeta) => {
+    setMulti(new Set());
     setSelKey(`db:${r.id}`);
     getReport(r.id).then((full) =>
       setSelected({ kind: "db", id: r.id, title: full.title, date: full.created_at, html: full.html })
     );
   };
-  const selectFile = (f: FileHit) => {
+  const selectFile = (f: FileHit, e?: MouseEvent) => {
+    if (e?.ctrlKey || e?.metaKey) {
+      setMulti((prev) => {
+        const next = new Set(prev);
+        if (selKey.startsWith("file:")) next.add(selKey.slice(5));
+        next.has(f.path) ? next.delete(f.path) : next.add(f.path);
+        return next;
+      });
+      return;
+    }
+    if (e?.shiftKey && selKey.startsWith("file:")) {
+      const list = visibleRef.current.map((v) => v.path);
+      const [a, b] = [list.indexOf(selKey.slice(5)), list.indexOf(f.path)].sort((x, y) => x - y);
+      if (a >= 0) {
+        setMulti(new Set(list.slice(a, b + 1)));
+        return;
+      }
+    }
+    setMulti(new Set());
     setSelKey(`file:${f.path}`);
     getReportFileContent(f.path).then(async (c) => {
       // .excalidraw is JSON — pre-render to static SVG (the iframe sandbox blocks scripts)
@@ -206,9 +232,30 @@ export function Explore(
     );
   }, [shownFiles, starred, roots]);
 
+  const allFolders = useMemo(() => {
+    const out: string[] = [];
+    const walk = (n: FolderNode) => {
+      out.push(n.full);
+      n.folders.forEach(walk);
+    };
+    tree.forEach(walk);
+    return out;
+  }, [tree]);
+  const setAllFolders = (open: boolean) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      for (const f of allFolders) open ? next.delete(f) : next.add(f);
+      return persistCollapsed(next);
+    });
+
+  // search forces every section and folder open
+  const pubOpen = !!needle || !collapsed.has(SEC_PUBLISHED);
+  const filesOpen = !!needle || !collapsed.has(SEC_FILES);
+
   // visible files in display order (search forces every folder open)
   const visibleFiles = useMemo(() => {
     const out: FileHit[] = [];
+    if (!filesOpen) return out;
     const walk = (n: FolderNode) => {
       if (!needle && collapsed.has(n.full)) return;
       for (const c of n.folders) walk(c);
@@ -216,11 +263,13 @@ export function Explore(
     };
     for (const n of tree) walk(n);
     return out;
-  }, [tree, collapsed, needle]);
+  }, [tree, collapsed, needle, filesOpen]);
+  const visibleRef = useRef(visibleFiles);
+  visibleRef.current = visibleFiles;
 
   // ↑/↓ moves the selection through the visible list (reports then files, display order)
   const flat = [
-    ...shownReports.map((r) => ({ key: `db:${r.id}`, sel: () => selectDb(r) })),
+    ...(pubOpen ? shownReports : []).map((r) => ({ key: `db:${r.id}`, sel: () => selectDb(r) })),
     ...visibleFiles.map((f) => ({ key: `file:${f.path}`, sel: () => selectFile(f) })),
   ];
   const flatRef = useRef(flat);
@@ -266,15 +315,19 @@ export function Explore(
     openInBrowser(target);
   };
 
-  // delete the selected FILE (button or Suppr key) — trash when available, neighbor selected after
+  // delete the selected FILE(s) (button or Suppr key) — trash when available, neighbor selected after
   const deleteCurrent = async () => {
-    if (!selected || selected.kind !== "file" || !selected.path) return;
-    if (!(await appConfirm(`Delete ${selected.title}?\n(moved to the system trash when available)`))) return;
+    const paths = multi.size ? [...multi] : selected?.kind === "file" && selected.path ? [selected.path] : [];
+    if (!paths.length) return;
+    const what = paths.length === 1 ? selected?.title ?? paths[0] : `${paths.length} files`;
+    if (!(await appConfirm(`Delete ${what}?\n(moved to the system trash when available)`))) return;
     const list = flatRef.current;
     const idx = list.findIndex((f) => f.key === selKeyRef.current);
-    const neighbor = list[idx + 1] ?? list[idx - 1] ?? null;
-    deleteReportFile(selected.path).then((r) => {
-      if (!r.ok) return;
+    const neighbor = list.slice(idx + 1).find((f) => !paths.includes(f.key.slice(5))) ??
+      list.slice(0, idx).reverse().find((f) => !paths.includes(f.key.slice(5))) ?? null;
+    Promise.all(paths.map((p) => deleteReportFile(p))).then((rs) => {
+      if (!rs.some((r) => r.ok)) return;
+      setMulti(new Set());
       if (neighbor) neighbor.sel();
       else {
         setSelected(null);
@@ -286,7 +339,18 @@ export function Explore(
   const deleteRef = useRef(deleteCurrent);
   deleteRef.current = deleteCurrent;
 
-  const sectionLbl = "px-2 pb-1 pt-3 text-[10px] font-medium tracking-[0.7px] text-ink-muted/70";
+  const sectionLbl = "flex items-center gap-1 px-2 pb-1 pt-3 text-[10px] font-medium tracking-[0.7px] text-ink-muted/70";
+  const sectionHeader = (key: string, label: string, open: boolean, count: number, extra?: ReactNode) => (
+    <div className={sectionLbl}>
+      <button type="button" onClick={() => toggleFolder(key)} className="flex items-center gap-1 hover:text-ink-soft">
+        <span className="w-[11px] text-[9px]">{open ? "▾" : "▸"}</span>
+        {label}
+        {!open && <span className="text-ink-muted/50">{count}</span>}
+      </button>
+      <span className="flex-1" />
+      {open && extra}
+    </div>
+  );
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -372,8 +436,8 @@ export function Explore(
             <span className={refreshing ? "inline-block animate-spin" : ""}>↻</span>
           </button>
         </div>
-        {shownReports.length > 0 && <div className={sectionLbl}>PUBLISHED</div>}
-        {shownReports.map((r) => {
+        {shownReports.length > 0 && sectionHeader(SEC_PUBLISHED, "PUBLISHED", pubOpen, shownReports.length)}
+        {pubOpen && shownReports.map((r) => {
           const client = board.projects.find((c) => c.id === r.client_id);
           const active = selKey === `db:${r.id}`;
           return (
@@ -395,22 +459,41 @@ export function Explore(
             </button>
           );
         })}
-        {tree.length > 0 && <div className={sectionLbl}>FILES</div>}
-        {tree.map((n) => (
-          <FolderRow
-            key={n.full}
-            node={n}
-            depth={0}
-            collapsed={collapsed}
-            forceOpen={!!needle}
-            starred={starred}
-            selKey={selKey}
-            onToggle={toggleFolder}
-            onStar={toggleStar}
-            onIgnore={ignoreFolder}
-            onSelect={selectFile}
-          />
-        ))}
+        {tree.length > 0 && sectionHeader(
+          SEC_FILES,
+          "FILES",
+          filesOpen,
+          shownFiles.length,
+          <>
+            <button type="button" onClick={() => setAllFolders(false)} className="tracking-normal hover:text-ink-soft" title="collapse all folders">
+              collapse all
+            </button>
+            <span className="text-ink-muted/40">·</span>
+            <button type="button" onClick={() => setAllFolders(true)} className="tracking-normal hover:text-ink-soft" title="open all folders">
+              open all
+            </button>
+          </>,
+        )}
+        {filesOpen && (
+          <div className="pl-2">
+            {tree.map((n) => (
+              <FolderRow
+                key={n.full}
+                node={n}
+                depth={0}
+                collapsed={collapsed}
+                forceOpen={!!needle}
+                starred={starred}
+                selKey={selKey}
+                multi={multi}
+                onToggle={toggleFolder}
+                onStar={toggleStar}
+                onIgnore={ignoreFolder}
+                onSelect={selectFile}
+              />
+            ))}
+          </div>
+        )}
         {files.length === 0 && (
           <p className="px-2 py-2 text-[11px] leading-relaxed text-ink-muted/80">
             No indexed files —{" "}
@@ -439,13 +522,13 @@ export function Explore(
                 )}
                 {selected.date && <span className="text-[11px] text-ink-muted">{timeAgo(selected.date)}</span>}
                 <span className="flex-1" />
-                {selected.kind === "file" && (
+                {(selected.kind === "file" || multi.size > 0) && (
                   <button type="button"
                     className="text-[11.5px] text-ink-muted hover:text-blocked"
-                    title="delete file (Suppr) — system trash when available"
+                    title="delete file(s) (Suppr) — system trash when available; ctrl/shift-click to select several"
                     onClick={deleteCurrent}
                   >
-                    🗑 Delete
+                    🗑 Delete{multi.size > 1 ? ` ${multi.size}` : ""}
                   </button>
                 )}
                 <button type="button" className="text-[11.5px] text-ink-muted hover:text-ink-soft" onClick={openExternal}>
@@ -469,17 +552,18 @@ export function Explore(
 }
 
 function FolderRow(
-  { node, depth, collapsed, forceOpen, starred, selKey, onToggle, onStar, onIgnore, onSelect }: {
+  { node, depth, collapsed, forceOpen, starred, selKey, multi, onToggle, onStar, onIgnore, onSelect }: {
     node: FolderNode;
     depth: number;
     collapsed: Set<string>;
     forceOpen: boolean;
     starred: string[];
     selKey: string;
+    multi: Set<string>;
     onToggle: (full: string) => void;
     onStar: (full: string) => void;
     onIgnore: (full: string) => void;
-    onSelect: (f: FileHit) => void;
+    onSelect: (f: FileHit, e: MouseEvent) => void;
   },
 ) {
   const open = forceOpen || !collapsed.has(node.full);
@@ -525,6 +609,7 @@ function FolderRow(
           forceOpen={forceOpen}
           starred={starred}
           selKey={selKey}
+          multi={multi}
           onToggle={onToggle}
           onStar={onStar}
           onIgnore={onIgnore}
@@ -532,12 +617,12 @@ function FolderRow(
         />
       ))}
       {open && node.files.map((f) => {
-        const active = selKey === `file:${f.path}`;
+        const active = selKey === `file:${f.path}` || multi.has(f.path);
         return (
           <button type="button"
             key={f.path}
             data-key={`file:${f.path}`}
-            onClick={() => onSelect(f)}
+            onClick={(e) => onSelect(f, e)}
             className={`flex items-center gap-2 rounded-lg py-1.5 pr-2.5 text-left ${
               active ? "bg-active-row" : "hover:bg-hover"
             }`}
