@@ -205,6 +205,11 @@ export const ensureSpecsPage = (id: string) =>
   );
 export const deleteSession = (id: string) =>
   post(`/api/sessions/${id}/delete`, {});
+// turn a page into a card whose specs ARE that page; same page, same card
+export const pageToSession = (id: string) =>
+  post(`/api/pages/${id}/session`, {}).then(jsonOrThrow) as Promise<
+    { id: string; created: boolean }
+  >;
 export const addLog = (id: string, summary: string) =>
   post(`/api/sessions/${id}/events`, { summary });
 export const updateStory = (id: string, patch: Record<string, unknown>) =>

@@ -2,7 +2,7 @@
 // The tree is returned flat (parent_id + sort_key) — the frontend assembles it and
 // tolerates orphans (sync can deliver a child before its parent).
 import { db, resolveHomeProject } from "./db.ts";
-import { checkStoryParent, isUserStory } from "./hierarchy.ts";
+import { checkStoryParent, isUserStory, projectAbove } from "./hierarchy.ts";
 import { NODE_ID } from "./config.ts";
 import { getIdentity } from "./identity.ts";
 import { isPageStatus } from "./page-status.ts";
@@ -61,11 +61,14 @@ export async function getPage(id: string) {
     [id],
   )).rows;
   // a project's own sessions live on its child stories (page_id = story id), so roll
-  // those up too — otherwise opening a project always reads "no sessions yet"
+  // those up too — otherwise opening a project always reads "no sessions yet".
+  // specs_page_id too: a card whose specs ARE this page anchors to the story above it,
+  // so it would otherwise be invisible from the very page it is written on.
   const sessions = (await pg.query(
     `select * from sessions
       where not deleted
         and (page_id=$1
+             or specs_page_id=$1
              or page_id in (select id from pages where parent_id=$1 and kind='story' and not deleted))
       order by last_touched desc`,
     [id],
@@ -254,22 +257,12 @@ export async function movePage(
   }
   // a story's client_id mirrors its project (see resolveStory/promoteToProject) —
   // re-homing it must retarget the chip too, not leave it on the old project
-  const proj = parentId
-    ? (await pg.query(
-      `with recursive up as (
-         select id, parent_id, kind, 0 as d from pages where id=$1 and not deleted
-         union all
-         select p.id, p.parent_id, p.kind, up.d+1 from pages p
-           join up on p.id = up.parent_id where not p.deleted
-       ) select id from up where kind='project' order by d limit 1`,
-      [parentId],
-    )).rows[0] as { id: string } | undefined
-    : undefined;
+  const proj = parentId ? await projectAbove(parentId) : null;
   await pg.query(
     `update pages set parent_id=$2, sort_key=$3,
        client_id = case when kind='story' then $5 else client_id end,
        origin=$4, updated_at=now() where id=$1`,
-    [id, parentId, key, NODE_ID, proj?.id ?? null],
+    [id, parentId, key, NODE_ID, proj],
   );
 }
 

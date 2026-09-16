@@ -63,6 +63,7 @@ import {
   listReports,
   moveStatus,
   searchAll,
+  sessionFromPage,
   setSessionStatus,
   updateStory,
   updateStatus,
@@ -368,6 +369,27 @@ async function resumeInExisting(
   if (r.ok) return { ok: true };
   const disabled = /disabled in the settings|AccessDenied/i.test(r.err);
   return { ok: false, reason: disabled ? "api-disabled" : "no-konsole" };
+}
+
+// konsole gates sendText behind EnableSecuritySensitiveDBusAPI. An empty write is a
+// no-op that still trips the gate, so bulk resume can check once up front rather than
+// opening tabs it turns out it can't fill.
+async function konsoleCanType(): Promise<boolean> {
+  const svc = await activeKonsoleService();
+  if (!svc) return false;
+  const session = await qdbus(
+    svc,
+    "/Windows/1",
+    "org.kde.konsole.Window.currentSession",
+  );
+  if (!session) return false;
+  const r = await qdbusRaw([
+    svc,
+    `/Sessions/${session}`,
+    "org.kde.konsole.Session.sendText",
+    "",
+  ]);
+  return r.ok;
 }
 
 // Open a new tab in the active konsole window (D-Bus) and run `command` in it.
@@ -873,10 +895,10 @@ async function handler(req: Request): Promise<Response> {
       mode: launchMode,
     });
   }
-  // Bulk resume (the post-reboot case): every session in one shot. konsole gets a
-  // single window with one tab per session via --tabs-from-file (no D-Bus, commands
-  // allowed); ghostty gets one window per session (tabs aren't remotely scriptable);
-  // anything else loops plain terminal windows.
+  // Bulk resume (the post-reboot case): every session in one shot. konsole gets one
+  // tab per session in the active window over D-Bus (--tabs-from-file is inert as of
+  // konsole 26.08); ghostty gets one window per session (tabs aren't remotely
+  // scriptable); anything else loops plain terminal windows.
   if (pathname === "/api/resume-all" && req.method === "POST") {
     const { sessions } = await req.json() as {
       sessions: { id: string; repoPath: string; agent?: string }[];
@@ -905,36 +927,15 @@ async function handler(req: Request): Promise<Response> {
       });
     }
     if (!items.length) return json({ error: "no resumable sessions" }, 400);
-    const haveKonsole = await new Deno.Command("konsole", {
-      args: ["--version"],
-      stdout: "null",
-      stderr: "null",
-    }).output().then((r) => r.success).catch(() => false);
-    if (Deno.build.os === "linux" && haveKonsole && !ghosttyRunning()) {
-      // one line per tab: title/workdir/command, ";;"-separated, trailing newline
-      // required. Values must not contain ";;" or newlines — repo basename is the
-      // only free-form part, so sanitize it.
-      const lines = items.map((it) => {
-        const name = (it.repo.split("/").filter(Boolean).pop() ?? "session")
-          .replace(/;|\n/g, " ");
-        return `title: ${name};; workdir: ${it.repo};; command: /bin/bash -lc ${
-          shq(`${it.cmd}; exec ${Deno.env.get("SHELL") ?? "bash"}`)
-        }`;
-      });
-      const file = await Deno.makeTempFile({
-        prefix: "trame-tabs-",
-        suffix: ".txt",
-      });
-      await Deno.writeTextFile(file, lines.join("\n") + "\n");
-      try {
-        new Deno.Command("konsole", {
-          args: ["--tabs-from-file", file],
-          stdout: "null",
-          stderr: "null",
-        }).spawn();
-        return json({ ok: true, launched: items.length, mode: "konsole-tabs" });
-      } catch {
-        // konsole vanished between the probe and the spawn — fall through
+    if (
+      Deno.build.os === "linux" && !ghosttyRunning() && await konsoleCanType()
+    ) {
+      let tabbed = 0;
+      for (const it of items) {
+        if ((await tabInExisting(it.repo, it.cmd)).ok) tabbed++;
+      }
+      if (tabbed) {
+        return json({ ok: true, launched: tabbed, mode: "konsole-tabs" });
       }
     }
     let launched = 0;
@@ -1472,6 +1473,15 @@ async function handler(req: Request): Promise<Response> {
   }
   const pgev = pathname.match(/^\/api\/pages\/([^/]+)\/events$/);
   if (pgev && req.method === "GET") return json(await listPageEvents(pgev[1]));
+  // a page becomes a card whose specs are that page (idempotent: same page, same card)
+  const pgses = pathname.match(/^\/api\/pages\/([^/]+)\/session$/);
+  if (pgses && req.method === "POST") {
+    try {
+      return json(await sessionFromPage(pgses[1]));
+    } catch (e) {
+      return json({ error: (e as Error).message }, 400);
+    }
+  }
   const pgexp = pathname.match(/^\/api\/pages\/([^/]+)\/export$/);
   if (pgexp && req.method === "POST") {
     const bundle = await exportPage(pgexp[1]);
