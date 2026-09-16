@@ -4,6 +4,7 @@ import { boardRows, formatBoard, run, staleWarning } from "../track/cli.ts";
 import { ensureOnPath, EMBEDS, installHook, setup } from "../track/setup.ts";
 import {
   COMMENT_HELP,
+  CONVERT_HELP,
   OVERVIEW,
   PAGE_DIALECT,
   PAGE_HELP,
@@ -28,7 +29,8 @@ Deno.test("help carries the composition conventions", () => {
   assertStringIncludes(PAGE_HELP, "{{fold}}");
   assertStringIncludes(PAGE_DIALECT, "green|yellow|red|copper|gray");
   assertStringIncludes(COMMENT_HELP, "meta.model is required");
-  for (const cmd of ["track", "page", "comment", "watch", "list"]) {
+  assertStringIncludes(CONVERT_HELP, "specs_page_id");
+  for (const cmd of ["track", "page", "comment", "watch", "list", "convert"]) {
     assertStringIncludes(OVERVIEW, `\n  ${cmd}`);
   }
 });
@@ -38,6 +40,7 @@ Deno.test("dispatch: help and version exit 0, unknown command exits 2", async ()
   assertEquals(await run(["--version"]), 0);
   assertEquals(await run(["help", "track"]), 0);
   assertEquals(await run(["track", "--help"]), 0);
+  assertEquals(await run(["convert", "--help"]), 0);
   assertEquals(await run(["bogus"]), 2);
 });
 
