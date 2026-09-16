@@ -7,11 +7,11 @@ test.describe.configure({ mode: "serial" });
 // first so a retry starts from scratch instead of stacking duplicates
 test.beforeAll(async ({ request }) => {
   const pages = await (await request.get("/api/pages")).json() as { id: string; title: string }[];
-  for (const p of pages.filter((x) => ["Pages Project", "Nested notes"].includes(x.title))) {
+  for (const p of pages.filter((x) => ["Pages Project", "Convert Project", "Nested notes"].includes(x.title))) {
     await request.post(`/api/pages/${p.id}/delete`, { data: {} });
   }
   const board = await (await request.get("/api/board")).json() as { sessions: { id: string; title: string }[] };
-  for (const s of board.sessions.filter((x) => x.title === "pages e2e session")) {
+  for (const s of board.sessions.filter((x) => ["pages e2e session", "Plan to convert"].includes(x.title))) {
     await request.post(`/api/sessions/${s.id}/delete`, { data: {} });
   }
 });
@@ -117,4 +117,47 @@ test("the Story picker lists each story once as ◇ (no ◎/□ duplicates)", as
   await expect(page.getByRole("button", { name: "◎ Picker Story" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "□ Picker Story" })).toHaveCount(0);
   await page.keyboard.press("Escape");
+});
+
+// A plain page becomes a card whose SPECS pane is that very page, and the pill then
+// leads back to the card instead of minting a second one.
+test("Convert to session turns a page into a card whose specs are that page", async ({ page, request }) => {
+  const project = await (await request.post("/api/pages", {
+    data: { title: "Convert Project", kind: "project" },
+  })).json() as { id: string };
+  const story = await (await request.post("/api/pages", {
+    data: { title: "Convert story", kind: "story", parent_id: project.id },
+  })).json() as { id: string };
+  const plan = await (await request.post("/api/pages", {
+    data: {
+      title: "Plan to convert",
+      parent_id: story.id,
+      content: [{ type: "text", text: "the plan we wrote by hand", id: crypto.randomUUID() }],
+    },
+  })).json() as { id: string };
+
+  await page.goto(`/?view=page&page=${plan.id}`);
+  await page.getByRole("button", { name: "▦ Convert to session" }).click();
+
+  // the ticket opened on the new card, and its specs ARE the page
+  await expect(page.getByText("SPECS", { exact: true })).toBeVisible();
+  await expect(page.getByPlaceholder(/type \/ for blocks/).first()).toHaveValue(
+    "the plan we wrote by hand",
+  );
+
+  // the page did not become a story, and it now lists its card
+  const after = await (await request.get(`/api/pages/${plan.id}`)).json() as {
+    kind: string;
+    sessions: { id: string; title: string }[];
+  };
+  expect(after.kind).toBe("page");
+  expect(after.sessions.map((s) => s.title)).toEqual(["Plan to convert"]);
+
+  // back on the page, the button leads to that same card rather than making another
+  await page.goto(`/?view=page&page=${plan.id}`);
+  await expect(page.getByRole("button", { name: "▦ Open session ↗" })).toBeVisible();
+  const board = await (await request.get("/api/board")).json() as {
+    sessions: { title: string }[];
+  };
+  expect(board.sessions.filter((s) => s.title === "Plan to convert")).toHaveLength(1);
 });

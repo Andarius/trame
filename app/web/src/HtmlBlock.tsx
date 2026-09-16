@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Block } from "./api";
+import { ExpandIcon } from "./ui";
 
 type HtmlB = Extract<Block, { type: "html" }>;
 
@@ -34,6 +35,7 @@ export function HtmlBlock(
   const [draft, setDraft] = useState(block.html);
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [full, setFull] = useState(false); // fill the viewport — the 820px page column is tight for a document
   const dataTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
@@ -66,6 +68,13 @@ export function HtmlBlock(
       clearTimeout(dataTimer.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!full) return;
+    const h = (e: KeyboardEvent) => e.key === "Escape" && setFull(false);
+    addEventListener("keydown", h);
+    return () => removeEventListener("keydown", h);
+  }, [full]);
 
   const srcDoc = useMemo(() => block.html + BRIDGE, [block.html]);
   const pinned = typeof block.height === "number";
@@ -111,8 +120,12 @@ export function HtmlBlock(
   };
 
   return (
-    <div className="group/html my-1 overflow-hidden rounded-lg border border-line bg-block">
-      <div className="flex items-center gap-2 border-b border-line-soft px-3 py-2">
+    <div
+      className={full
+        ? "fixed inset-0 z-50 flex flex-col bg-block"
+        : "group/html my-1 overflow-hidden rounded-lg border border-line bg-block"}
+    >
+      <div className="flex shrink-0 items-center gap-2 border-b border-line-soft px-3 py-2">
         <span className="shrink-0 font-mono text-[11px] font-semibold text-copper">
           {"</>"}
         </span>
@@ -145,6 +158,14 @@ export function HtmlBlock(
             auto
           </button>
         )}
+        <button
+          type="button"
+          onClick={() => setFull((v) => !v)}
+          title={full ? "leave full screen (esc)" : "full screen"}
+          className="flex shrink-0 items-center rounded-md border border-chipline bg-panel px-2 py-[4px] text-ink-soft hover:border-copper hover:text-copper"
+        >
+          <ExpandIcon open={full} />
+        </button>
         <label className="shrink-0 cursor-pointer rounded-md border border-chipline bg-panel px-2 py-[2px] text-[11px] font-medium text-ink-soft hover:border-copper hover:text-copper">
           import
           <input
@@ -224,14 +245,16 @@ export function HtmlBlock(
               srcDoc={srcDoc}
               onLoad={sendInit}
               title={docTitle(block.html)}
-              className="block w-full border-0 bg-block"
-              style={{ height }}
+              className={`block w-full border-0 bg-block ${full ? "min-h-0 flex-1" : ""}`}
+              style={full ? undefined : { height }}
             />
-            <div
-              onMouseDown={startDrag}
-              title="drag to set height"
-              className="h-[5px] cursor-ns-resize bg-transparent transition-colors hover:bg-copper/30"
-            />
+            {!full && (
+              <div
+                onMouseDown={startDrag}
+                title="drag to set height"
+                className="h-[5px] cursor-ns-resize bg-transparent transition-colors hover:bg-copper/30"
+              />
+            )}
           </>
         )}
     </div>

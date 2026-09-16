@@ -1,4 +1,4 @@
-import { checkStoryParent, storyAbove } from "./hierarchy.ts";
+import { checkStoryParent, projectAbove, storyAbove } from "./hierarchy.ts";
 // Local database = PGlite (embedded Postgres, persisted to DATA_DIR).
 // Same SQL as the hub's Postgres — no dialect translation.
 import { PGlite } from "@electric-sql/pglite";
@@ -232,6 +232,56 @@ export async function ensureSpecsPage(sessionId: string): Promise<string> {
     [sessionId, id, NODE_ID],
   );
   return id;
+}
+
+// A page becomes a card: the page itself is the card's specs, so a plan written by hand
+// IS the ticket. Anchored to the story ABOVE the page, never the page itself — anchoring
+// promotes a plain page to a story one-way (promoteToProject) and a spec page must not
+// double as its own story. Deterministic id, same reason as specsPageId: two nodes
+// converting the same page converge on one card instead of forking two.
+const PAGE_CARD_NS = "9c1f4a02-7d3e-4c85-b6a1-0e58d2f7c934";
+
+export async function sessionFromPage(
+  pageId: string,
+): Promise<{ id: string; created: boolean }> {
+  const pg = await db();
+  const page = (await pg.query(
+    `select title, kind, parent_id, client_id from pages where id=$1 and not deleted`,
+    [pageId],
+  )).rows[0] as
+    | { title: string; kind: string; parent_id: string | null; client_id: string | null }
+    | undefined;
+  if (!page) throw new Error(`unknown page ${pageId}`);
+  if (page.kind !== "page") {
+    throw new Error("a project or a story is where cards live, not a card's specs");
+  }
+  // any live card already speccing this page wins — including one ensureSpecsPage
+  // generated, which makes the caller's button a way back from any spec page
+  const hit = (await pg.query(
+    `select id from sessions where specs_page_id=$1 and not deleted limit 1`,
+    [pageId],
+  )).rows[0] as { id: string } | undefined;
+  if (hit) return { id: hit.id, created: false };
+
+  const anchor = page.parent_id ? await storyAbove(page.parent_id) : null;
+  const id = await upsertSession({
+    // explicit: the three adoption lookups are all guarded by `!s.id`, and this card
+    // must never adopt (or be mistaken for) work already tracked elsewhere
+    id: await v5.generate(PAGE_CARD_NS, new TextEncoder().encode(pageId)),
+    title: page.title.trim() || "Untitled",
+    // a plain page rarely carries client_id (only stories keep it) — walk for it, else
+    // an anchorless card lands on the board with no project at all
+    client_id: page.client_id ?? await projectAbove(pageId),
+    page_id: anchor,
+  });
+  // specs_page_id is not in upsertSession's column list; `deleted` is not in its
+  // on-conflict list either, so converting again after deleting the card resurrects it
+  await pg.query(
+    `update sessions set specs_page_id=$2, deleted=false, origin=$3, updated_at=now()
+      where id=$1`,
+    [id, pageId, NODE_ID],
+  );
+  return { id, created: true };
 }
 
 // Columns are user-editable, but the session default, the importers and the tracking

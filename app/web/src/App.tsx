@@ -65,6 +65,7 @@ import {
   appConfirm,
   ConfirmHost,
   EntityIcon,
+  ExpandIcon,
   pageGlyph,
   Popover,
   setStatuses,
@@ -1160,6 +1161,8 @@ export function App() {
     if (params.get("plugin")) return "plugin";
     return "board";
   });
+  // zen = chrome-less view (no sidebar, no header) for reading/writing a page
+  const [zen, setZen] = useState(params.get("zen") === "1");
   const [group, setGroup] = useState<"none" | "story" | "project">(() => {
     const g = params.get("group");
     return g === "story"
@@ -1357,8 +1360,9 @@ export function App() {
     put("group", group === "none" ? null : group);
     put("story", storyFilter.join(",") || null);
     put("nospecs", noSpecs ? "1" : null);
+    put("zen", zen ? "1" : null);
     history.replaceState(null, "", u);
-  }, [view, pageId, dbId, clientId, pluginId, openId, drawerFull, group, storyFilter, noSpecs]);
+  }, [view, pageId, dbId, clientId, pluginId, openId, drawerFull, group, storyFilter, noSpecs, zen]);
   // Browser Back from the full-screen ticket returns to the view behind it (the
   // board for a direct link) instead of leaving the app: the underlying view is
   // written as its own history entry beneath the ticket, and popstate closes it.
@@ -1570,6 +1574,7 @@ export function App() {
 
   return (
     <div className="flex h-full">
+      {!zen && (
       <Sidebar
         view={view}
         starred={starred}
@@ -1598,7 +1603,19 @@ export function App() {
         updateState={updateState}
         onUpdate={onUpdate}
       />
+      )}
       <main className="flex min-w-0 flex-1 flex-col">
+        {zen && (
+          <button
+            type="button"
+            onClick={() => setZen(false)}
+            title="leave full screen"
+            className="fixed right-3 top-3 z-30 flex items-center rounded-md border border-line bg-panel/80 px-1.5 py-1 text-ink-muted backdrop-blur transition-colors hover:text-ink"
+          >
+            <ExpandIcon open />
+          </button>
+        )}
+        {!zen && (
         <header className="flex flex-col gap-2 border-b border-line px-6 py-3">
           <div className="flex items-center gap-3">
             {view === "page" && currentPage
@@ -1817,6 +1834,16 @@ export function App() {
             {view === "page" && currentPage && (
               <button
                 type="button"
+                onClick={() => setZen(true)}
+                title="Full screen — hide the sidebar and this bar"
+                className="flex shrink-0 items-center rounded-md border border-line px-2 py-[5px] text-ink-muted hover:text-ink-soft"
+              >
+                <ExpandIcon open={false} />
+              </button>
+            )}
+            {view === "page" && currentPage && (
+              <button
+                type="button"
                 onClick={() => setSharePageId(currentPage.id)}
                 title="Share this page's subtree with a guest user (live sync, viewer or editor)"
                 className="shrink-0 whitespace-nowrap rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
@@ -1839,11 +1866,14 @@ export function App() {
                 type="button"
                 onClick={() =>
                   confirmDeletePage(currentPage).then((ok) => {
-                    if (ok) {
+                    if (!ok) return;
+                    // a sub-page lands on its parent; a root page on the board
+                    if (currentPage.parent_id) openPage(currentPage.parent_id);
+                    else {
                       setView("board");
                       setPageId(null);
-                      refresh();
                     }
+                    refresh();
                   })}
                 className="rounded-md border border-blocked/40 px-2.5 py-1 text-[11.5px] text-blocked/80 hover:bg-blocked/15 hover:text-blocked"
               >
@@ -1916,6 +1946,7 @@ export function App() {
             </>
           )}
         </header>
+        )}
         {isSessions && <SessionSort sort={sessionSort} onChange={setSessionSort} />}
         {!board
           ? <p className="p-6 text-ink-muted">Loading…</p>
@@ -1961,7 +1992,7 @@ export function App() {
                 board={board}
                 udbs={udbs}
                 onOpenPage={openPage}
-                onOpenSession={(id) => openSession(id)}
+                onOpenSession={openSession}
                 onOpenClient={openClient}
                 onOpenReport={openReport}
                 onChanged={refresh}

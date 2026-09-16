@@ -16,7 +16,7 @@ import {
   type SessionLink,
   type Status,
 } from "./api";
-import { appConfirm, clientColor, pageOptions, Popover, Select, StatusDot, TagChips, timeAgo } from "./ui";
+import { appConfirm, clientColor, ExpandIcon, pageOptions, Popover, Select, StatusDot, TagChips, timeAgo } from "./ui";
 import { PrChip } from "./md";
 import { SpecsEditor } from "./SpecsEditor";
 import { TagEditor } from "./TagEditor";
@@ -61,17 +61,6 @@ function AgentMark({ agent }: { agent: string }) {
   );
 }
 
-// expand / collapse (full-screen) glyph — inline SVG so it renders on WebKitGTK
-function ExpandIcon({ open }: { open: boolean }) {
-  return (
-    <svg
-      width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-      strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
-    >
-      <path d={open ? "M2 6h4V2M14 6h-4V2M2 10h4v4M14 10h-4v4" : "M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4"} />
-    </svg>
-  );
-}
 const rowVal =
   "w-full truncate rounded-md border border-transparent bg-transparent px-2 py-1 text-xs text-ink outline-none transition-colors hover:bg-panel focus:border-chipline focus:bg-panel";
 
