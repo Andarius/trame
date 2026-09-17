@@ -7,7 +7,7 @@ import { ensureAuthSchema, mintToken } from "./auth.ts";
 import { createApp } from "./app.ts";
 
 const sql = postgres(
-  Deno.env.get("DATABASE_URL") ?? "postgres://tracker@tracker-db:5432/tracker",
+  Deno.env.get("DATABASE_URL") ?? "postgres://tracker@trame-db:5432/tracker",
   // onnotice: server NOTICEs otherwise land on stdout — where `mint` prints the token
   { max: 4, onnotice: () => {} },
 );

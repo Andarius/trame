@@ -25,7 +25,7 @@ link-build:
     cd app/web && npm install && npm run build:link
     deno run -A scripts/gen-link-embed.ts
 
-# Deploy the Postgres hub over ssh (~/Apps/tracker) and start it — host via TRACKER_HUB_HOST in .env
+# Deploy the Postgres hub over ssh (~/Apps/trame) and start it — host via TRACKER_HUB_HOST in .env
 [group('infra')]
 db-deploy host=env_var_or_default('TRACKER_HUB_HOST', 'hub'): link-build
     hub/deploy.sh {{ host }}
@@ -43,7 +43,7 @@ infra *args:
 # psql into the hub over ssh (Postgres has no host port since the API cutover)
 [group('infra')]
 psql host=env_var_or_default('TRACKER_HUB_HOST', 'hub'):
-    ssh -t {{ host }} docker exec -it tracker-db psql -U tracker -d tracker
+    ssh -t {{ host }} docker exec -it trame-db psql -U tracker -d tracker
 
 # Run the desktop app (Deno 2.9+)
 [group('dev')]

@@ -1,9 +1,11 @@
 # Runs on the hub machine. Postgres = the sync hub / source of truth.
-# Deployed to ~/Apps/tracker on the hub machine by hub/deploy.sh; also runs locally (just db).
+# Deployed to ~/Apps/trame on the hub machine by hub/deploy.sh; also runs locally (just db).
+name: trame
+
 services:
-  tracker-db:
+  trame-db:
     image: postgres:18   # >=18: uuidv7() used by the udb_* tables; matches PGlite 0.5.x (PG 18)
-    container_name: tracker-db
+    container_name: trame-db
     restart: unless-stopped
     environment:
       POSTGRES_DB: tracker
@@ -19,11 +21,11 @@ services:
       - ssl_key_file=/etc/tracker-tls/server.key
       - -c
       - hba_file=/etc/tracker-hba.conf
-    # No host port: laptops sync through tracker-api (the auth boundary); Postgres is
+    # No host port: laptops sync through trame-api (the auth boundary); Postgres is
     # reachable only on the docker network.
     volumes:
       # postgres:18 moved PGDATA to a version subdir — mount the parent, not .../data
-      - tracker-db-data:/var/lib/postgresql
+      - trame-db-data:/var/lib/postgresql
       # Schema is applied once on first boot of an empty data dir.
       # TRACKER_SCHEMA: deploy.sh sets ./schema.sql (flat dir on the hub); default = repo layout.
       - ${TRACKER_SCHEMA:-../db/schema.sql}:/docker-entrypoint-initdb.d/10-schema.sql:ro
@@ -40,15 +42,15 @@ services:
   # Hub API (phase 3 of docs-site/src/content/docs/hub-api.md): the auth boundary in front of Postgres.
   # Deno terminates TLS itself with the same gen-certs material as the db. DB access
   # is docker-network-only; pg_hba scopes a scram rule to the fixed subnet below.
-  tracker-api:
+  trame-api:
     image: denoland/deno:alpine
-    container_name: tracker-api
+    container_name: trame-api
     restart: unless-stopped
     depends_on:
-      tracker-db:
+      trame-db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://tracker:${POSTGRES_PASSWORD}@tracker-db:5432/tracker
+      DATABASE_URL: postgres://tracker:${POSTGRES_PASSWORD}@trame-db:5432/tracker
       DENO_DIR: /deno-cache
       # the public link listener speaks plain HTTP: the front proxy (Traefik/DSM)
       # terminates TLS and talks HTTP to backends, like every other service here
@@ -61,7 +63,7 @@ services:
       - ${TRACKER_API_SRC:-./api}:/srv/hub/api:ro
       - ${TRACKER_PROTOCOL_SRC:-../protocol}:/srv/protocol:ro
       - ./certs:/certs:ro
-      - tracker-deno-cache:/deno-cache
+      - trame-deno-cache:/deno-cache
     ports:
       - "${TRACKER_BIND:-127.0.0.1}:${TRACKER_API_PORT:-8443}:8443"
       # public link viewer (plain HTTP; see TRACKER_LINK_TLS). Reached via Traefik
@@ -83,16 +85,16 @@ services:
       - proxy
 
 networks:
-  # Fixed subnet so the pg_hba rule for tracker-api can be scoped tightly.
+  # Fixed subnet so the pg_hba rule for trame-api can be scoped tightly.
   default:
     ipam:
       config:
         - subnet: 172.28.94.0/24
   # The host's existing Traefik network (created outside this stack). Traefik joins
-  # tracker-api here for the link routing; the db stays on the default network only.
+  # trame-api here for the link routing; the db stays on the default network only.
   proxy:
     external: true
 
 volumes:
-  tracker-db-data:
-  tracker-deno-cache:
+  trame-db-data:
+  trame-deno-cache:

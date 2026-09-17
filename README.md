@@ -54,7 +54,7 @@ docs-site/                 Astro + Starlight docs (data model, hub API design, r
 protocol/                  versioned sync protocol shared by app and hub (entities, LWW rule, html-block bridge)
 hub/docker-compose.yml     the hub: Postgres (docker-network only) + the Deno API in front of it
 hub/api/                   the API: device tokens, changeset /sync, per-page ACLs, WSS nudges, public /l/* pages
-hub/deploy.sh              deploy the hub over ssh (~/Apps/tracker) — `just db-deploy`
+hub/deploy.sh              deploy the hub over ssh (~/Apps/trame) — `just db-deploy`
 hub/gen-certs.sh           private CA + server certs, runs on the hub (called by deploy)
 hub/fetch-ca.sh            fetch the hub's ca.crt so this laptop trusts the API's TLS — `just hub-ca`
 hub/pg_hba.conf            Postgres auth rules: local + docker network only, anything else rejected
@@ -101,7 +101,7 @@ Claude session hook (step 4) still need the manual steps below.
 
 ### 1. The hub
 ```bash
-just db-deploy       # ssh: copies compose+schema+hba+api to ~/Apps/tracker, creates .env+certs, starts it
+just db-deploy       # ssh: copies compose+schema+hba+api to ~/Apps/trame, creates .env+certs, starts it
 just hub-ca          # per laptop: fetch ca.crt (trusts the API's TLS)
 ```
 First run generates the password and the CA/server certs, and binds to the hub's LAN IP
@@ -113,7 +113,7 @@ First run generates the password and the CA/server certs, and binds to the hub's
 Mint a device token on the hub (`<node-id>` = the laptop's `TRACKER_NODE_ID`), then point the app at the API:
 ```bash
 # e.g. for the laptop whose TRACKER_NODE_ID is "mbp-14"
-ssh <hub> "docker exec tracker-api deno run -A --config /srv/hub/api/deno.json /srv/hub/api/main.ts mint mbp-14"
+ssh <hub> "docker exec trame-api deno run -A --config /srv/hub/api/deno.json /srv/hub/api/main.ts mint mbp-14"
 # → prints the token ONCE (only its sha-256 is stored); re-run mint for a fresh one, revoke old rows in api_tokens
 ```
 Paste the URL + token in ⚙ Settings → Sync hub, or add to `~/.local/share/trame/settings.json` (chmod 600):

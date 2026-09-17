@@ -9,7 +9,7 @@
 set -euo pipefail
 
 HOST="${1:-${TRACKER_HUB_HOST:-hub}}"
-DIR="Apps/tracker"
+DIR="Apps/trame"
 DEST="${TRACKER_TLS_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/trame/certs}"
 
 mkdir -p "$DEST"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# DESCRIPTION: Deploy the Postgres sync hub to a home server (~/Apps/tracker).
+# DESCRIPTION: Deploy the Postgres sync hub to a home server (~/Apps/trame).
 #   Copies docker-compose.yml + db/schema.sql, creates .env (password + LAN bind)
 #   on first run, then `docker compose up -d` and waits for the healthcheck.
 #   Idempotent: re-running redeploys the files and restarts the stack; the
@@ -12,7 +12,7 @@
 set -euo pipefail
 
 HOST="${1:-${TRACKER_HUB_HOST:-hub}}"
-DIR="Apps/tracker"
+DIR="Apps/trame"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 ssh "$HOST" "mkdir -p ~/$DIR"
@@ -46,21 +46,21 @@ grep -q TRACKER_LINK_HOST .env || echo "TRACKER_LINK_HOST=links.example.com  # �
 ./gen-certs.sh init "$TRACKER_BIND" "$(hostname)"
 docker compose up -d
 for _ in $(seq 30); do
-  status=$(docker inspect -f '{{.State.Health.Status}}' tracker-db 2>/dev/null || echo starting)
+  status=$(docker inspect -f '{{.State.Health.Status}}' trame-db 2>/dev/null || echo starting)
   [ "$status" = healthy ] && break
   sleep 2
 done
-[ "$status" = healthy ] || { echo "tracker-db not healthy: $status" >&2; docker logs --tail 20 tracker-db >&2; exit 1; }
+[ "$status" = healthy ] || { echo "trame-db not healthy: $status" >&2; docker logs --tail 20 trame-db >&2; exit 1; }
 # schema.sql is fully idempotent — this is how schema changes reach an existing hub
 # (the initdb mount only runs on an empty data volume)
-docker exec -i tracker-db psql -q -U tracker -d tracker -v ON_ERROR_STOP=1 < schema.sql
+docker exec -i trame-db psql -q -U tracker -d tracker -v ON_ERROR_STOP=1 < schema.sql
 echo "schema.sql applied"
 # api/ + protocol/ are bind mounts — compose sees no config change, so the running
 # Deno keeps its old in-memory modules; restart to load the freshly copied source
-docker restart tracker-api > /dev/null
-echo "tracker-api restarted"
+docker restart trame-api > /dev/null
+echo "trame-api restarted"
 echo "hub ready — laptops sync through the API: https://$TRACKER_BIND:8443"
 echo "per laptop: fetch the CA once (just hub-ca), mint a device token:"
-echo "  docker exec tracker-api deno run -A --config /srv/hub/api/deno.json /srv/hub/api/main.ts mint <node-id>"
+echo "  docker exec trame-api deno run -A --config /srv/hub/api/deno.json /srv/hub/api/main.ts mint <node-id>"
 echo "then set hubApi/hubApiToken in the laptop's settings.json"
 REMOTE
