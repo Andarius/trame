@@ -55,7 +55,7 @@ test("a project can be created from the sidebar", async ({ page }) => {
   await page.getByPlaceholder("Untitled").fill("E2E Project");
   await page.getByPlaceholder("Untitled").blur();
   // it appears in the sidebar PROJECTS tree
-  await expect(page.locator("aside").getByRole("button", { name: /E2E Project/ })).toBeVisible();
+  await expect(page.locator("aside div.group").getByRole("button", { name: /E2E Project/ })).toBeVisible();
 });
 
 test("group by Story renders swimlanes; the control reflects the choice", async ({ page }) => {
@@ -76,7 +76,7 @@ test("the Group menu switches to Project grouping", async ({ page }) => {
 
 test("a Project page creates a Story child via New story", async ({ page }) => {
   await page.goto("/");
-  await page.locator("aside").getByRole("button", { name: /E2E Project/ }).click();
+  await page.locator("aside div.group").getByRole("button", { name: /E2E Project/ }).click();
   await page.getByRole("button", { name: /New story/ }).click();
   // wait for the NEW page's view before typing — the parent's title field shares the
   // placeholder, so filling too early renames the parent instead (a real race)
@@ -84,18 +84,18 @@ test("a Project page creates a Story child via New story", async ({ page }) => {
   await page.getByPlaceholder("Untitled").fill("E2E Story");
   await page.keyboard.press("Enter");
   // it nests under the project as a Story (◇), reachable in the sidebar tree
-  const node = page.locator("aside").getByRole("button", { name: /E2E Story/ }).first();
+  const node = page.locator("aside div.group").getByRole("button", { name: /E2E Story/ }).first();
   await expect(node).toBeVisible();
   await expect(node).toContainText("◇");
 });
 
 test("a Project's color swatch tints its sidebar glyph", async ({ page }) => {
   await page.goto("/");
-  await page.locator("aside").getByRole("button", { name: /E2E Project/ }).first().click();
+  await page.locator("aside div.group").getByRole("button", { name: /E2E Project/ }).first().click();
   await page.getByTitle("project color").click();
   // pick a specific palette color (red) and confirm it lands on the sidebar glyph
   await page.locator('button[style*="rgb(224, 108, 117)"], button[style*="#e06c75"]').first().click();
-  const glyph = page.locator("aside").getByRole("button", { name: /E2E Project/ }).first().locator("span").first();
+  const glyph = page.locator("aside div.group").getByRole("button", { name: /E2E Project/ }).first().locator("span").first();
   await expect(glyph).toHaveCSS("color", "rgb(224, 108, 117)");
 });
 

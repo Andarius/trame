@@ -61,10 +61,8 @@ test("sidebar folds archived stories away, and remembers the fold", async ({ pag
   await expect(row("Status open S")).toBeVisible();
 
   // archived stories hide behind the fold until it's expanded
-  // (scoped to the sidebar — board cards may show the story name too)
-  await expect(aside.getByText("Status arch S", { exact: true })).toHaveCount(
-    0,
-  );
+  // (scoped to the tree — board cards and RECENTLY MODIFIED show the name too)
+  await expect(row("Status arch S")).toHaveCount(0);
   await aside.getByRole("button", { name: "Archived (2)" }).click();
   await expect(row("Status arch S")).toBeVisible();
   await expect(row("Status arch2 S")).toBeVisible();
@@ -81,10 +79,12 @@ test("story picker hides archived stories but keeps the attached one", async ({ 
   const trigger = page.getByRole("button", { name: "◇ Status arch S ▾" });
   await expect(trigger).toBeVisible();
   await trigger.click();
+  // scoped to the Select's wrapper — the sidebar lists the same stories
+  const picker = trigger.locator("xpath=..");
   // live stories stay pickable; the other archived story is gone
-  await expect(page.getByRole("button", { name: "◇ Status open S" }).first())
+  await expect(picker.getByRole("button", { name: "◇ Status open S" }))
     .toBeVisible();
-  await expect(page.getByRole("button", { name: "◇ Status arch2 S" }))
+  await expect(picker.getByRole("button", { name: "◇ Status arch2 S" }))
     .toHaveCount(0);
   await page.keyboard.press("Escape");
 });
@@ -92,6 +92,6 @@ test("story picker hides archived stories but keeps the attached one", async ({ 
 test("board lanes tag archived stories and drop empty ones", async ({ page }) => {
   await page.goto("/?group=story");
   await expect(page.getByText("Status arch S (archived)")).toBeVisible();
-  // no sessions → no lane (and the sidebar keeps it folded away)
-  await expect(page.getByText("Status arch2 S")).toHaveCount(0);
+  // no sessions → no lane (scoped to the board — the sidebar lists it under RECENTLY MODIFIED)
+  await expect(page.getByRole("main").getByText("Status arch2 S")).toHaveCount(0);
 });

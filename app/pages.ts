@@ -15,7 +15,7 @@ import {
 } from "./agent-comments.ts";
 
 const LIST_COLS =
-  "id, parent_id, kind, title, icon, status, client_id, color, tags, sort_key, owner_id";
+  "id, parent_id, kind, title, icon, status, client_id, color, tags, sort_key, owner_id, updated_at";
 const COMMENT_COLS =
   "id, page_id, block_id, anchor, body, author, author_avatar, author_id, resolved, meta, updated_at";
 

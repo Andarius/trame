@@ -575,10 +575,10 @@ export type PageMeta = {
   tags: string[];
   sort_key: string;
   owner_id: string | null;
+  updated_at: string;
 };
 export type PageDetail = PageMeta & {
   brief: string;
-  updated_at: string;
   content: Block[];
   children: PageMeta[];
   databases: {

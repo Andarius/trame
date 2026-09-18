@@ -70,6 +70,7 @@ import {
   Popover,
   setStatuses,
   TagChips,
+  timeAgo,
 } from "./ui";
 import { FRONTEND_PLUGINS } from "./plugins";
 import { PluginsModal } from "./plugins/PluginsModal";
@@ -522,6 +523,12 @@ const splitArchived = (kids: PageMeta[]) => ({
   archived: kids.filter((k) => k.status === "archived"),
 });
 
+// "Show more" on RECENTLY MODIFIED — parked in `expanded` like `archived:<parent>`,
+// so it persists through the same localStorage key
+const RECENTS_KEY = "recents:more";
+const RECENTS_SHORT = 5;
+const RECENTS_LONG = 20;
+
 // collapsed per-parent bucket for archived stories — expand state persists through
 // the same `expanded` set as real nodes, under the synthetic `archived:<parent>` key
 function ArchivedFold(
@@ -662,6 +669,16 @@ function Sidebar(
     return m;
   }, [udbs, byId]);
   const looseDbs = udbs.filter((d) => !d.page_id || !byId.has(d.page_id));
+
+  // the whole tree by mtime — sliced short/long at render
+  const recentsOpen = expanded.has(RECENTS_KEY);
+  const recents = useMemo(
+    () =>
+      [...pages].sort((a, b) =>
+        Date.parse(b.updated_at) - Date.parse(a.updated_at)
+      ),
+    [pages],
+  );
 
   // opening a deep page (deep link, subpage nav) expands its ancestors
   useEffect(() => {
@@ -815,6 +832,48 @@ function Sidebar(
           </button>
         );
       })}
+      {recents.length > 0 && (
+        <>
+          {/* a landmark, so the rows are addressable apart from STARRED's identical ones */}
+          <nav aria-label="Recently modified" className="flex flex-col gap-1">
+          <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+            RECENTLY MODIFIED
+          </div>
+          {recents.slice(0, recentsOpen ? RECENTS_LONG : RECENTS_SHORT).map((p) => {
+            const active = view === "page" && p.id === pageId;
+            const path: string[] = [];
+            for (let a = byId.get(p.parent_id ?? ""); a; a = byId.get(a.parent_id ?? "")) path.unshift(a.title);
+            return (
+              <button
+                type="button"
+                key={p.id}
+                onClick={() => onOpenPage(p.id)}
+                title={[...path, p.title].join(" / ")}
+                className={`flex items-center gap-1.5 rounded-md py-[5px] pl-[22px] pr-1 text-left text-[13px] ${
+                  active ? "bg-active-row font-medium text-ink" : "text-ink-muted hover:text-ink-soft"
+                }`}
+              >
+                <span className={`text-[12px] ${active ? "text-copper" : ""}`}>
+                  <EntityIcon icon={p.icon} fallback={pageGlyph(p.kind)} />
+                </span>
+                <span className="flex-1 truncate">{p.title || "Untitled"}</span>
+                <span className="shrink-0 text-[10.5px] text-ink-muted/60">{timeAgo(p.updated_at)}</span>
+              </button>
+            );
+          })}
+          </nav>
+          {recents.length > RECENTS_SHORT && (
+            <button
+              type="button"
+              onClick={() => onToggle(RECENTS_KEY)}
+              className="flex items-center gap-1 rounded-md py-[5px] pl-2 pr-1 text-left text-[12px] text-ink-muted/70 hover:text-ink-soft"
+            >
+              <span className="w-[14px] shrink-0 text-[9px]">{recentsOpen ? "▾" : "▸"}</span>
+              {recentsOpen ? "Show less" : "Show more"}
+            </button>
+          )}
+        </>
+      )}
       {/* one tree, three root sections: projects (what sessions ladder up to),
           pages shared in by other users, and unfiled pages (the inbox to triage) */}
       {[...starred].some((id) => byId.has(id)) && (
