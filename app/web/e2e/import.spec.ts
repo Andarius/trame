@@ -105,7 +105,7 @@ test("import creates the card, the auto project, and the worklog event", async (
   await page.getByRole("button", { name: /Import 1 session\b/ }).click();
   // card lands on the board; the auto-created "alpha" story nests under its "Side-projects" project
   await expect(page.getByText("alpha — Ship the import feature")).toBeVisible();
-  await expect(page.locator("aside").getByRole("button", { name: /Side-projects/ })).toBeVisible();
+  await expect(page.locator("aside div.group").getByRole("button", { name: /Side-projects/ })).toBeVisible();
   // drawer carries the import event
   await page.getByText("alpha — Ship the import feature").click();
   await expect(page.getByText("Imported from Claude Code · e2e")).toBeVisible(); // stamps the node

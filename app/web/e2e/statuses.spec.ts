@@ -97,7 +97,7 @@ test("a custom terminal status counts as done on the project page", async ({ pag
   await request.post(`/api/sessions/${closed.id}/status`, { data: { status: shipped.key } });
 
   await page.goto("/");
-  await page.locator("aside").getByRole("button", { name: /Statuses Project/ }).first().click();
+  await page.locator("aside div.group").getByRole("button", { name: /Statuses Project/ }).first().click();
   // the terminal session is counted as done — regression guard for the old hardcoded
   // `status === "done"` that ignored user-defined terminal columns
   await expect(page.getByText("1 / 2 done")).toBeVisible();
