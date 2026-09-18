@@ -363,7 +363,7 @@ function PageNode(
   },
 ) {
   const allKids = childrenOf.get(p.id) ?? [];
-  const { normal: kids, archived } = splitArchived(allKids);
+  const { normal: kids, archived } = splitArchived(allKids, starred);
   const dbs = dbsOf.get(p.id) ?? [];
   const hasKids = allKids.length + dbs.length > 0;
   const open = expanded.has(p.id);
@@ -375,10 +375,9 @@ function PageNode(
   const { setNodeRef: setDropRef, isOver, active: dragged } = useDroppable({
     id: `drop:${p.id}`,
   });
-  // pages file under projects or stories; stories only re-home across projects
+  // pages file under any node; stories only re-home across projects
   const draggedKind = dragged?.data.current?.kind as string | undefined;
-  const canDrop = !sharedIn && (p.kind === "project" ||
-    (p.kind === "story" && draggedKind !== "story"));
+  const canDrop = !sharedIn && (p.kind === "project" || draggedKind === "page");
   return (
     <>
       <div
@@ -516,10 +515,12 @@ function isSharedIn(p: PageMeta, meId: string | null): boolean {
   return meId != null && p.owner_id != null && p.owner_id !== meId;
 }
 
-// done stories sink below their open siblings; archived ones leave the main list
+// archived stories leave the main list, starred ones ride on top
 // (stable sort: server order kept within each group)
-const splitArchived = (kids: PageMeta[]) => ({
-  normal: kids.filter((k) => k.status !== "archived"),
+const splitArchived = (kids: PageMeta[], starred: Set<string>) => ({
+  normal: kids.filter((k) => k.status !== "archived").sort((a, b) =>
+    Number(starred.has(b.id)) - Number(starred.has(a.id))
+  ),
   archived: kids.filter((k) => k.status === "archived"),
 });
 
@@ -732,9 +733,9 @@ function Sidebar(
     if (target === (page.parent_id ?? null)) return; // already there
     if (target) {
       // droppables stay live for the hover state — enforce what accepts what here:
-      // pages land on projects or stories, stories only on projects
+      // pages land on any node, stories only on projects
       const tk = byId.get(target)?.kind;
-      if (tk !== "project" && !(tk === "story" && page.kind === "page")) return;
+      if (tk !== "project" && page.kind !== "page") return;
       // cycle guard — server rejects too, this just skips the round-trip
       for (
         let a = byId.get(target);
@@ -752,6 +753,7 @@ function Sidebar(
     (childrenOf.get(null) ?? []).filter((p) =>
       (p.kind === "project" || p.kind === "story") && !isSharedIn(p, meId)
     ),
+    starred,
   );
   const renderRoot = (p: PageMeta) => (
     <PageNode
