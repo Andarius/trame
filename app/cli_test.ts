@@ -28,6 +28,7 @@ Deno.test("help carries the composition conventions", () => {
   assertStringIncludes(TRACK_HELP, "do not ask the user");
   assertStringIncludes(PAGE_HELP, "{{fold}}");
   assertStringIncludes(PAGE_DIALECT, "green|yellow|red|copper|gray");
+  assertStringIncludes(PAGE_DIALECT, "`cards` fence");
   assertStringIncludes(COMMENT_HELP, "meta.model is required");
   assertStringIncludes(CONVERT_HELP, "specs_page_id");
   for (const cmd of ["track", "page", "comment", "watch", "list", "convert"]) {

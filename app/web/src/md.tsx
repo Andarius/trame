@@ -5,9 +5,26 @@
 // (PR/MR links render as state chips) and {{pills}} ({{green:text}} ·
 // green|yellow|red|copper|gray — handy for table cells).
 // Underscore emphasis is intentionally NOT supported so snake_case survives.
-import { Fragment, type ReactNode, useEffect, useState } from "react";
-import { getEvents, getPageEvents, openInBrowser, type PageEvent, type PrInfo, prInfo, type SessionEvent } from "./api";
+import {
+  Fragment,
+  type ReactNode,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  getEvents,
+  getPageEvents,
+  openInBrowser,
+  type PageEvent,
+  type PrInfo,
+  prInfo,
+  type SessionEvent,
+} from "./api";
 import { Modal, Popover, statusStyle, timeAgo } from "./ui";
+import { type EdgeGeo, edgeGeometry, parseGraph } from "./graph";
 
 // ```mermaid fences render as diagrams. The lib (~1.5 MB) is dynamically imported so
 // pages without diagrams never load it. The svg-string injection is the one exception
@@ -60,6 +77,286 @@ function MermaidBlock({ text }: { text: string }) {
         <span className="text-[11px] text-ink-muted">rendering diagram…</span>
       </div>
     );
+}
+
+// ```graph fences draw an architecture diagram: nodes in ranked columns, curved
+// edges between them, and `step` lines that light up one beat at a time. See
+// graph.ts for the dialect. No dependency, no innerHTML — plain SVG elements.
+function GraphBlock({ text }: { text: string }) {
+  const g = useMemo(() => parseGraph(text), [text]);
+  const box = useRef<HTMLDivElement | null>(null);
+  const nodeEls = useRef(new Map<string, HTMLElement>());
+  const [geo, setGeo] = useState<{ w: number; h: number; edges: EdgeGeo[] }>({
+    w: 0,
+    h: 0,
+    edges: [],
+  });
+  // a lifecycle with prose opens on its first beat; a bare diagram opens whole
+  const [step, setStep] = useState(() => g?.steps.some((x) => x.body) ? 0 : -1);
+  const uid = useId().replace(/[^\w-]/g, "");
+  useEffect(() => {
+    const el = box.current;
+    if (!el || !g) return;
+    const draw = () => {
+      const r = el.getBoundingClientRect();
+      if (!r.width) return;
+      setGeo({
+        w: r.width,
+        h: r.height,
+        edges: edgeGeometry(
+          r,
+          (id) => nodeEls.current.get(id)?.getBoundingClientRect() ?? null,
+          g.edges,
+        ),
+      });
+    };
+    // one observer for the frame and every node: wrapping text moves the ports
+    const ro = new ResizeObserver(draw);
+    ro.observe(el);
+    nodeEls.current.forEach((n) => ro.observe(n));
+    document.fonts?.ready.then(draw).catch(() => {});
+    return () => ro.disconnect();
+  }, [g]);
+  if (!g) { // nothing parsed → show the source like any code block
+    return (
+      <pre className="md-snippet-card my-1.5 overflow-x-auto rounded-md bg-panel p-2 font-mono text-[0.92em] leading-relaxed text-ink-soft">
+        <code>{text}</code>
+      </pre>
+    );
+  }
+  const beat = step >= 0 ? g.steps[step] : null;
+  const litNodes = beat &&
+    new Set([...beat.nodes, ...beat.edges.flatMap((k) => k.split(">"))]);
+  const litEdges = beat && new Set(beat.edges);
+  const paras = beat?.body?.split("\n\n") ?? [];
+  const label = g.edges
+    .map((e) =>
+      `${g.nodes.get(e.from)?.title} to ${g.nodes.get(e.to)?.title}${
+        e.label ? ` (${e.label})` : ""
+      }`
+    )
+    .join("; ");
+  return (
+    <figure
+      // wider than the 820px text column → grow into the margins, like a table
+      className={`md-snippet-card my-2 rounded-lg border border-line bg-block px-3 py-2 ${
+        geo.w > 756
+          ? "relative left-1/2 w-[min(1400px,100cqw_-_4rem)] -translate-x-1/2"
+          : ""
+      }`}
+    >
+      <div className="overflow-x-auto py-1">
+        <div
+          ref={box}
+          role="img"
+          aria-label={label}
+          className="relative isolate flex w-max items-stretch gap-x-20"
+        >
+          {g.columns.map((col, ci) => (
+            <div key={ci} className="z-10 flex flex-col justify-center gap-4">
+              {col.map((n) => (
+                <div
+                  key={n.id}
+                  ref={(el) => {
+                    if (el) nodeEls.current.set(n.id, el);
+                    else nodeEls.current.delete(n.id);
+                  }}
+                  className={`min-w-[116px] max-w-[200px] rounded-lg border bg-panel px-3 py-1.5 text-center text-[0.92em] font-medium text-ink transition-opacity ${
+                    litNodes?.has(n.id)
+                      ? "border-copper ring-2 ring-copper/20"
+                      : "border-chipline"
+                  } ${litNodes && !litNodes.has(n.id) ? "opacity-40" : ""}`}
+                >
+                  {n.title}
+                  {n.sub && (
+                    <span className="mt-0.5 block text-[0.82em] font-normal leading-snug text-ink-muted">
+                      {n.sub}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          ))}
+          <svg
+            className="pointer-events-none absolute inset-0 h-full w-full text-ink-muted"
+            viewBox={`0 0 ${geo.w} ${geo.h}`}
+            aria-hidden="true"
+          >
+            <defs>
+              <marker
+                id={`gr-${uid}`}
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="7"
+                markerHeight="7"
+                orient="auto"
+              >
+                <path d="M0 0L10 5 0 10z" fill="currentColor" />
+              </marker>
+            </defs>
+            {geo.edges.map((e) => (
+              <g
+                key={e.key}
+                className={!litEdges
+                  ? ""
+                  : litEdges.has(e.id)
+                  ? "text-copper"
+                  : "opacity-25"}
+              >
+                <path
+                  d={e.d}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  markerEnd={`url(#gr-${uid})`}
+                />
+                {e.label && (
+                  <text
+                    x={e.lx}
+                    y={e.ly}
+                    textAnchor={e.anchor}
+                    fontSize="11"
+                    // halo: the label sits on top of its own line
+                    style={{
+                      fill: "currentColor",
+                      paintOrder: "stroke",
+                      stroke: "var(--color-block)",
+                      strokeWidth: 4,
+                    }}
+                  >
+                    {e.label}
+                  </text>
+                )}
+              </g>
+            ))}
+          </svg>
+        </div>
+      </div>
+      {g.steps.length > 0 && (
+        <ol className="mt-1 flex list-none flex-wrap gap-1.5 p-0">
+          {g.steps.map((s, i) => (
+            <li key={i}>
+              <button
+                type="button"
+                aria-current={i === step ? "step" : undefined}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation(); // don't select/edit the block behind
+                  setStep(i === step ? -1 : i);
+                }}
+                className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[0.86em] transition-colors ${
+                  i === step
+                    ? "border-copper bg-copper/10 text-ink"
+                    : "border-chipline text-ink-soft hover:text-ink"
+                }`}
+              >
+                <b className="font-mono text-[0.85em] font-bold text-copper">
+                  {i + 1}
+                </b>
+                {s.title}
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+      {beat && (beat.body || beat.note) && (
+        <div className="mt-2 grid gap-5 rounded-xl border border-line bg-panel p-4 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+          <div className="min-w-0">
+            <h3 className="text-[1.08em] font-semibold leading-snug text-ink">
+              {beat.title}
+            </h3>
+            {/* first paragraph = the scenario line, the rest is the detail */}
+            {paras.map((t, j) => (
+              <p
+                key={j}
+                className={j === 0 && paras.length > 1
+                  ? "mt-1 text-[0.9em] text-ink-muted"
+                  : "mt-2 text-[0.95em] leading-relaxed text-ink-soft"}
+              >
+                {renderInline(t)}
+              </p>
+            ))}
+            <div className="mt-3 flex items-center gap-2 text-[0.82em]">
+              {[["← Previous", -1], ["Next →", 1]].map(([lbl, d]) => (
+                <button
+                  key={lbl as string}
+                  type="button"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setStep((s) =>
+                      (s + (d as number) + g.steps.length) % g.steps.length
+                    );
+                  }}
+                  className="rounded-lg border border-chipline px-2 py-1 text-ink-soft hover:text-ink"
+                >
+                  {lbl as string}
+                </button>
+              ))}
+              <span className="text-ink-muted">
+                Beat {step + 1} of {g.steps.length}
+              </span>
+            </div>
+          </div>
+          {beat.note && (
+            <div className="border-l-2 border-copper pl-4">
+              <p className="text-[0.95em] leading-relaxed text-ink-soft">
+                {renderInline(beat.note)}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+    </figure>
+  );
+}
+
+// A trailing `| <color>` tints a card. Full class strings so Tailwind sees them; the
+// value inherits the text color, the label stays muted.
+const CARD_COLORS: Record<string, string> = {
+  green: "border-active/40 bg-active/[0.07] text-active",
+  yellow: "border-paused/40 bg-paused/[0.07] text-paused",
+  red: "border-blocked/40 bg-blocked/[0.07] text-blocked",
+  copper: "border-copper/40 bg-copper/[0.07] text-copper",
+  gray: "border-chipline bg-panel text-ink",
+};
+
+// ```cards fences render a KPI row: one `value | label` per line, plus an optional
+// `| <color>`. Inline markdown works throughout, so pills and links come for free.
+function CardsBlock({ text }: { text: string }) {
+  const cards = text.split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("//"))
+    .map((l) => {
+      const parts = l.split("|").map((x) => x.trim());
+      const color = parts.length > 1 && parts[parts.length - 1] in CARD_COLORS
+        ? parts.pop()!
+        : null;
+      const [value, ...rest] = parts;
+      return { value, label: rest.join(" | "), color };
+    });
+  return (
+    <div className="my-2 flex flex-wrap gap-2">
+      {cards.map((c, i) => (
+        <div
+          key={i}
+          className={`min-w-[140px] flex-1 rounded-lg border px-3.5 py-2.5 ${
+            CARD_COLORS[c.color ?? "gray"]
+          }`}
+        >
+          <div className="text-[19px] font-semibold leading-tight">
+            {renderInline(c.value)}
+          </div>
+          {c.label && (
+            <div className="mt-1 text-[11.5px] leading-snug text-ink-muted">
+              {renderInline(c.label)}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 const safeHref = (url: string): string | undefined =>
@@ -386,6 +683,14 @@ function parseTableRow(line: string): string[] {
   return s.split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, "|"));
 }
 const TABLE_SEP = /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/;
+// A column's width is the dash count of its separator cell (× PX_PER_DASH) —
+// valid GFM either way, so it survives export, sync and any agent rewrite.
+const PX_PER_DASH = 8;
+const colWidth = (c: string) => {
+  const n = (c.match(/-/g) ?? []).length;
+  return n > 3 ? n * PX_PER_DASH : null;
+};
+
 const colAlign = (c: string) =>
   c.startsWith(":") && c.endsWith(":")
     ? "text-center"
@@ -782,6 +1087,7 @@ function EditableItem(
   if (!editing) {
     return (
       <span
+        data-item-edit=""
         className="min-w-0 cursor-text"
         onClick={(e) => {
           if ((e.target as HTMLElement).closest("a,img,button")) return;
@@ -798,7 +1104,9 @@ function EditableItem(
     <textarea
       rows={1}
       value={val}
-      className="w-full min-w-0 resize-none rounded border-none bg-panel px-1 font-mono text-[12px] leading-relaxed text-ink outline-none"
+      // font: inherit — an editor in another face/size reflows the line you aimed at
+      style={{ font: "inherit" }}
+      className="w-full min-w-0 resize-none border-0 border-b border-copper/40 bg-transparent p-0 text-ink outline-none"
       ref={(el) => {
         if (el && document.activeElement !== el) {
           grow(el);
@@ -860,6 +1168,13 @@ function itemContent(
     : renderInline(t);
 }
 
+// grow a cell editor to its content — a one-line input hid the rest of a long cell
+function fitCell(el: HTMLTextAreaElement | null) {
+  if (!el) return;
+  el.style.height = "auto";
+  el.style.height = `${el.scrollHeight}px`;
+}
+
 // Card-framed table. When editable: click selects a row (shift = range,
 // ctrl/cmd = toggle), ↑/↓ moves the selection, Delete removes it, Escape clears.
 function MdTable(
@@ -880,7 +1195,45 @@ function MdTable(
     null,
   );
   const [draft, setDraft] = useState("");
+  // column being dragged by its header edge, with the live width
+  const [drag, setDrag] = useState<{ ci: number; px: number } | null>(null);
   const base = hdrIdx + 2;
+  const widths = parseTableRow(lines[hdrIdx + 1]).map(colWidth);
+  const widthOf = (ci: number) =>
+    drag?.ci === ci ? drag.px : widths[ci] ?? null;
+  const sized = header.some((_, ci) => widthOf(ci) !== null);
+  // the table needs at least the sum of its columns; autos get a readable share
+  const minW = sized
+    ? header.reduce((t, _, ci) => t + (widthOf(ci) ?? 120), editable ? 76 : 0)
+    : null;
+  const setColWidth = (ci: number, px: number) => {
+    const cells = parseTableRow(lines[hdrIdx + 1]);
+    const cur = (cells[ci] ?? "---").trim();
+    const n = Math.max(4, Math.min(160, Math.round(px / PX_PER_DASH)));
+    cells[ci] = `${cur.startsWith(":") ? ":" : ""}${"-".repeat(n)}${
+      cur.endsWith(":") ? ":" : ""
+    }`;
+    const next = [...lines];
+    next[hdrIdx + 1] = `| ${cells.join(" | ")} |`;
+    ops?.onEdit?.(next.join("\n"));
+  };
+  // drag the right edge of a header cell; commit once, on release
+  const startResize = (ci: number, e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const th = (e.currentTarget as HTMLElement).parentElement as HTMLElement;
+    const x0 = e.clientX, w0 = th.offsetWidth;
+    const at = (ev: PointerEvent) => Math.max(40, w0 + ev.clientX - x0);
+    const move = (ev: PointerEvent) => setDrag({ ci, px: at(ev) });
+    const up = (ev: PointerEvent) => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      setDrag(null);
+      setColWidth(ci, at(ev));
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
+  };
   // comment anchor for a row: its raw line, pipes stripped (see onCommentRow)
   const anchorOf = (ri: number) =>
     lines[base + ri].replaceAll("|", " ").trim().slice(0, 80);
@@ -912,6 +1265,17 @@ function MdTable(
       lines.slice(base, base + rows.length).filter((_, idx) => !sel.has(idx)),
       new Set(),
     );
+  };
+  const rowLines = () => lines.slice(base, base + rows.length);
+  const removeRow = (ri: number) =>
+    apply(rowLines().filter((_, idx) => idx !== ri), new Set());
+  const addRow = () => {
+    apply(
+      [...rowLines(), `| ${header.map(() => "").join(" | ")} |`],
+      new Set(),
+    );
+    setEditing({ ri: rows.length, ci: 0 });
+    setDraft("");
   };
   // rewrite one cell in its raw line; `then` chains Tab-editing into the next cell
   const commitCell = (
@@ -978,8 +1342,34 @@ function MdTable(
   };
 
   return (
-    <div className="md-table-card my-2 overflow-x-auto rounded-lg border border-line bg-block px-3 py-1">
-      <table className="w-full border-collapse text-[0.92em]">
+    <div
+      // wider than the 820px text column (px-8 gutters) → grow into the margins
+      className={`md-table-card group/table my-2 overflow-x-auto rounded-lg border border-line bg-block px-3 py-1 ${
+        editable && minW && minW > 756
+          ? "relative left-1/2 w-[min(1400px,100cqw_-_4rem)] -translate-x-1/2"
+          : ""
+      }`}
+    >
+      <table
+        style={minW ? { minWidth: minW } : undefined}
+        className={`w-full border-collapse text-[0.92em] ${
+          sized ? "table-fixed" : ""
+        }`}
+      >
+        {sized && (
+          <colgroup>
+            {editable && <col style={{ width: 24 }} />}
+            {header.map((_, ci) => (
+              <col
+                key={ci}
+                style={widthOf(ci) !== null
+                  ? { width: widthOf(ci)! }
+                  : undefined}
+              />
+            ))}
+            {editable && <col style={{ width: 52 }} />}
+          </colgroup>
+        )}
         <thead>
           <tr>
             {editable && (
@@ -1005,11 +1395,22 @@ function MdTable(
             {header.map((h, ci) => (
               <th
                 key={ci}
-                className={`border-b border-line px-2.5 py-2 text-[0.8em] font-medium uppercase tracking-wider text-ink-muted ${
+                className={`relative border-b border-line px-2.5 py-2 text-[0.8em] font-medium uppercase tracking-wider text-ink-muted ${
                   align[ci] ?? "text-left"
                 }`}
               >
                 {renderInline(h)}
+                {editable && (
+                  <span
+                    title="Drag to resize this column"
+                    onPointerDown={(e) => startResize(ci, e)}
+                    onClick={(e) => e.stopPropagation()}
+                    onDoubleClick={(e) => e.stopPropagation()}
+                    // the hairline shows on table hover: an invisible grip is
+                    // one nobody finds
+                    className="absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize after:absolute after:inset-y-1 after:left-1/2 after:w-px after:bg-copper/40 after:opacity-0 group-hover/table:after:opacity-100 hover:after:w-0.5 hover:after:bg-copper hover:after:opacity-100"
+                  />
+                )}
               </th>
             ))}
             {editable && <th className="w-0 border-b border-line" />}
@@ -1065,10 +1466,15 @@ function MdTable(
                   >
                     {editing?.ri === ri && editing?.ci === ci
                       ? (
-                        <input
+                        <textarea
                           autoFocus
+                          rows={1}
+                          ref={fitCell}
                           value={draft}
-                          onChange={(e) => setDraft(e.target.value)}
+                          onChange={(e) => {
+                            setDraft(e.target.value);
+                            fitCell(e.target);
+                          }}
                           onBlur={() => {
                             if (editing?.ri === ri && editing?.ci === ci) {
                               commitCell(ri, ci, draft, null);
@@ -1101,7 +1507,8 @@ function MdTable(
                               );
                             }
                           }}
-                          className="w-full min-w-[80px] border-b border-copper/60 bg-transparent font-[inherit] text-ink outline-none"
+                          style={{ font: "inherit" }}
+                          className="block w-full resize-none overflow-hidden border-0 border-b border-copper/60 bg-transparent p-0 text-ink outline-none"
                         />
                       )
                       : renderInline(c)}
@@ -1134,6 +1541,19 @@ function MdTable(
                         )}
                       </button>
                     )}
+                    <button
+                      type="button"
+                      aria-label="Delete this row"
+                      title="Delete this row"
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeRow(ri);
+                      }}
+                      className="rounded px-1 text-[11px] text-ink-muted opacity-0 hover:bg-panel hover:text-blocked group-hover/row:opacity-100"
+                    >
+                      ×
+                    </button>
                   </td>
                 )}
               </tr>
@@ -1141,6 +1561,20 @@ function MdTable(
           })}
         </tbody>
       </table>
+      {editable && (
+        <button
+          type="button"
+          title="Add a row at the end"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            addRow();
+          }}
+          className="my-1 w-full rounded px-2 py-1 text-left text-[0.8em] text-ink-muted opacity-0 hover:bg-panel hover:text-copper group-hover/table:opacity-100"
+        >
+          + Row
+        </button>
+      )}
     </div>
   );
 }
@@ -1173,6 +1607,14 @@ function renderBlocks(
       const code = buf.join("\n");
       if (label.toLowerCase() === "mermaid") {
         out.push(<MermaidBlock key={key++} text={code} />);
+        continue;
+      }
+      if (label.toLowerCase() === "graph") {
+        out.push(<GraphBlock key={key++} text={code} />);
+        continue;
+      }
+      if (label.toLowerCase() === "cards") {
+        out.push(<CardsBlock key={key++} text={code} />);
         continue;
       }
       out.push(

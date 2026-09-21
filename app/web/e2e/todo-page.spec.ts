@@ -208,8 +208,10 @@ test("/fold slash command and {{fold}} accordion on a page", async ({ page, requ
   await page.getByRole("button", { name: "Details" }).click();
   await expect(page.locator("li", { hasText: "hidden detail" })).toBeVisible();
 
-  // the slash menu offers the section utilities
-  await page.locator("li", { hasText: "hidden detail" }).click();
+  // the slash menu offers the section utilities (a bullet block edits line by
+  // line, so its raw markdown — where "/" lives — comes from the ✏️ toolbar)
+  await page.locator("li", { hasText: "hidden detail" }).hover();
+  await page.getByTitle("Raw markdown (edit / export)").click();
   await page.keyboard.press("Control+a");
   await page.keyboard.type("/fol");
   await expect(page.getByText("Folded section")).toBeVisible();

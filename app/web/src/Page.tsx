@@ -743,6 +743,7 @@ const FENCE_LANGS = [
   "bash",
   "json",
   "sql",
+  "graph",
   "mermaid",
 ] as const;
 
@@ -810,6 +811,14 @@ const LANG_LOGOS: Record<(typeof FENCE_LANGS)[number], JSX.Element> = {
     "#699eca",
   ),
   mermaid: brandLogo(SI_MERMAID, "#FF3670"),
+  graph: strokeLogo(
+    <>
+      <rect x="2" y="4" width="7" height="5" rx="1" />
+      <rect x="15" y="15" width="7" height="5" rx="1" />
+      <path d="M9 6.5h4a2 2 0 0 1 2 2v9" />
+    </>,
+    "#c98a63",
+  ),
 };
 
 // Hover toolbar in a block's top-right corner (snippet/image/todo quick actions).
@@ -1403,7 +1412,8 @@ export function BlockEditor(
         e.preventDefault(); // no text selection while dragging
         setDragIdx(i);
       }}
-      className={`absolute left-0.5 top-[2px] w-[18px] overflow-hidden py-1 text-center cursor-grab select-none text-[13px] leading-none text-ink-muted hover:text-ink ${
+      // z-20: a card that grows into the margins (wide table, graph) would cover it
+      className={`absolute left-0.5 top-[2px] z-20 w-[18px] overflow-hidden py-1 text-center cursor-grab select-none text-[13px] leading-none text-ink-muted hover:text-ink ${
         dragIdx === null ? "hidden group-hover:block" : "block"
       }`}
     >
@@ -1463,6 +1473,9 @@ export function BlockEditor(
     const bidOf = (x: Block, j: number) =>
       (isText(x) && x.id) ? x.id : String(j);
     const key = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      // a cell/line editor owns its keys — Backspace there must not eat the block
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
       if (e.key === "Escape") setSelectedId(null);
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
@@ -1858,6 +1871,12 @@ export function BlockEditor(
           /^\s*!\[[^\]]*\]\([^)\s]+\)\s*$/.test(b.text);
         // pipe-table blocks select on click (like images) — raw markdown via ✏️ only
         const isTable = b.type === "text" && /^\s*\|.*\|/.test(b.text);
+        // all-bullet blocks edit line by line (md.tsx EditableItem), keeping the
+        // list rendered — raw markdown via ✏️ only
+        const isList = b.type === "text" && /\S/.test(b.text) &&
+          b.text.split("\n").filter((l) => l.trim()).every((l) =>
+            /^\s*([-*+]|\d+\.)\s+/.test(l)
+          );
         const editCls = isSnippet
           ? "my-1 rounded-md bg-panel px-2 font-mono text-[12px] leading-relaxed text-ink-soft"
           : isImage
@@ -1914,7 +1933,9 @@ export function BlockEditor(
                 // kept mounted (not conditionally excluded) so the sibling textarea below
                 // never shifts position and gets remounted, which would drop its ref/focus
                 style={editing && !isImage ? { display: "none" } : undefined}
-                title={isTable
+                title={isList
+                  ? "Click a line to edit it — ✏️ for raw markdown (export)"
+                  : isTable
                   ? "Double-click a cell to edit — ✏️ for raw markdown (export)"
                   : isSnippet
                   ? "Click selects — double-click or ✏️ to edit"
@@ -1934,6 +1955,15 @@ export function BlockEditor(
                   const onImg = (e.target as HTMLElement).tagName === "IMG";
                   if (isImage || isTable || isSnippet || onImg) {
                     return setSelectedId(bid);
+                  }
+                  if (isList) {
+                    // click anywhere on a line (or past the list) edits that line;
+                    // outside any item, continue on the last one
+                    const li = (e.target as HTMLElement).closest("li");
+                    const spans = (li ?? e.currentTarget)
+                      .querySelectorAll<HTMLElement>("[data-item-edit]");
+                    const hit = spans[spans.length - 1];
+                    if (hit) return hit.click();
                   }
                   setFocusIdx(i);
                 }}
@@ -2378,7 +2408,7 @@ export function BlockEditor(
                   ]}
                 />
               )}
-              {isTable && (
+              {(isTable || isList) && (
                 <CornerToolbar
                   actions={[
                     {
