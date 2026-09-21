@@ -56,6 +56,17 @@ async function subtreePages(db: Q, root: string): Promise<Map<string, Row>> {
   return new Map(rows.map((r) => [String(r.id), r]));
 }
 
+// Rows written before the sync fix hold a JSON *string* in their jsonb column
+// (postgres.js double-encoded it) — read them back as the object they meant.
+function asJson<T>(v: unknown, fallback: T): T {
+  if (typeof v !== "string") return (v ?? fallback) as T;
+  try {
+    return JSON.parse(v) as T;
+  } catch {
+    return fallback;
+  }
+}
+
 // derived columns (formula/rollup/relation) are computed by the app — not here
 const HIDDEN_PROPS = ["formula", "rollup", "relation"];
 
@@ -76,8 +87,13 @@ async function dbPayload(db: Q, dbId: string): Promise<Json | null> {
   return {
     name: meta[0].name,
     icon: meta[0].icon ?? null,
-    props: props.filter((p) => !HIDDEN_PROPS.includes(String(p.type))),
-    rows: rows.map((r) => ({ icon: r.icon ?? null, vals: r.vals ?? {} })),
+    props: props.filter((p) => !HIDDEN_PROPS.includes(String(p.type))).map((
+      p,
+    ) => ({ ...p, config: asJson(p.config, {}) })),
+    rows: rows.map((r) => ({
+      icon: r.icon ?? null,
+      vals: asJson(r.vals, {} as Json),
+    })),
   };
 }
 
@@ -85,12 +101,7 @@ async function dbPayload(db: Q, dbId: string): Promise<Json | null> {
 // `data` (app-side state, possibly sensitive), folder blocks are local-filesystem
 // views (private paths) and vanish entirely, unknown types are dropped.
 function sanitizeBlocks(content: unknown, inScope: Set<string>): Json[] {
-  let blocks: Json[] = [];
-  try {
-    blocks = typeof content === "string"
-      ? JSON.parse(content)
-      : (content as Json[]) ?? [];
-  } catch { /* unreadable content — render the shell */ }
+  const blocks = asJson<Json[]>(content, []);
   const out: Json[] = [];
   for (const b of blocks) {
     const id = typeof b?.id === "string" ? { id: b.id } : {};

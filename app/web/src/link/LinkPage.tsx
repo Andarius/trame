@@ -2,11 +2,11 @@
 // Markdown blocks, todo rows, {{tab}} strips / {{fold}} accordions, database
 // tables — without any editing affordances. Data comes fully resolved from the
 // hub (window.__TRAME_LINK__); the only requests this page makes are its assets.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Markdown } from "../md";
 import { ExpandIcon } from "../ui";
 import { BRIDGE } from "../HtmlBlock";
-import { fmtNumber, OptionChip } from "../udb/cells";
+import { ColumnRanges, NumberViz, OptionChip } from "../udb/cells";
 import { blocksToMarkdown } from "../page-serialize";
 import type { PropConfig, SelectOption } from "../api";
 
@@ -52,13 +52,13 @@ function Cell({ p, v }: { p: LinkProp; v: unknown }) {
     return v ? <span className="text-active">✓</span> : null;
   }
   if (p.type === "number") {
-    return <span>{fmtNumber(v, p.config ?? {})}</span>;
+    return <NumberViz value={v} cfg={p.config ?? {}} propId={p.id} />;
   }
   if (p.type === "date" && typeof v === "object") {
     const d = v as { start?: string; end?: string };
     return <span>{d.start}{d.end ? ` → ${d.end}` : ""}</span>;
   }
-  if (p.type === "select" || p.type === "multiselect") {
+  if (p.type === "select" || p.type === "multi_select") {
     const ids = Array.isArray(v) ? v : [v];
     const opts = (p.config?.options ?? []) as SelectOption[];
     return (
@@ -86,42 +86,63 @@ function Cell({ p, v }: { p: LinkProp; v: unknown }) {
 }
 
 function DbTable({ db }: { db: LinkDb }) {
+  // same auto ranges as DatabaseTable, so scale-colored numbers match the app
+  const ranges = useMemo(() => {
+    const out: Record<string, { min: number; max: number }> = {};
+    for (const p of db.props) {
+      if (p.config?.color_mode !== "scale") continue;
+      const ns = db.rows.map((r) => Number((r.vals ?? {})[p.id])).filter((n) =>
+        Number.isFinite(n)
+      );
+      if (ns.length) out[p.id] = { min: Math.min(...ns), max: Math.max(...ns) };
+    }
+    return out;
+  }, [db]);
   return (
-    <div className="my-2 overflow-x-auto rounded-lg border border-line bg-block px-3 py-1">
-      <div className="pt-2 text-[12.5px] font-medium text-ink">
-        {db.icon ? `${db.icon} ` : ""}
-        {db.name}
-      </div>
-      <table className="w-full border-collapse text-[12.5px]">
-        <thead>
-          <tr>
-            {db.props.map((p) => (
-              <th
-                key={p.id}
-                className="border-b border-line px-2.5 py-2 text-left text-[0.8em] font-medium uppercase tracking-wider text-ink-muted"
-              >
-                {p.name}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {db.rows.map((r, ri) => (
-            <tr key={ri} className="border-b border-line-soft/50 last:border-0">
-              {db.props.map((p, ci) => (
-                <td
+    <ColumnRanges.Provider value={ranges}>
+      {/* breakout: a table is wider than the prose column (mirrors Page.tsx) */}
+      <div
+        className="relative left-1/2 my-2 -translate-x-1/2 overflow-x-auto rounded-lg border border-line bg-block px-3 py-1"
+        style={{ width: "min(1400px, 100vw - 3rem)" }}
+      >
+        <div className="pt-2 text-[12.5px] font-medium text-ink">
+          {db.icon ? `${db.icon} ` : ""}
+          {db.name}
+        </div>
+        <table className="w-full border-collapse text-[12.5px]">
+          <thead>
+            <tr>
+              {db.props.map((p) => (
+                <th
                   key={p.id}
-                  className="px-2.5 py-1.5 align-top text-ink-soft"
+                  className="border-b border-line px-2.5 py-2 text-left text-[0.8em] font-medium uppercase tracking-wider text-ink-muted"
                 >
-                  {ci === 0 && r.icon ? `${r.icon} ` : ""}
-                  <Cell p={p} v={(r.vals ?? {})[p.id]} />
-                </td>
+                  {p.name}
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {db.rows.map((r, ri) => (
+              <tr
+                key={ri}
+                className="border-b border-line-soft/50 last:border-0"
+              >
+                {db.props.map((p, ci) => (
+                  <td
+                    key={p.id}
+                    className="px-2.5 py-1.5 align-top text-ink-soft"
+                  >
+                    {ci === 0 && r.icon ? `${r.icon} ` : ""}
+                    <Cell p={p} v={(r.vals ?? {})[p.id]} />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </ColumnRanges.Provider>
   );
 }
 
