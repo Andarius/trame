@@ -51,9 +51,26 @@ await pg.query(
   `insert into udb_properties (id, db_id, name, type, sort_key, origin) values ($1, $2, 'Title', 'title', 'a0', 't')`,
   [PROP, DB_ID],
 );
+const SELECT_PROP = "00000000-0000-4000-8000-0000000000f7";
+await pg.query(
+  `insert into udb_properties (id, db_id, name, type, config, sort_key, origin)
+   values ($1, $2, 'Stage', 'select', $3, 'a1', 't')`,
+  [
+    SELECT_PROP,
+    DB_ID,
+    JSON.stringify({
+      options: [{ id: "o1", name: "doing", color: "#fff" }],
+    }),
+  ],
+);
 await pg.query(
   `insert into udb_rows (db_id, vals, sort_key, origin) values ($1, $2, 'a0', 't')`,
-  [DB_ID, JSON.stringify({ [PROP]: "first task" })],
+  [DB_ID, JSON.stringify({ [PROP]: "first task", [SELECT_PROP]: "o1" })],
+);
+// legacy row: postgres.js stored the JSON as a jsonb *string* (see links.ts asJson)
+await pg.query(
+  `insert into udb_rows (db_id, vals, sort_key, origin) values ($1, to_jsonb($2::text), 'a1', 't')`,
+  [DB_ID, JSON.stringify({ [PROP]: "double-encoded" })],
 );
 await pg.query(
   `insert into page_comments (page_id, block_id, body, origin) values ($1, 'b', 'INTERNAL COMMENT', 't')`,
@@ -84,6 +101,13 @@ Deno.test("a valid link ships the page payload, database and viewer entry", asyn
   assertEquals(p.blocks[0], { type: "heading", text: "Q3 {{tab}}" });
   assertEquals(p.blocks[1], { type: "todo", text: "ship links", done: true });
   assertEquals(p.databases[DB_ID].rows[0].vals[PROP], "first task");
+  // both the live shape and a double-encoded legacy row reach the viewer as values
+  assertEquals(p.databases[DB_ID].rows[1].vals[PROP], "double-encoded");
+  assertEquals(
+    p.databases[DB_ID].props[1].config.options[0].name,
+    "doing",
+    "select options parsed, so the viewer can chip them",
+  );
   assertEquals(p.attached, [DB_ID]);
   assertEquals(p.children, [{ id: SUB, title: "Sub Plan", icon: null }]);
   assertEquals(p.subpages[SUB].title, "Sub Plan");
