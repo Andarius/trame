@@ -14,5 +14,6 @@
     "allowImportingTsExtensions": true,
     "types": []
   },
-  "include": ["src", "../todo-marks.ts"]
+  "include": ["src", "../todo-marks.ts"],
+  "exclude": ["src/**/*_test.ts"]
 }

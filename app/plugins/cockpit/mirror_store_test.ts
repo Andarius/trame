@@ -559,8 +559,8 @@ Deno.test("tag sync resolves labels, excludes routing tags, and follows session 
   const items = await loadTagSyncItems([mapping(project)]);
   assertEquals(items.map((item) => [item.reference, item.tags]).sort(), [[
     "GEN-811",
-    ["Customer label"],
-  ], ["US-810", ["priority:P1"]]]);
+    ["Customer label", "trame"],
+  ], ["US-810", ["priority:P1", "trame"]]]);
   const pg = await db();
   const tag = (await pg.query(`select id from tags where key='customer-label'`))
     .rows[0] as { id: string };
@@ -569,21 +569,21 @@ Deno.test("tag sync resolves labels, excludes routing tags, and follows session 
     (await loadTagSyncItems([mapping(project)])).find((item) =>
       item.reference === "GEN-811"
     )?.tags,
-    ["Renamed label"],
+    ["Renamed label", "trame"],
   );
   await deleteTag(tag.id);
   assertEquals(
     (await loadTagSyncItems([mapping(project)])).find((item) =>
       item.reference === "GEN-811"
     )?.tags,
-    [],
+    ["trame"],
   );
   await updatePage(story, { tags: [TAG] });
   assertEquals(
     (await loadTagSyncItems([mapping(project)])).find((item) =>
       item.reference === "US-810"
     )?.tags,
-    [],
+    ["trame"],
   );
 });
 

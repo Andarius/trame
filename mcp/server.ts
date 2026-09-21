@@ -6,7 +6,7 @@ import { StdioServerTransport } from "npm:@modelcontextprotocol/sdk@^1.12/server
 import { z } from "npm:zod@^3.24";
 import { PORT_FILE } from "../app/config.ts";
 import { HTML_BLOCK_MAX_BYTES } from "../protocol/html.ts";
-import { PAGE_DIALECT, SPECS_WHEN, TODO_SYNTAX } from "../track/help.ts";
+import { GRAPH_FENCE, PAGE_DIALECT, SPECS_WHEN, TODO_SYNTAX } from "../track/help.ts";
 // the page/comment tools delegate to the tramecli writers, so both surfaces share
 // one implementation (markdown conversion, block merge, resolution, attribution)
 import { writePage } from "../track/page.ts";
@@ -107,6 +107,9 @@ As an agent you can:
 
 ## Page Markdown dialect
 ${PAGE_DIALECT}
+
+## Graph fences
+${GRAPH_FENCE}
 
 ## Todo lines
 ${TODO_SYNTAX}
@@ -236,7 +239,7 @@ server.tool(
 
 server.tool(
   "trame_create_page",
-  "Create a new Trame page/document from Markdown. Use this instead of putting a document into a session card. The page is filed under the project owning repo_path (pass the working directory; the server falls back to its own) — pass parent_id only to nest it somewhere else, e.g. under another page (trame_board lists projects and pages). The Markdown dialect (tab/fold section headings, todos, pills, mermaid, PR chips) is listed by trame_capabilities.",
+  "Create a new Trame page/document from Markdown. Use this instead of putting a document into a session card. The page is filed under the project owning repo_path (pass the working directory; the server falls back to its own) — pass parent_id only to nest it somewhere else, e.g. under another page (trame_board lists projects and pages). The Markdown dialect (tab/fold section headings, todos, pills, KPI cards, graph/mermaid diagrams, PR chips) is listed by trame_capabilities.",
   {
     title: z.string(),
     markdown: z.string().optional(),

@@ -22,8 +22,11 @@ export const PAGE_DIALECT =
 bullets under a Completed/Done/Shipped heading render as checks, under
 Open/Todo/Next/Pending/Remaining/In progress/Blocked as open rings, with a one-click
 toggle between the two; \`{{text}}\` is a pill (\`{{green:…}}\` tints it:
-green|yellow|red|copper|gray); a \`mermaid\` fence renders as a diagram and other
-fences highlight python/ts/js/bash/json/sql; PR/MR links become live PR chips,
+green|yellow|red|copper|gray); a \`graph\` fence draws an architecture diagram
+(see below) and a \`mermaid\` fence a mermaid one; a \`cards\` fence renders a KPI
+row, one \`value | label\` per line with an optional trailing
+\`| green|yellow|red|copper|gray\` to tint a card; other fences highlight
+python/ts/js/bash/json/sql; PR/MR links become live PR chips,
 \`#123\` an issue ref, \`![alt](url)\` an inline image; GFM tables render as
 interactive cards; a line that is only \`{{trame:folder=<path>}}\` becomes a live
 listing of that directory (\`{{trame:view=gallery}}\` after it shows HTML files as
@@ -31,6 +34,38 @@ thumbnails) — the path must sit under one of Trame's Explore roots, or the blo
 lists nothing. A leading \`# Title\` equal to the page title is dropped. No raw
 HTML or HTML entities — \`&middot;\` renders literally; write Unicode characters
 (·, —, …) directly.`;
+
+// `graph` fences — the diagram dialect, drawn natively (no mermaid).
+export const GRAPH_FENCE =
+  `A \`graph\` fence is one edge per line, left to right; columns come from the edges
+(a node sits one column right of its furthest source), so only write the flow:
+
+  \`\`\`graph
+  web[Web app|SPA · REST] -> api[API|granian] : REST + SSE
+  cli[CLI] -> api : REST
+  api -> pg[PostgreSQL|queue · events] : NOTIFY
+  pg -> worker[Workers ×N] : LISTEN
+  worker -> vm[Sandbox VM|no network] : sbx exec
+
+  step Create: web>api, api>pg
+    Alice submits the task.
+
+    The API inserts it and NOTIFYs a worker, which claims it and starts.
+    > What the console shows while it happens.
+  step Stream: pg>worker, worker>vm
+    The worker streams the agent's output back over SSE.
+  \`\`\`
+
+\`id[Title|subtitle]\` names a node the first time it appears (bare \`id\` after that);
+\`: text\` after the target labels the edge. A \`step\` line is one beat of a lifecycle:
+clicking it dims everything but the nodes and \`from>to\` edges it lists (a bare id
+lights a node on its own). Lines indented under a step are that beat's prose, shown in
+a card under the diagram and driven by the same selection: the first paragraph is the
+scenario line, the rest the detail, and \`> …\` lines become the card's side panel
+(inline markdown works throughout). The card carries ← Previous / Next → nav, so the
+steps read as a lifecycle. A lifecycle with prose opens on beat 1; without prose the
+whole diagram shows. Steps are optional — leave them out for a plain diagram.
+Lines starting with \`//\` are comments.`;
 
 // Todo lines: the dated marks the app keeps on `- [ ]`/`- [x]` items.
 export const TODO_SYNTAX =
@@ -153,6 +188,10 @@ Requires the running Trame app (page writes are not queued).
 Markdown dialect:
 
 ${PAGE_DIALECT}
+
+Graph fences:
+
+${GRAPH_FENCE}
 
 Todo lines:
 

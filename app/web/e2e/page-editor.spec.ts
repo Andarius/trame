@@ -19,6 +19,9 @@ const TITLES = [
   "Editor undo e2e",
   "Editor insert e2e",
   "Editor tab e2e",
+  "Editor table rows e2e",
+  "Editor list inline e2e",
+  "Editor table width e2e",
 ];
 
 // retry-safe: wipe our fixture pages so a re-run starts clean
@@ -118,6 +121,100 @@ test("{{pill}} syntax renders tinted chips in table cells", async ({ page, reque
   // unknown "word:" prefixes stay in the text and fall back to the neutral pill
   const gray = page.locator("td span.rounded-md", { hasText: "ops: core" });
   await expect(gray).toHaveClass(/text-ink-soft/);
+});
+
+test("table rows can be added, edited full-width and deleted", async ({ page, request }) => {
+  const pageId = await newPage(request, "Editor table rows e2e", [
+    {
+      id: crypto.randomUUID(),
+      type: "text",
+      text: "| Path | Note |\n| --- | --- |\n| one | short |",
+    },
+  ]);
+  await page.goto(`/?view=page&page=${pageId}`);
+  await expect(page.locator("td", { hasText: "one" })).toBeVisible();
+
+  await page.getByRole("button", { name: "+ Row" }).click();
+  const editor = page.locator("td textarea");
+  await editor.fill("a much longer value than the column is wide, on purpose");
+  // the editor grows to its content instead of clipping it to one line
+  expect(
+    await editor.evaluate((el) => el.scrollHeight <= el.clientHeight + 1),
+  ).toBe(true);
+  await editor.press("Enter");
+  await expect(page.locator("td", { hasText: "much longer value" })).toBeVisible();
+
+  // Backspace inside a cell edits the text — it must not delete the selected block
+  await page.locator("td", { hasText: "short" }).dblclick();
+  await page.locator("td textarea").press("Backspace");
+  await page.locator("td textarea").press("Enter");
+  await expect(page.locator("td", { hasText: "shor" })).toBeVisible();
+  await expect(page.locator("table")).toBeVisible();
+
+  const row = page.locator("tbody tr", { hasText: "much longer value" });
+  await row.hover();
+  await row.getByRole("button", { name: "Delete this row" }).click();
+  await expect(page.locator("td", { hasText: "much longer value" })).toHaveCount(0);
+  await expect(page.locator("td", { hasText: "one" })).toBeVisible();
+});
+
+test("clicking a bullet block edits the line, not the whole block as raw", async ({ page, request }) => {
+  const id = await newPage(request, "Editor list inline e2e", [
+    {
+      id: crypto.randomUUID(),
+      type: "text",
+      text: "- **one** alpha\n- **two** beta\n- **three** gamma",
+    },
+  ]);
+  await page.goto(`/?view=page&page=${id}`);
+  const last = page.locator("li", { hasText: "gamma" });
+  await expect(last).toBeVisible();
+
+  // clicking past the end of a line edits that line in place — the rest of the
+  // list keeps its bullets and bold instead of flipping to markdown source
+  const box = (await last.boundingBox())!;
+  await page.mouse.click(box.x + box.width - 8, box.y + box.height / 2);
+  await expect(page.locator("li textarea")).toHaveValue("**three** gamma");
+  await expect(page.locator("li strong", { hasText: "one" })).toBeVisible();
+
+  // raw markdown stays one click away, in the block's hover toolbar
+  await page.keyboard.press("Escape");
+  await last.hover();
+  await page.getByTitle("Raw markdown (edit / export)").click();
+  await expect(page.locator("li strong", { hasText: "one" })).toBeHidden();
+  await expect(page.locator("textarea")).toHaveValue(
+    "- **one** alpha\n- **two** beta\n- **three** gamma",
+  );
+});
+
+test("a dragged column keeps its width and widens the table", async ({ page, request }) => {
+  const id = await newPage(request, "Editor table width e2e", [
+    {
+      id: crypto.randomUUID(),
+      type: "text",
+      text: "| Step | When | Who | Detail |\n|---|---|---|---|\n| one | now | them | a rather long sentence that wraps in a narrow column |",
+    },
+  ]);
+  await page.goto(`/?view=page&page=${id}`);
+  const th = page.locator("th", { hasText: "Detail" });
+  const before = (await th.boundingBox())!;
+
+  const grip = th.locator("span[title='Drag to resize this column']");
+  const g = (await grip.boundingBox())!;
+  await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(g.x + 300, g.y + g.height / 2, { steps: 10 });
+  await page.mouse.up();
+  expect((await th.boundingBox())!.width).toBeGreaterThan(before.width + 200);
+
+  // the width rides in the separator row, so it survives a reload
+  await expect.poll(async () =>
+    (await (await request.get(`/api/pages/${id}`)).json()).content[0].text
+  ).toMatch(/\|\s-{20,}\s\|/);
+  await page.reload();
+  await expect(page.locator("th", { hasText: "Detail" })).toBeVisible();
+  expect((await page.locator("th", { hasText: "Detail" }).boundingBox())!.width)
+    .toBeGreaterThan(before.width + 200);
 });
 
 test("remote edits appear live, but never over local typing", async ({ page, request }) => {

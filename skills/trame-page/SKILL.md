@@ -43,13 +43,31 @@ Never use session-card fields as a substitute for a requested document or page r
 
 ## Markdown dialect
 
-Trame renders GFM plus page extensions — `{{tab}}`/`{{fold}}` section headings,
-checkable todos, status lists, `{{<color>:<text>}}` pills (`{{green:done}}`; color is
-green|yellow|red|copper|gray and comes first — `{{color:green}}` is not a pill),
-mermaid diagrams, highlighted code fences, live PR chips, interactive tables,
-`{{trame:folder=…}}` directory listings; no raw HTML or entities. Run
-`tramecli page --help` for the full dialect before composing, and use the
-extensions instead of flattening structure into plain prose.
+Trame renders GFM plus page extensions — use them instead of flattening structure
+into plain prose. `tramecli page --help` carries the full dialect; the essentials:
+
+- `## Title {{tab}}` groups the blocks below into a tab strip (consecutive markers =
+  one strip), `## Title {{fold}}` into a collapsible section.
+- `- [ ]`/`- [x]` are checkable todos (dates below); bullets under an
+  Open/Todo/Next/Blocked heading render as rings, under Completed/Done as checks.
+- `{{<color>:<text>}}` is a pill (`{{green:done}}`) — the color comes first and is
+  green|yellow|red|copper|gray.
+- A `cards` fence is a KPI row: one `value | label` per line, optional trailing
+  `| <color>`. Open any numbers-first write-up (weekly report, status page, review)
+  with one instead of burying the figures in a sentence.
+- A `graph` fence draws an architecture diagram (stepped lifecycles included), a
+  `mermaid` fence anything else; other fences highlight python/ts/js/bash/json/sql.
+- GFM tables render as interactive cards, full PR/MR URLs as live PR chips,
+  `![alt](url)` as an inline image, `{{trame:folder=…}}` as a directory listing.
+- No raw HTML or entities — write Unicode characters (·, —, …) directly.
+
+````markdown
+```cards
+154 | PRs merged | green
+1 | P0 incident open | red
+−1 011 €/month | legacy bill | copper
+```
+````
 
 ## Todo lines
 
