@@ -276,3 +276,96 @@ test("grouped grid shows whole-group counts under pagination", async ({ page, re
 
   await request.post(`/api/udb/${id}/delete`, { data: {} });
 });
+
+test("the ＋ menu creates a Chart view that draws without configuration", async ({ page, request }) => {
+  const { id } =
+    await (await request.post("/api/udb", { data: { name: "ChartMenu DB" } }))
+      .json();
+  const titleId = (await (await request.get(`/api/udb/${id}`)).json())
+    .properties.find((p: { type: string }) => p.type === "title").id;
+  const statusId = (await (await request.post(`/api/udb/${id}/props`, {
+    data: {
+      name: "Status",
+      type: "select",
+      config: {
+        options: [
+          { id: "st000001", name: "Todo", color: "#7a9ee7" },
+          { id: "st000002", name: "Done", color: "#7bd88f" },
+        ],
+      },
+    },
+  })).json()).id;
+  for (const [t, s] of [["a", "st000001"], ["b", "st000001"], ["c", "st000002"]] as const) {
+    await request.post(`/api/udb/${id}/rows`, {
+      data: { vals: { [titleId]: t, [statusId]: s } },
+    });
+  }
+  await page.goto("/?view=database");
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.getByRole("button", { name: "ChartMenu DB" }).click();
+
+  // a fresh chart counts rows per select group — no numeric column needed
+  await page.getByTitle("new view").click();
+  await page.getByRole("button", { name: /Chart view/ }).click();
+  await expect(page.locator(".recharts-surface").first()).toBeVisible();
+  await expect(page.locator(".recharts-bar-rectangle")).toHaveCount(2);
+  // the numbers behind the marks are on the page too
+  await expect(page.getByRole("cell", { name: "Todo" })).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: /Count/ })).toBeVisible();
+  // a chart view is read-only
+  await expect(page.getByRole("button", { name: "＋ New row" })).toHaveCount(0);
+
+  await request.post(`/api/udb/${id}/delete`, { data: {} });
+});
+
+test("a chart view saved on the hub is adopted and survives a reload", async ({ page, request }) => {
+  const { id } =
+    await (await request.post("/api/udb", { data: { name: "ChartHub DB" } }))
+      .json();
+  const titleId = (await (await request.get(`/api/udb/${id}`)).json())
+    .properties.find((p: { type: string }) => p.type === "title").id;
+  const ptsId = (await (await request.post(`/api/udb/${id}/props`, {
+    data: { name: "Pts", type: "number" },
+  })).json()).id;
+  for (const [t, n] of [["A", 10], ["B", 20], ["C", 30]] as const) {
+    await request.post(`/api/udb/${id}/rows`, {
+      data: { vals: { [titleId]: t, [ptsId]: n } },
+    });
+  }
+  await request.post(`/api/udb/${id}`, {
+    data: {
+      views: {
+        tabs: [{
+          id: "chart-1",
+          name: "Trend",
+          config: {
+            sorts: [],
+            filters: [],
+            chart: {
+              kind: "line",
+              x: null, // one point per row
+              series: [{ propId: ptsId, agg: "sum" }],
+            },
+          },
+        }],
+        active: "chart-1",
+      },
+    },
+  });
+
+  await page.goto("/?view=database");
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.getByRole("button", { name: "ChartHub DB" }).click();
+  await expect(page.getByRole("button", { name: /Trend/ })).toBeVisible();
+  await expect(page.locator(".recharts-line")).toHaveCount(1);
+  await expect(page.getByRole("cell", { name: "30", exact: true })).toBeVisible();
+
+  // the config round-trips through localStorage on the next visit
+  await page.reload();
+  await page.getByRole("button", { name: "ChartHub DB" }).click();
+  await expect(page.locator(".recharts-line")).toHaveCount(1);
+
+  await request.post(`/api/udb/${id}/delete`, { data: {} });
+});

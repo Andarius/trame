@@ -100,6 +100,12 @@ the column. `tramecli db` prints the whole contract: every column type, its conf
 cell shape, the number block (format, unit, show_as, color_mode) and
 relations/formulas/rollups.
 
+A database can also be **charted** — bar, line or pie over its own rows, drawn live
+and read-only. Save a view tab with `POST /api/udb/<db> {views}`; the chart config
+(kind, the column to group by, the measures) is in the same `tramecli db` contract.
+That is how a numbers-heavy page gets a picture: attach the database, then give it a
+chart view — do not hand-draw one.
+
 ## Update a page
 
 Use only for revising a page this agent (or its workflow) authored — e.g. publishing
