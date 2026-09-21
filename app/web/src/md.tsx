@@ -24,6 +24,7 @@ import {
   type SessionEvent,
 } from "./api";
 import { Modal, Popover, statusStyle, timeAgo } from "./ui";
+import { CARD_COLORS, parseCards } from "./cards";
 import { type EdgeGeo, edgeGeometry, parseGraph } from "./graph";
 
 // ```mermaid fences render as diagrams. The lib (~1.5 MB) is dynamically imported so
@@ -312,30 +313,9 @@ function GraphBlock({ text }: { text: string }) {
   );
 }
 
-// A trailing `| <color>` tints a card. Full class strings so Tailwind sees them; the
-// value inherits the text color, the label stays muted.
-const CARD_COLORS: Record<string, string> = {
-  green: "border-active/40 bg-active/[0.07] text-active",
-  yellow: "border-paused/40 bg-paused/[0.07] text-paused",
-  red: "border-blocked/40 bg-blocked/[0.07] text-blocked",
-  copper: "border-copper/40 bg-copper/[0.07] text-copper",
-  gray: "border-chipline bg-panel text-ink",
-};
-
-// ```cards fences render a KPI row: one `value | label` per line, plus an optional
-// `| <color>`. Inline markdown works throughout, so pills and links come for free.
+// ```cards fences render a KPI row — the palette and the parse live in cards.ts.
 function CardsBlock({ text }: { text: string }) {
-  const cards = text.split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l && !l.startsWith("//"))
-    .map((l) => {
-      const parts = l.split("|").map((x) => x.trim());
-      const color = parts.length > 1 && parts[parts.length - 1] in CARD_COLORS
-        ? parts.pop()!
-        : null;
-      const [value, ...rest] = parts;
-      return { value, label: rest.join(" | "), color };
-    });
+  const cards = parseCards(text);
   return (
     <div className="my-2 flex flex-wrap gap-2">
       {cards.map((c, i) => (

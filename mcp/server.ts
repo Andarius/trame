@@ -239,7 +239,7 @@ server.tool(
 
 server.tool(
   "trame_create_page",
-  "Create a new Trame page/document from Markdown. Use this instead of putting a document into a session card. The page is filed under the project owning repo_path (pass the working directory; the server falls back to its own) — pass parent_id only to nest it somewhere else, e.g. under another page (trame_board lists projects and pages). The Markdown dialect (tab/fold section headings, todos, pills, KPI cards, graph/mermaid diagrams, PR chips) is listed by trame_capabilities.",
+  "Create a new Trame page/document from Markdown. Use this instead of putting a document into a session card. The page is filed under the project owning repo_path (pass the working directory; the server falls back to its own) — pass parent_id only to nest it somewhere else, e.g. under another page (trame_board lists projects and pages). See trame_capabilities for the page Markdown dialect.",
   {
     title: z.string(),
     markdown: z.string().optional(),
