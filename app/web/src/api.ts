@@ -105,6 +105,11 @@ export const getReports = () =>
   fetch("/api/reports").then((r) => r.json() as Promise<ReportMeta[]>);
 export const getReport = (id: string) =>
   fetch(`/api/reports/${id}`).then((r) => r.json() as Promise<Report>);
+// unpublish — soft deletes the row, the list refetch drops it
+export const deleteReport = (id: string) =>
+  post(`/api/reports/${id}/delete`, {}).then((r) =>
+    r.json() as Promise<{ ok: boolean }>
+  );
 export const getEvents = (id: string) =>
   fetch(`/api/sessions/${id}/events`).then((r) =>
     r.json() as Promise<SessionEvent[]>

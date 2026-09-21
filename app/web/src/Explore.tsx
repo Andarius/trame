@@ -1,6 +1,7 @@
 import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   type BoardData,
+  deleteReport,
   deleteReportFile,
   type FileHit,
   getReport,
@@ -26,6 +27,7 @@ type Selected = {
 
 const HOME_RE = /^\/home\/[^/]+\/|^\/Users\/[^/]+\//;
 // section headers share the folder "collapsed" set under sentinel keys
+const SEC_STARRED = "§starred";
 const SEC_PUBLISHED = "§published";
 const SEC_FILES = "§files";
 
@@ -52,7 +54,7 @@ export function Explore(
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Selected | null>(null);
   const [selKey, setSelKey] = useState("");
-  const [multi, setMulti] = useState<Set<string>>(new Set()); // extra file paths (ctrl/shift-click)
+  const [multi, setMulti] = useState<Set<string>>(new Set()); // extra selKeys (ctrl/shift-click)
   const [refreshing, setRefreshing] = useState(false);
   const [starred, setStarred] = useState<string[]>([]);
   const [roots, setRoots] = useState<string[]>([]);
@@ -101,8 +103,9 @@ export function Explore(
     setHtmlFilter(next);
     patchSettings({ htmlFilter: next }).then(() => load(true));
   };
-  const toggleStar = (dir: string) => {
-    const next = starred.includes(dir) ? starred.filter((d) => d !== dir) : [...starred, dir];
+  // one list for starred folders, files and reports (reports keyed "db:<id>")
+  const toggleStar = (key: string) => {
+    const next = starred.includes(key) ? starred.filter((d) => d !== key) : [...starred, key];
     setStarred(next);
     patchSettings({ starredPaths: next });
   };
@@ -119,32 +122,37 @@ export function Explore(
       .then(() => load(true));
   };
 
-  const selectDb = (r: ReportMeta) => {
+  // ctrl/⌘ toggles a row, shift extends from the current one (display order)
+  const multiPick = (key: string, e?: MouseEvent) => {
+    if (e?.ctrlKey || e?.metaKey) {
+      setMulti((prev) => {
+        const next = new Set(prev);
+        if (selKey) next.add(selKey);
+        next.has(key) ? next.delete(key) : next.add(key);
+        return next;
+      });
+      return true;
+    }
+    if (e?.shiftKey && selKey) {
+      const list = flatRef.current.map((f) => f.key);
+      const [a, b] = [list.indexOf(selKey), list.indexOf(key)].sort((x, y) => x - y);
+      if (a >= 0) {
+        setMulti(new Set(list.slice(a, b + 1)));
+        return true;
+      }
+    }
     setMulti(new Set());
+    return false;
+  };
+  const selectDb = (r: ReportMeta, e?: MouseEvent) => {
+    if (multiPick(`db:${r.id}`, e)) return;
     setSelKey(`db:${r.id}`);
     getReport(r.id).then((full) =>
       setSelected({ kind: "db", id: r.id, title: full.title, date: full.created_at, html: full.html })
     );
   };
   const selectFile = (f: FileHit, e?: MouseEvent) => {
-    if (e?.ctrlKey || e?.metaKey) {
-      setMulti((prev) => {
-        const next = new Set(prev);
-        if (selKey.startsWith("file:")) next.add(selKey.slice(5));
-        next.has(f.path) ? next.delete(f.path) : next.add(f.path);
-        return next;
-      });
-      return;
-    }
-    if (e?.shiftKey && selKey.startsWith("file:")) {
-      const list = visibleRef.current.map((v) => v.path);
-      const [a, b] = [list.indexOf(selKey.slice(5)), list.indexOf(f.path)].sort((x, y) => x - y);
-      if (a >= 0) {
-        setMulti(new Set(list.slice(a, b + 1)));
-        return;
-      }
-    }
-    setMulti(new Set());
+    if (multiPick(`file:${f.path}`, e)) return;
     setSelKey(`file:${f.path}`);
     getReportFileContent(f.path).then(async (c) => {
       // .excalidraw is JSON — pre-render to static SVG (the iframe sandbox blocks scripts)
@@ -180,6 +188,9 @@ export function Explore(
     const isExcalidraw = f.name.endsWith(".excalidraw");
     return kindFilter === "excalidraw" ? isExcalidraw : !isExcalidraw;
   });
+
+  const starredReports = shownReports.filter((r) => starred.includes(`db:${r.id}`));
+  const starredFiles = shownFiles.filter((f) => starred.includes(f.path));
 
   // folder tree under the configured roots — single-child chains are merged
   // ("reports/2026"), starred folders pinned first, then freshest-first
@@ -249,6 +260,8 @@ export function Explore(
     });
 
   // search forces every section and folder open
+  const isActive = (key: string) => selKey === key || multi.has(key);
+  const starOpen = !!needle || !collapsed.has(SEC_STARRED);
   const pubOpen = !!needle || !collapsed.has(SEC_PUBLISHED);
   const filesOpen = !!needle || !collapsed.has(SEC_FILES);
 
@@ -264,8 +277,6 @@ export function Explore(
     for (const n of tree) walk(n);
     return out;
   }, [tree, collapsed, needle, filesOpen]);
-  const visibleRef = useRef(visibleFiles);
-  visibleRef.current = visibleFiles;
 
   // ↑/↓ moves the selection through the visible list (reports then files, display order)
   const flat = [
@@ -315,18 +326,31 @@ export function Explore(
     openInBrowser(target);
   };
 
-  // delete the selected FILE(s) (button or Suppr key) — trash when available, neighbor selected after
+  // current selection, one or many (ctrl/shift-click)
+  const picked = multi.size ? [...multi] : selKey ? [selKey] : [];
+  const pickedPaths = picked.filter((k) => k.startsWith("file:")).map((k) => k.slice(5));
+  const pickedReports = picked.filter((k) => k.startsWith("db:")).map((k) => k.slice(3));
+
+  // delete the selected file(s) (trash when available) and unpublish the selected
+  // report(s) — button or Suppr key; a neighbor is selected after
   const deleteCurrent = async () => {
-    const paths = multi.size ? [...multi] : selected?.kind === "file" && selected.path ? [selected.path] : [];
-    if (!paths.length) return;
-    const what = paths.length === 1 ? selected?.title ?? paths[0] : `${paths.length} files`;
-    if (!(await appConfirm(`Delete ${what}?\n(moved to the system trash when available)`))) return;
+    const total = pickedPaths.length + pickedReports.length;
+    if (!total) return;
+    const what = total === 1 ? selected?.title ?? picked[0] : `${total} items`;
+    const verb = pickedPaths.length ? "Delete" : "Unpublish";
+    const note = pickedPaths.length ? "\n(files are moved to the system trash when available)" : "";
+    if (!(await appConfirm(`${verb} ${what}?${note}`, verb))) return;
     const list = flatRef.current;
     const idx = list.findIndex((f) => f.key === selKeyRef.current);
-    const neighbor = list.slice(idx + 1).find((f) => !paths.includes(f.key.slice(5))) ??
-      list.slice(0, idx).reverse().find((f) => !paths.includes(f.key.slice(5))) ?? null;
-    Promise.all(paths.map((p) => deleteReportFile(p))).then((rs) => {
-      if (!rs.some((r) => r.ok)) return;
+    const gone = new Set(picked);
+    const neighbor = list.slice(idx + 1).find((f) => !gone.has(f.key)) ??
+      list.slice(0, idx).reverse().find((f) => !gone.has(f.key)) ?? null;
+    Promise.all([
+      ...pickedPaths.map((p) => deleteReportFile(p).then((r) => r.ok)),
+      ...pickedReports.map((id) => deleteReport(id).then((r) => r.ok)),
+    ]).then((oks) => {
+      // never fail silently — a stale server (404) would just leave the list unchanged
+      if (!oks.some(Boolean)) return appConfirm(`${verb} failed.`, "OK");
       setMulti(new Set());
       if (neighbor) neighbor.sel();
       else {
@@ -334,7 +358,7 @@ export function Explore(
         setSelKey("");
       }
       load(true);
-    }).catch(() => {});
+    }).catch(() => appConfirm(`${verb} failed.`, "OK"));
   };
   const deleteRef = useRef(deleteCurrent);
   deleteRef.current = deleteCurrent;
@@ -436,29 +460,48 @@ export function Explore(
             <span className={refreshing ? "inline-block animate-spin" : ""}>↻</span>
           </button>
         </div>
+        {starredReports.length + starredFiles.length > 0 && sectionHeader(
+          SEC_STARRED,
+          "STARRED",
+          starOpen,
+          starredReports.length + starredFiles.length,
+        )}
+        {/* shortcuts: starred rows stay in their own section too, ↑↓ walks the sections below */}
+        {starOpen && starredReports.map((r) => (
+          <ReportRow
+            key={`star:${r.id}`}
+            report={r}
+            board={board}
+            active={isActive(`db:${r.id}`)}
+            isStarred
+            onSelect={selectDb}
+            onStar={toggleStar}
+          />
+        ))}
+        {starOpen && starredFiles.map((f) => (
+          <FileRow
+            key={`star:${f.path}`}
+            file={f}
+            depth={0}
+            active={isActive(`file:${f.path}`)}
+            isStarred
+            onSelect={selectFile}
+            onStar={toggleStar}
+          />
+        ))}
         {shownReports.length > 0 && sectionHeader(SEC_PUBLISHED, "PUBLISHED", pubOpen, shownReports.length)}
-        {pubOpen && shownReports.map((r) => {
-          const client = board.projects.find((c) => c.id === r.client_id);
-          const active = selKey === `db:${r.id}`;
-          return (
-            <button type="button"
-              key={r.id}
-              data-key={`db:${r.id}`}
-              onClick={() => selectDb(r)}
-              className={`flex flex-col items-start gap-1 rounded-lg px-2.5 py-2 text-left ${
-                active ? "bg-active-row" : "hover:bg-hover"
-              }`}
-            >
-              <span className={`text-[12.5px] font-medium leading-snug ${active ? "" : "text-ink-soft"}`}>
-                {r.title}
-              </span>
-              <span className="flex items-center gap-1.5">
-                {client && <ClientChip name={client.name} color={client.color} />}
-                <span className="text-[10.5px] text-ink-muted">{timeAgo(r.created_at)}</span>
-              </span>
-            </button>
-          );
-        })}
+        {pubOpen && shownReports.map((r) => (
+          <ReportRow
+            key={r.id}
+            navKey={`db:${r.id}`}
+            report={r}
+            board={board}
+            active={isActive(`db:${r.id}`)}
+            isStarred={starred.includes(`db:${r.id}`)}
+            onSelect={selectDb}
+            onStar={toggleStar}
+          />
+        ))}
         {tree.length > 0 && sectionHeader(
           SEC_FILES,
           "FILES",
@@ -522,13 +565,14 @@ export function Explore(
                 )}
                 {selected.date && <span className="text-[11px] text-ink-muted">{timeAgo(selected.date)}</span>}
                 <span className="flex-1" />
-                {(selected.kind === "file" || multi.size > 0) && (
+                {picked.length > 0 && (
                   <button type="button"
                     className="text-[11.5px] text-ink-muted hover:text-blocked"
-                    title="delete file(s) (Suppr) — system trash when available; ctrl/shift-click to select several"
+                    title="delete files / unpublish reports (Suppr) — ctrl/shift-click to select several"
                     onClick={deleteCurrent}
                   >
-                    🗑 Delete{multi.size > 1 ? ` ${multi.size}` : ""}
+                    {pickedPaths.length ? "🗑 Delete" : "⊘ Unpublish"}
+                    {picked.length > 1 ? ` ${picked.length}` : ""}
                   </button>
                 )}
                 <button type="button" className="text-[11.5px] text-ink-muted hover:text-ink-soft" onClick={openExternal}>
@@ -583,15 +627,7 @@ function FolderRow(
           <span className="min-w-0 truncate text-[10.5px] text-ink-muted/80">{node.name}</span>
           {!open && <span className="shrink-0 text-[9.5px] text-ink-muted/50">{node.count}</span>}
         </button>
-        <button type="button"
-          onClick={() => onStar(node.full)}
-          title={isStarred ? "unstar" : "star — pin this folder on top"}
-          className={`text-[11px] leading-none ${
-            isStarred ? "text-copper" : "text-ink-muted/40 opacity-0 group-hover:opacity-100"
-          } hover:text-copper`}
-        >
-          ★
-        </button>
+        <StarButton on={isStarred} what="folder" onClick={() => onStar(node.full)} />
         <button type="button"
           onClick={() => onIgnore(node.full)}
           title="ignore this folder"
@@ -616,29 +652,99 @@ function FolderRow(
           onSelect={onSelect}
         />
       ))}
-      {open && node.files.map((f) => {
-        const active = selKey === `file:${f.path}` || multi.has(f.path);
-        return (
-          <button type="button"
-            key={f.path}
-            data-key={`file:${f.path}`}
-            onClick={(e) => onSelect(f, e)}
-            className={`flex items-center gap-2 rounded-lg py-1.5 pr-2.5 text-left ${
-              active ? "bg-active-row" : "hover:bg-hover"
-            }`}
-            style={{ paddingLeft: 16 + depth * 12 }}
-          >
-            <span
-              className={`min-w-0 flex-1 truncate text-[12.5px] font-medium leading-snug ${
-                active ? "" : "text-ink-soft"
-              }`}
-            >
-              {f.name}
-            </span>
-            {f.mtime && <span className="shrink-0 text-[10px] text-ink-muted">{timeAgo(f.mtime)}</span>}
-          </button>
-        );
-      })}
+      {open && node.files.map((f) => (
+        <FileRow
+          key={f.path}
+          navKey={`file:${f.path}`}
+          file={f}
+          depth={depth}
+          active={selKey === `file:${f.path}` || multi.has(`file:${f.path}`)}
+          isStarred={starred.includes(f.path)}
+          onSelect={onSelect}
+          onStar={onStar}
+        />
+      ))}
     </div>
+  );
+}
+
+// A published report or an on-disk file: click to preview, ★ to pin it in STARRED.
+// navKey is the ↑↓ anchor — omitted on the STARRED copies so the keys stay unique.
+function ReportRow(
+  { report, board, active, isStarred, navKey, onSelect, onStar }: {
+    report: ReportMeta;
+    board: BoardData;
+    active: boolean;
+    isStarred: boolean;
+    navKey?: string;
+    onSelect: (r: ReportMeta, e: MouseEvent) => void;
+    onStar: (key: string) => void;
+  },
+) {
+  const client = board.projects.find((c) => c.id === report.client_id);
+  return (
+    <div
+      className={`group flex items-center gap-1 rounded-lg pr-2 ${active ? "bg-active-row" : "hover:bg-hover"}`}
+    >
+      <button type="button"
+        data-key={navKey}
+        onClick={(e) => onSelect(report, e)}
+        className="flex min-w-0 flex-1 flex-col items-start gap-1 px-2.5 py-2 text-left"
+      >
+        <span className={`text-[12.5px] font-medium leading-snug ${active ? "" : "text-ink-soft"}`}>
+          {report.title}
+        </span>
+        <span className="flex items-center gap-1.5">
+          {client && <ClientChip name={client.name} color={client.color} />}
+          <span className="text-[10.5px] text-ink-muted">{timeAgo(report.created_at)}</span>
+        </span>
+      </button>
+      <StarButton on={isStarred} what="report" onClick={() => onStar(`db:${report.id}`)} />
+    </div>
+  );
+}
+
+function FileRow(
+  { file, depth, active, isStarred, navKey, onSelect, onStar }: {
+    file: FileHit;
+    depth: number;
+    active: boolean;
+    isStarred: boolean;
+    navKey?: string;
+    onSelect: (f: FileHit, e: MouseEvent) => void;
+    onStar: (key: string) => void;
+  },
+) {
+  return (
+    <div
+      className={`group flex items-center gap-1 rounded-lg pr-2 ${active ? "bg-active-row" : "hover:bg-hover"}`}
+      style={{ paddingLeft: 16 + depth * 12 }}
+    >
+      <button type="button"
+        data-key={navKey}
+        onClick={(e) => onSelect(file, e)}
+        className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left"
+      >
+        <span className={`min-w-0 flex-1 truncate text-[12.5px] font-medium leading-snug ${active ? "" : "text-ink-soft"}`}>
+          {file.name}
+        </span>
+        {file.mtime && <span className="shrink-0 text-[10px] text-ink-muted">{timeAgo(file.mtime)}</span>}
+      </button>
+      <StarButton on={isStarred} what="file" onClick={() => onStar(file.path)} />
+    </div>
+  );
+}
+
+function StarButton({ on, what, onClick }: { on: boolean; what: string; onClick: () => void }) {
+  return (
+    <button type="button"
+      onClick={onClick}
+      title={on ? "unstar" : `star — pin this ${what} on top`}
+      className={`shrink-0 text-[11px] leading-none ${
+        on ? "text-copper" : "text-ink-muted/40 opacity-0 group-hover:opacity-100"
+      } hover:text-copper`}
+    >
+      ★
+    </button>
   );
 }

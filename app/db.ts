@@ -732,6 +732,15 @@ export async function createReport(r: { title: string; html: string; client?: st
   return row.id;
 }
 
+// unpublish — soft delete, like every other synced row
+export async function deleteReport(id: string): Promise<void> {
+  const pg = await db();
+  await pg.query(
+    `update reports set deleted=true, origin=$2, updated_at=now() where id=$1`,
+    [id, NODE_ID],
+  );
+}
+
 // Drain writes made by trame-track while the app was closed/offline.
 // NOTE (scaffold): the outbox stores session fields only; client/story-by-name
 // resolution done by the online CLI path is skipped here. Good enough for v0.
