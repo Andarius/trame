@@ -1,5 +1,6 @@
-// Shared agent-contract strings — the single source of truth read by tramecli --help,
-// the MCP server (mcp/server.ts), and the installed skill stubs. Edit here only.
+// Shared agent-contract strings — the single source of truth read by tramecli --help
+// and the MCP server (mcp/server.ts). Edit here only; the installed skills carry their
+// own curated summary and point back at this text.
 import app from "../app/deno.json" with { type: "json" };
 
 // TRAME_BUILD is baked into the compiled CLI (scripts/build-cli.ts): the release
