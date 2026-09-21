@@ -86,6 +86,20 @@ missing. A mark you wrote is never overwritten, and marks you leave out of a rew
 are carried over from the stored page — so an update need not repeat dates it did not
 change. `tramecli page --help` has the full rules.
 
+## Databases
+
+A page can carry a Trame database (the Notion-style table). There is no `tramecli`
+command and no MCP tool for it — create one over REST on the running app:
+`POST /api/udb {name}`, then one `POST /api/udb/<db>/props {name, type, config}` per
+column, rows with `POST /api/udb/<db>/rows {vals}` (keyed by property id), and
+`POST /api/udb/<db> {page_id}` to show it on a page.
+
+A column created with `config: {}` renders bare — a number with no unit, no format and
+no color, which is never what the user asked for. Set the presentation as you create
+the column. `tramecli db` prints the whole contract: every column type, its config and
+cell shape, the number block (format, unit, show_as, color_mode) and
+relations/formulas/rollups.
+
 ## Update a page
 
 Use only for revising a page this agent (or its workflow) authored — e.g. publishing

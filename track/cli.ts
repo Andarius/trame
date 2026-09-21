@@ -20,6 +20,7 @@ import {
   PAGE_HELP,
   SETUP_HELP,
   TRACK_HELP,
+  UDB_CONTRACT,
   VERSION,
 } from "./help.ts";
 
@@ -30,6 +31,7 @@ const HELP_TOPICS: Record<string, string> = {
   list: LIST_HELP,
   convert: CONVERT_HELP,
   setup: SETUP_HELP,
+  db: UDB_CONTRACT, // topic, not a command: databases are plain REST
 };
 
 type Board = {
@@ -209,6 +211,9 @@ export async function run(argv: string[]): Promise<number> {
       console.log(HELP_TOPICS[rest[0]] ?? OVERVIEW);
       return 0;
     }
+    case "db": // not a command: prints the REST contract, same as `help db`
+      console.log(UDB_CONTRACT);
+      return 0;
     case "-V":
     case "--version":
       console.log(VERSION);

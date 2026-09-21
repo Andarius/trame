@@ -9,6 +9,7 @@ import {
   PAGE_DIALECT,
   PAGE_HELP,
   TRACK_HELP,
+  UDB_CONTRACT,
   VERSION,
 } from "../track/help.ts";
 
@@ -36,12 +37,30 @@ Deno.test("help carries the composition conventions", () => {
   }
 });
 
+// The UI's PropConfig/PropType is the real column vocabulary; agents only ever see
+// UDB_CONTRACT, so a key added there must land in the contract too.
+Deno.test("db contract documents every column type and config key", async () => {
+  const api = await Deno.readTextFile(
+    new URL("./web/src/api.ts", import.meta.url),
+  );
+  const types = api.match(/export type PropType =([\s\S]*?);/)?.[1] ?? "";
+  for (const [, t] of types.matchAll(/"(\w+)"/g)) {
+    assertStringIncludes(UDB_CONTRACT, t);
+  }
+  const config = api.match(/export type PropConfig = \{([\s\S]*?)\n\};/)?.[1] ?? "";
+  for (const [, k] of config.matchAll(/^ {2}(\w+)\?:/gm)) {
+    assertStringIncludes(UDB_CONTRACT, k);
+  }
+  assertStringIncludes(OVERVIEW, "\n  db ");
+});
+
 Deno.test("dispatch: help and version exit 0, unknown command exits 2", async () => {
   assertEquals(await run([]), 0);
   assertEquals(await run(["--version"]), 0);
   assertEquals(await run(["help", "track"]), 0);
   assertEquals(await run(["track", "--help"]), 0);
   assertEquals(await run(["convert", "--help"]), 0);
+  assertEquals(await run(["db"]), 0);
   assertEquals(await run(["bogus"]), 2);
 });
 

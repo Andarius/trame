@@ -6,7 +6,13 @@ import { StdioServerTransport } from "npm:@modelcontextprotocol/sdk@^1.12/server
 import { z } from "npm:zod@^3.24";
 import { PORT_FILE } from "../app/config.ts";
 import { HTML_BLOCK_MAX_BYTES } from "../protocol/html.ts";
-import { GRAPH_FENCE, PAGE_DIALECT, SPECS_WHEN, TODO_SYNTAX } from "../track/help.ts";
+import {
+  GRAPH_FENCE,
+  PAGE_DIALECT,
+  SPECS_WHEN,
+  TODO_SYNTAX,
+  UDB_CONTRACT,
+} from "../track/help.ts";
 // the page/comment tools delegate to the tramecli writers, so both surfaces share
 // one implementation (markdown conversion, block merge, resolution, attribution)
 import { writePage } from "../track/page.ts";
@@ -116,6 +122,9 @@ ${TODO_SYNTAX}
 
 A session's specs are a page too (a subpage of the card's story) — write them with
 \`trame_update_page\` passing \`{session_id}\`. ${SPECS_WHEN}
+
+## Databases
+${UDB_CONTRACT}
 
 ## Sessions (the board)
 - **trame_session** — read ONE card the way the user sees it: project and story by name,
