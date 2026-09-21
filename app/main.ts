@@ -49,6 +49,7 @@ import {
   createReport,
   createStatus,
   db,
+  deleteReport,
   deleteSession,
   deleteSessionLink,
   deleteStatus,
@@ -1217,6 +1218,11 @@ async function handler(req: Request): Promise<Response> {
     const cmd = Deno.build.os === "darwin" ? "open" : "xdg-open";
     new Deno.Command(cmd, { args: [real], stdout: "null", stderr: "null" })
       .spawn();
+    return json({ ok: true });
+  }
+  const rdm = pathname.match(/^\/api\/reports\/([^/]+)\/delete$/);
+  if (rdm && req.method === "POST") {
+    await deleteReport(rdm[1]);
     return json({ ok: true });
   }
   const rm = pathname.match(/^\/api\/reports\/([^/]+)$/);
