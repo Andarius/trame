@@ -1,352 +1,33 @@
 // Multi-column sort + filter + group-by (with per-group aggregates) for the database table
 // (Notion-style views). All client-side over the fetched rows (the stored sort_key order is
 // untouched) and persisted per-database in localStorage — see load/saveView. AND-combined filters.
+// The data half lives in view-core.ts (pure, unit-tested); it is re-exported here.
 import { useState } from "react";
-import type { UdbProp, UdbRow } from "../api";
+import type { UdbProp } from "../api";
 import { EntityIcon, Popover, Select } from "../ui";
 import { TYPE_GLYPH } from "./PropertyEditor";
+import {
+  CHART_AGGS,
+  CHART_COLORS,
+  CHART_KINDS,
+  type ChartConfig,
+  type ChartSeries,
+  KIND_LABEL,
+  MAX_SERIES,
+  sanitizeChart,
+} from "./chart.ts";
+import {
+  type Agg,
+  AGGREGATABLE,
+  type Filter,
+  type FilterOp,
+  NO_VALUE,
+  OP_LABEL,
+  opsFor,
+  type ViewConfig,
+} from "./view-core.ts";
 
-export type Sort = { propId: string; dir: 1 | -1 };
-export type FilterOp =
-  | "contains"
-  | "not_contains"
-  | "is"
-  | "is_not"
-  | "eq"
-  | "neq"
-  | "gt"
-  | "gte"
-  | "lt"
-  | "lte"
-  | "on"
-  | "before"
-  | "after"
-  | "checked"
-  | "unchecked"
-  | "empty"
-  | "not_empty";
-export type Filter = { propId: string; op: FilterOp; value?: string };
-export type Agg = "sum" | "avg" | "min" | "max";
-// summary: when grouped, collapse to one read-only row per group (a live aggregate table, no raw rows)
-export type ViewConfig = {
-  sorts: Sort[];
-  filters: Filter[];
-  groupBy?: string | null;
-  aggs?: Record<string, Agg | null>;
-  summary?: boolean;
-  hidden?: string[]; // property ids not rendered in this tab's grid
-};
-
-// operator menus per property category, plus which ops need a value input
-const OPS = {
-  text: ["contains", "not_contains", "is", "is_not", "empty", "not_empty"],
-  number: ["eq", "neq", "gt", "gte", "lt", "lte", "empty", "not_empty"],
-  select: ["is", "is_not", "empty", "not_empty"],
-  multi: ["contains", "not_contains", "empty", "not_empty"],
-  checkbox: ["checked", "unchecked"],
-  date: ["on", "before", "after", "empty", "not_empty"],
-  relation: ["contains", "not_contains", "empty", "not_empty"],
-  derived: ["contains", "is", "gt", "lt", "empty", "not_empty"],
-} as const;
-type Cat = keyof typeof OPS;
-const CAT: Record<string, Cat> = {
-  title: "text",
-  text: "text",
-  url: "text",
-  number: "number",
-  formula: "derived",
-  rollup: "derived",
-  select: "select",
-  multi_select: "multi",
-  checkbox: "checkbox",
-  date: "date",
-  relation: "relation",
-};
-const OP_LABEL: Record<FilterOp, string> = {
-  contains: "contains",
-  not_contains: "does not contain",
-  is: "is",
-  is_not: "is not",
-  eq: "=",
-  neq: "≠",
-  gt: ">",
-  gte: "≥",
-  lt: "<",
-  lte: "≤",
-  on: "is",
-  before: "before",
-  after: "after",
-  checked: "is checked",
-  unchecked: "is unchecked",
-  empty: "is empty",
-  not_empty: "is not empty",
-};
-const NO_VALUE = new Set<FilterOp>([
-  "empty",
-  "not_empty",
-  "checked",
-  "unchecked",
-]);
-const catOf = (p: UdbProp): Cat => CAT[p.type] ?? "text";
-const opsFor = (p: UdbProp): readonly FilterOp[] => OPS[catOf(p)];
-
-// value extraction
-
-const dateStart = (
-  v: unknown,
-): string => (typeof v === "object" && v
-  ? (v as { start?: string }).start ?? ""
-  : String(v ?? ""));
-const textOf = (p: UdbProp, r: UdbRow): string =>
-  p.type === "formula" || p.type === "rollup"
-    ? String(r.derived[p.id] ?? "")
-    : String(r.vals[p.id] ?? "");
-export const numOf = (p: UdbProp, r: UdbRow): number | null => {
-  const raw = p.type === "formula" || p.type === "rollup"
-    ? r.derived[p.id]
-    : r.vals[p.id];
-  const n = typeof raw === "number" ? raw : Number(raw);
-  return Number.isFinite(n) ? n : null;
-};
-
-export function isEmpty(p: UdbProp, r: UdbRow): boolean {
-  if (p.type === "formula" || p.type === "rollup") {
-    const d = r.derived[p.id];
-    return d == null || d === "" || typeof d === "object";
-  }
-  if (p.type === "relation") return (r.relations[p.id] ?? []).length === 0;
-  const v = r.vals[p.id];
-  if (v == null || v === "") return true;
-  if (Array.isArray(v)) return v.length === 0;
-  if (p.type === "date") return !dateStart(v);
-  return false;
-}
-
-// sort
-
-// comparable primitive; null (empty/error) always sorts last regardless of direction.
-function sortValue(p: UdbProp, r: UdbRow): number | string | null {
-  if (isEmpty(p, r)) return null;
-  if (p.type === "formula" || p.type === "rollup") {
-    const d = r.derived[p.id];
-    return typeof d === "object" ? null : d as number | string;
-  }
-  if (p.type === "relation") {
-    return (r.relations[p.id] ?? []).map((c) => c.title).join(", ")
-      .toLowerCase();
-  }
-  const v = r.vals[p.id];
-  switch (p.type) {
-    case "number":
-      return typeof v === "number" ? v : Number(v);
-    case "checkbox":
-      return v ? 1 : 0;
-    case "date":
-      return dateStart(v);
-    case "select":
-      return (p.config.options ?? []).findIndex((o) => o.id === v);
-    case "multi_select": {
-      const first = Array.isArray(v) ? v[0] : undefined;
-      return (p.config.options ?? []).findIndex((o) => o.id === first);
-    }
-    default:
-      return String(v).toLowerCase();
-  }
-}
-
-function compareOne(p: UdbProp, a: UdbRow, b: UdbRow, dir: 1 | -1): number {
-  const av = sortValue(p, a), bv = sortValue(p, b);
-  if (av === null || bv === null) return av === bv ? 0 : av === null ? 1 : -1;
-  const cmp = typeof av === "number" && typeof bv === "number"
-    ? av - bv
-    : av < bv
-    ? -1
-    : av > bv
-    ? 1
-    : 0;
-  return cmp * dir;
-}
-
-// filter
-
-function passes(p: UdbProp, r: UdbRow, f: Filter): boolean {
-  if (f.op === "empty") return isEmpty(p, r);
-  if (f.op === "not_empty") return !isEmpty(p, r);
-  if (f.op === "checked") return r.vals[p.id] === true;
-  if (f.op === "unchecked") return r.vals[p.id] !== true;
-  if (isEmpty(p, r)) return false; // any value-based op fails on an empty cell
-  const val = (f.value ?? "").trim();
-  if (!val) return true; // half-filled rule is a no-op, not a "match nothing"
-
-  if (p.type === "select") {
-    const id = r.vals[p.id];
-    return f.op === "is_not" ? id !== val : id === val;
-  }
-  if (p.type === "multi_select") {
-    const has = ((r.vals[p.id] as string[]) ?? []).includes(val);
-    return f.op === "not_contains" ? !has : has;
-  }
-  if (p.type === "relation") {
-    const needle = val.toLowerCase();
-    const hit = (r.relations[p.id] ?? []).some((c) =>
-      c.title.toLowerCase().includes(needle)
-    );
-    return f.op === "not_contains" ? !hit : hit;
-  }
-  if (p.type === "date") {
-    const d = dateStart(r.vals[p.id]).slice(0, 10), t = val.slice(0, 10);
-    if (f.op === "before") return d < t;
-    if (f.op === "after") return d > t;
-    return d === t; // "on"
-  }
-  if (["eq", "neq", "gt", "gte", "lt", "lte"].includes(f.op)) {
-    const num = numOf(p, r), target = Number(val);
-    if (num === null || Number.isNaN(target)) return true;
-    switch (f.op) {
-      case "eq":
-        return num === target;
-      case "neq":
-        return num !== target;
-      case "gt":
-        return num > target;
-      case "gte":
-        return num >= target;
-      case "lt":
-        return num < target;
-      case "lte":
-        return num <= target;
-    }
-  }
-  const text = textOf(p, r).toLowerCase(), needle = val.toLowerCase();
-  switch (f.op) {
-    case "contains":
-      return text.includes(needle);
-    case "not_contains":
-      return !text.includes(needle);
-    case "is":
-      return text === needle;
-    case "is_not":
-      return text !== needle;
-  }
-  return true;
-}
-
-// group by
-
-export type Group = {
-  key: string;
-  label: string;
-  color?: string;
-  rows: UdbRow[];
-};
-
-// Partition rows into groups keyed by the property's value; empty cells collect
-// into a trailing "(empty)" group. Select groups follow the option order.
-export function groupRows(rows: UdbRow[], p: UdbProp): Group[] {
-  const map = new Map<string, Group>();
-  const add = (
-    key: string,
-    label: string,
-    color: string | undefined,
-    r: UdbRow,
-  ) => {
-    let g = map.get(key);
-    if (!g) map.set(key, g = { key, label, color, rows: [] });
-    g.rows.push(r);
-  };
-  const opts = p.config.options ?? [];
-  for (const r of rows) {
-    if (isEmpty(p, r)) {
-      add("\0", "(empty)", undefined, r);
-      continue;
-    }
-    if (p.type === "select") {
-      const id = String(r.vals[p.id]);
-      const o = opts.find((x) => x.id === id);
-      add(id, o?.name ?? id, o?.color, r);
-    } else if (p.type === "multi_select") {
-      const label = ((r.vals[p.id] as string[]) ?? []).map((id) =>
-        opts.find((x) => x.id === id)?.name ?? id
-      ).join(", ");
-      add(label.toLowerCase(), label, undefined, r);
-    } else if (p.type === "relation") {
-      const label = (r.relations[p.id] ?? []).map((c) => c.title).join(", ");
-      add(label.toLowerCase(), label, undefined, r);
-    } else if (p.type === "checkbox") {
-      const b = r.vals[p.id] === true;
-      add(b ? "1" : "0", b ? "Checked" : "Unchecked", undefined, r);
-    } else if (p.type === "date") {
-      const d = dateStart(r.vals[p.id]).slice(0, 10);
-      add(d, d, undefined, r);
-    } else {
-      const label = textOf(p, r);
-      add(label.toLowerCase(), label, undefined, r);
-    }
-  }
-  const empty = map.get("\0");
-  const rest = [...map.values()].filter((g) => g !== empty);
-  if (p.type === "select") {
-    const order = new Map(opts.map((o, i) => [o.id, i]));
-    rest.sort((a, b) =>
-      (order.get(a.key) ?? opts.length) - (order.get(b.key) ?? opts.length)
-    );
-  } else if (p.type === "number") {
-    rest.sort((a, b) => Number(a.label) - Number(b.label));
-  } else if (p.type === "checkbox") {
-    rest.sort((a, b) => b.key.localeCompare(a.key)); // checked first
-  } else {
-    rest.sort((a, b) => a.label.localeCompare(b.label));
-  }
-  return empty ? [...rest, empty] : rest;
-}
-
-export const AGGREGATABLE = new Set(["number", "formula", "rollup"]);
-
-export function aggregate(rows: UdbRow[], p: UdbProp, agg: Agg): number | null {
-  const nums = rows.map((r) => numOf(p, r)).filter((n): n is number =>
-    n !== null
-  );
-  if (!nums.length) return null;
-  const sum = nums.reduce((a, b) => a + b, 0);
-  switch (agg) {
-    case "sum":
-      return sum;
-    case "avg":
-      return sum / nums.length;
-    case "min":
-      return Math.min(...nums);
-    case "max":
-      return Math.max(...nums);
-  }
-}
-
-export const fmtAgg = (
-  n: number,
-): string => (Number.isInteger(n) ? String(n) : n.toFixed(2));
-
-// Apply filters (AND) then multi-sort. Returns a new array; input order preserved for ties.
-export function applyView(
-  rows: UdbRow[],
-  props: UdbProp[],
-  view: ViewConfig,
-): UdbRow[] {
-  const byId = new Map(props.map((p) => [p.id, p]));
-  const active = view.filters.filter((f) => byId.has(f.propId));
-  let out = active.length
-    ? rows.filter((r) => active.every((f) => passes(byId.get(f.propId)!, r, f)))
-    : rows;
-  const sorts = view.sorts.filter((s) => byId.has(s.propId));
-  if (sorts.length) {
-    out = [...out].sort((a, b) => {
-      for (const s of sorts) {
-        const c = compareOne(byId.get(s.propId)!, a, b, s.dir);
-        if (c) return c;
-      }
-      return 0;
-    });
-  }
-  return out;
-}
+export * from "./view-core.ts";
 
 // persistence (per-device, per-db) — named view tabs, each with its own config
 
@@ -355,7 +36,8 @@ export type ViewTabs = { tabs: ViewTab[]; active: string };
 
 const emptyConfig = (): ViewConfig => ({ sorts: [], filters: [] });
 const isEmptyConfig = (c: ViewConfig) =>
-  !c.sorts.length && !c.filters.length && !c.groupBy && !c.hidden?.length;
+  !c.sorts.length && !c.filters.length && !c.groupBy && !c.chart &&
+  !c.hidden?.length;
 export const newTab = (
   name: string,
   config: ViewConfig = emptyConfig(),
@@ -379,6 +61,22 @@ export const newSummaryTab = (props: UdbProp[]): ViewTab => {
   });
 };
 
+// A chart view: bars of the row count per group. Counting needs no numeric
+// column, so the chart draws something the moment it opens — an empty chart
+// asking to be configured is the mistake a bare column config already makes.
+export const newChartTab = (props: UdbProp[]): ViewTab =>
+  newTab("Chart", {
+    sorts: [],
+    filters: [],
+    chart: {
+      kind: "bar",
+      // no grouping column worth guessing → one bar per row
+      x: props.find((p) => p.type === "select" || p.type === "relation")?.id ??
+        null,
+      series: [{ propId: null, agg: "count" }],
+    },
+  });
+
 const key = (dbId: string) => `trame:udbtabs:${dbId}`;
 // validate an untrusted tabs bundle (localStorage OR the server `views` column); null = not usable
 export function parseTabs(raw: unknown): ViewTabs | null {
@@ -386,6 +84,14 @@ export function parseTabs(raw: unknown): ViewTabs | null {
   if (v && Array.isArray(v.tabs)) {
     const tabs = (v.tabs as ViewTab[]).filter((t) =>
       t && typeof t.id === "string" && t.config
+    ).map((t) =>
+      // an unusable chart config drops out and the tab falls back to a grid
+      t.config.chart
+        ? {
+          ...t,
+          config: { ...t.config, chart: sanitizeChart(t.config.chart) },
+        }
+        : t
     );
     if (tabs.length) {
       return {
@@ -454,6 +160,11 @@ export function ViewTabsBar(
     onChange({ tabs: [...state.tabs, t], active: t.id });
     setAdding(false);
   };
+  const addChart = () => {
+    const t = newChartTab(props);
+    onChange({ tabs: [...state.tabs, t], active: t.id });
+    setAdding(false);
+  };
   const remove = (id: string) => {
     const tabs = state.tabs.filter((t) => t.id !== id);
     onChange({ tabs, active: state.active === id ? tabs[0].id : state.active });
@@ -504,6 +215,9 @@ export function ViewTabsBar(
                 {t.config.summary && (
                   <span className="mr-1 text-[10px] text-copper">Σ</span>
                 )}
+                {t.config.chart && (
+                  <span className="mr-1 text-[10px] text-copper">▂▅</span>
+                )}
                 {t.name}
               </button>
               {state.tabs.length > 1 && (
@@ -544,8 +258,16 @@ export function ViewTabsBar(
             >
               <span className="text-[11px] text-copper">Σ</span> Summary view
             </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11.5px] text-ink-soft hover:bg-panel"
+              onClick={addChart}
+            >
+              <span className="text-[11px] text-copper">▂▅</span> Chart view
+            </button>
             <p className="px-2 pt-1 text-[10px] text-ink-muted/60">
-              Summary = one row per group, aggregates only
+              Summary = one row per group, aggregates only. Chart = the same
+              aggregates drawn.
             </p>
           </Popover>
         )}
@@ -620,7 +342,7 @@ export function ViewToolbar(
   },
 ) {
   const [open, setOpen] = useState<
-    "sort" | "filter" | "group" | "columns" | null
+    "sort" | "filter" | "group" | "columns" | "chart" | null
   >(null);
   const sortable = props;
   const byId = new Map(props.map((p) => [p.id, p]));
@@ -642,6 +364,16 @@ export function ViewToolbar(
       onChange({ ...view, sorts: [...view.sorts, { propId: p.id, dir: 1 }] });
     }
   };
+  const cfg = view.chart;
+  const setChart = (patch: Partial<ChartConfig>) =>
+    cfg && onChange({ ...view, chart: { ...cfg, ...patch } });
+  const setSeries = (i: number, patch: Partial<ChartSeries>) =>
+    setChart({
+      series: cfg!.series.map((s, j) => (j === i ? { ...s, ...patch } : s)),
+    });
+  // a pie is one measure; the extras are kept but ignored until the kind changes
+  const onePie = cfg?.kind === "pie";
+
   const addFilter = () => {
     const p = props[0];
     if (p) {
@@ -965,6 +697,154 @@ export function ViewToolbar(
         )}
       </div>
 
+      {cfg && (
+        <div className="relative">
+          <button
+            type="button"
+            className={chip(true)}
+            onClick={() => setOpen((o) => (o === "chart" ? null : "chart"))}
+          >
+            ▂▅ Chart · {KIND_LABEL[cfg.kind]}
+          </button>
+          {open === "chart" && (
+            <Popover
+              onClose={() => setOpen(null)}
+              className="w-[300px] max-w-[92vw] p-2"
+            >
+              <div className="flex items-center gap-1">
+                <span className="w-14 shrink-0 text-[10px] text-ink-muted/60">
+                  Chart
+                </span>
+                <div className="min-w-0 flex-1">
+                  <Select
+                    value={cfg.kind}
+                    options={CHART_KINDS.map((k) => ({
+                      value: k,
+                      label: KIND_LABEL[k],
+                    }))}
+                    onChange={(v) =>
+                      setChart({ kind: v as ChartConfig["kind"] })}
+                  />
+                </div>
+              </div>
+              <div className="mt-1.5 flex items-center gap-1">
+                <span className="w-14 shrink-0 text-[10px] text-ink-muted/60">
+                  {cfg.kind === "pie" ? "Slices" : "X axis"}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <Select
+                    value={cfg.x ?? ""}
+                    placeholder="pick a property"
+                    options={propOpts(props)}
+                    onChange={(v) => setChart({ x: v || null })}
+                  />
+                </div>
+              </div>
+              <div className="mt-1.5 border-t border-line-soft pt-1.5">
+                <p className="px-1 pb-1 text-[10px] text-ink-muted/60">
+                  {onePie ? "Measure (a pie draws one)" : "Measures"}
+                </p>
+                <div className="flex flex-col gap-1">
+                  {cfg.series.map((s, i) => (
+                    <div key={i} className="flex items-center gap-1">
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+                        style={{ background: CHART_COLORS[i] }}
+                      />
+                      <div className="min-w-0 flex-[1.3]">
+                        <Select
+                          value={s.propId ?? ""}
+                          options={[
+                            { value: "", label: "# Count of rows" },
+                            ...propOpts(aggProps),
+                          ]}
+                          onChange={(v) =>
+                            setSeries(i, {
+                              propId: v || null,
+                              agg: v && s.agg === "count" ? "sum" : s.agg,
+                            })}
+                        />
+                      </div>
+                      {s.propId && (
+                        <div className="w-[84px] shrink-0">
+                          <Select
+                            value={s.agg === "count" ? "sum" : s.agg}
+                            options={CHART_AGGS.map((a) => ({
+                              value: a,
+                              label: a,
+                            }))}
+                            onChange={(v) =>
+                              setSeries(i, { agg: v as ChartSeries["agg"] })}
+                          />
+                        </div>
+                      )}
+                      {cfg.series.length > 1 && (
+                        <button
+                          type="button"
+                          className="w-5 shrink-0 text-[10px] text-ink-muted hover:text-blocked"
+                          title="remove this measure"
+                          onClick={() =>
+                            setChart({
+                              series: cfg.series.filter((_, j) => j !== i),
+                            })}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {!onePie && cfg.series.length < MAX_SERIES && (
+                  <button
+                    type="button"
+                    className="mt-1 px-1 text-[11px] text-ink-muted hover:text-copper"
+                    onClick={() =>
+                      setChart({
+                        series: [...cfg.series, {
+                          propId: aggProps[0]?.id ?? null,
+                          agg: aggProps[0] ? "sum" : "count",
+                        }],
+                      })}
+                  >
+                    ＋ Add measure
+                  </button>
+                )}
+              </div>
+              <div className="mt-1.5 flex flex-col gap-1 border-t border-line-soft pt-1.5">
+                {cfg.kind === "bar" && cfg.series.length > 1 && (
+                  <label className="flex cursor-pointer items-center gap-2 px-1 text-[11px] text-ink-soft">
+                    <input
+                      type="checkbox"
+                      checked={!!cfg.stacked}
+                      onChange={(e) => setChart({ stacked: e.target.checked })}
+                    />
+                    Stack the series
+                  </label>
+                )}
+                {cfg.kind === "pie" && (
+                  <label className="flex cursor-pointer items-center gap-2 px-1 text-[11px] text-ink-soft">
+                    <input
+                      type="checkbox"
+                      checked={!!cfg.donut}
+                      onChange={(e) => setChart({ donut: e.target.checked })}
+                    />
+                    Donut
+                  </label>
+                )}
+                <label className="flex cursor-pointer items-center gap-2 px-1 text-[11px] text-ink-soft">
+                  <input
+                    type="checkbox"
+                    checked={!!cfg.labels}
+                    onChange={(e) => setChart({ labels: e.target.checked })}
+                  />
+                  Value labels on the marks
+                </label>
+              </div>
+            </Popover>
+          )}
+        </div>
+      )}
+
       <div className="relative">
         <button
           type="button"
@@ -991,7 +871,12 @@ export function ViewToolbar(
                   />
                   <span className="inline-flex w-4 shrink-0 justify-center text-[10px] opacity-60">
                     {p.config.icon
-                      ? <EntityIcon icon={p.config.icon} className="text-[11px]" />
+                      ? (
+                        <EntityIcon
+                          icon={p.config.icon}
+                          className="text-[11px]"
+                        />
+                      )
                       : TYPE_GLYPH[p.type] ?? "?"}
                   </span>
                   <span className="min-w-0 flex-1 truncate">{p.name}</span>

@@ -1,6 +1,8 @@
 import {
+  lazy,
   memo,
   type MouseEvent as ReactMouseEvent,
+  Suspense,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -70,6 +72,8 @@ const udbCache = new Map<string, Udb>(); // last fetch per db, so switching rend
 // user-selectable and remembered across databases.
 const PAGE_ALL = Number.POSITIVE_INFINITY;
 const PAGE_SIZE_KEY = "trame:udbpagesize";
+// recharts is ~450 KB — a chart tab pays for it, no other page does
+const ChartView = lazy(() => import("./ChartView"));
 const loadPageSize = (): number => {
   const raw = Number(localStorage.getItem(PAGE_SIZE_KEY));
   return [25, 50, 100, 200, PAGE_ALL].includes(raw) ? raw : 50;
@@ -387,8 +391,9 @@ export const DatabaseView = memo(function DatabaseView(
     return out;
   }, [data?.properties, rows]);
   const summaryConfigured = !!deferredView.summary; // this tab is a summary (aggregate-only) view
-  // a summary view is read-only — tell App so it drops the global "New row" affordance
-  const readOnly = summaryConfigured;
+  const chartConfig = deferredView.chart; // this tab draws instead of listing
+  // summary and chart views are read-only — tell App to drop the global "New row"
+  const readOnly = summaryConfigured || !!chartConfig;
   useEffect(() => {
     onReadOnly?.(readOnly);
     return () => onReadOnly?.(false);
@@ -420,7 +425,7 @@ export const DatabaseView = memo(function DatabaseView(
       localStorage.setItem(PAGE_SIZE_KEY, String(v));
     } catch { /* private mode */ }
   };
-  const paginate = pageSize !== PAGE_ALL && !summaryConfigured;
+  const paginate = pageSize !== PAGE_ALL && !summaryConfigured && !chartConfig;
   const total = orderedRows.length;
   const pageCount = paginate ? Math.max(1, Math.ceil(total / pageSize)) : 1;
   const curPage = Math.min(page, pageCount - 1);
@@ -546,8 +551,21 @@ export const DatabaseView = memo(function DatabaseView(
           )}
         </div>
         <div className="min-w-0 flex-1 overflow-auto px-6 py-4">
-          <div className="w-max min-w-full">
-            {summaryNeedsGroup
+          {/* a chart sizes itself to the pane; w-max would collapse it to nothing */}
+          <div className={chartConfig ? "min-w-full" : "w-max min-w-full"}>
+            {chartConfig
+              ? (
+                <Suspense
+                  fallback={
+                    <p className="px-1 py-8 text-[13px] text-ink-muted/60">
+                      Loading chart…
+                    </p>
+                  }
+                >
+                  <ChartView rows={rows} props={props} config={chartConfig} />
+                </Suspense>
+              )
+              : summaryNeedsGroup
               ? (
                 <div className="flex flex-col items-start gap-2 px-1 py-8 text-[13px] text-ink-muted">
                   <p className="m-0">
@@ -707,7 +725,7 @@ export const DatabaseView = memo(function DatabaseView(
               )}
           </div>
         </div>
-        {!summaryConfigured && rows.length > 0 && (
+        {!summaryConfigured && !chartConfig && rows.length > 0 && (
           <div className="flex items-center gap-2.5 border-t border-line-soft px-6 py-1.5 text-[11px] text-ink-muted">
             <span>Rows / page</span>
             <div className="w-[70px]">

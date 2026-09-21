@@ -123,7 +123,7 @@ ${TODO_SYNTAX}
 A session's specs are a page too (a subpage of the card's story) — write them with
 \`trame_update_page\` passing \`{session_id}\`. ${SPECS_WHEN}
 
-## Databases
+## Databases and chart views
 ${UDB_CONTRACT}
 
 ## Sessions (the board)

@@ -31,7 +31,7 @@ export const OPTION_COLORS = [
 const cellInput =
   "w-full truncate rounded-md border border-transparent bg-transparent px-1.5 py-1 text-xs text-ink outline-none transition-colors hover:bg-panel/70 focus:border-chipline focus:bg-panel";
 
-function fmtBare(v: unknown, cfg: PropConfig): string {
+export function fmtBare(v: unknown, cfg: PropConfig): string {
   if (v === null || v === undefined || v === "" || Number.isNaN(Number(v))) {
     return "";
   }

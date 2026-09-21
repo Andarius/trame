@@ -179,7 +179,34 @@ Example — a euro column that reddens as it grows:
   T=http://127.0.0.1:$(jq -r .port ~/.local/share/trame/port.json)
   curl -s -XPOST $T/api/udb/$DB/props -d '{"name":"36-mo total","type":"number",
     "config":{"format":"euro","precision":0,"color_mode":"scale","good":"low",
-              "color_apply":"text"}}'`;
+              "color_apply":"text"}}'
+
+Views — the tabs above the grid (Table / Summary / Chart), stored whole in the
+\`views\` column and returned as \`db.views\` by the GET. Send the bundle, never a
+fragment:
+
+  POST /api/udb/<db>  {"views":{"active":"<tab id>","tabs":[
+                       {"id":"<tab id>","name":"Cost","config":{…}}]}}
+
+A config is \`{sorts:[], filters:[]}\` — the same filters and sorts the toolbar
+writes — plus one optional mode. \`summary: true\` with \`groupBy\` is the read-only
+aggregate table; \`chart\` draws those same aggregates instead:
+
+  kind    bar | line | pie · plus stacked (bar), donut (pie), labels: true
+  x       property id to group by — null for one mark per row
+  series  [{"propId":"<number|formula|rollup id>","agg":"sum|avg|min|max"}], or
+          {"propId":null,"agg":"count"} for the row count. The order is the
+          legend and the colour order, and it caps at 8.
+
+Example — total cost per status, as bars:
+
+  curl -s -XPOST $T/api/udb/$DB -d '{"views":{"active":"v1","tabs":[{"id":"v1",
+    "name":"Cost","config":{"sorts":[],"filters":[],"chart":{"kind":"bar",
+    "x":"'$STATUS_PROP'","series":[{"propId":"'$COST_PROP'","agg":"sum"}]}}}]}}'
+
+A chart view is read-only and live: filters narrow what it draws, numbers wear
+their column's format, and a config it cannot read degrades to a plain table
+rather than failing.`;
 
 // When a session gets a spec page — one text, shared by the CLI help, the MCP
 // descriptions, and the tracker's specs-less note.
@@ -351,7 +378,7 @@ Commands:
   list       print open sessions grouped by story
   convert    turn a page into a session card whose specs are that page
   setup      install the agent skills embedded in this binary
-  db         print the database write contract (columns, cells) — REST, no command
+  db         print the database contract — columns, cells, chart views (REST)
   mcp        serve the Trame MCP server on stdio
   --version  print the CLI version (the app's is at GET /api/status)
 

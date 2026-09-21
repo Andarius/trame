@@ -51,6 +51,25 @@ Deno.test("db contract documents every column type and config key", async () => 
   for (const [, k] of config.matchAll(/^ {2}(\w+)\?:/gm)) {
     assertStringIncludes(UDB_CONTRACT, k);
   }
+  // same rule for the chart vocabulary: a new kind, measure or config key has to
+  // reach the contract, or `tramecli db` quietly lies about what is configurable
+  const chart = await Deno.readTextFile(
+    new URL("./web/src/udb/chart.ts", import.meta.url),
+  );
+  const words = (re: RegExp) =>
+    [...(chart.match(re)?.[1] ?? "").matchAll(/"(\w+)"/g)].map(([, w]) => w);
+  for (
+    const w of [
+      ...words(/export type ChartKind =([^;]*);/),
+      ...words(/export const CHART_AGGS[^=]*=([^;]*);/),
+    ]
+  ) {
+    assertStringIncludes(UDB_CONTRACT, w);
+  }
+  const cfg = chart.match(/export type ChartConfig = \{([\s\S]*?)\n\};/)?.[1] ?? "";
+  for (const [, k] of cfg.matchAll(/^ {2}(\w+)\??:/gm)) {
+    assertStringIncludes(UDB_CONTRACT, k);
+  }
   assertStringIncludes(OVERVIEW, "\n  db ");
 });
 
