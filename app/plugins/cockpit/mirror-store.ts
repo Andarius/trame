@@ -575,13 +575,15 @@ export async function loadTagSyncItems(
       if (ownMapping && inherited && ownMapping !== inherited) continue;
       const mapping = ownMapping ?? inherited;
       if (!mapping) continue;
+      // `trame` always rides along: a ticket filed from here is recognisable in
+      // Cockpit even when its session carries no tag of its own.
       const tags = [
-        ...new Set(keys.flatMap((key) => {
+        ...new Set(["trame", ...keys.flatMap((key) => {
           const label = labels.get(key);
           return !label || /^cockpit-/i.test(key) || /^cockpit\s*:/i.test(label)
             ? []
             : [label];
-        })),
+        })]),
       ].sort();
       out.push({
         reference,
