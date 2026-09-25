@@ -19,6 +19,7 @@ for (const view of ["board", "list"]) {
       })).ok()).toBeTruthy();
     }
     await page.goto(`/?view=${view}&story=tag:${group}`);
+    await page.getByRole("button", { name: /^Sort:/ }).click();
     await page.getByRole("button", { name: "Remove Touched sort", exact: true }).click();
     await page.getByLabel("Add sort field").selectOption("title");
     await page.getByLabel("Add sort field").selectOption("priority");

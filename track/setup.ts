@@ -10,7 +10,7 @@ import pageSkill from "../skills/trame-page/SKILL.md" with { type: "text" };
 import watchSkill from "../skills/trame-watch/SKILL.md" with { type: "text" };
 import prePush from "./pre-push.sh" with { type: "text" };
 import * as p from "@clack/prompts";
-import { SETUP_HELP } from "./help.ts";
+import { QUERY_SYNTAX, SETUP_HELP } from "./help.ts";
 
 export const EMBEDS = {
   trackSkill,
@@ -240,6 +240,7 @@ export async function run(argv: string[]): Promise<number> {
     }
   }
   if (warning) console.error(`warning: ${warning}`);
+  console.log(`\n${QUERY_SYNTAX}`);
   if (interactive) p.outro("Trame agent integrations installed.");
   return 0;
 }
