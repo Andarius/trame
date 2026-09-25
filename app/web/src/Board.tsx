@@ -170,7 +170,7 @@ function Column(
   return (
     <div
       ref={setNodeRef}
-      className={`flex flex-1 flex-col gap-2 rounded-[10px] border bg-panel p-2 transition-colors ${
+      className={`flex min-w-0 max-w-[380px] flex-1 flex-col gap-2 rounded-[10px] border bg-panel p-2 transition-colors ${
         isOver ? "border-copper/50" : "border-line"
       } ${compact ? "min-h-[72px]" : "min-h-0 overflow-y-auto"}`}
     >
