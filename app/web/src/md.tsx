@@ -23,6 +23,7 @@ import {
   type PrInfo,
   prInfo,
   type SessionEvent,
+  setStatus,
 } from "./api";
 import { Modal, Popover, statusStyle, timeAgo } from "./ui";
 import { CARD_COLORS, parseCards } from "./cards";
@@ -456,6 +457,38 @@ function MergeMark() {
       <circle cx="12.5" cy="12.5" r="1.8" />
       <path d="M3.5 5.3v5.4M12.5 10.7V7.5c0-1.7-1.3-3-3-3H7.8M9.6 2.7 7.8 4.5l1.8 1.8" />
     </svg>
+  );
+}
+
+// active card whose PR is already merged/closed: the agent likely ended without a final track
+export function StaleChip({ sessionId, prUrl }: { sessionId: string; prUrl: string | null }) {
+  const [state, setState] = useState(prUrl ? prInfoCache.get(prUrl)?.info.state : undefined);
+  useEffect(() => {
+    if (!prUrl) return;
+    let alive = true;
+    getPrInfo(prUrl).then((i) => alive && setState(i.state));
+    return () => {
+      alive = false;
+    };
+  }, [prUrl]);
+  if (state !== "merged" && state !== "closed") return null;
+  return (
+    <span
+      title={`PR ${state} but the card is still open — verify and mark done`}
+      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#e3c567]/15 px-1.5 py-0.5 text-[10px] font-medium text-[#e3c567]"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
+      stale · PR {state}
+      <button
+        type="button"
+        title="mark done"
+        className="rounded-full px-1 hover:bg-[#e3c567]/25"
+        onClick={() => setStatus(sessionId, "done")}
+      >
+        ✓ done
+      </button>
+    </span>
   );
 }
 

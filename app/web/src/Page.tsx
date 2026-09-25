@@ -48,7 +48,7 @@ import {
   timeAgo,
   uuid7Time,
 } from "./ui";
-import { type ItemLink, LinkChip, Markdown, PageActivityChip } from "./md";
+import { type ItemLink, LinkChip, Markdown, PageActivityChip, StaleChip } from "./md";
 import { blocksToMarkdown } from "./page-serialize";
 
 // Stable block id so a comment survives edits/reorders of the surrounding text.
@@ -2538,6 +2538,7 @@ export function Page(
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [comments, setComments] = useState<PageComment[]>([]);
   const [showResolved, setShowResolved] = useState(false);
+  const [sessionFilter, setSessionFilter] = useState<"active" | "done">("active");
   const [commentMode, setCommentMode] = useState<CommentMode>(
     () => (localStorage.getItem(COMMENT_MODE_KEY) === "panel"
       ? "panel"
@@ -2855,10 +2856,26 @@ export function Page(
         <span className="text-[10.5px] text-ink-muted">{s.branch}</span>
       )}
       <span className="flex-1" />
+      {!statusStyle(s.status).terminal && <StaleChip sessionId={s.id} prUrl={s.pr_url} />}
       <span className="text-[10px] text-ink-muted/70">
         {statusStyle(s.status).label}
       </span>
     </div>
+  );
+  const shownSession = (s: Session) =>
+    statusStyle(s.status).terminal === (sessionFilter === "done");
+  const sessionPill = (value: "active" | "done", label: string, count: number) => (
+    <button
+      type="button"
+      onClick={() => setSessionFilter(value)}
+      className={`rounded-full px-2 py-0.5 text-[10.5px] font-medium transition-colors ${
+        sessionFilter === value
+          ? "bg-copper/15 text-copper"
+          : "text-ink-muted hover:bg-hover hover:text-ink-soft"
+      }`}
+    >
+      {label} {count}
+    </button>
   );
   const sessionsPanel = (atTop: boolean) => (
     <div
@@ -2866,10 +2883,14 @@ export function Page(
         atTop ? "border-b pb-3" : "border-t pt-3"
       }`}
     >
-      <span className="text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
-        SESSIONS
-      </span>
-      {sessionsByStory.map(({ story, list }) => {
+      <div className="flex items-center gap-1.5">
+        <span className="mr-1 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+          SESSIONS
+        </span>
+        {sessionPill("active", "Active", sessions.length - done)}
+        {sessionPill("done", "Done", done)}
+      </div>
+      {sessionsByStory.filter(({ list }) => list.some(shownSession)).map(({ story, list }) => {
         const doneInStory = list.filter((s) =>
           statusStyle(s.status).terminal
         ).length;
@@ -2900,15 +2921,15 @@ export function Page(
               </span>
             </div>
             <div className="flex flex-col pl-1">
-              {list.map(sessionRow)}
+              {list.filter(shownSession).map(sessionRow)}
             </div>
           </div>
         );
       })}
-      {ungroupedSessions.map(sessionRow)}
-      {sessions.length === 0 && (
+      {ungroupedSessions.filter(shownSession).map(sessionRow)}
+      {!sessions.some(shownSession) && (
         <span className="py-1 text-[11.5px] text-ink-muted">
-          no sessions yet
+          {sessions.length === 0 ? "no sessions yet" : `no ${sessionFilter} sessions`}
         </span>
       )}
     </div>
@@ -2953,6 +2974,11 @@ export function Page(
               : ""
           }`}
         >
+          {isStory && (
+            <span className="-mb-3 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+              USER STORY
+            </span>
+          )}
           <div className="flex items-center gap-2">
             <div className="relative">
               <button

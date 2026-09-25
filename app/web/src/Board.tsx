@@ -26,6 +26,7 @@ import {
   storyOf,
   TagChips,
 } from "./ui";
+import { StaleChip } from "./md";
 
 function TicketBody(
   { s, board, overlay = false, showObjective = true, storyFilter, onFilterStory }: {
@@ -73,6 +74,7 @@ function TicketBody(
           />
         )}
         {s.branch && <span className="text-[10.5px] text-ink-muted">{s.branch}</span>}
+        {!done && !overlay && <StaleChip sessionId={s.id} prUrl={s.pr_url} />}
       </div>
       {s.next_step && !done && (
         <div className="text-[11px] leading-snug text-ink-soft">→ {s.next_step}</div>
