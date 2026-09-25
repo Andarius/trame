@@ -18,6 +18,7 @@ import {
   getEvents,
   getPageEvents,
   openInBrowser,
+  openPath,
   type PageEvent,
   type PrInfo,
   prInfo,
@@ -341,16 +342,33 @@ function CardsBlock({ text }: { text: string }) {
 
 const safeHref = (url: string): string | undefined =>
   /^(https?:|mailto:|\/|#)/i.test(url.trim()) ? url.trim() : undefined;
+// A link may also point at a local file; an image may not — the browser blocks
+// `<img src="file:…">` on an http page, so it would render as a broken image.
+const isFile = (url: string) => /^file:/i.test(url.trim());
+const linkHref = (url: string): string | undefined =>
+  safeHref(url) ?? (isFile(url) ? url.trim() : undefined);
+// file:///a/b%20c → /a/b c
+const filePath = (href: string): string => {
+  try {
+    return decodeURIComponent(new URL(href).pathname);
+  } catch {
+    return href.replace(/^file:\/\//i, "");
+  }
+};
 
 function Link({ href, children }: { href: string; children: ReactNode }) {
+  const local = isFile(href);
   return (
     <a
       href={href}
+      title={local ? filePath(href) : undefined}
       className="text-copper underline decoration-copper/40 underline-offset-2 hover:decoration-copper"
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation(); // don't bubble into a click-to-edit parent (e.g. comment body)
-        openInBrowser(href);
+        // a local file opens through the Explore-root allow-list, never the browser
+        if (local) openPath(filePath(href));
+        else openInBrowser(href);
       }}
     >
       {children}
@@ -554,7 +572,7 @@ const INLINE: [RegExp, (m: RegExpMatchArray, k: number) => ReactNode][] = [
       : m[0];
   }],
   [/^\[([^\]]+)\]\(([^)\s]+)\)/, (m, k) => {
-    const h = safeHref(m[2]);
+    const h = linkHref(m[2]);
     if (!h) return m[0];
     if (PR_HREF.test(h)) return <PrChip key={k} url={h} label={m[1]} />;
     return <Link key={k} href={h}>{renderInline(m[1])}</Link>;
@@ -565,7 +583,7 @@ const INLINE: [RegExp, (m: RegExpMatchArray, k: number) => ReactNode][] = [
     (m, k) => <PrChip key={k} url={m[1]} />,
   ],
   [
-    /^(https?:\/\/[^\s<>)]+)/,
+    /^((?:https?|file):\/\/[^\s<>)]+)/,
     (m, k) => <Link key={k} href={m[1]}>{m[1]}</Link>,
   ],
   // marks before the generic pill, which would print them as literal gray text
@@ -637,7 +655,7 @@ function renderInline(text: string): ReactNode[] {
     }
     if (hit) continue;
     // consume plain text up to the next possible token start (always ≥1 char → no loop)
-    const next = rest.slice(1).search(/[`*~[#!{]|https?:\/\//);
+    const next = rest.slice(1).search(/[`*~[#!{]|(?:https?|file):\/\//);
     const take = next === -1 ? rest.length : next + 1;
     out.push(rest.slice(0, take));
     rest = rest.slice(take);

@@ -22,6 +22,7 @@ const TITLES = [
   "Editor table rows e2e",
   "Editor list inline e2e",
   "Editor table width e2e",
+  "Editor file link e2e",
 ];
 
 // retry-safe: wipe our fixture pages so a re-run starts clean
@@ -383,4 +384,21 @@ test("a tab drags along its strip, carrying its whole section", async ({ page, r
     .toEqual(["t-c", "t-d", "t-e", "t-f", "t-a", "t-b"]);
   // the dragged tab stays the one you are looking at
   await expect(page.locator("p", { hasText: "map body" })).toBeVisible();
+});
+
+test("a file:// link renders as a link instead of raw markdown", async ({ page, request }) => {
+  const id = await newPage(request, "Editor file link e2e", [
+    {
+      id: crypto.randomUUID(),
+      type: "text",
+      text: "[SaaS naming inventory](file:///tmp/trame-e2e/audit.html) and file:///tmp/trame-e2e/plain.html",
+    },
+  ]);
+  await page.goto(`/?view=page&page=${id}`);
+  // the labelled link resolves, carrying the decoded path as its title
+  const link = page.getByRole("link", { name: "SaaS naming inventory" });
+  await expect(link).toBeVisible();
+  await expect(link).toHaveAttribute("title", "/tmp/trame-e2e/audit.html");
+  // a bare file URL linkifies like a bare http one
+  await expect(page.getByRole("link", { name: "file:///tmp/trame-e2e/plain.html" })).toBeVisible();
 });
