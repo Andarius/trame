@@ -51,6 +51,7 @@ import { Drawer } from "./Drawer";
 import { Explore } from "./Explore";
 import { List } from "./List";
 import { SessionSort, sortSessionBoard, type Sort } from "./SessionSort";
+import { recentRows } from "./recents";
 import {
   ImportClaudeModal,
   NewSessionModal,
@@ -673,13 +674,7 @@ function Sidebar(
 
   // the whole tree by mtime — sliced short/long at render
   const recentsOpen = expanded.has(RECENTS_KEY);
-  const recents = useMemo(
-    () =>
-      [...pages].sort((a, b) =>
-        Date.parse(b.updated_at) - Date.parse(a.updated_at)
-      ),
-    [pages],
-  );
+  const recents = useMemo(() => recentRows(pages), [pages]);
 
   // opening a deep page (deep link, subpage nav) expands its ancestors
   useEffect(() => {
@@ -841,16 +836,21 @@ function Sidebar(
           <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
             RECENTLY MODIFIED
           </div>
-          {recents.slice(0, recentsOpen ? RECENTS_LONG : RECENTS_SHORT).map((p) => {
+          {recents.slice(0, recentsOpen ? RECENTS_LONG : RECENTS_SHORT).map((row) => {
+            // a bulk edit collapses to its parent, labelled with the page count
+            const p = row.kind === "page" ? row.page : byId.get(row.parentId);
+            if (!p) return null;
+            const count = row.kind === "group" ? row.pages.length : 0;
+            const at = row.kind === "group" ? row.pages[0].updated_at : p.updated_at;
             const active = view === "page" && p.id === pageId;
             const path: string[] = [];
             for (let a = byId.get(p.parent_id ?? ""); a; a = byId.get(a.parent_id ?? "")) path.unshift(a.title);
             return (
               <button
                 type="button"
-                key={p.id}
+                key={row.kind === "group" ? `group:${row.pages[0].id}` : p.id}
                 onClick={() => onOpenPage(p.id)}
-                title={[...path, p.title].join(" / ")}
+                title={[...path, p.title].join(" / ") + (count ? ` · ${count} pages changed` : "")}
                 className={`flex items-center gap-1.5 rounded-md py-[5px] pl-[22px] pr-1 text-left text-[13px] ${
                   active ? "bg-active-row font-medium text-ink" : "text-ink-muted hover:text-ink-soft"
                 }`}
@@ -859,7 +859,12 @@ function Sidebar(
                   <EntityIcon icon={p.icon} fallback={pageGlyph(p.kind)} />
                 </span>
                 <span className="flex-1 truncate">{p.title || "Untitled"}</span>
-                <span className="shrink-0 text-[10.5px] text-ink-muted/60">{timeAgo(p.updated_at)}</span>
+                {count > 0 && (
+                  <span className="shrink-0 rounded-full bg-copper/15 px-1.5 text-[10px] font-medium text-copper">
+                    {count}
+                  </span>
+                )}
+                <span className="shrink-0 text-[10.5px] text-ink-muted/60">{timeAgo(at)}</span>
               </button>
             );
           })}
