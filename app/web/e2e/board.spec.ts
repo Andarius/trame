@@ -26,8 +26,10 @@ test("drawer opens on card click and moves the session", async ({ page }) => {
   await page.goto("/");
   await page.getByText("e2e — first session").click();
   await expect(page.getByText("SESSION", { exact: true })).toBeVisible();
-  // status pill auto-commits
-  await page.getByRole("button", { name: "Paused" }).click();
+  // the status dropdown auto-commits on pick
+  const status = page.getByRole("group", { name: "Status" });
+  await status.getByRole("button").first().click();
+  await status.getByRole("button", { name: "Paused" }).click();
   await page.keyboard.press("Escape");
   // card refetches into the Paused column
   await expect(page.getByText("e2e — first session")).toBeVisible();

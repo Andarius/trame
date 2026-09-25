@@ -16,7 +16,7 @@ import {
   type SessionLink,
   type Status,
 } from "./api";
-import { appConfirm, clientColor, ExpandIcon, pageOptions, Popover, Select, StatusDot, TagChips, timeAgo } from "./ui";
+import { appConfirm, clientColor, ExpandIcon, pageOptions, Popover, Select, TagChips, timeAgo } from "./ui";
 import { PrChip } from "./md";
 import { SpecsEditor } from "./SpecsEditor";
 import { TagEditor } from "./TagEditor";
@@ -265,32 +265,25 @@ export function Drawer(
     />
   );
 
-  const statusPills = (
-    <div className="flex flex-wrap gap-1 rounded-lg bg-panel p-1">
-      {board.statuses.map((def) => {
-        const s = def.key;
-        const active = status === s;
-        return (
-          <button type="button"
-            key={def.id}
-            onClick={() => {
-              setStatus(s);
-              commit({ status: s });
-            }}
-            className={`flex flex-1 basis-[calc(25%-0.25rem)] items-center justify-center gap-1.5 rounded-md py-1.5 text-[11px] transition-colors ${
-              active ? "font-medium" : "text-ink-muted hover:text-ink-soft"
-            }`}
-            style={active
-              ? {
-                background: `color-mix(in srgb, ${def.color} 13%, transparent)`,
-                color: def.color,
-              }
-              : undefined}
-          >
-            <StatusDot status={s} size={6} /> {def.label}
-          </button>
-        );
-      })}
+  const statusDef = board.statuses.find((d) => d.key === status);
+  // named for a11y: the side panel shows this control without a visible caption
+  const statusSelect = (
+    <div role="group" aria-label="Status" className="w-fit min-w-[130px]">
+      <Select
+        value={status}
+        className="rounded-md px-2.5 py-1 text-xs font-medium outline-none"
+        triggerStyle={statusDef
+          ? {
+            background: `color-mix(in srgb, ${statusDef.color} 13%, transparent)`,
+            color: statusDef.color,
+          }
+          : undefined}
+        options={board.statuses.map((d) => ({ value: d.key, label: d.label, dot: d.color }))}
+        onChange={(v) => {
+          setStatus(v as Status);
+          commit({ status: v });
+        }}
+      />
     </div>
   );
 
@@ -397,8 +390,11 @@ export function Drawer(
   );
   const storyRow = (
     <div className="flex min-w-0 flex-1 items-center gap-1.5">
-      {storySelect}
-      <TagChips keys={storyTags} />
+      {/* min-w-0 so a long story name truncates instead of shoving the tags out */}
+      <div className="min-w-0 flex-1">{storySelect}</div>
+      <div className="shrink-0">
+        <TagChips keys={storyTags} />
+      </div>
     </div>
   );
   const branchInput = (
@@ -601,28 +597,7 @@ export function Drawer(
                 <div className="grid grid-cols-[minmax(120px,180px)_1fr_1fr] gap-3">
                   <div className="flex min-w-0 flex-col gap-1">
                     <span className={lblCls}>Status</span>
-                    {(() => {
-                      const def = board.statuses.find((d) => d.key === status);
-                      return (
-                        <div className="w-fit min-w-[130px]">
-                          <Select
-                            value={status}
-                            className="rounded-md px-2.5 py-1 text-xs font-medium outline-none"
-                            triggerStyle={def
-                              ? {
-                                background: `color-mix(in srgb, ${def.color} 13%, transparent)`,
-                                color: def.color,
-                              }
-                              : undefined}
-                            options={board.statuses.map((d) => ({ value: d.key, label: d.label, dot: d.color }))}
-                            onChange={(v) => {
-                              setStatus(v as Status);
-                              commit({ status: v });
-                            }}
-                          />
-                        </div>
-                      );
-                    })()}
+                    {statusSelect}
                   </div>
                   <div className="flex min-w-0 flex-col gap-1">
                     <span className={lblCls}>Project</span>
@@ -704,7 +679,7 @@ export function Drawer(
       <div className="flex flex-col gap-3 px-4 pb-4">
         {titleField}
         {sessionTags}
-        {statusPills}
+        {statusSelect}
         {resumeBlock}
       </div>
 
