@@ -2,14 +2,6 @@
 // never drift: server `rev` orders delivery; the envelope updated_at resolves values.
 import { entityByName } from "./entities.ts";
 
-// jsonb/date params as PG-friendly primitives — portable across postgres.js and PGlite.
-export function toParam(v: unknown): unknown {
-  if (v !== null && typeof v === "object" && !(v instanceof Date)) {
-    return JSON.stringify(v);
-  }
-  return v;
-}
-
 // Parameterized upsert for one entity row: newer updated_at wins, on either engine.
 export function lwwUpsert(
   entity: string,
@@ -25,7 +17,9 @@ export function lwwUpsert(
     text: `insert into ${e.name} (${cols.join(",")}) values (${ph})
            on conflict (id) do update set ${set}
            where excluded.updated_at > ${e.name}.updated_at`,
-    params: cols.map((c) => toParam(row[c] ?? null)),
+    // jsonb values go as objects/arrays: postgres.js double-encodes a JSON
+    // string into a jsonb string (PGlite doesn't) — see links.ts's parse guard
+    params: cols.map((c) => row[c] ?? null),
   };
 }
 

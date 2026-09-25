@@ -3,7 +3,7 @@
 import { db } from "./db.ts";
 import { NODE_ID, TLS_DIR } from "./config.ts";
 import { ENTITIES, PROTOCOL_VERSION } from "../protocol/entities.ts";
-import { lwwSoftDelete, lwwUpsert, toParam } from "../protocol/lww.ts";
+import { lwwSoftDelete, lwwUpsert } from "../protocol/lww.ts";
 import type { Change, Mutation, SyncResponse } from "../protocol/types.ts";
 
 // Trust the hub's private CA (fetched by `just hub-ca`) for the API's TLS too.
@@ -110,9 +110,7 @@ export async function syncOnceApi(
         entity: t.name,
         id: String(row.id),
         op: "upsert",
-        value: Object.fromEntries(
-          t.cols.map((c) => [c, toParam(row[c]) ?? null]),
-        ),
+        value: Object.fromEntries(t.cols.map((c) => [c, row[c] ?? null])),
       });
       if ((row.updated_at as string) > maxPushed) {
         maxPushed = row.updated_at as string;
