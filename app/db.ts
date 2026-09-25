@@ -61,7 +61,8 @@ export function db(): Promise<PGlite> {
   return _pg;
 }
 
-export async function getBoard() {
+// deleted: true returns the soft-deleted sessions instead of the live ones
+export async function getBoard({ deleted = false }: { deleted?: boolean } = {}) {
   const pg = await db();
   // Project > Story > Session. "projects" = top-level Project pages (shape {id,name,color}
   // for the chip/sidebar); "stories" = Story pages (what sessions ladder to).
@@ -69,7 +70,10 @@ export async function getBoard() {
     `select id, title as name, color, icon from pages where kind='project' and not deleted order by title`,
   )).rows;
   const stories = (await pg.query(`select * from pages where kind='story' and not deleted order by title`)).rows;
-  const sessions = (await pg.query(`select * from sessions where not deleted order by last_touched desc`)).rows;
+  const sessions = (await pg.query(
+    `select * from sessions where deleted = $1 order by last_touched desc`,
+    [deleted],
+  )).rows;
   const pages = (await pg.query(
     `select id, parent_id, kind, title, icon, client_id, color, tags from pages where not deleted order by title`,
   )).rows;

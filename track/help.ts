@@ -2,6 +2,9 @@
 // and the MCP server (mcp/server.ts). Edit here only; the installed skills carry their
 // own curated summary and point back at this text.
 import app from "../app/deno.json" with { type: "json" };
+import { QUERY_SYNTAX } from "../app/web/src/query.ts";
+
+export { QUERY_SYNTAX };
 
 // TRAME_BUILD is baked into the compiled CLI (scripts/build-cli.ts): the release
 // version alone cannot tell two builds of that release apart.
@@ -346,6 +349,14 @@ being pushed. Bypass one push with \`git push --no-verify\`.`;
 
 export const LIST_HELP = `tramecli list — print open sessions grouped by story
 
+  tramecli list [--json] [--query '<query>'] [--deleted]
+
+--query (-q) filters with the board's query-box syntax (\`tramecli query\`), e.g.
+  tramecli list -q 'tag:p1 -has:specs touched:>7d'
+Done-like columns stay hidden unless the query has a status: term.
+--deleted lists the soft-deleted cards instead (every column), e.g. to count them:
+  tramecli list --deleted --json | jq length
+
 Reads the board from the running Trame app; writes nothing. Sessions whose status
 column is terminal (e.g. done) are omitted. --json prints flat rows
 ({id, title, status, story, branch, repo_path, last_touched, next_step, pr_url})
@@ -379,6 +390,7 @@ Commands:
   convert    turn a page into a session card whose specs are that page
   setup      install the agent skills embedded in this binary
   db         print the database contract — columns, cells, chart views (REST)
+  query      print the board's session-filter syntax
   mcp        serve the Trame MCP server on stdio
   --version  print the CLI version (the app's is at GET /api/status)
 

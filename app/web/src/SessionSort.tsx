@@ -1,4 +1,5 @@
 import type { BoardData, Session } from "./api";
+import { filterSessions } from "./query";
 import { pagesById, projectOf, sessionTagKeys, storyOf } from "./ui";
 
 export const SORT_FIELDS = {
@@ -42,12 +43,17 @@ export function sortSessionBoard(board: BoardData, sort: Sort[]): BoardData {
   return { ...board, sessions };
 }
 
+export const filterSessionBoard = (board: BoardData, query: string): BoardData => ({
+  ...board,
+  sessions: filterSessions(board.sessions, board, query),
+});
+
 export function SessionSort({ sort, onChange }: { sort: Sort[]; onChange: (sort: Sort[]) => void }) {
   return (
-    <div aria-label="Session sorting" className="flex flex-wrap items-center gap-2 px-5 pb-2 text-[11.5px] text-ink-muted">
-      <span>Sort</span>
+    <div aria-label="Session sorting" className="flex shrink-0 flex-wrap items-center gap-1.5 text-[11.5px] text-ink-muted">
+      <span className="text-ink-muted/60">sort</span>
       {sort.map((field, index) => (
-        <div key={field.key} className="flex items-center gap-1 rounded-md border border-chipline px-2 py-1">
+        <div key={field.key} className="flex items-center gap-1 rounded-md border border-line px-2 py-1 [&>button]:text-ink-muted/70 [&>button:hover]:text-ink">
           <span>{index + 1}. {SORT_FIELDS[field.key]}</span>
           {index > 0 && <button type="button" aria-label={`Move ${SORT_FIELDS[field.key]} sort earlier`}
             onClick={() => {
@@ -64,7 +70,7 @@ export function SessionSort({ sort, onChange }: { sort: Sort[]; onChange: (sort:
         </div>
       ))}
       {sort.length < Object.keys(SORT_FIELDS).length && (
-        <select aria-label="Add sort field" value="" className="rounded-md bg-panel px-2 py-1 text-ink"
+        <select aria-label="Add sort field" value="" className="rounded-md border border-transparent bg-transparent px-1.5 py-1 text-ink-muted outline-none hover:text-ink focus:border-chipline"
           onChange={(e) => {
             const key = e.target.value as SortKey;
             onChange([...sort, { key, dir: key === "touched" ? -1 : 1 }]);

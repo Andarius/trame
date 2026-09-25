@@ -110,3 +110,16 @@ Deno.test("one transcript across branches gets one card per branch", async () =>
   assert(third !== first, "a done card stays done instead of being resurrected");
   assertEquals((await sessions()).find((s) => s.id === first)!.status, "done");
 });
+
+Deno.test("getBoard({deleted}) returns only the soft-deleted sessions", async () => {
+  const { deleteSession, getBoard, upsertSession } = await import("./db.ts");
+  const gone = await upsertSession({ title: "deleted card" });
+  const kept = await upsertSession({ title: "live card" });
+  await deleteSession(gone);
+  const ids = async (deleted: boolean) =>
+    ((await getBoard({ deleted })).sessions as { id: string }[]).map((s) => s.id);
+  assert((await ids(true)).includes(gone));
+  assert(!(await ids(true)).includes(kept));
+  assert(!(await ids(false)).includes(gone));
+  await deleteSession(kept);
+});

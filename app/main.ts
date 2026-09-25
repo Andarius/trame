@@ -977,7 +977,9 @@ async function handler(req: Request): Promise<Response> {
   if (pathname === "/api/plugins") return json(await listPluginManifests());
   if (pathname.startsWith("/api/plugins/")) return handlePluginRoute(req, url);
 
-  if (pathname === "/api/board") return json(await getBoard());
+  if (pathname === "/api/board") {
+    return json(await getBoard({ deleted: url.searchParams.get("deleted") === "1" }));
+  }
   // Quick-find (Ctrl+P): search sessions/pages/databases; empty q = recently touched.
   if (pathname === "/api/search") {
     return json(await searchAll(url.searchParams.get("q") ?? ""));

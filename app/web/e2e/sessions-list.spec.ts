@@ -71,8 +71,8 @@ test("project pill click filters the list to that project", async ({ page, reque
   await expect(page.getByText("beta session e2e")).not.toBeVisible();
   await expect(page.getByText("chip session e2e")).toBeVisible();
 
-  // focusing the empty input already suggests projects/stories
-  await page.getByPlaceholder("＋ filter…").click();
+  // the Filters menu already suggests projects/stories
+  await page.getByRole("button", { name: "Filters" }).click();
   await expect(
     page.getByRole("main").getByRole("button", { name: "Chip Proj B" }),
   ).toBeVisible();

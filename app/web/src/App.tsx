@@ -50,7 +50,8 @@ import { Board } from "./Board";
 import { Drawer } from "./Drawer";
 import { Explore } from "./Explore";
 import { List } from "./List";
-import { SessionSort, sortSessionBoard, type Sort } from "./SessionSort";
+import { filterSessionBoard, sortSessionBoard, type Sort } from "./SessionSort";
+import { SessionBar } from "./SessionBar";
 import { recentRows } from "./recents";
 import {
   ImportClaudeModal,
@@ -70,7 +71,6 @@ import {
   pageGlyph,
   Popover,
   setStatuses,
-  TagChips,
   timeAgo,
 } from "./ui";
 import { FRONTEND_PLUGINS } from "./plugins";
@@ -166,134 +166,6 @@ function GearIcon({ size = 15 }: { size?: number }) {
       <circle cx="12" cy="12" r="3" />
       <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
     </svg>
-  );
-}
-
-// active session-filter chips plus an autocomplete input to add more
-// stories/projects/tags; sessions shown are the union of the selected filters
-function FilterBar(
-  { pages, filter, onToggle, onClear }: {
-    pages: BoardData["pages"];
-    filter: string[];
-    onToggle: (id: string) => void;
-    onClear: () => void;
-  },
-) {
-  const [q, setQ] = useState("");
-  const [open, setOpen] = useState(false);
-  const [sel, setSel] = useState(0);
-  const ql = q.trim().toLowerCase();
-  // empty query (just focused): offer projects and stories, projects first;
-  // typing searches every page by title
-  const hits = (ql
-    ? pages.filter((p) =>
-      p.title && !filter.includes(p.id) &&
-      p.title.toLowerCase().includes(ql)
-    )
-    : pages
-      .filter((p) => p.title && !filter.includes(p.id) && p.kind !== "page")
-      .sort((a, b) =>
-        a.kind === b.kind
-          ? a.title.localeCompare(b.title)
-          : a.kind === "project"
-          ? -1
-          : 1
-      )).slice(0, 8);
-  const pick = (id: string) => {
-    onToggle(id);
-    setQ("");
-    setSel(0);
-  };
-  return (
-    <div className="flex min-w-0 items-center gap-1.5">
-      {filter.map((id) => {
-        const fp = pages.find((p) => p.id === id);
-        return (
-          <button
-            key={id}
-            type="button"
-            onClick={() => onToggle(id)}
-            title="Remove filter"
-            className="flex max-w-full shrink-0 items-center gap-1.5 rounded-md border border-copper/50 px-2 py-1 text-[11.5px] text-copper hover:bg-copper/10"
-          >
-            {id.startsWith("tag:") ? <TagChips keys={[id.slice(4)]} /> : <>
-              <EntityIcon
-                icon={fp?.icon}
-                fallback={pageGlyph(fp?.kind ?? "story")}
-                className="shrink-0 text-[9px]"
-              />
-              <span className="truncate">{fp?.title ?? "story"}</span>
-            </>}
-            <span className="shrink-0 text-[11px]">✕</span>
-          </button>
-        );
-      })}
-      <div className="relative">
-        <input
-          value={q}
-          placeholder="＋ filter…"
-          className="w-[110px] rounded-md border border-transparent bg-transparent px-2 py-1 text-[11.5px] text-ink outline-none placeholder:text-ink-muted/60 focus:border-chipline focus:bg-panel"
-          onChange={(e) => {
-            setQ(e.target.value);
-            setOpen(true);
-            setSel(0);
-          }}
-          onFocus={() => setOpen(true)}
-          onBlur={() => setOpen(false)}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowDown") {
-              e.preventDefault();
-              setSel((s) => Math.min(s + 1, hits.length - 1));
-            }
-            if (e.key === "ArrowUp") {
-              e.preventDefault();
-              setSel((s) => Math.max(s - 1, 0));
-            }
-            if (e.key === "Enter" && hits[sel]) {
-              e.preventDefault();
-              pick(hits[sel].id);
-            }
-            if (e.key === "Escape") {
-              setQ("");
-              setOpen(false);
-              (e.target as HTMLInputElement).blur();
-            }
-          }}
-        />
-        {open && hits.length > 0 && (
-          <div className="absolute left-0 top-full z-30 mt-1 w-[240px] overflow-hidden rounded-md border border-line bg-sidebar py-1 shadow-xl shadow-black/40">
-            {hits.map((p, i) => (
-              <button
-                key={p.id}
-                type="button"
-                onMouseDown={(e) => e.preventDefault()} // keep input focus so blur doesn't kill the click
-                onClick={() => pick(p.id)}
-                className={`flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-[12px] ${
-                  i === sel ? "bg-panel text-ink" : "text-ink-soft hover:bg-panel"
-                }`}
-              >
-                <EntityIcon
-                  icon={p.icon}
-                  fallback={pageGlyph(p.kind)}
-                  className="shrink-0 text-[10px]"
-                />
-                <span className="truncate">{p.title}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-      {filter.length > 1 && (
-        <button
-          type="button"
-          onClick={onClear}
-          title="Clear all filters"
-          className="shrink-0 text-[11px] text-ink-muted hover:text-ink"
-        >
-          clear
-        </button>
-      )}
-    </div>
   );
 }
 
@@ -1243,7 +1115,11 @@ export function App() {
     params.get("story")?.split(",").filter(Boolean) ?? [],
   );
   const [sessionSort, setSessionSort] = useState<Sort[]>([{ key: "touched", dir: -1 }]);
-  const sortedBoard = useMemo(() => board ? sortSessionBoard(board, sessionSort) : null, [board, sessionSort]);
+  const [sessionQuery, setSessionQuery] = useState(params.get("q") ?? "");
+  const sortedBoard = useMemo(
+    () => board ? sortSessionBoard(filterSessionBoard(board, sessionQuery), sessionSort) : null,
+    [board, sessionQuery, sessionSort],
+  );
   // "only sessions without a specs page" — a triage lens, mirrored to the URL
   const [noSpecs, setNoSpecs] = useState(params.get("nospecs") === "1"); // narrow sessions to the selected stories/projects (subtree union)
   const toggleStoryFilter = (id: string) =>
@@ -1426,9 +1302,10 @@ export function App() {
     put("group", group === "none" ? null : group);
     put("story", storyFilter.join(",") || null);
     put("nospecs", noSpecs ? "1" : null);
+    put("q", sessionQuery.trim() || null);
     put("zen", zen ? "1" : null);
     history.replaceState(null, "", u);
-  }, [view, pageId, dbId, clientId, pluginId, openId, drawerFull, group, storyFilter, noSpecs, zen]);
+  }, [view, pageId, dbId, clientId, pluginId, openId, drawerFull, group, storyFilter, noSpecs, sessionQuery, zen]);
   // Browser Back from the full-screen ticket returns to the view behind it (the
   // board for a direct link) instead of leaving the app: the underlying view is
   // written as its own history entry beneath the ticket, and popstate closes it.
@@ -1779,101 +1656,6 @@ export function App() {
                 ))}
               </div>
             )}
-            {view === "board" && (
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setGroupMenu((o) => !o)}
-                  title="Group the board"
-                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] ${
-                    group !== "none"
-                      ? "border-copper/50 text-copper"
-                      : "border-line text-ink-muted hover:text-ink-soft"
-                  }`}
-                >
-                  <GroupIcon />
-                  {group === "none"
-                    ? "Group"
-                    : group === "story"
-                    ? "Story"
-                    : "Project"}
-                  <span className="text-[8px]">▾</span>
-                </button>
-                {groupMenu && (
-                  <Popover onClose={() => setGroupMenu(false)} className="w-40">
-                    <div className="px-2 pb-1 pt-1 text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70">
-                      GROUP BY
-                    </div>
-                    {([["none", "None"], ["story", "◇ Story"], [
-                      "project",
-                      "◎ Project",
-                    ]] as const).map(([v, label]) => (
-                      <button
-                        type="button"
-                        key={v}
-                        onClick={() => {
-                          setGroup(v);
-                          setGroupMenu(false);
-                        }}
-                        className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-panel ${
-                          group === v ? "text-ink" : "text-ink-soft"
-                        }`}
-                      >
-                        <span className="flex-1">{label}</span>
-                        {group === v && (
-                          <span className="text-[11px] text-copper">✓</span>
-                        )}
-                      </button>
-                    ))}
-                  </Popover>
-                )}
-              </div>
-            )}
-            {view === "board" && (
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setColMenu((o) => !o)}
-                  title="Columns"
-                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] ${
-                    hideEmpty
-                      ? "border-copper/50 text-copper"
-                      : "border-line text-ink-muted hover:text-ink-soft"
-                  }`}
-                >
-                  <span className="text-[11px]">▤</span>
-                  Columns
-                  <span className="text-[8px]">▾</span>
-                </button>
-                {colMenu && (
-                  <Popover
-                    onClose={() => setColMenu(false)}
-                    className="w-[264px]"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setHideEmpty((v) => !v)}
-                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-ink-soft hover:bg-panel"
-                    >
-                      <span
-                        className={`flex h-3.5 w-3.5 items-center justify-center rounded border text-[9px] ${
-                          hideEmpty
-                            ? "border-copper bg-copper text-copper-ink"
-                            : "border-chipline"
-                        }`}
-                      >
-                        {hideEmpty ? "✓" : ""}
-                      </span>
-                      <span className="flex-1">Hide empty statuses</span>
-                    </button>
-                    <StatusManager
-                      statuses={board?.statuses ?? []}
-                      onChanged={refresh}
-                    />
-                  </Popover>
-                )}
-              </div>
-            )}
             <div className="flex-1" />
             {isSessions && (
               <button
@@ -1990,30 +1772,121 @@ export function App() {
               )}
           </div>
           {isSessions && board && (
-            <>
-              <FilterBar
-                pages={board.pages}
-                filter={storyFilter}
-                onToggle={toggleStoryFilter}
-                onClear={() => setStoryFilter([])}
-              />
-              <button
-                type="button"
-                onClick={() => setNoSpecs((v) => !v)}
-                title="Only sessions without a specs page"
-                className={`shrink-0 rounded-md border px-2 py-1 text-[11.5px] ${
-                  noSpecs
-                    ? "border-copper/50 text-copper hover:bg-copper/10"
-                    : "border-transparent text-ink-muted hover:text-ink"
-                }`}
-              >
-                no specs
-              </button>
-            </>
+            <SessionBar
+              pages={board.pages}
+              filter={storyFilter}
+              onToggle={toggleStoryFilter}
+              noSpecs={noSpecs}
+              onNoSpecs={() => setNoSpecs((v) => !v)}
+              query={sessionQuery}
+              onQuery={setSessionQuery}
+              onClear={() => {
+                setStoryFilter([]);
+                setNoSpecs(false);
+                setSessionQuery("");
+              }}
+              sort={sessionSort}
+              onSort={setSessionSort}
+            >
+            {view === "board" && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setGroupMenu((o) => !o)}
+                  title="Group the board"
+                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] ${
+                    group !== "none"
+                      ? "border-copper/50 text-copper"
+                      : "border-line text-ink-muted hover:text-ink-soft"
+                  }`}
+                >
+                  <GroupIcon />
+                  {group === "none"
+                    ? "Group"
+                    : group === "story"
+                    ? "Story"
+                    : "Project"}
+                  <span className="text-[8px]">▾</span>
+                </button>
+                {groupMenu && (
+                  <Popover onClose={() => setGroupMenu(false)} className="w-40">
+                    <div className="px-2 pb-1 pt-1 text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+                      GROUP BY
+                    </div>
+                    {([["none", "None"], ["story", "◇ Story"], [
+                      "project",
+                      "◎ Project",
+                    ]] as const).map(([v, label]) => (
+                      <button
+                        type="button"
+                        key={v}
+                        onClick={() => {
+                          setGroup(v);
+                          setGroupMenu(false);
+                        }}
+                        className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-panel ${
+                          group === v ? "text-ink" : "text-ink-soft"
+                        }`}
+                      >
+                        <span className="flex-1">{label}</span>
+                        {group === v && (
+                          <span className="text-[11px] text-copper">✓</span>
+                        )}
+                      </button>
+                    ))}
+                  </Popover>
+                )}
+              </div>
+            )}
+            {view === "board" && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setColMenu((o) => !o)}
+                  title="Columns"
+                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] ${
+                    hideEmpty
+                      ? "border-copper/50 text-copper"
+                      : "border-line text-ink-muted hover:text-ink-soft"
+                  }`}
+                >
+                  <span className="text-[11px]">▤</span>
+                  Columns
+                  <span className="text-[8px]">▾</span>
+                </button>
+                {colMenu && (
+                  <Popover
+                    onClose={() => setColMenu(false)}
+                    className="w-[264px]"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setHideEmpty((v) => !v)}
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-ink-soft hover:bg-panel"
+                    >
+                      <span
+                        className={`flex h-3.5 w-3.5 items-center justify-center rounded border text-[9px] ${
+                          hideEmpty
+                            ? "border-copper bg-copper text-copper-ink"
+                            : "border-chipline"
+                        }`}
+                      >
+                        {hideEmpty ? "✓" : ""}
+                      </span>
+                      <span className="flex-1">Hide empty statuses</span>
+                    </button>
+                    <StatusManager
+                      statuses={board?.statuses ?? []}
+                      onChanged={refresh}
+                    />
+                  </Popover>
+                )}
+              </div>
+            )}
+            </SessionBar>
           )}
         </header>
         )}
-        {isSessions && <SessionSort sort={sessionSort} onChange={setSessionSort} />}
         {!board
           ? <p className="p-6 text-ink-muted">Loading…</p>
           : view === "board"

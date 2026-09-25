@@ -3,6 +3,7 @@
 // composition conventions from track/help.ts (the single source of truth).
 import pc from "picocolors";
 import { PORT_FILE } from "../app/config.ts";
+import { filterSessions, parseQuery, type QueryBoard, type QuerySession } from "../app/web/src/query.ts";
 import { newer } from "../app/update.ts";
 import { main as trackMain } from "./track.ts";
 import { main as pageMain } from "./page.ts";
@@ -20,6 +21,7 @@ import {
   PAGE_HELP,
   SETUP_HELP,
   TRACK_HELP,
+  QUERY_SYNTAX,
   UDB_CONTRACT,
   VERSION,
 } from "./help.ts";
@@ -32,6 +34,7 @@ const HELP_TOPICS: Record<string, string> = {
   convert: CONVERT_HELP,
   setup: SETUP_HELP,
   db: UDB_CONTRACT, // topic, not a command: databases are plain REST
+  query: QUERY_SYNTAX,
 };
 
 type Board = {
@@ -49,6 +52,10 @@ type Board = {
   }[];
   stories: { id: string; title: string }[];
   statuses: { key: string; terminal: boolean }[];
+};
+// /api/board as `list --query` reads it: the full session rows plus the page tree
+type QueryableBoard = Omit<Board, "sessions"> & Omit<QueryBoard, "statuses"> & {
+  sessions: (Board["sessions"][number] & QuerySession)[];
 };
 
 // flat rows for --json: one object per open session, jq-friendly
@@ -119,12 +126,31 @@ async function appBase(): Promise<string> {
   }
 }
 
-async function list(json: boolean): Promise<void> {
-  const res = await fetch(`${await appBase()}/api/board`, {
+async function list(json: boolean, query: string | null, deleted: boolean): Promise<void> {
+  const res = await fetch(`${await appBase()}/api/board${deleted ? "?deleted=1" : ""}`, {
     signal: AbortSignal.timeout(5000),
   });
   if (!res.ok) throw new Error(`/api/board → HTTP ${res.status}`);
-  const board = await res.json() as Board;
+  let board = await res.json() as QueryableBoard;
+  // deleted cards are listed whatever their column, flagged live so the formatters keep them
+  if (deleted) {
+    board = {
+      ...board,
+      sessions: board.sessions.map((s) => ({ ...s, deleted: false })),
+      statuses: board.statuses.map((s) => ({ ...s, terminal: false })),
+    };
+  }
+  if (query) {
+    const errors = parseQuery(query).errors;
+    if (errors.length) throw new Error(`${errors.join(", ")} — see \`tramecli query\``);
+    // a status: term picks columns itself, so done cards stay reachable
+    const pickStatus = parseQuery(query).terms.some((t) => t.key === "status");
+    board = {
+      ...board,
+      sessions: filterSessions(board.sessions, board, query),
+      statuses: pickStatus ? board.statuses.map((s) => ({ ...s, terminal: false })) : board.statuses,
+    };
+  }
   console.log(
     json
       ? JSON.stringify(boardRows(board))
@@ -211,6 +237,9 @@ export async function run(argv: string[]): Promise<number> {
       console.log(HELP_TOPICS[rest[0]] ?? OVERVIEW);
       return 0;
     }
+    case "query": // topic, like db
+      console.log(QUERY_SYNTAX);
+      return 0;
     case "db": // not a command: prints the REST contract, same as `help db`
       console.log(UDB_CONTRACT);
       return 0;
@@ -241,7 +270,11 @@ export async function run(argv: string[]): Promise<number> {
       return 0;
     case "list":
       if (wantsHelp) console.log(LIST_HELP);
-      else await list(json);
+      else {
+        const i = rest.findIndex((a) => a === "--query" || a === "-q");
+        if (i >= 0 && !rest[i + 1]) throw new Error("--query needs a query — see `tramecli query`");
+        await list(json, i >= 0 ? rest[i + 1] : null, rest.includes("--deleted"));
+      }
       return 0;
     case "convert":
       if (wantsHelp) console.log(CONVERT_HELP);
