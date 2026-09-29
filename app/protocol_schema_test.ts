@@ -7,6 +7,7 @@ Deno.env.set("TRACKER_OUTBOX", `${tmp}/outbox.jsonl`);
 Deno.env.set("TRACKER_SETTINGS_FILE", `${tmp}/settings.json`);
 Deno.env.set("TRACKER_PORT_FILE", `${tmp}/port.json`);
 Deno.env.set("TRACKER_APP_ROOT", new URL(".", import.meta.url).pathname);
+const { APP_CTX } = await import("./ctx.ts");
 
 import { assertEquals, assertRejects } from "@std/assert";
 import { ENTITIES } from "../protocol/entities.ts";
@@ -45,44 +46,45 @@ Deno.test("every synced column exists in the database", async () => {
 });
 
 Deno.test("a page keeps its tags through create and update", async () => {
-  const { createPage, getPage, updatePage } = await import("./pages.ts");
+  const { createPage, getPage, updatePage } = await import("../core/pages.ts");
   // getPage spreads an untyped row, so the column is not on the inferred type.
   const tagsOf = async (id: string) =>
-    (await getPage(id) as unknown as { tags: string[] }).tags;
+    (await getPage(APP_CTX, id) as unknown as { tags: string[] }).tags;
 
-  const id = await createPage({ title: "Tagged", tags: ["devops"] });
+  const id = await createPage(APP_CTX, { title: "Tagged", tags: ["devops"] });
   assertEquals(await tagsOf(id), ["devops"]);
 
   // The conditional-write trap: a patch that does not mention tags must leave
   // them alone, exactly like icon and color.
-  await updatePage(id, { title: "Renamed" });
+  await updatePage(APP_CTX, id, { title: "Renamed" });
   assertEquals(await tagsOf(id), ["devops"], "untouched by an unrelated patch");
 
-  await updatePage(id, { tags: ["devops", "mobile"] });
+  await updatePage(APP_CTX, id, { tags: ["devops", "mobile"] });
   assertEquals(await tagsOf(id), ["devops", "mobile"]);
 
-  await updatePage(id, { tags: [] });
+  await updatePage(APP_CTX, id, { tags: [] });
   assertEquals(await tagsOf(id), [], "clearing is possible");
 });
 
 Deno.test("session tags survive tracking, replacement, clearing, and schema reapplication", async () => {
-  const { db, getSession, upsertSession } = await import("./db.ts");
+  const { db } = await import("./db.ts");
+const { getSession, upsertSession } = await import("../core/sessions.ts");
   const pg = await db();
   // labels slug to keys on the way in, so `priority:P1` and `priority-p1` are one tag
-  const id = await upsertSession({ title: "Tagged session", tags: ["priority:P1", "priority-p1", "infra"] });
-  const otherId = await upsertSession({ title: "Untagged session" });
-  assertEquals((await getSession(id))?.tags, ["priority-p1", "infra"]);
-  assertEquals((await getSession(otherId))?.tags, []);
+  const id = await upsertSession(APP_CTX, { title: "Tagged session", tags: ["priority:P1", "priority-p1", "infra"] });
+  const otherId = await upsertSession(APP_CTX, { title: "Untagged session" });
+  assertEquals((await getSession(APP_CTX, id))?.tags, ["priority-p1", "infra"]);
+  assertEquals((await getSession(APP_CTX, otherId))?.tags, []);
 
-  await upsertSession({ id, title: "Renamed session", summary: "Tracking update" });
+  await upsertSession(APP_CTX, { id, title: "Renamed session", summary: "Tracking update" });
   await pg.exec(await Deno.readTextFile(new URL("../db/schema.sql", import.meta.url)));
-  assertEquals((await getSession(id))?.tags, ["priority-p1", "infra"]);
+  assertEquals((await getSession(APP_CTX, id))?.tags, ["priority-p1", "infra"]);
 
-  await upsertSession({ id, title: "Renamed session", tags: ["priority-p2"] });
-  assertEquals((await getSession(id))?.tags, ["priority-p2"]);
-  assertEquals((await getSession(otherId))?.tags, []);
-  await upsertSession({ id, title: "Renamed session", tags: [] });
-  assertEquals((await getSession(id))?.tags, []);
+  await upsertSession(APP_CTX, { id, title: "Renamed session", tags: ["priority-p2"] });
+  assertEquals((await getSession(APP_CTX, id))?.tags, ["priority-p2"]);
+  assertEquals((await getSession(APP_CTX, otherId))?.tags, []);
+  await upsertSession(APP_CTX, { id, title: "Renamed session", tags: [] });
+  assertEquals((await getSession(APP_CTX, id))?.tags, []);
 });
 
 for (const [name, tags] of [
@@ -92,13 +94,13 @@ for (const [name, tags] of [
   ["blank key", [" "]],
 ] as const) {
   Deno.test(`invalid session tags (${name}) cannot mutate a session`, async () => {
-    const { getSession, SessionTagsError, upsertSession } = await import("./db.ts");
-    const id = await upsertSession({ title: "Original", tags: ["priority-p1"] });
+    const { getSession, SessionTagsError, upsertSession } = await import("../core/sessions.ts");
+    const id = await upsertSession(APP_CTX, { title: "Original", tags: ["priority-p1"] });
     await assertRejects(
-      () => upsertSession({ id, title: "Invalid update", tags }),
+      () => upsertSession(APP_CTX, { id, title: "Invalid update", tags }),
       SessionTagsError,
     );
-    const session = await getSession(id);
+    const session = await getSession(APP_CTX, id);
     assertEquals(session?.title, "Original");
     assertEquals(session?.tags, ["priority-p1"]);
   });

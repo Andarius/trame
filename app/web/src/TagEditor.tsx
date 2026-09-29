@@ -1,5 +1,5 @@
 import { type CSSProperties, useEffect, useState } from "react";
-import { splitTagLabel, TAG_COLORS, tagKey } from "../../tags.ts";
+import { splitTagLabel, TAG_COLORS, tagKey } from "../../../core/tags.ts";
 import { ensureTag, listTags, type Tag, updateTag } from "./api";
 import { Popover } from "./ui";
 

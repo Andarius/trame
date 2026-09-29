@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { isPageStatus, PAGE_STATUSES } from "./page-status.ts";
+import { isPageStatus, PAGE_STATUSES } from "../core/page-status.ts";
 
 Deno.test("isPageStatus accepts every status the editor offers", () => {
   for (const s of PAGE_STATUSES) assertEquals(isPageStatus(s.value), true);

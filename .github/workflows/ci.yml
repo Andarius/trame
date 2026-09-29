@@ -37,7 +37,7 @@ jobs:
         run: cd app && deno test -A
 
       - name: Lint
-        run: cd app && deno lint
+        run: cd app && deno lint && deno lint ../core ../track ../mcp
 
       - name: Hub API typecheck + tests + lint
         run: cd hub/api && deno check main.ts && deno test -A && deno lint

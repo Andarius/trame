@@ -1,12 +1,12 @@
 // Pages (Notion-style): one nestable tree — kind: project | story | page.
 // The tree is returned flat (parent_id + sort_key) — the frontend assembles it and
 // tolerates orphans (sync can deliver a child before its parent).
-import { db, resolveHomeProject } from "./db.ts";
+import type { Ctx, Q } from "./ctx.ts";
 import { checkStoryParent, isUserStory, projectAbove } from "./hierarchy.ts";
-import { NODE_ID } from "./config.ts";
-import { getIdentity } from "./identity.ts";
+import { identityOf } from "./identity.ts";
+import { resolveHomeProject } from "./sessions.ts";
 import { isPageStatus } from "./page-status.ts";
-import { midKey } from "./udb.ts";
+import { midKey } from "./sort-key.ts";
 import {
   AGENT_AUTHOR_ID,
   agentIdentity,
@@ -21,8 +21,8 @@ const COMMENT_COLS =
 
 // Comments for a page, each carrying the newest watcher status (seen/answering/failed)
 // from comment_agent_status. Shared by listComments and getPage.
-async function commentsForPage(pageId: string) {
-  const pg = await db();
+async function commentsForPage(ctx: Ctx, pageId: string) {
+  const pg = ctx.q;
   return (await pg.query(
     `select ${COMMENT_COLS.split(", ").map((c) => `c.${c}`).join(", ")},
             s.status as agent_status, s.agent as agent_status_agent
@@ -37,15 +37,15 @@ async function commentsForPage(pageId: string) {
   )).rows;
 }
 
-export async function listPages() {
-  const pg = await db();
+export async function listPages(ctx: Ctx) {
+  const pg = ctx.q;
   return (await pg.query(
     `select ${LIST_COLS} from pages where not deleted order by sort_key, title`,
   )).rows;
 }
 
-export async function getPage(id: string) {
-  const pg = await db();
+export async function getPage(ctx: Ctx, id: string) {
+  const pg = ctx.q;
   const page =
     (await pg.query(`select * from pages where id=$1 and not deleted`, [id]))
       .rows[0];
@@ -73,7 +73,7 @@ export async function getPage(id: string) {
       order by last_touched desc`,
     [id],
   )).rows;
-  const comments = await commentsForPage(id);
+  const comments = await commentsForPage(ctx, id);
   // session links anchored to this page's items (render as chips on the lines;
   // the chip's panel fetches that session's worklog on open)
   const links = (await pg.query(
@@ -87,7 +87,7 @@ export async function getPage(id: string) {
 }
 
 async function endKey(
-  pg: Awaited<ReturnType<typeof db>>,
+  pg: Q,
   parentId: string | null,
 ): Promise<string> {
   const last = (await pg.query(
@@ -98,6 +98,7 @@ async function endKey(
 }
 
 export async function createPage(
+  ctx: Ctx,
   p: {
     title?: string;
     parent_id?: string | null;
@@ -114,15 +115,15 @@ export async function createPage(
   if (p.status != null && !isPageStatus(p.status)) {
     throw new Error(`unknown page status: ${p.status}`);
   }
-  const pg = await db();
+  const pg = ctx.q;
   // An agent-created page (repo_path given, no parent) files itself under the repo's
   // project; an explicit null parent still means root.
   const parentId = p.parent_id !== undefined
     ? p.parent_id
     : p.repo_path
-    ? await resolveHomeProject(p.repo_path)
+    ? await resolveHomeProject(ctx, p.repo_path)
     : null;
-  if (isUserStory(p)) await checkStoryParent(parentId);
+  if (isUserStory(p)) await checkStoryParent(ctx, parentId);
   const row = (await pg.query(
     `insert into pages
        (kind, title, icon, client_id, parent_id, sort_key, brief, content, tags, status, owner_id, origin)
@@ -138,14 +139,15 @@ export async function createPage(
       JSON.stringify(p.content ?? []),
       JSON.stringify(p.tags ?? []),
       p.status ?? "open",
-      (await getIdentity()).userId,
-      NODE_ID,
+      (await identityOf(ctx)).userId,
+      ctx.origin,
     ],
   )).rows[0] as { id: string };
   return row.id;
 }
 
 export async function updatePage(
+  ctx: Ctx,
   id: string,
   patch: {
     title?: string;
@@ -161,7 +163,7 @@ export async function updatePage(
   if (patch.status != null && !isPageStatus(patch.status)) {
     throw new Error(`unknown page status: ${patch.status}`);
   }
-  const pg = await db();
+  const pg = ctx.q;
   await pg.query(
     `update pages set
        title     = coalesce($2, title),
@@ -172,7 +174,7 @@ export async function updatePage(
        client_id = case when $8 then $9 else client_id end,
        color     = case when $11 then $12 else color end,
        tags      = case when $13 then $14 else tags end,
-       origin=$10, updated_at=now()
+       origin=$10, updated_at=clock_timestamp()
      where id=$1`,
     [
       id,
@@ -184,7 +186,7 @@ export async function updatePage(
       patch.icon ?? null,
       "client_id" in patch,
       patch.client_id ?? null,
-      NODE_ID,
+      ctx.origin,
       "color" in patch,
       patch.color ?? null,
       "tags" in patch,
@@ -193,8 +195,8 @@ export async function updatePage(
   );
 }
 
-async function subtreeHasStory(id: string): Promise<boolean> {
-  const pg = await db();
+async function subtreeHasStory(ctx: Ctx, id: string): Promise<boolean> {
+  const pg = ctx.q;
   return (await pg.query(
     `with recursive subtree as (
        select id, kind, content from pages where id=$1 and not deleted
@@ -211,10 +213,11 @@ async function subtreeHasStory(id: string): Promise<boolean> {
 // Reparent and/or reorder. sort_key is computed here from the neighbor the client
 // dropped next to (before_id/after_id) so concurrent moves can't share a key.
 export async function movePage(
+  ctx: Ctx,
   id: string,
   to: { parent_id?: string | null; before_id?: string; after_id?: string },
 ): Promise<void> {
-  const pg = await db();
+  const pg = ctx.q;
   const cur =
     (await pg.query(`select parent_id from pages where id=$1 and not deleted`, [
       id,
@@ -235,8 +238,8 @@ export async function movePage(
     )).rows[0];
     if (hit) throw new Error("cannot move a page under itself");
   }
-  if (parentId !== cur.parent_id && parentId && await subtreeHasStory(id)) {
-    await checkStoryParent(parentId);
+  if (parentId !== cur.parent_id && parentId && await subtreeHasStory(ctx, id)) {
+    await checkStoryParent(ctx, parentId);
   }
   const anchor = to.before_id ?? to.after_id;
   let key: string;
@@ -257,29 +260,29 @@ export async function movePage(
   }
   // a story's client_id mirrors its project (see resolveStory/promoteToProject) —
   // re-homing it must retarget the chip too, not leave it on the old project
-  const proj = parentId ? await projectAbove(parentId) : null;
+  const proj = parentId ? await projectAbove(ctx, parentId) : null;
   await pg.query(
     `update pages set parent_id=$2, sort_key=$3,
        client_id = case when kind='story' then $5 else client_id end,
-       origin=$4, updated_at=now() where id=$1`,
-    [id, parentId, key, NODE_ID, proj],
+       origin=$4, updated_at=clock_timestamp() where id=$1`,
+    [id, parentId, key, ctx.origin, proj],
   );
 }
 
 // Soft-delete the page, its whole subtree, and databases attached anywhere in it
 // (Notion semantics: a page takes its contents with it). Sessions/reports keep their
 // page_id — they just lose the chip until relinked.
-export async function deletePage(id: string): Promise<void> {
-  const pg = await db();
+export async function deletePage(ctx: Ctx, id: string): Promise<void> {
+  const pg = ctx.q;
   await pg.query(
     `with recursive sub as (
        select id from pages where id=$1
        union all
        select p.id from pages p join sub on p.parent_id = sub.id where not p.deleted
      )
-     update udb_databases set deleted=true, origin=$2, updated_at=now()
+     update udb_databases set deleted=true, origin=$2, updated_at=clock_timestamp()
       where not deleted and page_id in (select id from sub)`,
-    [id, NODE_ID],
+    [id, ctx.origin],
   );
   // before the pages update below — the subtree walk only follows live rows
   await pg.query(
@@ -288,9 +291,9 @@ export async function deletePage(id: string): Promise<void> {
        union all
        select p.id from pages p join sub on p.parent_id = sub.id where not p.deleted
      )
-     update page_comments set deleted=true, origin=$2, updated_at=now()
+     update page_comments set deleted=true, origin=$2, updated_at=clock_timestamp()
       where not deleted and page_id in (select id from sub)`,
-    [id, NODE_ID],
+    [id, ctx.origin],
   );
   await pg.query(
     `with recursive sub as (
@@ -298,18 +301,19 @@ export async function deletePage(id: string): Promise<void> {
        union all
        select p.id from pages p join sub on p.parent_id = sub.id where not p.deleted
      )
-     update pages set deleted=true, origin=$2, updated_at=now() where id in (select id from sub)`,
-    [id, NODE_ID],
+     update pages set deleted=true, origin=$2, updated_at=clock_timestamp() where id in (select id from sub)`,
+    [id, ctx.origin],
   );
 }
 
 // Inline page comments — block-level notes anchored by Block.id inside pages.content.
 
-export async function listComments(pageId: string) {
-  return await commentsForPage(pageId);
+export async function listComments(ctx: Ctx, pageId: string) {
+  return await commentsForPage(ctx, pageId);
 }
 
 export async function createComment(
+  ctx: Ctx,
   p: {
     page_id: string;
     block_id: string;
@@ -321,8 +325,8 @@ export async function createComment(
     meta?: Record<string, unknown>; // agent generation stats {model, in, out, ms}
   },
 ): Promise<string> {
-  const pg = await db();
-  const me = await getIdentity();
+  const pg = ctx.q;
+  const me = await identityOf(ctx);
   // agents (Codex, Claude, …) get the reserved AGENT_AUTHOR_ID: never a real user
   const agent = p.agent ? agentIdentity(p.agent) : null;
   const author = agent?.name ?? p.author?.trim();
@@ -344,13 +348,14 @@ export async function createComment(
       // sentinel only for real agent threads; a custom display author stays the local user
       agent ? AGENT_AUTHOR_ID : me.userId,
       meta ? JSON.stringify(meta) : null,
-      NODE_ID,
+      ctx.origin,
     ],
   )).rows[0] as { id: string };
   return row.id;
 }
 
 export async function updateComment(
+  ctx: Ctx,
   id: string,
   patch: {
     body?: string;
@@ -359,7 +364,7 @@ export async function updateComment(
     author_avatar?: string;
   },
 ): Promise<void> {
-  const pg = await db();
+  const pg = ctx.q;
   // re-attributing to an agent name detaches the comment from the synced user
   await pg.query(
     `update page_comments set
@@ -368,7 +373,7 @@ export async function updateComment(
        author   = coalesce($4, author),
        author_avatar = case when $4::text is null then author_avatar else coalesce($5, '') end,
        author_id     = case when $4::text is null then author_id else '${AGENT_AUTHOR_ID}'::uuid end,
-       origin=$6, updated_at=now()
+       origin=$6, updated_at=clock_timestamp()
      where id=$1`,
     [
       id,
@@ -376,16 +381,16 @@ export async function updateComment(
       patch.resolved ?? null,
       patch.author?.trim() || null,
       patch.author_avatar ?? null,
-      NODE_ID,
+      ctx.origin,
     ],
   );
 }
 
-export async function deleteComment(id: string): Promise<void> {
-  const pg = await db();
+export async function deleteComment(ctx: Ctx, id: string): Promise<void> {
+  const pg = ctx.q;
   await pg.query(
-    `update page_comments set deleted=true, origin=$2, updated_at=now() where id=$1`,
-    [id, NODE_ID],
+    `update page_comments set deleted=true, origin=$2, updated_at=clock_timestamp() where id=$1`,
+    [id, ctx.origin],
   );
 }
 
@@ -396,10 +401,11 @@ export type AgentStatus = "seen" | "answering" | "failed" | "answered";
 // Set (or clear) the watcher status on a human reply. body_hash pins the current
 // reply text so an edit re-triggers the watcher but a resolve toggle does not.
 export async function setCommentAgentStatus(
+  ctx: Ctx,
   commentId: string,
   patch: { status: AgentStatus | "clear"; agent?: string },
 ): Promise<void> {
-  const pg = await db();
+  const pg = ctx.q;
   const c = (await pg.query(
     `select page_id, body from page_comments where id=$1 and not deleted`,
     [commentId],
@@ -410,9 +416,9 @@ export async function setCommentAgentStatus(
   // LWW-mergeable — concurrent watchers converge on the same row via ON CONFLICT (id).
   if (patch.status === "clear") {
     await pg.query(
-      `update comment_agent_status set deleted=true, origin=$2, updated_at=now()
+      `update comment_agent_status set deleted=true, origin=$2, updated_at=clock_timestamp()
         where id=$1`,
-      [commentId, NODE_ID],
+      [commentId, ctx.origin],
     );
     return;
   }
@@ -423,8 +429,8 @@ export async function setCommentAgentStatus(
      on conflict (id) do update set
        page_id=excluded.page_id, status=excluded.status,
        agent=coalesce($4, comment_agent_status.agent),
-       body_hash=excluded.body_hash, deleted=false, origin=excluded.origin, updated_at=now()`,
-    [commentId, c.page_id, patch.status, patch.agent ?? null, c.body, NODE_ID],
+       body_hash=excluded.body_hash, deleted=false, origin=excluded.origin, updated_at=clock_timestamp()`,
+    [commentId, c.page_id, patch.status, patch.agent ?? null, c.body, ctx.origin],
   );
 }
 
@@ -444,20 +450,21 @@ export type InboxItem = {
 // display ack a poller writes at pickup and keeps it listed, since a long-running watcher
 // re-reads its own inbox. A hash-stale status (the human edited) re-surfaces regardless.
 export async function listCommentInbox(
+  ctx: Ctx,
   staleSecs = 600,
   // pages narrows to those page ids; all drops the requires-prior-agent-comment
   // condition so first-contact human comments (no agent thread yet) surface too
   opts?: { pages?: string[]; all?: boolean },
 ): Promise<InboxItem[]> {
-  const pg = await db();
+  const pg = ctx.q;
   // self-heal: only drop status rows whose comment is hard-gone or deleted. "answered"
   // rows are kept — they're the terminal hash tombstone that stops re-answering. The
   // candidate logic below (not this cleanup) keeps answered replies out of the inbox.
   await pg.query(
-    `update comment_agent_status s set deleted=true, origin=$1, updated_at=now()
+    `update comment_agent_status s set deleted=true, origin=$1, updated_at=clock_timestamp()
       where not s.deleted and not exists (
         select 1 from page_comments c where c.id = s.comment_id and not c.deleted)`,
-    [NODE_ID],
+    [ctx.origin],
   );
 
   const params: unknown[] = [AGENT_AUTHOR_ID, staleSecs];
@@ -491,7 +498,7 @@ export async function listCommentInbox(
              or s.status = 'seen'
              or s.body_hash is distinct from md5(c.body)
              or (s.status = 'answering'
-                 and s.updated_at < now() - make_interval(secs => $2)))
+                 and s.updated_at < clock_timestamp() - make_interval(secs => $2)))
       -- updated_at is the app's LWW wall-clock; cross-device clock skew can affect
       -- ordering here (known limitation, same as the rest of the app)
       order by c.updated_at`,
@@ -541,27 +548,28 @@ export async function listCommentInbox(
 }
 
 export async function attachUdbToPage(
+  ctx: Ctx,
   dbId: string,
   pageId: string | null,
 ): Promise<void> {
-  const pg = await db();
+  const pg = ctx.q;
   await pg.query(
-    `update udb_databases set page_id=$2, origin=$3, updated_at=now() where id=$1`,
-    [dbId, pageId, NODE_ID],
+    `update udb_databases set page_id=$2, origin=$3, updated_at=clock_timestamp() where id=$1`,
+    [dbId, pageId, ctx.origin],
   );
 }
 
 // Sharing (phase 7): page_shares rows are normal synced data — created here on the
 // member's replica, enforced by the hub API on /sync.
-export async function listUsers() {
-  const pg = await db();
+export async function listUsers(ctx: Ctx) {
+  const pg = ctx.q;
   return (await pg.query(
     `select id, name, role from users where not deleted order by name, id`,
   )).rows;
 }
 
-export async function listShares(pageId: string) {
-  const pg = await db();
+export async function listShares(ctx: Ctx, pageId: string) {
+  const pg = ctx.q;
   return (await pg.query(
     `select s.id, s.user_id, s.role, coalesce(nullif(u.name, ''), s.user_id::text) as name
        from page_shares s left join users u on u.id = s.user_id
@@ -571,39 +579,41 @@ export async function listShares(pageId: string) {
 }
 
 export async function setShare(
+  ctx: Ctx,
   p: { page_id: string; user_id: string; role: string },
 ): Promise<string> {
   const role = p.role === "viewer" ? "viewer" : "editor";
-  const pg = await db();
+  const pg = ctx.q;
   const hit = (await pg.query(
     `select id from page_shares where page_id=$1 and user_id=$2 and not deleted limit 1`,
     [p.page_id, p.user_id],
   )).rows[0] as { id: string } | undefined;
   if (hit) {
     await pg.query(
-      `update page_shares set role=$2, origin=$3, updated_at=now() where id=$1`,
-      [hit.id, role, NODE_ID],
+      `update page_shares set role=$2, origin=$3, updated_at=clock_timestamp() where id=$1`,
+      [hit.id, role, ctx.origin],
     );
     return hit.id;
   }
   const row = (await pg.query(
     `insert into page_shares (page_id, user_id, role, origin) values ($1,$2,$3,$4) returning id`,
-    [p.page_id, p.user_id, role, NODE_ID],
+    [p.page_id, p.user_id, role, ctx.origin],
   )).rows[0] as { id: string };
   return row.id;
 }
 
-export async function revokeShare(id: string): Promise<void> {
-  const pg = await db();
+export async function revokeShare(ctx: Ctx, id: string): Promise<void> {
+  const pg = ctx.q;
   await pg.query(
-    `update page_shares set deleted=true, origin=$2, updated_at=now() where id=$1`,
-    [id, NODE_ID],
+    `update page_shares set deleted=true, origin=$2, updated_at=clock_timestamp() where id=$1`,
+    [id, ctx.origin],
   );
 }
 
 // Public share links: token minted here; only its hash syncs to the hub. The raw
 // token also lands in a local-only column so this device can re-show the URL.
 export async function createLink(
+  ctx: Ctx,
   pageId: string,
 ): Promise<{ id: string; token: string }> {
   const raw = new Uint8Array(32);
@@ -617,28 +627,29 @@ export async function createLink(
   const hash = Array.from(new Uint8Array(digest)).map((b) =>
     b.toString(16).padStart(2, "0")
   ).join("");
-  const pg = await db();
+  const pg = ctx.q;
   const row = (await pg.query(
     `insert into page_links (page_id, token_hash, token, origin) values ($1,$2,$3,$4) returning id`,
-    [pageId, hash, token, NODE_ID],
+    [pageId, hash, token, ctx.origin],
   )).rows[0] as { id: string };
   return { id: row.id, token };
 }
 
 export async function listLinks(
+  ctx: Ctx,
   pageId: string,
 ): Promise<{ id: string; token: string | null; updated_at: string }[]> {
-  const pg = await db();
+  const pg = ctx.q;
   return (await pg.query(
     `select id, token, updated_at from page_links where page_id=$1 and not deleted order by updated_at`,
     [pageId],
   )).rows as { id: string; token: string | null; updated_at: string }[];
 }
 
-export async function revokeLink(id: string): Promise<void> {
-  const pg = await db();
+export async function revokeLink(ctx: Ctx, id: string): Promise<void> {
+  const pg = ctx.q;
   await pg.query(
-    `update page_links set deleted=true, origin=$2, updated_at=now() where id=$1`,
-    [id, NODE_ID],
+    `update page_links set deleted=true, origin=$2, updated_at=clock_timestamp() where id=$1`,
+    [id, ctx.origin],
   );
 }

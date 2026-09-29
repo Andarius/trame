@@ -8,14 +8,12 @@ import {
   isFolderBlock,
   markdownToPageBlocks,
   type PageBlock,
-} from "../../page-markdown.ts";
-import { mergePageBlocks } from "../../page-merge.ts";
-import { readMarks, stripMarks, writeMark } from "../../todo-marks.ts";
+} from "../../../core/page-markdown.ts";
+import { mergePageBlocks } from "../../../core/page-merge.ts";
+import { stripMarks, writeMark } from "../../../core/todo-marks.ts";
 import type { Ticket, TicketStatus } from "./api.ts";
+import { REF_MARK, refOfContent, usOfContent } from "../../../core/content-marks.ts";
 
-export const REF_MARK = "cockpit_ref";
-/** A story filed as a user story carries this instead: it is a container, not a ticket mirror. */
-export const US_MARK = "cockpit_us";
 /** Tickets filed from sessions carry this origin prefix, so the pull leaves them alone. */
 export const SESSION_ORIGIN = "session:";
 
@@ -114,25 +112,6 @@ export function ticketBlocks(t: Ticket): PageBlock[] {
     ...rest,
   ];
 }
-
-function markOfContent(content: unknown[], key: string): string | null {
-  for (const b of content) {
-    if (typeof b !== "object" || b === null) continue;
-    const text = (b as { text?: unknown }).text;
-    if (typeof text !== "string") continue;
-    const ref = readMarks(text)[key];
-    if (ref) return ref;
-  }
-  return null;
-}
-
-/** The ticket a mirrored page stands for, or null when it is not one of ours. */
-export const refOfContent = (content: unknown[]): string | null =>
-  markOfContent(content, REF_MARK);
-
-/** The user story a story page was filed as, or null. */
-export const usOfContent = (content: unknown[]): string | null =>
-  markOfContent(content, US_MARK);
 
 /** A ticket the push side made from a session — the pull must not mirror it. */
 export const isSessionTicket = (t: Ticket): boolean =>

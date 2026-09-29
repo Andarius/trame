@@ -21,7 +21,7 @@
 // replaced by the prompt (no `{}` → prompt on stdin). TRAME_WATCH_TIMEOUT (secs) caps a
 // run (default 300).
 import { PORT_FILE } from "../app/config.ts";
-import { agentIdentity, type AgentKind } from "../app/agent-comments.ts";
+import { agentIdentity, type AgentKind } from "../core/agent-comments.ts";
 
 const AGENT_AUTHOR_ID = "00000000-0000-4000-8000-0000000000aa";
 

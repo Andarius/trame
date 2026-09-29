@@ -1,5 +1,6 @@
 import { NODE_ID } from "../../config.ts";
-import { db, tagKey } from "../../db.ts";
+import { db } from "../../db.ts";
+import { tagKey } from "../../../core/sessions.ts";
 import {
   attachLegacyTicket,
   CockpitError,
@@ -8,13 +9,8 @@ import {
   type Ticket,
 } from "./api.ts";
 import { loadMirrorPages } from "./mirror-store.ts";
-import {
-  stampMark,
-  taggedMapping,
-  US_MARK,
-  userStoryFromPage,
-  usOfContent,
-} from "./mirror.ts";
+import { stampMark, taggedMapping, userStoryFromPage } from "./mirror.ts";
+import { US_MARK, usOfContent } from "../../../core/content-marks.ts";
 import {
   type Mapping,
   mappingTagLabel,

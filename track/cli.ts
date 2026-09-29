@@ -3,6 +3,7 @@
 // composition conventions from track/help.ts (the single source of truth).
 import pc from "picocolors";
 import { PORT_FILE } from "../app/config.ts";
+import { appLink, resolveTarget, targetFetch } from "./target.ts";
 import { filterSessions, parseQuery, type QueryBoard, type QuerySession } from "../app/web/src/query.ts";
 import { newer } from "../app/update.ts";
 import { main as trackMain } from "./track.ts";
@@ -117,17 +118,8 @@ export function formatBoard(board: Board, color = false): string {
   ).join("\n");
 }
 
-async function appBase(): Promise<string> {
-  try {
-    const { port } = JSON.parse(await Deno.readTextFile(PORT_FILE));
-    return `http://127.0.0.1:${port}`;
-  } catch {
-    throw new Error("Trame app is not running (no port file).");
-  }
-}
-
 async function list(json: boolean, query: string | null, deleted: boolean): Promise<void> {
-  const res = await fetch(`${await appBase()}/api/board${deleted ? "?deleted=1" : ""}`, {
+  const res = await targetFetch(await resolveTarget(), `/api/board${deleted ? "?deleted=1" : ""}`, {
     signal: AbortSignal.timeout(5000),
   });
   if (!res.ok) throw new Error(`/api/board → HTTP ${res.status}`);
@@ -165,8 +157,8 @@ async function convert(
   json: boolean,
 ): Promise<void> {
   if (!pageId) throw new Error("usage: tramecli convert <page-id>");
-  const base = await appBase();
-  const res = await fetch(`${base}/api/pages/${pageId}/session`, {
+  const target = await resolveTarget();
+  const res = await targetFetch(target, `/api/pages/${pageId}/session`, {
     method: "POST",
     signal: AbortSignal.timeout(5000),
   });
@@ -181,7 +173,7 @@ async function convert(
       ? JSON.stringify(body)
       : `ok: session ${body.id} ${
         body.created ? "created from" : "already specced by"
-      } this page — ${base}/?session=${body.id}`,
+      } this page${appLink(target, `session=${body.id}`)}`,
   );
 }
 

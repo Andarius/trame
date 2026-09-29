@@ -10,9 +10,9 @@ If the user asks for a page, document, note, plan, or write-up rather than a
 session card, use `$trame-page` instead.
 
 Trame tracks work as a board of projects, stories, and session cards. The writer
-is the `tramecli` binary: it posts to the running app or queues to an offline
-outbox when it is closed, and in Codex reads `CODEX_THREAD_ID` automatically so
-the card can resume this exact session.
+is the `tramecli` binary: it posts to the running app, else to the Trame hub when
+one is configured (a box with no app), else queues to an offline outbox; in Codex
+it reads `CODEX_THREAD_ID` automatically so the card can resume this exact session.
 
 Interpret an optional first argument as the action:
 

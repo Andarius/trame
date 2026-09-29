@@ -2,6 +2,8 @@
 // users row through the synced devices table; writes stamp the resolved user id.
 import { v5 } from "@std/uuid";
 import type { PGlite } from "@electric-sql/pglite";
+import { type Identity, identityOf } from "../core/identity.ts";
+import { APP_CTX } from "./ctx.ts";
 import { db } from "./db.ts";
 import { NODE_ID, SETTINGS_FILE } from "./config.ts";
 import { getHubApi } from "./files.ts";
@@ -36,9 +38,8 @@ export async function claimDevice(handle?: PGlite): Promise<void> {
   );
 }
 
-export type Identity = { userId: string | null; name: string; avatar: string };
 
-async function localAuthorSettings(): Promise<
+export async function localAuthorSettings(): Promise<
   { name: string; avatar: string }
 > {
   try {
@@ -54,20 +55,8 @@ async function localAuthorSettings(): Promise<
 
 // Who this device writes as: NODE_ID → devices → users. Display fields prefer the
 // device-local settings override, then the synced profile, then the node id.
-export async function getIdentity(): Promise<Identity> {
-  const pg = await db();
-  const u = (await pg.query(
-    `select u.id, u.name, u.avatar from devices d
-      join users u on u.id = d.user_id and not u.deleted
-      where d.node_id=$1 and not d.deleted limit 1`,
-    [NODE_ID],
-  )).rows[0] as { id: string; name: string; avatar: string } | undefined;
-  const local = await localAuthorSettings();
-  return {
-    userId: u?.id ?? null,
-    name: local.name || u?.name.trim() || NODE_ID,
-    avatar: local.avatar || u?.avatar.trim() || "",
-  };
+export function getIdentity(): Promise<Identity> {
+  return identityOf(APP_CTX);
 }
 
 // Update the synced profile of this device's user. No-op while the device is unclaimed.

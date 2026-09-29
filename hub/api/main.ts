@@ -12,6 +12,20 @@ const sql = postgres(
   { max: 4, onnotice: () => {} },
 );
 const db = pgAdapter(sql);
+// core /api SQL passes jsonb params as JSON text: send strings through as-is, or
+// postgres.js stores them as jsonb strings ('"[...]"')
+const jsonText = (x: unknown) => typeof x === "string" ? x : JSON.stringify(x);
+const coreSql = postgres(
+  Deno.env.get("DATABASE_URL") ?? "postgres://tracker@trame-db:5432/tracker",
+  {
+    max: 2,
+    onnotice: () => {},
+    types: {
+      jsonb: { to: 3802, from: [3802], serialize: jsonText, parse: JSON.parse },
+      json: { to: 114, from: [114], serialize: jsonText, parse: JSON.parse },
+    },
+  },
+);
 await ensureAuthSchema(db);
 
 if (Deno.args[0] === "mint") {
@@ -75,7 +89,7 @@ if (Deno.args[0] === "invite") {
 }
 
 const PORT = Number(Deno.env.get("PORT") ?? "8443");
-const app = createApp(db);
+const app = createApp(db, pgAdapter(coreSql));
 
 // ONE LISTEN connection between PG and the API (never one per laptop) — the
 // change_log triggers NOTIFY 'changes'; debounce bursts, then nudge every socket.

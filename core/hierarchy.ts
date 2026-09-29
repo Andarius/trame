@@ -1,5 +1,5 @@
-import { db } from "./db.ts";
-import { refOfContent, usOfContent } from "./plugins/cockpit/mirror.ts";
+import type { Ctx } from "./ctx.ts";
+import { refOfContent, usOfContent } from "./content-marks.ts";
 
 export function isUserStory(
   page: { kind?: string; content?: unknown[] },
@@ -10,8 +10,8 @@ export function isUserStory(
 }
 
 /** Find the nearest linked US or outermost local story without crossing a project boundary. */
-export async function storyAbove(pageId: string): Promise<string | null> {
-  const pg = await db();
+export async function storyAbove(ctx: Ctx, pageId: string): Promise<string | null> {
+  const pg = ctx.q;
   const rows = (await pg.query(
     `with recursive up as (
        select id, parent_id, kind, content, array[id] as path from pages where id=$1 and not deleted
@@ -30,8 +30,8 @@ export async function storyAbove(pageId: string): Promise<string | null> {
 }
 
 /** The nearest project ancestor of a page, or null. Server-side twin of the web's `projectOf`. */
-export async function projectAbove(pageId: string): Promise<string | null> {
-  const pg = await db();
+export async function projectAbove(ctx: Ctx, pageId: string): Promise<string | null> {
+  const pg = ctx.q;
   const row = (await pg.query(
     `with recursive up as (
        select id, parent_id, kind, 0 as d, array[id] as path
@@ -46,8 +46,8 @@ export async function projectAbove(pageId: string): Promise<string | null> {
   return row?.id ?? null;
 }
 
-export async function checkStoryParent(parentId: string | null): Promise<void> {
-  if (parentId && await storyAbove(parentId)) {
+export async function checkStoryParent(ctx: Ctx, parentId: string | null): Promise<void> {
+  if (parentId && await storyAbove(ctx, parentId)) {
     throw new Error(
       "A user story cannot be nested under another user story. Create a ticket/session or a documentation page instead.",
     );

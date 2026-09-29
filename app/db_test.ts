@@ -8,6 +8,7 @@ Deno.env.set("TRACKER_OUTBOX", `${tmp}/outbox.jsonl`);
 Deno.env.set("TRACKER_SETTINGS_FILE", `${tmp}/settings.json`);
 Deno.env.set("TRACKER_PORT_FILE", `${tmp}/port.json`);
 Deno.env.set("TRACKER_APP_ROOT", new URL(".", import.meta.url).pathname);
+const { APP_CTX } = await import("./ctx.ts");
 
 import { assert, assertEquals } from "@std/assert";
 
@@ -17,38 +18,38 @@ import { assert, assertEquals } from "@std/assert";
 // sync. uniqueStatusKey resolves the key against local rows only, so both nodes land on
 // "review" — the id therefore has to fall out of the key, not be random per node.
 Deno.test("status ids are derived from the key, so two nodes converge", async () => {
-  const { createStatus, deleteStatus, getBoard, statusId } = await import("./db.ts");
+  const { createStatus, deleteStatus, getBoard, statusId } = await import("../core/sessions.ts");
 
-  const id = await createStatus({ label: "Review", color: "#56b6c2" });
+  const id = await createStatus(APP_CTX, { label: "Review", color: "#56b6c2" });
   assertEquals(id, await statusId("review"), "id is derived from the key, not random");
 
   // recreating a deleted key revives that row instead of colliding on the primary key
-  await deleteStatus(id);
-  const again = await createStatus({ label: "Review", color: "#7a9ee7" });
+  await deleteStatus(APP_CTX, id);
+  const again = await createStatus(APP_CTX, { label: "Review", color: "#7a9ee7" });
   assertEquals(again, id);
-  const live = ((await getBoard()).statuses as { id: string; key: string; color: string }[])
+  const live = ((await getBoard(APP_CTX)).statuses as { id: string; key: string; color: string }[])
     .filter((s) => s.key === "review");
   assertEquals(live.length, 1, "one column, not two");
   assertEquals(live[0].color, "#7a9ee7"); // last write wins
 
-  await deleteStatus(again);
+  await deleteStatus(APP_CTX, again);
 });
 
 // Regression: the board columns are user-editable, but the session default, the importers
 // and the tracking skills still emit fixed keys. Deleting 'active' must not strand every
 // later card in a column that no longer exists.
 Deno.test("a session whose status was deleted lands on a surviving column", async () => {
-  const { deleteStatus, getBoard, upsertSession } = await import("./db.ts");
+  const { deleteStatus, getBoard, upsertSession } = await import("../core/sessions.ts");
 
-  const before = (await getBoard()).statuses as { id: string; key: string }[];
+  const before = (await getBoard(APP_CTX)).statuses as { id: string; key: string }[];
   assertEquals(before.map((s) => s.key), ["active", "paused", "blocked", "done"]);
 
-  await deleteStatus(before.find((s) => s.key === "active")!.id);
+  await deleteStatus(APP_CTX, before.find((s) => s.key === "active")!.id);
 
   // no status given → the 'active' default, which no longer exists
-  const id = await upsertSession({ title: "orphan-status card" });
+  const id = await upsertSession(APP_CTX, { title: "orphan-status card" });
 
-  const after = await getBoard();
+  const after = await getBoard(APP_CTX);
   const keys = (after.statuses as { key: string }[]).map((s) => s.key);
   assert(!keys.includes("active"), "active was deleted");
   const card = (after.sessions as { id: string; status: string }[]).find((s) => s.id === id)!;
@@ -61,17 +62,17 @@ Deno.test("a session whose status was deleted lands on a surviving column", asyn
 // track call landed on the card of the previous branch — retitling it, moving its
 // branch, and reviving it if the user had already marked it done.
 Deno.test("one transcript across branches gets one card per branch", async () => {
-  const { getBoard, setSessionStatus, upsertSession } = await import("./db.ts");
+  const { getBoard, setSessionStatus, upsertSession } = await import("../core/sessions.ts");
   const claude = crypto.randomUUID();
   const repo = "/tmp/repo-multi-branch";
 
-  const first = await upsertSession({
+  const first = await upsertSession(APP_CTX, {
     title: "card A",
     claude_id: claude,
     repo_path: repo,
     branch: "feat/a",
   });
-  const second = await upsertSession({
+  const second = await upsertSession(APP_CTX, {
     title: "card B",
     claude_id: claude,
     repo_path: repo,
@@ -81,7 +82,7 @@ Deno.test("one transcript across branches gets one card per branch", async () =>
 
   // same branch again still updates in place rather than piling up cards
   assertEquals(
-    await upsertSession({
+    await upsertSession(APP_CTX, {
       title: "card A, revised",
       claude_id: claude,
       repo_path: repo,
@@ -91,7 +92,7 @@ Deno.test("one transcript across branches gets one card per branch", async () =>
   );
 
   const sessions = () =>
-    getBoard().then((b) =>
+    getBoard(APP_CTX).then((b) =>
       (b.sessions as { id: string; title: string; branch: string; status: string }[])
         .filter((s) => s.id === first || s.id === second)
     );
@@ -100,8 +101,8 @@ Deno.test("one transcript across branches gets one card per branch", async () =>
   assertEquals(before.find((s) => s.id === second)!.title, "card B");
 
   // a finished card is not pulled back by the next track from the same transcript
-  await setSessionStatus(first, "done");
-  const third = await upsertSession({
+  await setSessionStatus(APP_CTX, first, "done");
+  const third = await upsertSession(APP_CTX, {
     title: "card C",
     claude_id: claude,
     repo_path: repo,
@@ -111,15 +112,15 @@ Deno.test("one transcript across branches gets one card per branch", async () =>
   assertEquals((await sessions()).find((s) => s.id === first)!.status, "done");
 });
 
-Deno.test("getBoard({deleted}) returns only the soft-deleted sessions", async () => {
-  const { deleteSession, getBoard, upsertSession } = await import("./db.ts");
-  const gone = await upsertSession({ title: "deleted card" });
-  const kept = await upsertSession({ title: "live card" });
-  await deleteSession(gone);
+Deno.test("getBoard(APP_CTX, {deleted}) returns only the soft-deleted sessions", async () => {
+  const { deleteSession, getBoard, upsertSession } = await import("../core/sessions.ts");
+  const gone = await upsertSession(APP_CTX, { title: "deleted card" });
+  const kept = await upsertSession(APP_CTX, { title: "live card" });
+  await deleteSession(APP_CTX, gone);
   const ids = async (deleted: boolean) =>
-    ((await getBoard({ deleted })).sessions as { id: string }[]).map((s) => s.id);
+    ((await getBoard(APP_CTX, { deleted })).sessions as { id: string }[]).map((s) => s.id);
   assert((await ids(true)).includes(gone));
   assert(!(await ids(true)).includes(kept));
   assert(!(await ids(false)).includes(gone));
-  await deleteSession(kept);
+  await deleteSession(APP_CTX, kept);
 });

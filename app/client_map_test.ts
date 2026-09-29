@@ -10,6 +10,7 @@ Deno.env.set("TRACKER_OUTBOX", `${tmp}/outbox.jsonl`);
 Deno.env.set("TRACKER_SETTINGS_FILE", `${tmp}/settings.json`);
 Deno.env.set("TRACKER_PORT_FILE", `${tmp}/port.json`);
 Deno.env.set("TRACKER_APP_ROOT", new URL(".", import.meta.url).pathname);
+const { APP_CTX } = await import("./ctx.ts");
 
 import { assertEquals } from "@std/assert";
 
@@ -42,10 +43,11 @@ Deno.test("clientFor matches dash-encoded scratchpad worktrees", () => {
   assertEquals(clientFor("/data/my-Work-notes"), "Side-projects");
 });
 
-const { db, upsertSession } = await import("./db.ts");
+const { db } = await import("./db.ts");
+const { upsertSession } = await import("../core/sessions.ts");
 
 Deno.test("a story minted for a mapped repo carries the default tags", async () => {
-  const id = await upsertSession({
+  const id = await upsertSession(APP_CTX, {
     title: "sre-config — probe",
     repo_path: "/home/me/Projects/Work/sre-config/packages/sctl",
     branch: "main",
@@ -63,7 +65,7 @@ Deno.test("a story minted for a mapped repo carries the default tags", async () 
     .rows[0] as { label: string };
   assertEquals(tag.label, "Infra");
   // re-attaching by the same story name must not re-stamp or duplicate
-  const again = await upsertSession({
+  const again = await upsertSession(APP_CTX, {
     title: "sre-config — probe 2",
     repo_path: "/home/me/Projects/Work/sre-config",
     branch: "other",

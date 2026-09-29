@@ -172,5 +172,6 @@ instead (next section).
    comment IDs and page URL.
 
 Do not search the Trame source tree or reconstruct its HTTP routes. The writers own
-page/block resolution and attribution. If the app is not running, report that it must
-be started; these operations are deliberately not queued.
+page/block resolution and attribution. With no app running they go to the Trame hub
+when one is configured; if neither is reachable, report that the app must be started —
+these operations are deliberately not queued.

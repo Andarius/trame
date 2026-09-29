@@ -100,7 +100,7 @@ e2e *args:
 # Lint (TS + SQL schema)
 [group('dev')]
 lint: lint-sql
-    cd app && deno lint
+    cd app && deno lint && deno lint ../core ../track ../mcp
 
 # Lint the SQL schema (sqlfluff, via uvx — no install needed)
 [group('dev')]

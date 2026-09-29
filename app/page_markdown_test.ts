@@ -1,5 +1,5 @@
 import { assertEquals, assertMatch } from "@std/assert";
-import { markdownToPageBlocks, pageBlocksToMarkdown } from "./page-markdown.ts";
+import { markdownToPageBlocks, pageBlocksToMarkdown } from "../core/page-markdown.ts";
 
 const withoutIds = (blocks: ReturnType<typeof markdownToPageBlocks>) =>
   blocks.map(({ id: _id, ...block }) => block);

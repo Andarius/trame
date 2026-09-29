@@ -4,15 +4,16 @@ Deno.env.set("TRACKER_DATA_DIR", `${tmp}/pglite`);
 Deno.env.set("TRACKER_NODE_ID", "hierarchy-test");
 Deno.env.set("TRACKER_SETTINGS_FILE", `${tmp}/settings.json`);
 Deno.env.set("TRACKER_APP_ROOT", new URL(".", import.meta.url).pathname);
+const { APP_CTX } = await import("./ctx.ts");
 
 import { assertEquals, assertRejects } from "@std/assert";
-const { createPage, getPage, movePage } = await import("./pages.ts");
+const { createPage, getPage, movePage } = await import("../core/pages.ts");
 const pageMeta = async (id: string) =>
-  await getPage(id) as unknown as { kind: string; parent_id: string | null };
-const { db, upsertSession } = await import("./db.ts");
-const { stampRef, stampMark, US_MARK } = await import(
-  "./plugins/cockpit/mirror.ts"
-);
+  await getPage(APP_CTX, id) as unknown as { kind: string; parent_id: string | null };
+const { db } = await import("./db.ts");
+const { upsertSession } = await import("../core/sessions.ts");
+const { stampRef, stampMark } = await import("./plugins/cockpit/mirror.ts");
+const { US_MARK } = await import("../core/content-marks.ts");
 const {
   loadPendingPages,
   loadPendingSessions,
@@ -22,46 +23,46 @@ const {
 } = await import("./plugins/cockpit/mirror-store.ts");
 
 Deno.test("hierarchy rejects nested US creation and moves but preserves documents and legacy tickets", async () => {
-  const project = await createPage({ title: "Hierarchy", kind: "project" });
-  const us = await createPage({
+  const project = await createPage(APP_CTX, { title: "Hierarchy", kind: "project" });
+  const us = await createPage(APP_CTX, {
     title: "Infra",
     kind: "story",
     parent_id: project,
   });
-  const doc = await createPage({ title: "Plan", parent_id: us });
-  const deep = await createPage({ title: "Notes", parent_id: doc });
+  const doc = await createPage(APP_CTX, { title: "Plan", parent_id: us });
+  const deep = await createPage(APP_CTX, { title: "Notes", parent_id: doc });
   for (const parent_id of [us, deep]) {
     await assertRejects(
-      () => createPage({ title: "Nested US", kind: "story", parent_id }),
+      () => createPage(APP_CTX, { title: "Nested US", kind: "story", parent_id }),
       Error,
       "cannot be nested",
     );
   }
-  const other = await createPage({
+  const other = await createPage(APP_CTX, {
     title: "Other US",
     kind: "story",
     parent_id: project,
   });
   await assertRejects(
-    () => movePage(other, { parent_id: deep }),
+    () => movePage(APP_CTX, other, { parent_id: deep }),
     Error,
     "cannot be nested",
   );
-  const folder = await createPage({ title: "Folder", parent_id: project });
-  await movePage(other, { parent_id: folder });
+  const folder = await createPage(APP_CTX, { title: "Folder", parent_id: project });
+  await movePage(APP_CTX, other, { parent_id: folder });
   await assertRejects(
-    () => movePage(folder, { parent_id: us }),
+    () => movePage(APP_CTX, folder, { parent_id: us }),
     Error,
     "cannot be nested",
   );
   assertEquals((await pageMeta(folder)).parent_id, project);
-  const legacy = await createPage({
+  const legacy = await createPage(APP_CTX, {
     title: "Legacy ticket",
     kind: "story",
     parent_id: us,
     content: stampRef([], "GEN-900"),
   });
-  const id = await upsertSession({ title: "New ticket", page_id: deep });
+  const id = await upsertSession(APP_CTX, { title: "New ticket", page_id: deep });
   const pg = await db();
   assertEquals(
     ((await pg.query(`select page_id from sessions where id=$1`, [id]))
@@ -69,12 +70,12 @@ Deno.test("hierarchy rejects nested US creation and moves but preserves document
     us,
   );
   assertEquals((await pageMeta(deep)).kind, "page");
-  await movePage(deep, { parent_id: legacy });
+  await movePage(APP_CTX, deep, { parent_id: legacy });
   assertEquals((await pageMeta(deep)).parent_id, legacy);
 });
 
 Deno.test("legacy nested work inherits the nearest linked US, preserves references, and rejects conflicts", async () => {
-  const project = await createPage({
+  const project = await createPage(APP_CTX, {
     title: "Sync hierarchy",
     kind: "project",
   });
@@ -83,21 +84,21 @@ Deno.test("legacy nested work inherits the nearest linked US, preserves referenc
     tagKey: "cockpit-devops",
     tagLabel: "cockpit:devops",
   }, { pageId: project, tagKey: "cockpit-client", tagLabel: "cockpit:client" }];
-  const us = await createPage({
+  const us = await createPage(APP_CTX, {
     title: "Nouvelle infra",
     kind: "story",
     parent_id: project,
     tags: ["cockpit-devops"],
     content: stampMark([], US_MARK, "US-21"),
   });
-  const legacy = await createPage({
+  const legacy = await createPage(APP_CTX, {
     title: "Monitoring",
     kind: "story",
     parent_id: us,
     content: stampRef([], "GEN-7148"),
   });
-  const doc = await createPage({ title: "Notes", parent_id: legacy });
-  const nested = await createPage({
+  const doc = await createPage(APP_CTX, { title: "Notes", parent_id: legacy });
+  const nested = await createPage(APP_CTX, {
     title: "Grafana alerts",
     parent_id: doc,
     brief: "Monitor the new infrastructure",
@@ -105,7 +106,7 @@ Deno.test("legacy nested work inherits the nearest linked US, preserves referenc
   const pg = await db();
   // Seed the old structure directly; new writes now reject this hierarchy.
   await pg.query(`update pages set kind='story' where id=$1`, [nested]);
-  const session = await upsertSession({
+  const session = await upsertSession(APP_CTX, {
     title: "Telemetry isolation",
     page_id: us,
     next_step: "Isolate prod telemetry",
@@ -116,7 +117,7 @@ Deno.test("legacy nested work inherits the nearest linked US, preserves referenc
     (await loadPendingSessions(maps)).map((s) => [s.sessionId, s.userStory]),
     [[session, "US-21"]],
   );
-  const conflict = await upsertSession({
+  const conflict = await upsertSession(APP_CTX, {
     title: "Conflicting route",
     page_id: us,
     tags: ["cockpit-client"],
@@ -132,7 +133,7 @@ Deno.test("legacy nested work inherits the nearest linked US, preserves referenc
   await adoptAsMirror(nested, "GEN-998");
   assertEquals(await loadPendingSessions(maps), []);
   assertEquals(await loadPendingPages(maps), []);
-  const nearer = await createPage({
+  const nearer = await createPage(APP_CTX, {
     title: "Old nested US",
     parent_id: legacy,
     tags: ["cockpit-devops"],
@@ -141,7 +142,7 @@ Deno.test("legacy nested work inherits the nearest linked US, preserves referenc
     nearer,
     JSON.stringify(stampMark(stampRef([], "GEN-888"), US_MARK, "US-22")),
   ]);
-  const child = await createPage({ title: "Deep notes", parent_id: nearer });
+  const child = await createPage(APP_CTX, { title: "Deep notes", parent_id: nearer });
   assertEquals((await loadPageRoutes(maps)).get(child), {
     mappingIndex: 0,
     userStory: "US-22",
@@ -151,12 +152,12 @@ Deno.test("legacy nested work inherits the nearest linked US, preserves referenc
     child,
   ]);
   assertEquals("error" in (await loadPageRoutes(maps)).get(child)!, true);
-  const boundary = await createPage({
+  const boundary = await createPage(APP_CTX, {
     title: "Other project",
     kind: "project",
     parent_id: us,
   });
-  const outside = await createPage({
+  const outside = await createPage(APP_CTX, {
     title: "Outside notes",
     parent_id: boundary,
   });
@@ -167,15 +168,15 @@ Deno.test("legacy nested work inherits the nearest linked US, preserves referenc
 
 Deno.test("filing a legacy nested page creates a ticket once and keeps its page origin", async () => {
   const { filePage } = await import("./plugins/cockpit/mod.ts");
-  const project = await createPage({ title: "Import test", kind: "project" });
-  const us = await createPage({
+  const project = await createPage(APP_CTX, { title: "Import test", kind: "project" });
+  const us = await createPage(APP_CTX, {
     title: "Import US",
     kind: "story",
     parent_id: project,
     tags: ["cockpit-devops"],
     content: stampMark([], US_MARK, "US-25"),
   });
-  const page = await createPage({
+  const page = await createPage(APP_CTX, {
     title: "New alert rules",
     parent_id: us,
     brief: "Monitor prod",
@@ -206,7 +207,7 @@ Deno.test("filing a legacy nested page creates a ticket once and keeps its page 
       await filePage("https://cockpit.test", "test-token", maps, page),
       { reference: "GEN-777", created: false },
     );
-    const doc = await createPage({
+    const doc = await createPage(APP_CTX, {
       title: "Supporting notes",
       parent_id: page,
     });

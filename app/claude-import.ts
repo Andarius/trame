@@ -3,7 +3,9 @@
 // single id lookup and re-imports can never clobber user edits (create-only).
 // Transcripts can be tens of MB: only a head chunk (first cwd) and a tail chunk
 // (LAST ai-title / last-prompt / gitBranch) are read.
-import { addEvent, db, upsertSession } from "./db.ts";
+import { APP_CTX } from "./ctx.ts";
+import { db } from "./db.ts";
+import { addEvent, upsertSession } from "../core/sessions.ts";
 import { CLAUDE_DIR, clientEntryFor, CODEX_DIR, NODE_ID, SETTINGS_FILE } from "./config.ts";
 import { updateSettings } from "./settings-store.ts";
 
@@ -362,7 +364,7 @@ export async function importClaudeSessions(
       skipped++;
       continue; // create-only: never clobber an existing card
     }
-    await upsertSession({
+    await upsertSession(APP_CTX, {
       id: item.claudeId,
       title: item.title,
       status: item.status === "paused" ? "paused" : "active",
@@ -374,7 +376,7 @@ export async function importClaudeSessions(
       agent_id: item.claudeId,
     });
     const label = item.source === "codex" ? "Codex" : "Claude Code";
-    await addEvent(item.claudeId, `Imported from ${label} · ${NODE_ID}`, "import", item.source ?? "claude");
+    await addEvent(APP_CTX, item.claudeId, `Imported from ${label} · ${NODE_ID}`, "import", item.source ?? "claude");
     // backdate recency to the transcript's last activity so the board keeps real order
     // (updated_at/origin stay fresh — the LWW sync still propagates the row)
     await pg.query(`update sessions set last_touched=$2 where id=$1`, [item.claudeId, item.lastActive]);

@@ -7,7 +7,8 @@
 //   { title, status?, client?, story?, repo_path?, branch?, next_step?, links?, pr_url?, summary? }
 // Specs live on the session's spec page — write them with the page writer
 // (track/page.ts) using { session_id } after tracking.
-import { CLAUDE_MAP, OUTBOX, PORT_FILE } from "../app/config.ts";
+import { CLAUDE_MAP, OUTBOX } from "../app/config.ts";
+import { resolveTarget, type Target, targetFetch } from "./target.ts";
 
 type Input = {
   title: string;
@@ -65,45 +66,52 @@ export async function main(
       inp.agent_id = inp.claude_id;
     }
   }
+  let target: Target;
+  let res: Response;
   try {
-    const { port } = JSON.parse(await Deno.readTextFile(PORT_FILE));
-    const res = await fetch(`http://127.0.0.1:${port}/api/sessions`, {
+    target = await resolveTarget();
+    res = await targetFetch(target, "/api/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(inp),
       signal: AbortSignal.timeout(4000),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-    const { id, note, specs_page_id } = await res.json();
-    if (opts.json) {
-      console.log(JSON.stringify({ id, specs_page_id, note }));
-      return;
-    }
-    console.log(
-      `ok: session ${id} tracked in Trame (${
-        inp.status ?? "active"
-      } — ${inp.title})`,
-    );
-    if (specs_page_id) console.log(`specs page: ${specs_page_id}`);
-    if (note) console.log(`note: ${note}`);
   } catch (e) {
-    const dir = OUTBOX.replace(/\/[^/]+$/, "");
-    await Deno.mkdir(dir, { recursive: true }).catch(() => {});
-    await Deno.writeTextFile(OUTBOX, JSON.stringify(inp) + "\n", {
-      append: true,
-    });
-    if (opts.json) {
-      console.log(
-        JSON.stringify({ queued: true, error: (e as Error).message }),
-      );
-      return;
-    }
-    console.log(
-      `Trame app not reachable (${
-        (e as Error).message
-      }) — queued to outbox, applied on next app launch`,
-    );
+    return await queue(inp, (e as Error).message, opts);
   }
+  if (!res.ok) {
+    const error = `HTTP ${res.status}: ${await res.text()}`;
+    // a hub rejection is final, and a box without the app never drains the outbox
+    if (target.hub) throw new Error(`the hub rejected the track — ${error}`);
+    return await queue(inp, error, opts);
+  }
+  const { id, note, specs_page_id } = await res.json();
+  if (opts.json) {
+    console.log(JSON.stringify({ id, specs_page_id, note }));
+    return;
+  }
+  console.log(
+    `ok: session ${id} tracked in Trame (${
+      inp.status ?? "active"
+    } — ${inp.title})`,
+  );
+  if (specs_page_id) console.log(`specs page: ${specs_page_id}`);
+  if (note) console.log(`note: ${note}`);
+}
+
+async function queue(inp: Input, error: string, opts: { json?: boolean }) {
+  const dir = OUTBOX.replace(/\/[^/]+$/, "");
+  await Deno.mkdir(dir, { recursive: true }).catch(() => {});
+  await Deno.writeTextFile(OUTBOX, JSON.stringify(inp) + "\n", {
+    append: true,
+  });
+  if (opts.json) {
+    console.log(JSON.stringify({ queued: true, error }));
+    return;
+  }
+  console.log(
+    `Trame app not reachable (${error}) — queued to outbox, applied on next app launch`,
+  );
 }
 
 if (import.meta.main) {

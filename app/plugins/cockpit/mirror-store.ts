@@ -1,19 +1,11 @@
 // The database side of mirroring. Kept apart from `mirror.ts` so the planner
 // stays pure and testable without a PGlite instance.
-import { db, ensureSpecsPage, listTags } from "../../db.ts";
-import { createPage, deletePage, updatePage } from "../../pages.ts";
-import {
-  type FilingSkip,
-  type MirrorPage,
-  type MirrorPlan,
-  refOfContent,
-  stampMark,
-  stampRef,
-  taggedMapping,
-  type TagMapping,
-  US_MARK,
-  usOfContent,
-} from "./mirror.ts";
+import { APP_CTX } from "../../ctx.ts";
+import { db } from "../../db.ts";
+import { ensureSpecsPage, listTags } from "../../../core/sessions.ts";
+import { createPage, deletePage, updatePage } from "../../../core/pages.ts";
+import { type FilingSkip, type MirrorPage, type MirrorPlan, stampMark, stampRef, taggedMapping, type TagMapping } from "./mirror.ts";
+import { refOfContent, US_MARK, usOfContent } from "../../../core/content-marks.ts";
 
 export type MirrorResult = {
   created: number;
@@ -124,7 +116,7 @@ export async function applyMirror(
   plan: MirrorPlan,
 ): Promise<MirrorResult> {
   for (const c of plan.create) {
-    await createPage({
+    await createPage(APP_CTX, {
       title: c.title,
       parent_id: parentId,
       kind: "story",
@@ -134,7 +126,7 @@ export async function applyMirror(
     });
   }
   for (const u of plan.update) {
-    await updatePage(u.id, {
+    await updatePage(APP_CTX, u.id, {
       title: u.title,
       content: u.blocks,
       tags: u.tags,
@@ -142,7 +134,7 @@ export async function applyMirror(
     });
   }
   for (const r of plan.remove) {
-    await deletePage(r.id);
+    await deletePage(APP_CTX, r.id);
   }
   return {
     created: plan.create.length,
@@ -168,7 +160,7 @@ export async function adoptAsMirror(
   if (!row) throw new Error(`unknown page ${pageId}`);
 
   const content = Array.isArray(row.content) ? row.content : [];
-  await updatePage(pageId, { content: stampRef(content, reference) });
+  await updatePage(APP_CTX, pageId, { content: stampRef(content, reference) });
 }
 
 /** Stamp the user story a story page was filed as. */
@@ -183,7 +175,7 @@ export async function adoptAsUserStory(
   )).rows[0] as { content: unknown } | undefined;
   if (!row) throw new Error(`unknown page ${pageId}`);
   const content = Array.isArray(row.content) ? row.content : [];
-  await updatePage(pageId, { content: stampMark(content, US_MARK, reference) });
+  await updatePage(APP_CTX, pageId, { content: stampMark(content, US_MARK, reference) });
 }
 
 type PageRoute = {
@@ -369,7 +361,7 @@ export async function adoptSessionAsFiled(
   sessionId: string,
   reference: string,
 ): Promise<void> {
-  const specsId = await ensureSpecsPage(sessionId);
+  const specsId = await ensureSpecsPage(APP_CTX, sessionId);
   await adoptAsMirror(specsId, reference);
 }
 
@@ -509,7 +501,7 @@ export async function loadTagSyncItems(
     pg.query(
       `select id, title, page_id, client_id, specs_page_id, tags from sessions where not deleted and specs_page_id is not null`,
     ),
-    listTags(),
+    listTags(APP_CTX),
   ]);
   type Page = {
     id: string;

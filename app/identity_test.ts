@@ -8,6 +8,7 @@ Deno.env.set("TRACKER_OUTBOX", `${tmp}/outbox.jsonl`);
 Deno.env.set("TRACKER_SETTINGS_FILE", `${tmp}/settings.json`);
 Deno.env.set("TRACKER_PORT_FILE", `${tmp}/port.json`);
 Deno.env.set("TRACKER_APP_ROOT", new URL(".", import.meta.url).pathname);
+const { APP_CTX } = await import("./ctx.ts");
 
 import { assert, assertEquals } from "@std/assert";
 
@@ -42,11 +43,11 @@ Deno.test("seed user exists and claimDevice converges on one deterministic row",
 
 Deno.test("createComment stamps author_id and a display author", async () => {
   const { db } = await import("./db.ts");
-  const { createComment, createPage } = await import("./pages.ts");
+  const { createComment, createPage } = await import("../core/pages.ts");
   const pg = await db();
 
-  const pageId = await createPage({ title: "identity page" });
-  const commentId = await createComment({
+  const pageId = await createPage(APP_CTX, { title: "identity page" });
+  const commentId = await createComment(APP_CTX, {
     page_id: pageId,
     block_id: "b1",
     body: "hello",
@@ -61,11 +62,11 @@ Deno.test("createComment stamps author_id and a display author", async () => {
 
 Deno.test("agent comments use canonical attribution without a user id", async () => {
   const { db } = await import("./db.ts");
-  const { createComment, createPage } = await import("./pages.ts");
+  const { createComment, createPage } = await import("../core/pages.ts");
   const pg = await db();
 
-  const pageId = await createPage({ title: "agent comment page" });
-  const commentId = await createComment({
+  const pageId = await createPage(APP_CTX, { title: "agent comment page" });
+  const commentId = await createComment(APP_CTX, {
     page_id: pageId,
     block_id: "b-agent",
     body: "review note",
@@ -81,7 +82,7 @@ Deno.test("agent comments use canonical attribution without a user id", async ()
   };
   assertEquals(c.author, "Codex");
   // the reserved sentinel, never a real user id
-  const { AGENT_AUTHOR_ID } = await import("./agent-comments.ts");
+  const { AGENT_AUTHOR_ID } = await import("../core/agent-comments.ts");
   assertEquals(c.author_id, AGENT_AUTHOR_ID);
   assert(
     c.author_avatar.startsWith("data:image/svg+xml;base64,"),
@@ -91,17 +92,17 @@ Deno.test("agent comments use canonical attribution without a user id", async ()
 
 Deno.test("agent comments always carry a model in their meta", async () => {
   const { db } = await import("./db.ts");
-  const { createComment, createPage } = await import("./pages.ts");
+  const { createComment, createPage } = await import("../core/pages.ts");
   const pg = await db();
 
-  const pageId = await createPage({ title: "agent meta page" });
+  const pageId = await createPage(APP_CTX, { title: "agent meta page" });
   const metas = await Promise.all(
     [
       { agent: "codex" as const, meta: undefined },
       { agent: "claude" as const, meta: { model: "claude-opus-5", out: 42 } },
       { agent: undefined, meta: undefined },
     ].map(async ({ agent, meta }, i) => {
-      const id = await createComment({
+      const id = await createComment(APP_CTX, {
         page_id: pageId,
         block_id: `b-meta-${i}`,
         body: "note",
@@ -123,13 +124,14 @@ Deno.test("agent comments always carry a model in their meta", async () => {
 });
 
 Deno.test("page creators stamp owner_id", async () => {
-  const { db, resolveClient } = await import("./db.ts");
-  const { createPage } = await import("./pages.ts");
+  const { db } = await import("./db.ts");
+const { resolveClient } = await import("../core/sessions.ts");
+  const { createPage } = await import("../core/pages.ts");
   const pg = await db();
 
   const owners = await Promise.all([
-    createPage({ title: "owned page" }),
-    resolveClient("Identity Test Client"),
+    createPage(APP_CTX, { title: "owned page" }),
+    resolveClient(APP_CTX, "Identity Test Client"),
   ]).then((ids) =>
     Promise.all(
       ids.map(async (id) =>

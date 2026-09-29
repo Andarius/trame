@@ -6,7 +6,7 @@
 import { db } from "./db.ts";
 import { NODE_ID } from "./config.ts";
 import { getIdentity } from "./identity.ts";
-import { midKey } from "./udb.ts";
+import { midKey } from "../core/sort-key.ts";
 
 export const BUNDLE_TAG = "trame-page-bundle";
 
