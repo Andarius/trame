@@ -21,6 +21,10 @@ import {
   subtreeIds,
 } from "./acl.ts";
 
+const ENTITY_ORDER = new Map<string, number>(
+  ENTITIES.map((e, i) => [e.name, i]),
+);
+
 const DEFAULT_LIMIT = 500;
 
 // A node that hasn't pulled a project yet re-creates it by title (resolveClient is
@@ -116,7 +120,9 @@ async function applyMutations(
         });
       }
     }
-    if (mutations.some((m) => m.entity === "pages" && m.value?.kind === "project")) {
+    if (
+      mutations.some((m) => m.entity === "pages" && m.value?.kind === "project")
+    ) {
       // savepoint: a merge failure must never reject the pushed batch
       await tx.query(`savepoint merge`);
       try {
@@ -241,6 +247,11 @@ async function pullSince(
       }
     }
   }
+  // referenced tables first: a replica's FKs reject a row whose parent's latest rev
+  // falls later in the window (a hub /api track touches the session after its event)
+  changes.sort((a, b) =>
+    ENTITY_ORDER.get(a.entity)! - ENTITY_ORDER.get(b.entity)!
+  );
   return { changes, nextCursor, hasMore: log.length === limit };
 }
 

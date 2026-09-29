@@ -182,3 +182,37 @@ Deno.test("a hub /api error rolls back what the route wrote first", async () => 
   )).rows[0] as { n: number };
   assertEquals(minted.n, 0);
 });
+
+// A hub /api track writes session, event, then touches the session again: pull
+// must still deliver the session first, or the replica's FK rejects the event.
+Deno.test("pull after a hub /api track delivers the session before its event", async () => {
+  const cursor = Number(
+    ((await pg.query(`select max(rev) as r from change_log`)).rows[0] as {
+      r: string;
+    }).r,
+  );
+  const res = await call("/api/sessions", {
+    body: { title: "fk order", repo_path: "/srv/fk", summary: "first log" },
+  });
+  const { id } = await res.json() as { id: string };
+  const pull = await app.request("/sync", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-trame-protocol": String(PROTOCOL_VERSION),
+      authorization: `Bearer ${memberToken}`,
+    },
+    body: JSON.stringify({ cursor, mutations: [] }),
+  });
+  const { changes } = await pull.json() as {
+    changes: { entity: string; id: string; value: { session_id?: string } }[];
+  };
+  const session = changes.findIndex((c) =>
+    c.entity === "sessions" && c.id === id
+  );
+  const event = changes.findIndex((c) =>
+    c.entity === "session_events" && c.value?.session_id === id
+  );
+  assertEquals(session >= 0 && event >= 0, true);
+  assertEquals(session < event, true);
+});
