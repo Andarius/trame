@@ -330,6 +330,10 @@ alter table pages add column if not exists color text;
 -- que `content` et `views` sont déjà en jsonb.
 alter table pages add column if not exists tags jsonb not null default '[]';
 alter table sessions add column if not exists tags jsonb not null default '[]';
+-- every branch the card has shipped, newline-separated; `branch` is the latest
+alter table sessions add column if not exists branches text default '';
+update sessions set branches = branch
+where coalesce(branches, '') = '' and coalesce(branch, '') <> '';
 -- « story » désignait à la fois cette colonne et kind='story' — l'énoncé du but, c'est le brief.
 do $$ begin
   if exists (select 1 from information_schema.columns

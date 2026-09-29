@@ -57,59 +57,150 @@ Deno.test("a session whose status was deleted lands on a surviving column", asyn
   assertEquals(card.status, "paused"); // first surviving non-terminal
 });
 
-// Regression: one Claude session that works several branches in a row. The claude_id
-// lookup ran before the repo+branch one, with no branch or status filter, so every
-// track call landed on the card of the previous branch — retitling it, moving its
-// branch, and reviving it if the user had already marked it done.
-Deno.test("one transcript across branches gets one card per branch", async () => {
+// One agent session ships many small PRs on one topic: they belong on one card. The
+// branch-keyed lookup minted a card per branch (13 cards for one story in one session).
+Deno.test("one session and story share a card across branches and repos", async () => {
   const { getBoard, setSessionStatus, upsertSession } = await import("../core/sessions.ts");
   const claude = crypto.randomUUID();
-  const repo = "/tmp/repo-multi-branch";
-
-  const first = await upsertSession(APP_CTX, {
-    title: "card A",
-    claude_id: claude,
-    repo_path: repo,
-    branch: "feat/a",
-  });
-  const second = await upsertSession(APP_CTX, {
-    title: "card B",
-    claude_id: claude,
-    repo_path: repo,
-    branch: "feat/b",
-  });
-  assert(first !== second, "a second branch earns its own card");
-
-  // same branch again still updates in place rather than piling up cards
-  assertEquals(
-    await upsertSession(APP_CTX, {
-      title: "card A, revised",
+  const track = (branch: string, extra: Record<string, unknown> = {}) =>
+    upsertSession(APP_CTX, {
+      title: "cutover",
       claude_id: claude,
-      repo_path: repo,
-      branch: "feat/a",
-    }),
+      repo_path: "/tmp/repo-a",
+      branch,
+      ...extra,
+    });
+  const card = (id: string) =>
+    getBoard(APP_CTX).then((b) =>
+      (b.sessions as {
+        id: string;
+        branch: string;
+        branches: string;
+        pr_url: string | null;
+        status: string;
+      }[])
+        .find((s) => s.id === id)!
+    );
+
+  const first = await track("feat/a", {
+    story: "Staging cutover",
+    pr_url: "https://gh/pr/1",
+  });
+  const second = await track("feat/b", {
+    story: "Staging cutover",
+    repo_path: "/tmp/repo-b",
+    pr_url: "https://gh/pr/2",
+  });
+  assertEquals(
+    second,
     first,
+    "same session + story, other branch and repo: same card",
+  );
+  const merged = await card(first);
+  assertEquals(merged.branch, "feat/b");
+  assertEquals(merged.branches, "feat/a\nfeat/b");
+  assertEquals(merged.pr_url, "https://gh/pr/1\nhttps://gh/pr/2");
+
+  assert(
+    await track("feat/c", { story: "Docs sweep" }) !== first,
+    "another story splits",
+  );
+  assert(
+    await track("feat/d") !== first,
+    "no story + unseen branch: the legacy per-branch card",
+  );
+  assertEquals(
+    await track("feat/a"),
+    first,
+    "no story + a branch the card shipped: that card",
+  );
+  assert(
+    await track("feat/a", { story: "Legacy teardown" }) !== first,
+    "another story splits on a branch the card already shipped",
   );
 
-  const sessions = () =>
-    getBoard(APP_CTX).then((b) =>
-      (b.sessions as { id: string; title: string; branch: string; status: string }[])
-        .filter((s) => s.id === first || s.id === second)
-    );
-  const before = await sessions();
-  assertEquals(before.find((s) => s.id === first)!.branch, "feat/a", "card A kept its branch");
-  assertEquals(before.find((s) => s.id === second)!.title, "card B");
-
-  // a finished card is not pulled back by the next track from the same transcript
   await setSessionStatus(APP_CTX, first, "done");
-  const third = await upsertSession(APP_CTX, {
-    title: "card C",
+  assert(
+    await track("feat/a", { story: "Staging cutover" }) !== first,
+    "a done card is never reopened",
+  );
+  assertEquals((await card(first)).status, "done");
+});
+
+// Without an agent session id (MCP, manual), repo + branch still finds a card through
+// any branch it shipped, not only the latest one.
+Deno.test("repo + branch matches a card through an earlier branch", async () => {
+  const { upsertSession } = await import("../core/sessions.ts");
+  const claude = crypto.randomUUID();
+  const repo = "/tmp/repo-earlier-branch";
+  const id = await upsertSession(APP_CTX, {
+    title: "t",
+    story: "Earlier branch",
     claude_id: claude,
     repo_path: repo,
-    branch: "feat/a",
+    branch: "feat/1",
   });
-  assert(third !== first, "a done card stays done instead of being resurrected");
-  assertEquals((await sessions()).find((s) => s.id === first)!.status, "done");
+  await upsertSession(APP_CTX, {
+    title: "t",
+    story: "Earlier branch",
+    claude_id: claude,
+    repo_path: repo,
+    branch: "feat/2",
+  });
+  assertEquals(
+    await upsertSession(APP_CTX, { title: "manual", repo_path: repo, branch: "feat/1" }),
+    id,
+  );
+});
+
+// A drawer save (explicit id) sets pr_url as given, so removing a PR there sticks.
+Deno.test("an explicit-id save replaces the PR list", async () => {
+  const { getBoard, upsertSession } = await import("../core/sessions.ts");
+  const id = await upsertSession(APP_CTX, {
+    title: "t",
+    repo_path: "/tmp/repo-drawer",
+    branch: "b",
+    pr_url: "https://gh/pr/1",
+  });
+  await upsertSession(APP_CTX, {
+    title: "t",
+    repo_path: "/tmp/repo-drawer",
+    branch: "b",
+    pr_url: "https://gh/pr/2",
+  });
+  await upsertSession(APP_CTX, {
+    id,
+    title: "t",
+    repo_path: "/tmp/repo-drawer",
+    branch: "b",
+    pr_url: "https://gh/pr/2",
+  });
+  const s = ((await getBoard(APP_CTX)).sessions as { id: string; pr_url: string }[])
+    .find((x) => x.id === id)!;
+  assertEquals(s.pr_url, "https://gh/pr/2");
+});
+
+// A reworded story reuses the near-identical open one and says so.
+Deno.test("a near-duplicate story name reuses the open story", async () => {
+  const { getBoard, upsertSession } = await import("../core/sessions.ts");
+  const out: { story_note?: string } = {};
+  const a = await upsertSession(APP_CTX, {
+    title: "a",
+    client: "Similar",
+    story: "Staging cutover (saas-ops → saas-dev)",
+  });
+  const b = await upsertSession(APP_CTX, {
+    title: "b",
+    client: "Similar",
+    story: "staging cutover saas-dev",
+  }, out);
+  const pages = (await getBoard(APP_CTX)).sessions as {
+    id: string;
+    page_id: string;
+  }[];
+  const page = (id: string) => pages.find((s) => s.id === id)!.page_id;
+  assertEquals(page(b), page(a));
+  assert(out.story_note?.startsWith("matched existing story"), out.story_note);
 });
 
 Deno.test("getBoard(APP_CTX, {deleted}) returns only the soft-deleted sessions", async () => {

@@ -28,12 +28,14 @@ while read -r local_ref local_sha _remote_ref _remote_sha; do
   # tags and other refs carry no session: a release tag points at merged work
   case "$local_ref" in refs/heads/*) ;; *) continue ;; esac
 
+  # a card holds every branch it shipped, possibly across repos: this repo's cards
+  # first, then any card listing a non-default branch (cross-repo stories)
   session=$(jq -r --arg repo "$repo" --arg name "$repo_name" \
     --arg branch "${local_ref#refs/heads/}" '
-    [ .[]
-      | select(.branch == $branch)
-      | select(.repo_path == $repo or ((.repo_path // "") | split("/") | last) == $name)
-    ] | sort_by(.last_touched) | last // empty' <<<"$sessions")
+    [ .[] | select(.branch == $branch or ((.branches // "") | split("\n") | index($branch))) ]
+    | ( [ .[] | select(.repo_path == $repo or ((.repo_path // "") | split("/") | last) == $name) ]
+        + (if $branch == "main" or $branch == "master" then [] else . end) )
+    | sort_by(.last_touched) | last // empty' <<<"$sessions")
 
   if [ -z "$session" ]; then
     echo "pre-push: no open Trame session for ${repo_name}@${local_ref#refs/heads/} — run /trame-track" >&2

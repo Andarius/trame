@@ -1,6 +1,7 @@
 // Writer invoked by the trame-track skill.
 // App-first: POST to the running Trame instance (found via the port file) — the server
-// handles upsert-by-repo+branch, client/story name resolution, and the worklog event.
+// matches the card (agent session + story, else repo + branch), resolves client/story
+// names, and writes the worklog event.
 // Offline fallback: append to the outbox; the app drains it on next launch.
 //
 // Input: one JSON object, as argv[0] or on stdin. Shape:
@@ -53,18 +54,25 @@ export async function main(
   opts: { json?: boolean } = {},
 ) {
   const inp = await readInput(argv);
-  // Codex exposes the current resumable thread UUID directly. Claude needs the
-  // UserPromptSubmit sidecar hook because slash commands do not receive its id.
+  // Codex and Claude Code both export the current session UUID to every shell call,
+  // subagents and worktrees included. The hook's cwd map is the fallback for older
+  // Claude Code builds; it is keyed by the prompt's cwd, not the tracked repo_path.
   const codexId = Deno.env.get("CODEX_THREAD_ID");
   if (!inp.agent_id && codexId) {
     inp.agent = "codex";
     inp.agent_id = codexId;
   } else if (!inp.agent_id) {
-    inp.claude_id ??= await claudeIdFor(inp.repo_path ?? Deno.cwd());
+    inp.claude_id ??= Deno.env.get("CLAUDE_CODE_SESSION_ID") ||
+      await claudeIdFor(Deno.cwd());
     if (inp.claude_id) {
       inp.agent = "claude";
       inp.agent_id = inp.claude_id;
     }
+  }
+  if (!inp.story?.trim()) {
+    console.error(
+      "warning: no story — the story is what groups this session's branches onto one card",
+    );
   }
   let target: Target;
   let res: Response;
@@ -85,9 +93,9 @@ export async function main(
     if (target.hub) throw new Error(`the hub rejected the track — ${error}`);
     return await queue(inp, error, opts);
   }
-  const { id, note, specs_page_id } = await res.json();
+  const { id, note, specs_page_id, story_note } = await res.json();
   if (opts.json) {
-    console.log(JSON.stringify({ id, specs_page_id, note }));
+    console.log(JSON.stringify({ id, specs_page_id, note, story_note }));
     return;
   }
   console.log(
@@ -96,6 +104,7 @@ export async function main(
     } — ${inp.title})`,
   );
   if (specs_page_id) console.log(`specs page: ${specs_page_id}`);
+  if (story_note) console.log(`story: ${story_note}`);
   if (note) console.log(`note: ${note}`);
 }
 

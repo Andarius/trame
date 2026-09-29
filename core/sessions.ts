@@ -3,6 +3,7 @@ import type { Ctx, Q } from "./ctx.ts";
 import { checkStoryParent, projectAbove, storyAbove } from "./hierarchy.ts";
 import { pageBlocksToMarkdown } from "./page-markdown.ts";
 import { midKey } from "./sort-key.ts";
+import { similarStories, STORY_REUSE } from "./story-match.ts";
 import { tagColor, tagKey } from "./tags.ts";
 
 // deleted: true returns the soft-deleted sessions instead of the live ones
@@ -100,12 +101,67 @@ async function findStory(ctx: Ctx, title: string, clientId: string | null): Prom
   return hit?.id ?? null;
 }
 
-export async function resolveStory(ctx: Ctx, title: string, clientId: string | null, tags: string[] = []): Promise<string> {
+async function openStories(ctx: Ctx, clientId: string | null): Promise<{ id: string; title: string }[]> {
+  return (await ctx.q.query(
+    `select id, title from pages where kind='story' and status='open' and not deleted
+        and ($1::uuid is null or client_id = $1)`,
+    [clientId],
+  )).rows as { id: string; title: string }[];
+}
+
+// Where resolveStory reports a near-duplicate it reused or found.
+export type StoryNote = { story_note?: string };
+
+// The read-only half of resolveStory: exact title, else a near-duplicate open story.
+async function matchStory(ctx: Ctx, title: string, clientId: string | null, out?: StoryNote): Promise<string | null> {
+  const exact = await findStory(ctx, title, clientId);
+  if (exact) return exact;
+  const [best] = similarStories(title, await openStories(ctx, clientId), STORY_REUSE);
+  if (!best) return null;
+  if (out) out.story_note = `matched existing story '${best.title}' (${best.score})`;
+  return best.id;
+}
+
+// Open stories similar to `q` with their open-card counts; the project comes from its
+// name, else from the repo path. Never creates anything.
+export async function findSimilarStories(ctx: Ctx, q: string, o: { client?: string; repo_path?: string }, limit = 5) {
+  const pg = ctx.q;
+  const clientId = o.client
+    ? ((await pg.query(`select id from pages where kind='project' and title=$1 and not deleted limit 1`, [o.client]))
+      .rows[0] as { id: string } | undefined)?.id ?? null
+    : o.repo_path
+    ? await resolveHomeProject(ctx, o.repo_path)
+    : null;
+  const hits = similarStories(q, await openStories(ctx, clientId)).slice(0, limit);
+  const counts = new Map(
+    ((await pg.query(
+      `select page_id, count(*)::int as n from sessions
+        where not deleted and page_id = any($1::uuid[])
+          and status not in (select key from statuses where terminal and not deleted)
+        group by page_id`,
+      [hits.map((h) => h.id)],
+    )).rows as { page_id: string; n: number }[]).map((r) => [r.page_id, r.n]),
+  );
+  return hits.map((h) => ({ ...h, open_cards: counts.get(h.id) ?? 0 }));
+}
+
+export async function resolveStory(
+  ctx: Ctx,
+  title: string,
+  clientId: string | null,
+  tags: string[] = [],
+  out?: StoryNote,
+): Promise<string> {
   const clean = title.trim().replace(/\s+/g, " ");
   if (!clean) throw new Error("a story needs a title");
   const pg = ctx.q;
-  const hit = await findStory(ctx, clean, clientId);
+  const hit = await matchStory(ctx, clean, clientId, out);
   if (hit) return hit;
+  const near = similarStories(clean, await openStories(ctx, clientId)).slice(0, 3);
+  if (out && near.length) {
+    out.story_note = `similar open stories: ${near.map((n) => `'${n.title}' (${n.score})`).join(", ")}; ` +
+      "re-track with one of them if it is the same topic";
+  }
   await checkStoryParent(ctx, clientId);
   // default tags (TRACKER_CLIENTS) stamp NEW stories only — an existing page's tags
   // belong to the user
@@ -247,7 +303,18 @@ async function resolveStatusKey(pg: Q, key: unknown): Promise<string> {
 
 export class SessionTagsError extends Error {}
 
-export async function upsertSession(ctx: Ctx, s: Record<string, unknown>): Promise<string> {
+// Newline lists (branches, pr_url): drop blanks and dupes, the incoming items last.
+function mergeLines(cur: unknown, add: unknown): string {
+  const lines = (v: unknown) => typeof v === "string" ? v.split("\n").map((l) => l.trim()).filter(Boolean) : [];
+  const incoming = lines(add);
+  return [...lines(cur).filter((l) => !incoming.includes(l)), ...incoming].join("\n");
+}
+
+const OPEN_SESSION = `not deleted and status not in (select key from statuses where terminal and not deleted)`;
+
+// `out` receives a story_note when the story matched or resembles an existing one.
+export async function upsertSession(ctx: Ctx, s: Record<string, unknown>, out?: StoryNote): Promise<string> {
+  const explicitId = Boolean(s.id);
   if (s.tags !== undefined && (!Array.isArray(s.tags) ||
     s.tags.some((tag) => typeof tag !== "string" || !tag.trim()))) {
     throw new SessionTagsError("tags must be an array of non-empty tag keys");
@@ -261,29 +328,39 @@ export async function upsertSession(ctx: Ctx, s: Record<string, unknown>): Promi
   if (s.claude_id && !s.agent) s.agent = "claude";
   // Accept human names (from the CLI/MCP) and resolve them to ids.
   if (typeof s.client === "string" && !s.client_id) s.client_id = await resolveClient(ctx, s.client);
-  // One coding-agent transcript maps to one card, regardless of import vs skill tracking —
-  // but only within a branch and among open cards. A session that moves on to another
-  // branch earns its own card instead of retitling the one it just finished, and a card
-  // the user marked done is never resurrected. An unbranched card (a fresh import) still
-  // adopts the first branch it is tracked with.
+  // One agent session + story = one card, whatever the branch or repo: new branches and
+  // PRs attach to it. Without a story, the session's open card on this branch (or an
+  // unbranched import) is the match. A done card is never resurrected.
+  const story = typeof s.story === "string" && s.story.trim() ? s.story : null;
   if (!s.id && s.claude_id) {
-    const hit = (await pg.query(
-      `select id from sessions where (claude_id=$1 or id=$1) and not deleted
-         and status not in (select key from statuses where terminal and not deleted)
-         and ($2 = '' or coalesce(branch,'') in ('', $2))
-       order by last_touched desc limit 1`,
-      [s.claude_id, (s.branch as string) ?? ""],
-    )).rows[0] as { id: string } | undefined;
+    const storyId = story ? await matchStory(ctx, story, (s.client_id as string) ?? null, out) : null;
+    const hit = storyId
+      ? (await pg.query(
+        `select id from sessions where (claude_id=$1 or id=$1) and page_id=$2 and ${OPEN_SESSION}
+         order by last_touched desc limit 1`,
+        [s.claude_id, storyId],
+      )).rows[0] as { id: string } | undefined
+      : story
+      ? undefined // a story not seen yet: a new card
+      : (await pg.query(
+        `select id from sessions where (claude_id=$1 or id=$1) and ${OPEN_SESSION}
+           and ($2 = '' or coalesce(branches,'') = '' or $2 = any(string_to_array(branches, E'\\n')))
+         order by last_touched desc limit 1`,
+        [s.claude_id, (s.branch as string) ?? ""],
+      )).rows[0] as { id: string } | undefined;
     if (hit) s.id = hit.id;
   }
-  // Upsert by (repo_path, branch) among open sessions when no id is given. "Open" = any
-  // non-terminal status (done-like statuses are user-defined, so ask the statuses table).
+  // Upsert by (repo_path, branch) among open sessions when no id is given, the branch
+  // matched against every branch the card shipped. "Open" = any non-terminal status
+  // (done-like statuses are user-defined, so ask the statuses table). A known session
+  // only adopts unlinked cards here: its own cards were matched above, by story.
   if (!s.id && s.repo_path) {
     const hit = (await pg.query(
-      `select id from sessions where repo_path=$1 and coalesce(branch,'')=$2 and not deleted
-         and status not in (select key from statuses where terminal and not deleted)
+      `select id from sessions where repo_path=$1 and ${OPEN_SESSION}
+         and (coalesce(branch,'')=$2 or $2 = any(string_to_array(branches, E'\\n')))
+         and ($3::uuid is null or claude_id is null)
        order by last_touched desc limit 1`,
-      [s.repo_path, (s.branch as string) ?? ""],
+      [s.repo_path, (s.branch as string) ?? "", s.claude_id ?? null],
     )).rows[0] as { id: string } | undefined;
     if (hit) s.id = hit.id;
   }
@@ -317,7 +394,7 @@ export async function upsertSession(ctx: Ctx, s: Record<string, unknown>): Promi
       : undefined;
     if (!cur?.page_id) {
       const tags = typeof s.repo_path === "string" ? (ctx.defaultTags?.(s.repo_path) ?? []) : [];
-      s.page_id = await resolveStory(ctx, s.story, (s.client_id as string) ?? null, tags);
+      s.page_id = await resolveStory(ctx, s.story, (s.client_id as string) ?? null, tags, out);
     }
   }
   // project = a page that has sessions: attaching promotes a plain page (one-way)
@@ -326,14 +403,25 @@ export async function upsertSession(ctx: Ctx, s: Record<string, unknown>): Promi
     await promoteToProject(ctx, s.page_id as string, (s.client_id as string) ?? null);
   }
   const id = (s.id as string) ?? crypto.randomUUID();
+  // A matched card accumulates branches and PRs; an explicit id (the drawer) sets pr_url
+  // as given, so removing a PR there sticks.
+  const cur = s.id
+    ? (await pg.query(`select branch, branches, pr_url from sessions where id=$1`, [s.id]))
+      .rows[0] as { branch: string | null; branches: string | null; pr_url: string | null } | undefined
+    : undefined;
+  if (cur && !explicitId) {
+    s.branch ??= cur.branch;
+    s.pr_url = mergeLines(cur.pr_url, s.pr_url) || null;
+  }
+  const branches = mergeLines(cur?.branches, s.branch);
   // Transcript linkage: null never clobbers (UI edits omit it); a fresh value wins.
   // page_id is tri-state: absent = keep (a track call is not a detach), null = detach.
   await pg.query(
     `insert into sessions
-       (id,title,status,client_id,page_id,repo_path,branch,next_step,pr_url,summary,claude_id,agent,last_touched,origin,updated_at,tags)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$12,$13,clock_timestamp(),$11,clock_timestamp(),$16::jsonb)
+       (id,title,status,client_id,page_id,repo_path,branch,next_step,pr_url,summary,claude_id,agent,last_touched,origin,updated_at,tags,branches)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$12,$13,clock_timestamp(),$11,clock_timestamp(),$16::jsonb,$17)
      on conflict (id) do update set
-       title=$2,status=$3,client_id=$4,repo_path=$6,branch=$7,
+       title=$2,status=$3,client_id=$4,repo_path=$6,branch=$7,branches=$17,
        page_id=case when $14 then $5 else sessions.page_id end,
        tags=case when $15 then excluded.tags else sessions.tags end,
        next_step=$8,pr_url=$9,summary=$10,claude_id=coalesce($12,sessions.claude_id),
@@ -342,7 +430,7 @@ export async function upsertSession(ctx: Ctx, s: Record<string, unknown>): Promi
     [id, s.title, await resolveStatusKey(pg, s.status), s.client_id ?? null, s.page_id ?? null,
       s.repo_path ?? null, s.branch ?? null, s.next_step ?? null, s.pr_url ?? null, s.summary ?? "", ctx.origin,
       s.claude_id ?? null, s.agent ?? null, s.page_id !== undefined,
-      s.tags !== undefined, JSON.stringify(s.tags ?? [])],
+      s.tags !== undefined, JSON.stringify(s.tags ?? []), branches],
   );
   return id;
 }

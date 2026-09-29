@@ -40,7 +40,8 @@ with `GET /api/sessions/<session id>` — that one call is what the drawer shows
 Session fields worth knowing: `status` (active|paused|blocked|done), `next_step` (for a
 blocked session this states the blocker), `client_id`/`page_id` (join against
 `board.projects` / `board.stories` — `page_id` can point at any page in the tree),
-`repo_path`, `branch`, `last_touched`.
+`repo_path`, `branch` (latest) and `branches` (every branch the card shipped, newline-separated;
+`pr_url` holds its PRs the same way), `last_touched`.
 
 ## Recipes
 
@@ -76,7 +77,8 @@ to the offline outbox when the app is closed (`<repo>` = your trame checkout):
 echo '{"title": "...", "status": "active", ...}' | deno run -A <repo>/track/track.ts
 ```
 
-Raw endpoints exist (`POST /api/sessions` upserts by repo+branch among open sessions,
+Raw endpoints exist (`POST /api/sessions` upserts the open card of the agent session + story, else
+repo + any of its branches,
 `POST /api/sessions/<id>/status`, `POST /api/sessions/<id>/events` for a worklog line)
 but only work while the app runs. Never POST `/api/sessions` with an explicit `id`
-unless intentionally bypassing the repo+branch matcher (that's the Claude-import path).
+unless intentionally bypassing the card matcher (that's the Claude-import path).

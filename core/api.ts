@@ -29,6 +29,7 @@ import {
   deleteTag,
   ensureSpecsPage,
   ensureTag,
+  findSimilarStories,
   getBoard,
   getSession,
   linksForSession,
@@ -73,8 +74,9 @@ export async function handleCoreApi(
   if (pathname === "/api/sessions" && req.method === "POST") {
     const body = await req.json();
     let id: string;
+    const storyOut: { story_note?: string } = {};
     try {
-      id = await upsertSession(ctx, body);
+      id = await upsertSession(ctx, body, storyOut);
     } catch (e) {
       if (e instanceof SessionTagsError) return json({ error: e.message }, 400);
       throw e;
@@ -155,6 +157,7 @@ export async function handleCoreApi(
       id,
       specs_page_id: s?.specs_page_id ?? null,
       ...(note ? { note } : {}),
+      ...storyOut,
     });
   }
   const spm = pathname.match(/^\/api\/sessions\/([^/]+)\/specs-page$/);
@@ -200,6 +203,15 @@ export async function handleCoreApi(
   if (dm && req.method === "POST") {
     await deleteSession(ctx, dm[1]);
     return json({ ok: true });
+  }
+  if (pathname === "/api/stories/similar") {
+    const p = url.searchParams;
+    return json(
+      await findSimilarStories(ctx, p.get("q") ?? "", {
+        client: p.get("client") ?? undefined,
+        repo_path: p.get("repo_path") ?? undefined,
+      }),
+    );
   }
   if (pathname === "/api/stories" && req.method === "POST") {
     return json({ id: await createStory(ctx, await req.json()) });

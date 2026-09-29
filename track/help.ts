@@ -216,19 +216,23 @@ rather than failing.`;
 // Field-by-field composition conventions for `tramecli track` (formerly
 // skills/trame-track/fields.md).
 export const TRACK_FIELDS =
-  `Only \`title\` is required. Send the full object on every update — an omitted field is
-cleared, except transcript linkage, the story anchor, and tags. In markdown (\`summary\`, specs), reference PRs/MRs
+  `\`title\` and \`story\` are required. One agent session + story = one card: every branch and
+PR the session ships on that story lands on the same card (\`branch\` is the latest, earlier
+ones stay in \`branches\`, PRs accumulate in \`pr_url\`), across repos. A different story is
+the only way to split into a new card; a done card is never reopened. Send the full object on
+every update — an omitted field is cleared, except transcript linkage, the story anchor, tags,
+branches and PRs. In markdown (\`summary\`, specs), reference PRs/MRs
 by full URL, never a bare \`#42\` — full links render as badges.
 
 - \`title\` — \`<repo-basename> — <short topic>\`; the card's heading.
 - \`status\` — column key, inferred from the conversation: default \`active\`; \`paused\`, \`blocked\`, \`done\` only if evident. Columns are user-editable and an unknown key is parked on the first column — when unsure of a key (or an existing project/story name), \`GET /api/board\` returns them all (\`statuses\`, \`projects\`, \`stories\`).
 - \`client\` — **Project** name, resolved/created server-side. From the working dir: \`TRACKER_CLIENTS\` is a JSON map of path segment → project or \`{"project":"…","tags":["…"],"repos":["…"]}\` (e.g. \`{"Work":{"project":"Soren","tags":["infra"]}}\` files a \`/Work/\` repo — or a \`…-Work-…\` scratchpad worktree — under **Soren**, stamping the tags on newly minted stories — only for whitelisted \`repos\` when set); no match → **Side-projects**.
-- \`story\` — **Story** the session serves, found-or-created by name under the project; only if evident. Do not nest user stories. Sessions attach directly to their enclosing US; documentation may nest below it. A story bound for Cockpit needs a brief and a routing tag: its sessions inherit that routing and file as tickets, with \`next_step\` as the objective.
+- \`story\` — **Story** the session serves: the topic key that groups its branches onto one card. Pick it BEFORE tracking: \`tramecli stories -q "<topic>"\` lists similar open stories of the project — reuse one that fits, else name a short new topic. Found-or-created by name under the project; a near-identical open story is reused (the response's \`story_note\` says so), and a new story that resembles existing ones returns them in \`story_note\` — re-track with one of them when it is the same topic. Do not nest user stories. Sessions attach directly to their enclosing US; documentation may nest below it. A story bound for Cockpit needs a brief and a routing tag: its sessions inherit that routing and file as tickets, with \`next_step\` as the objective.
 - \`tags\` — optional array of session tag keys from \`GET /api/tags\`, e.g. \`["priority-p1", "cockpit-devops"]\`. Omission preserves existing tags; \`[]\` clears them. Independent of story and specs-page tags. Create vocabulary labels such as \`priority:P1\` with \`POST /api/tags {"label":"priority:P1"}\`; store the returned \`key\`.
-- \`repo_path\` — the working dir (with \`branch\`, the upsert key among open sessions). A planned card (open, no branch) on the repo is adopted by the first track naming its story — or by any first track when it has no story anchor.
+- \`repo_path\` — the working dir (with \`branch\`, the upsert key when there is no agent session id). A planned card (open, no branch) on the repo is adopted by the first track naming its story — or by any first track when it has no story anchor.
 - \`branch\` — current git branch.
 - \`next_step\` — one imperative line: the very next thing to do on resume; incorporate the user's note.
-- \`pr_url\` — PR/MR link, only if evident.
+- \`pr_url\` — PR/MR link, only if evident; added to the card's PRs, never replacing them.
 - \`summary\` — worklog entry, 1–3 lines, PR-description style: outcome first, plus decisions and dead-ends worth remembering ("X fails because Y") — no implementation narration.
 - \`links\` — optional backlink chips to plan/TODO pages: \`[{ "page_id", "anchor"?, "block_id"? }]\`; deduped server-side, only ever appended. Pass the task line's exact text as \`anchor\` (marks may be omitted) and the chip lands on that todo, carrying this card's worklog — so each \`summary\` reads as an update under the task. No unique match, or no anchor at all, files the chip on the page. Every session linked to a page also feeds that page's **Activity** timeline — all their worklogs merged newest-first, read without opening a card.
 
@@ -250,11 +254,12 @@ Pipe ONE JSON object on stdin (or pass it as the single argument):
   echo '{"title": "…", …}' | tramecli track
 
 Posts to the running Trame app, or queues to the offline outbox when the app is
-closed. The server upserts by repo_path+branch among open sessions and attaches the
-agent's session UUID so the card gets a working Resume button (Codex: from
-CODEX_THREAD_ID; Claude Code: from the UserPromptSubmit hook sidecar).
---json prints the server response ({id, specs_page_id, note}; {queued: true} when
-the app is closed) instead of the human lines.
+closed. The server matches the open card of this agent session + story (else, with no
+session id, repo_path + any of the card's branches) and attaches the session UUID so the
+card gets a working Resume button (Codex: CODEX_THREAD_ID; Claude Code:
+CLAUDE_CODE_SESSION_ID, else the UserPromptSubmit hook sidecar).
+--json prints the server response ({id, specs_page_id, note, story_note}; {queued: true}
+when the app is closed) instead of the human lines.
 
 Compose every field from the conversation — do not ask the user.
 
@@ -351,8 +356,17 @@ Done-like columns stay hidden unless the query has a status: term.
 
 Reads the board from the running Trame app; writes nothing. Sessions whose status
 column is terminal (e.g. done) are omitted. --json prints flat rows
-({id, title, status, story, branch, repo_path, last_touched, next_step, pr_url})
+({id, title, status, story, branch, branches, repo_path, last_touched, next_step, pr_url})
 for jq — what the pre-push hook filters on.`;
+
+export const STORIES_HELP = `tramecli stories — open stories similar to a topic
+
+  tramecli stories -q "<topic>" [--client <project>] [--json]
+
+Lists up to 5 open stories of the project (--client, else the one owning the current
+directory) whose title resembles the topic, best first, with a 0–1 score and their open
+card count. Run it before naming a story in \`tramecli track\`: reuse a story that fits
+so the session's work lands on one card. Reads only.`;
 
 export const CONVERT_HELP = `tramecli convert — turn a page into a session card
 
@@ -379,6 +393,7 @@ Commands:
   watch      wait for human feedback on page(s); exits 0 when feedback is ready
   answer     daemon: auto-answer human replies on agent comment threads
   list       print open sessions grouped by story
+  stories    open stories similar to a topic (pick one before tracking)
   convert    turn a page into a session card whose specs are that page
   setup      install the agent skills embedded in this binary
   db         print the database contract — columns, cells, chart views (REST)

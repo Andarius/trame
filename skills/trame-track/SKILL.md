@@ -11,8 +11,11 @@ session card, use `$trame-page` instead.
 
 Trame tracks work as a board of projects, stories, and session cards. The writer
 is the `tramecli` binary: it posts to the running app, else to the Trame hub when
-one is configured (a box with no app), else queues to an offline outbox; in Codex
-it reads `CODEX_THREAD_ID` automatically so the card can resume this exact session.
+one is configured (a box with no app), else queues to an offline outbox. It reads
+`CODEX_THREAD_ID` (Codex) or `CLAUDE_CODE_SESSION_ID` (Claude Code) automatically so
+the card can resume this exact session. One session + story = one card: every branch
+and PR you ship on that story lands on the same card, so track after each PR instead
+of worrying about duplicates. A different story is the only thing that starts a new card.
 
 Interpret an optional first argument as the action:
 
@@ -23,9 +26,12 @@ Interpret an optional first argument as the action:
 For tracking actions:
 
 1. Run `tramecli track --help` for the writer contract and the field conventions.
-2. Read the current working directory and Git branch, compose every field from THIS
+2. Pick the story first: run `tramecli stories -q "<topic>"` and reuse the open story
+   that fits; name a short new topic only when none does.
+3. Read the current working directory and Git branch, compose every field from THIS
    conversation (do not ask the user), and pipe one JSON object to `tramecli track`.
-3. Write the spec page when the writer contract (Specs, in that `--help`) says so,
+   If the output has a `story:` line naming a better existing story, re-track with it.
+4. Write the spec page when the writer contract (Specs, in that `--help`) says so,
    with the session id from the writer output (`tramecli page`, see its `--help`).
-4. Report one line from the writer output: tracked/queued, title, status, and the
+5. Report one line from the writer output: tracked/queued, title, status, and the
    `next_step` you wrote.

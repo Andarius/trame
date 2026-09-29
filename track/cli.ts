@@ -18,6 +18,7 @@ import {
   COMMENT_HELP,
   CONVERT_HELP,
   LIST_HELP,
+  STORIES_HELP,
   OVERVIEW,
   PAGE_HELP,
   SETUP_HELP,
@@ -32,6 +33,7 @@ const HELP_TOPICS: Record<string, string> = {
   page: PAGE_HELP,
   comment: COMMENT_HELP,
   list: LIST_HELP,
+  stories: STORIES_HELP,
   convert: CONVERT_HELP,
   setup: SETUP_HELP,
   db: UDB_CONTRACT, // topic, not a command: databases are plain REST
@@ -44,6 +46,7 @@ type Board = {
     title: string;
     status: string;
     branch: string | null;
+    branches?: string;
     next_step: string | null;
     pr_url: string | null;
     page_id: string | null;
@@ -68,13 +71,14 @@ export function boardRows(board: Board) {
   return board.sessions
     .filter((s) => !s.deleted && !terminal.has(s.status))
     .map((
-      { id, title, status, branch, next_step, pr_url, page_id, repo_path, last_touched },
+      { id, title, status, branch, branches, next_step, pr_url, page_id, repo_path, last_touched },
     ) => ({
       id,
       title,
       status,
       story: (page_id && storyTitle.get(page_id)) ?? null,
       branch,
+      branches,
       repo_path,
       last_touched,
       next_step,
@@ -116,6 +120,19 @@ export function formatBoard(board: Board, color = false): string {
       }`
     ).join("\n")
   ).join("\n");
+}
+
+// Open stories resembling a topic, so an agent reuses one instead of minting a twin.
+async function stories(json: boolean, q: string, client: string | null): Promise<void> {
+  const params = new URLSearchParams({ q, ...(client ? { client } : { repo_path: Deno.cwd() }) });
+  const res = await targetFetch(await resolveTarget(), `/api/stories/similar?${params}`, {
+    signal: AbortSignal.timeout(5000),
+  });
+  if (!res.ok) throw new Error(`/api/stories/similar → HTTP ${res.status}`);
+  const hits = await res.json() as { id: string; title: string; score: number; open_cards: number }[];
+  if (json) console.log(JSON.stringify(hits));
+  else if (!hits.length) console.log("no similar open story — name a new one");
+  else for (const h of hits) console.log(`${h.score.toFixed(2)}  ${h.title}  (${h.open_cards} open cards)`);
 }
 
 async function list(json: boolean, query: string | null, deleted: boolean): Promise<void> {
@@ -266,6 +283,18 @@ export async function run(argv: string[]): Promise<number> {
         const i = rest.findIndex((a) => a === "--query" || a === "-q");
         if (i >= 0 && !rest[i + 1]) throw new Error("--query needs a query — see `tramecli query`");
         await list(json, i >= 0 ? rest[i + 1] : null, rest.includes("--deleted"));
+      }
+      return 0;
+    case "stories":
+      if (wantsHelp) console.log(STORIES_HELP);
+      else {
+        const flag = (names: string[]) => {
+          const i = rest.findIndex((a) => names.includes(a));
+          return i >= 0 ? rest[i + 1] ?? null : null;
+        };
+        const q = flag(["--query", "-q"]);
+        if (!q) throw new Error('stories needs -q "<topic>"');
+        await stories(json, q, flag(["--client"]));
       }
       return 0;
     case "convert":

@@ -24,7 +24,7 @@ Deno.test("cli version is the package version, stamped with the build when compi
 // the help text IS the agent contract — a refactor must not drop the conventions
 Deno.test("help carries the composition conventions", () => {
   assertStringIncludes(TRACK_HELP, "outcome first");
-  assertStringIncludes(TRACK_HELP, "upserts by repo_path+branch");
+  assertStringIncludes(TRACK_HELP, "One agent session + story = one card");
   assertStringIncludes(TRACK_HELP, "specs_page_id");
   assertStringIncludes(TRACK_HELP, "do not ask the user");
   assertStringIncludes(PAGE_HELP, "{{fold}}");
@@ -32,7 +32,7 @@ Deno.test("help carries the composition conventions", () => {
   assertStringIncludes(PAGE_DIALECT, "`cards` fence");
   assertStringIncludes(COMMENT_HELP, "meta.model is required");
   assertStringIncludes(CONVERT_HELP, "specs_page_id");
-  for (const cmd of ["track", "page", "comment", "watch", "list", "convert"]) {
+  for (const cmd of ["track", "page", "comment", "watch", "list", "stories", "convert"]) {
     assertStringIncludes(OVERVIEW, `\n  ${cmd}`);
   }
 });
@@ -115,6 +115,7 @@ Deno.test("formatBoard groups open sessions by story and hides terminal columns"
         title: "repo — orphan",
         status: "paused",
         branch: null,
+        branches: "",
         next_step: null,
         pr_url: null,
         page_id: null,
@@ -167,6 +168,7 @@ Deno.test("boardRows flattens open sessions for --json", () => {
         title: "repo — fix thing",
         status: "active",
         branch: "fix/thing",
+        branches: "fix/thing",
         next_step: "merge it",
         pr_url: null,
         page_id: "st-1",
@@ -199,7 +201,8 @@ Deno.test("boardRows flattens open sessions for --json", () => {
     status: "active",
     story: "Ship the thing",
     branch: "fix/thing",
-    // the pre-push hook matches on these two and compares the stamp to the commit
+    // the pre-push hook matches on branch/branches + repo and compares the stamp to the commit
+    branches: "fix/thing",
     repo_path: "/home/dev/repo",
     last_touched: "2026-09-09T18:42:40.564Z",
     next_step: "merge it",

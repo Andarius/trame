@@ -181,7 +181,7 @@ server.tool(
 
 server.tool(
   "trame_track",
-  `Create or update a session (upserts by repo_path+branch among open sessions). Client and story are names — they are resolved or created. Specs live on the session's spec page: write them with trame_update_page {session_id} after tracking (the response returns specs_page_id). ${SPECS_WHEN.replaceAll("\n", " ")}`,
+  `Create or update a session card. One agent session + story = one card: new branches and PRs attach to it, a different story starts a new card (without a session id: repo_path + any of the card's branches). Pass a story; reuse an existing open one (a near-duplicate is matched, story_note says so). Client and story are names — they are resolved or created. Specs live on the session's spec page: write them with trame_update_page {session_id} after tracking (the response returns specs_page_id). ${SPECS_WHEN.replaceAll("\n", " ")}`,
   {
     title: z.string(),
     status: z.enum(["active", "paused", "blocked", "done"]).optional(),
@@ -203,8 +203,12 @@ server.tool(
     pr_url: z.string().optional(),
     summary: z.string().optional(),
   },
-  async (args: Record<string, unknown>) =>
-    text(await post("/api/sessions", args)),
+  // the MCP server runs per agent session, so its env names the session (see track.ts)
+  async (args: Record<string, unknown>) => {
+    const agentId = Deno.env.get("CODEX_THREAD_ID") ?? Deno.env.get("CLAUDE_CODE_SESSION_ID");
+    const agent = Deno.env.get("CODEX_THREAD_ID") ? "codex" : "claude";
+    return text(await post("/api/sessions", agentId ? { ...args, agent, agent_id: agentId } : args));
+  },
 );
 
 server.tool(

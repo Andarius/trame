@@ -5,7 +5,8 @@
 // v4: sessions specs text column replaced by specs_page_id (specs are pages).
 // v5: tags entity + pages.tags (the keys a page carries); pages.story renamed to brief.
 // v6: session-owned tags, independent of story and specs-page tags.
-export const PROTOCOL_VERSION = 6;
+// v7: sessions.branches (a card holds every branch it shipped).
+export const PROTOCOL_VERSION = 7;
 
 export const ENTITIES = [
   {
@@ -122,6 +123,7 @@ export const ENTITIES = [
       "page_id",
       "repo_path",
       "branch",
+      "branches",
       "next_step",
       "specs_page_id",
       "tags",
