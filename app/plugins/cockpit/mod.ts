@@ -5,11 +5,12 @@
 // it stays off until a mapping names a project AND `mirror` is switched on:
 // what lands in the local database syncs to the hub and can be shared by link,
 // so it is never a side effect of merely enabling the plugin.
+import { APP_CTX } from "../../ctx.ts";
 import { COCKPIT_FIXTURE, COCKPIT_POLL_IDLE_MS } from "../../config.ts";
 import { legacyParents } from "./migration.ts";
 import type { Plugin, PluginSettings } from "../types.ts";
 import { getPluginSettings, isPluginEnabled } from "../settings.ts";
-import { ensureTag, tagKey } from "../../db.ts";
+import { ensureTag, tagKey } from "../../../core/sessions.ts";
 import {
   type Mapping,
   mappingTagLabel,
@@ -30,16 +31,8 @@ import {
   syncTags,
   type Ticket,
 } from "./api.ts";
-import {
-  groupByProject,
-  isSessionTicket,
-  planMirror,
-  refOfContent,
-  ticketFromSession,
-  ticketStatusOf,
-  userStoryFromPage,
-  usOfContent,
-} from "./mirror.ts";
+import { groupByProject, isSessionTicket, planMirror, ticketFromSession, ticketStatusOf, userStoryFromPage } from "./mirror.ts";
+import { refOfContent, usOfContent } from "../../../core/content-marks.ts";
 import {
   adoptAsMirror,
   adoptAsUserStory,
@@ -366,7 +359,7 @@ async function pollOnce(): Promise<CockpitState> {
         // or the chip renders as a bare slug until someone creates it.
         for (const m of mappings) {
           if (m.pageId === g.pageId) {
-            await ensureTag({ label: mappingTagLabel(m) });
+            await ensureTag(APP_CTX, { label: mappingTagLabel(m) });
           }
         }
         mirrored.push({
@@ -425,8 +418,8 @@ export async function filePage(
 ): Promise<
   { reference: string; created: boolean } | { error: string; status: number }
 > {
-  const { getPage } = await import("../../pages.ts");
-  const page = await getPage(pageId) as unknown as {
+  const { getPage } = await import("../../../core/pages.ts");
+  const page = await getPage(APP_CTX, pageId) as unknown as {
     id: string;
     title: string;
     brief?: string;

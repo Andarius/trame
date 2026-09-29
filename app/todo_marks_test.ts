@@ -10,7 +10,7 @@ import {
   stripMarks,
   todayMark,
   touchTodo,
-} from "./todo-marks.ts";
+} from "../core/todo-marks.ts";
 
 const CREATED = "{{trame:created_at=2026-08-20}}";
 const DONE = "{{trame:completed_at=2026-08-31}}";

@@ -4,7 +4,7 @@ import {
   assertStringIncludes,
   assertThrows,
 } from "@std/assert";
-import { agentIdentity, resolveCommentBlock } from "./agent-comments.ts";
+import { agentIdentity, resolveCommentBlock } from "../core/agent-comments.ts";
 
 const CONTENT = [
   { type: "heading", text: "Plan", id: "b1" },

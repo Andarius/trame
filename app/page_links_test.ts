@@ -6,21 +6,22 @@ Deno.env.set("TRACKER_OUTBOX", `${tmp}/outbox.jsonl`);
 Deno.env.set("TRACKER_SETTINGS_FILE", `${tmp}/settings.json`);
 Deno.env.set("TRACKER_PORT_FILE", `${tmp}/port.json`);
 Deno.env.set("TRACKER_APP_ROOT", new URL(".", import.meta.url).pathname);
+const { APP_CTX } = await import("./ctx.ts");
 
 import { assert, assertEquals } from "@std/assert";
 import { entityByName } from "../protocol/entities.ts";
 
 Deno.test("share links: create keeps the raw token locally, revoke removes it", async () => {
   const { createLink, createPage, listLinks, revokeLink } = await import(
-    "./pages.ts"
+    "../core/pages.ts"
   );
-  const pageId = await createPage({ title: "Shared plan" });
+  const pageId = await createPage(APP_CTX, { title: "Shared plan" });
 
-  const { id, token } = await createLink(pageId);
+  const { id, token } = await createLink(APP_CTX, pageId);
   assert(token.length > 20, "token is a real capability string");
 
   // the app can re-show the URL: the raw token comes back from the list
-  const links = await listLinks(pageId);
+  const links = await listLinks(APP_CTX, pageId);
   assertEquals(links.map((l) => ({ id: l.id, token: l.token })), [
     { id, token },
   ]);
@@ -34,6 +35,6 @@ Deno.test("share links: create keeps the raw token locally, revoke removes it", 
 
   // revoke soft-deletes: the link disappears from the list (regression for the
   // /api/links/:id/delete route collision that made revoke a silent no-op)
-  await revokeLink(id);
-  assertEquals(await listLinks(pageId), []);
+  await revokeLink(APP_CTX, id);
+  assertEquals(await listLinks(APP_CTX, pageId), []);
 });

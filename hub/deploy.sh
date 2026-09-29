@@ -20,9 +20,10 @@ scp -q "$HERE/docker-compose.yml" "$HOST:$DIR/docker-compose.yml"
 scp -q "$HERE/../db/schema.sql" "$HOST:$DIR/schema.sql"
 scp -q "$HERE/pg_hba.conf" "$HOST:$DIR/pg_hba.conf"
 scp -q "$HERE/gen-certs.sh" "$HOST:$DIR/gen-certs.sh"
-ssh "$HOST" "mkdir -p ~/$DIR/api ~/$DIR/protocol"
+ssh "$HOST" "mkdir -p ~/$DIR/api ~/$DIR/protocol ~/$DIR/core"
 scp -q "$HERE/api/"*.ts "$HERE/api/deno.json" "$HERE/api/deno.lock" "$HOST:$DIR/api/"
 scp -q "$HERE/../protocol/"*.ts "$HOST:$DIR/protocol/"
+scp -q "$HERE/../core/"*.ts "$HOST:$DIR/core/"
 ssh "$HOST" "chmod +x ~/$DIR/gen-certs.sh"
 
 ssh "$HOST" bash -s "$DIR" <<'REMOTE'
@@ -40,6 +41,7 @@ if [ ! -f .env ]; then
 fi
 # deployed layout is flat (protocol/ beside api/), unlike the repo — pin the mounts
 grep -q TRACKER_PROTOCOL_SRC .env || echo "TRACKER_PROTOCOL_SRC=./protocol" >> .env
+grep -q TRACKER_CORE_SRC .env || echo "TRACKER_CORE_SRC=./core" >> .env
 # public hostname for share links, routed by the host's Traefik (set your own)
 grep -q TRACKER_LINK_HOST .env || echo "TRACKER_LINK_HOST=links.example.com  # ← set me" >> .env
 . ./.env
@@ -55,7 +57,7 @@ done
 # (the initdb mount only runs on an empty data volume)
 docker exec -i trame-db psql -q -U tracker -d tracker -v ON_ERROR_STOP=1 < schema.sql
 echo "schema.sql applied"
-# api/ + protocol/ are bind mounts — compose sees no config change, so the running
+# api/ + protocol/ + core/ are bind mounts — compose sees no config change, so the running
 # Deno keeps its old in-memory modules; restart to load the freshly copied source
 docker restart trame-api > /dev/null
 echo "trame-api restarted"

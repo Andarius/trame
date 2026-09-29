@@ -103,11 +103,11 @@ Deno.test("meta.model is always required; claude and codex must send stats too",
   );
 
   try {
-    const base = `http://127.0.0.1:${await ready}`;
+    const target = { base: `http://127.0.0.1:${await ready}`, hub: false, headers: {} };
     const post = (agent: string, meta?: Record<string, unknown>) =>
       addComment(
         { page_id: "page-1", block_id: "block-1", body: "Answered.", agent, meta },
-        base,
+        target,
       );
     const cases: [string, string | undefined, Record<string, unknown> | undefined][] = [
       ["claude with no meta", "meta.model is required", undefined],
@@ -163,7 +163,7 @@ Deno.test("in_reply_to brackets the reply with answering/answered", async () => 
   );
 
   try {
-    const base = `http://127.0.0.1:${await ready}`;
+    const target = { base: `http://127.0.0.1:${await ready}`, hub: false, headers: {} };
     const res = await addComment({
       page_id: "page-1",
       block_id: "block-1",
@@ -171,7 +171,7 @@ Deno.test("in_reply_to brackets the reply with answering/answered", async () => 
       agent: "claude",
       in_reply_to: "comment-1",
       meta: { model: "claude-opus-5", in: 4210, out: 118, ms: 5400 },
-    }, base);
+    }, target);
     assertEquals(res.id, "comment-2");
     assertEquals(calls, ["answering", "post", "answered"]);
   } finally {

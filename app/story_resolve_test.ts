@@ -6,11 +6,13 @@ Deno.env.set("TRACKER_OUTBOX", `${tmp}/outbox.jsonl`);
 Deno.env.set("TRACKER_SETTINGS_FILE", `${tmp}/settings.json`);
 Deno.env.set("TRACKER_PORT_FILE", `${tmp}/port.json`);
 Deno.env.set("TRACKER_APP_ROOT", new URL(".", import.meta.url).pathname);
+const { APP_CTX } = await import("./ctx.ts");
 
 import { assert, assertEquals } from "@std/assert";
 
-const { db, resolveClient, resolveStory, upsertSession } = await import("./db.ts");
-const { createPage } = await import("./pages.ts");
+const { db } = await import("./db.ts");
+const { resolveClient, resolveStory, upsertSession } = await import("../core/sessions.ts");
+const { createPage } = await import("../core/pages.ts");
 
 const pageOf = async (id: string) => {
   const pg = await db();
@@ -28,7 +30,7 @@ const storyCount = async () => {
 // The regression this file exists for: a later track call rewording the story used to
 // mint a fresh page and orphan the one the session was attached to.
 Deno.test("a reworded story on a later track keeps the attached page", async () => {
-  const id = await upsertSession({
+  const id = await upsertSession(APP_CTX, {
     title: "repo — fix auth",
     repo_path: "/tmp/repo-a",
     branch: "fix/auth",
@@ -39,7 +41,7 @@ Deno.test("a reworded story on a later track keeps the attached page", async () 
   assert(page_id, "first track attaches");
   const before = await storyCount();
 
-  const again = await upsertSession({
+  const again = await upsertSession(APP_CTX, {
     title: "repo — fix auth",
     repo_path: "/tmp/repo-a",
     branch: "fix/auth",
@@ -51,36 +53,36 @@ Deno.test("a reworded story on a later track keeps the attached page", async () 
 });
 
 Deno.test("an explicit page_id still retargets and null still detaches", async () => {
-  const clientId = await resolveClient("Retarget Proj");
-  const other = await createPage({ title: "The other story", kind: "story", parent_id: clientId });
-  const id = await upsertSession({
+  const clientId = await resolveClient(APP_CTX, "Retarget Proj");
+  const other = await createPage(APP_CTX, { title: "The other story", kind: "story", parent_id: clientId });
+  const id = await upsertSession(APP_CTX, {
     title: "repo — retarget",
     repo_path: "/tmp/repo-b",
     branch: "main",
     story: "Original story",
   });
-  await upsertSession({ id, title: "repo — retarget", page_id: other });
+  await upsertSession(APP_CTX, { id, title: "repo — retarget", page_id: other });
   assertEquals((await pageOf(id)).page_id, other, "explicit page_id wins over the attachment");
-  await upsertSession({ id, title: "repo — retarget", page_id: null });
+  await upsertSession(APP_CTX, { id, title: "repo — retarget", page_id: null });
   assertEquals((await pageOf(id)).page_id, null, "explicit null detaches (the drawer)");
 });
 
 Deno.test("an update that omits page_id keeps the attachment", async () => {
-  const id = await upsertSession({
+  const id = await upsertSession(APP_CTX, {
     title: "repo — keep",
     repo_path: "/tmp/repo-c",
     branch: "main",
     story: "Keep me attached",
   });
   const { page_id } = await pageOf(id);
-  await upsertSession({ id, title: "repo — keep (renamed)", status: "paused" });
+  await upsertSession(APP_CTX, { id, title: "repo — keep (renamed)", status: "paused" });
   assertEquals((await pageOf(id)).page_id, page_id);
 });
 
 Deno.test("another project's same-titled story is not absorbed", async () => {
-  const aId = await resolveClient("Proj A");
-  const theirStory = await createPage({ title: "Auth cleanup", kind: "story", parent_id: aId, client_id: aId });
-  const id = await upsertSession({
+  const aId = await resolveClient(APP_CTX, "Proj A");
+  const theirStory = await createPage(APP_CTX, { title: "Auth cleanup", kind: "story", parent_id: aId, client_id: aId });
+  const id = await upsertSession(APP_CTX, {
     title: "repo — b auth",
     repo_path: "/tmp/repo-d",
     branch: "main",
@@ -92,21 +94,21 @@ Deno.test("another project's same-titled story is not absorbed", async () => {
 });
 
 Deno.test("spelling drift resolves to the same story", async () => {
-  const clientId = await resolveClient("Proj Drift");
-  const first = await resolveStory("Ship the Feature", clientId);
-  assertEquals(await resolveStory("  ship   the feature ", clientId), first);
+  const clientId = await resolveClient(APP_CTX, "Proj Drift");
+  const first = await resolveStory(APP_CTX, "Ship the Feature", clientId);
+  assertEquals(await resolveStory(APP_CTX, "  ship   the feature ", clientId), first);
 });
 
 Deno.test("an unfiled plain page is reused and promoted", async () => {
-  const plain = await createPage({ title: "Loose notes" }); // client_id null
-  const clientId = await resolveClient("Proj Promote");
-  assertEquals(await resolveStory("loose notes", clientId), plain);
+  const plain = await createPage(APP_CTX, { title: "Loose notes" }); // client_id null
+  const clientId = await resolveClient(APP_CTX, "Proj Promote");
+  assertEquals(await resolveStory(APP_CTX, "loose notes", clientId), plain);
   const pg = await db();
   const row = (await pg.query(`select kind, client_id from pages where id=$1`, [plain]))
     .rows[0] as { kind: string; client_id: string | null };
   // resolveStory finds it; promotion happens on attach (upsertSession), not here
   assertEquals(row.kind, "page");
-  const id = await upsertSession({
+  const id = await upsertSession(APP_CTX, {
     title: "repo — promote",
     repo_path: "/tmp/repo-e",
     branch: "main",
@@ -122,7 +124,7 @@ Deno.test("an unfiled plain page is reused and promoted", async () => {
 
 Deno.test("a blank story attaches nothing", async () => {
   const before = await storyCount();
-  const id = await upsertSession({
+  const id = await upsertSession(APP_CTX, {
     title: "repo — blank",
     repo_path: "/tmp/repo-f",
     branch: "main",

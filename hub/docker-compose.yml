@@ -58,10 +58,12 @@ services:
     # --frozen: the mount is read-only — validate the shipped lockfile, never write it
     command: ["run", "-A", "--frozen", "--config", "/srv/hub/api/deno.json", "/srv/hub/api/main.ts"]
     volumes:
-      # TRACKER_API_SRC/TRACKER_PROTOCOL_SRC: deploy.sh layout is flat; default = repo layout.
-      # Mount paths preserve the api → ../../protocol relative import.
+      # TRACKER_*_SRC: deploy.sh layout is flat; default = repo layout.
+      # Mount paths preserve the api → ../../protocol and ../../core relative imports.
       - ${TRACKER_API_SRC:-./api}:/srv/hub/api:ro
       - ${TRACKER_PROTOCOL_SRC:-../protocol}:/srv/protocol:ro
+      # core/: the /api routes the hub shares with the laptop app
+      - ${TRACKER_CORE_SRC:-../core}:/srv/core:ro
       - ./certs:/certs:ro
       - trame-deno-cache:/deno-cache
     ports:

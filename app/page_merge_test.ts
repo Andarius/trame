@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
-import { markdownToPageBlocks, type PageTextBlock } from "./page-markdown.ts";
-import { mergePageBlocks } from "./page-merge.ts";
+import { markdownToPageBlocks, type PageTextBlock } from "../core/page-markdown.ts";
+import { mergePageBlocks } from "../core/page-merge.ts";
 
 const text = (t: string, id: string): PageTextBlock => ({
   type: "text",

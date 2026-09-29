@@ -5,8 +5,8 @@
 //
 // The app injects the canonical agent name/avatar. This writer resolves human-friendly
 // page titles and target quotes so callers do not need to discover HTTP routes or UUIDs.
-import { PORT_FILE } from "../app/config.ts";
-import { type AgentKind, resolveCommentBlock } from "../app/agent-comments.ts";
+import { apiRequest, appLink, resolveTarget, type Target } from "./target.ts";
+import { type AgentKind, resolveCommentBlock } from "../core/agent-comments.ts";
 
 export type CommentInput = {
   page_id?: string;
@@ -67,32 +67,13 @@ function validate(input: Input): Input {
   return { ...input, body: input.body.trim() };
 }
 
-async function request(
-  base: string,
-  path: string,
-  init?: RequestInit,
-): Promise<unknown> {
-  const res = await fetch(`${base}${path}`, {
-    ...init,
-    signal: AbortSignal.timeout(5000),
-  }).catch(() => {
-    throw new Error(
-      "Trame app is not reachable (stale port file?). Start it with `just dev` or `just serve`.",
-    );
-  });
-  if (!res.ok) {
-    throw new Error(`${path} → HTTP ${res.status}: ${await res.text()}`);
-  }
-  return res.json();
-}
-
 const setStatus = (
-  base: string,
+  target: Target,
   id: string,
   status: "answering" | "answered",
   agent: string,
 ) =>
-  request(base, `/api/comments/${id}/agent-status`, {
+  apiRequest(target, `/api/comments/${id}/agent-status`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ status, agent }),
@@ -102,12 +83,12 @@ const setStatus = (
 // page by title, the block by id or unique quote, then posts with attribution.
 export async function addComment(
   raw: Input,
-  base: string,
+  target: Target,
 ): Promise<{ id: string; agent: string; page: PageMeta }> {
   const input = validate(raw);
   let pageId = input.page_id;
   if (input.page_title) {
-    const pages = await request(base, "/api/pages") as PageMeta[];
+    const pages = await apiRequest(target, "/api/pages") as PageMeta[];
     const matches = pages.filter((p) => p.title === input.page_title);
     if (matches.length !== 1) {
       throw new Error(
@@ -119,19 +100,19 @@ export async function addComment(
     pageId = matches[0].id;
   }
 
-  const page = await request(base, `/api/pages/${pageId}`) as PageDetail;
-  const target = resolveCommentBlock(page.content, input);
+  const page = await apiRequest(target, `/api/pages/${pageId}`) as PageDetail;
+  const block = resolveCommentBlock(page.content, input);
   const agent = resolveAgent(input);
   if (input.in_reply_to) {
-    await setStatus(base, input.in_reply_to, "answering", agent);
+    await setStatus(target, input.in_reply_to, "answering", agent);
   }
-  const { id } = await request(base, "/api/comments", {
+  const { id } = await apiRequest(target, "/api/comments", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       page_id: page.id,
-      block_id: target.id,
-      anchor: target.text,
+      block_id: block.id,
+      anchor: block.text,
       body: input.body,
       agent,
       meta: input.meta,
@@ -139,7 +120,7 @@ export async function addComment(
   }) as { id: string };
   // the reply is posted: a failing status call must not look like a failed answer
   if (input.in_reply_to) {
-    await setStatus(base, input.in_reply_to, "answered", agent).catch((e) =>
+    await setStatus(target, input.in_reply_to, "answered", agent).catch((e) =>
       console.error(`warning: reply posted but marking answered failed: ${e.message}`)
     );
   }
@@ -148,19 +129,11 @@ export async function addComment(
 
 export async function main(argv: string[] = Deno.args) {
   const input = await readInput(argv);
-  let port: number;
-  try {
-    port = JSON.parse(await Deno.readTextFile(PORT_FILE)).port;
-  } catch {
-    throw new Error(
-      "Trame app is not running (no port file). Start it with `just dev` or `just serve`.",
-    );
-  }
-  const base = `http://127.0.0.1:${port}`;
+  const target = await resolveTarget();
 
-  const res = await addComment(input, base);
+  const res = await addComment(input, target);
   console.log(
-    `ok: ${res.agent} comment ${res.id} added to Trame (${res.page.title}) — ${base}/?page=${res.page.id}`,
+    `ok: ${res.agent} comment ${res.id} added to Trame (${res.page.title})${appLink(target, `page=${res.page.id}`)}`,
   );
 }
 

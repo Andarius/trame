@@ -32,5 +32,5 @@ export default defineConfig(async () => ({
     rollupOptions: { external: [/@excalidraw\/mermaid-to-excalidraw/] },
   },
   // the editor shares app/todo-marks.ts with the Deno side
-  server: { fs: { allow: [".."] }, proxy: { "/api": await apiTarget() } },
+  server: { fs: { allow: ["..", "../../core"] }, proxy: { "/api": await apiTarget() } },
 }));

@@ -8,6 +8,7 @@ Deno.env.set("TRACKER_OUTBOX", `${tmp}/outbox.jsonl`);
 Deno.env.set("TRACKER_SETTINGS_FILE", `${tmp}/settings.json`);
 Deno.env.set("TRACKER_PORT_FILE", `${tmp}/port.json`);
 Deno.env.set("TRACKER_APP_ROOT", new URL(".", import.meta.url).pathname);
+const { APP_CTX } = await import("./ctx.ts");
 
 import { assert, assertEquals } from "@std/assert";
 
@@ -17,12 +18,12 @@ type LogRow = { rev: number; entity: string; row_id: string; op: string };
 
 Deno.test("writes append to change_log in order: upsert, upsert, delete", async () => {
   const { db } = await import("./db.ts");
-  const { createPage, updatePage, deletePage } = await import("./pages.ts");
+  const { createPage, updatePage, deletePage } = await import("../core/pages.ts");
   const pg = await db();
 
-  const id = await createPage({ title: "logged page" });
-  await updatePage(id, { title: "renamed" });
-  await deletePage(id); // soft delete — must log as 'delete'
+  const id = await createPage(APP_CTX, { title: "logged page" });
+  await updatePage(APP_CTX, id, { title: "renamed" });
+  await deletePage(APP_CTX, id); // soft delete — must log as 'delete'
 
   const log = (await pg.query(
     `select rev, entity, row_id, op from change_log where row_id=$1 order by rev`,

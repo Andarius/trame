@@ -2,7 +2,10 @@
   "version": "5",
   "specifiers": {
     "jsr:@std/assert@1": "1.0.19",
+    "jsr:@std/bytes@^1.0.6": "1.0.6",
+    "jsr:@std/crypto@^1.1.0": "1.1.0",
     "jsr:@std/internal@^1.0.12": "1.0.14",
+    "jsr:@std/uuid@1": "1.1.1",
     "npm:@electric-sql/pglite@0.5.3": "0.5.3",
     "npm:hono@^4.6.0": "4.12.27",
     "npm:postgres@^3.4.0": "3.4.9",
@@ -15,8 +18,21 @@
         "jsr:@std/internal"
       ]
     },
+    "@std/bytes@1.0.6": {
+      "integrity": "f6ac6adbd8ccd99314045f5703e23af0a68d7f7e58364b47d2c7f408aeb5820a"
+    },
+    "@std/crypto@1.1.0": {
+      "integrity": "b8d6d0a6377a32b213af2661ed7bf1062d94feac0c57def5526a8e74a95c3ec8"
+    },
     "@std/internal@1.0.14": {
       "integrity": "291516b3d4c35024d6ffbc0a9df5bf4c64116e05b50012cf846710152d2ffdf7"
+    },
+    "@std/uuid@1.1.1": {
+      "integrity": "7b49060282d90f72fec64952f8c7a2914cbe6fdba3eca665f8cedc90830154a7",
+      "dependencies": [
+        "jsr:@std/bytes",
+        "jsr:@std/crypto"
+      ]
     }
   },
   "npm": {
@@ -36,6 +52,7 @@
   "workspace": {
     "dependencies": [
       "jsr:@std/assert@1",
+      "jsr:@std/uuid@1",
       "npm:@electric-sql/pglite@0.5.3",
       "npm:hono@^4.6.0",
       "npm:postgres@^3.4.0",

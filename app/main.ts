@@ -1,6 +1,10 @@
 // Deno-desktop entrypoint. `deno desktop main.ts` (Deno 2.9+) opens a native window
 // pointed at this in-process HTTP server. `deno task serve` runs it headless (open in a
 // browser) if you don't have the desktop subcommand yet.
+import { handleCoreApi } from "../core/api.ts";
+
+import { APP_CTX } from "./ctx.ts";
+
 import {
   APP_ROOT,
   CLAUDE_DIR,
@@ -14,19 +18,24 @@ import {
   SYNC_INTERVAL_MS,
   WINDOW_FILE,
 } from "./config.ts";
+
 import {
   handlePluginRoute,
   listPluginManifests,
   startPlugins,
 } from "./plugins/index.ts";
+
 import { getAsset, putAsset } from "./assets.ts";
+
 import { isCrossSite } from "./csrf.ts";
+
 import {
   ghosttyRunning,
   type LaunchMode,
   shq,
   spawnTerminal,
 } from "./terminal.ts";
+
 import {
   deleteReportFile,
   getHubApi,
@@ -40,78 +49,51 @@ import {
   scanReportFiles,
   writeReportFile,
 } from "./files.ts";
+
 import { ASSETS } from "./embed.ts";
+
+import { db, drainOutbox } from "./db.ts";
+
 import {
-  addEvent,
-  addTrackEvent,
-  addSessionLink,
-  createStory,
   createReport,
-  createStatus,
-  db,
   deleteReport,
-  deleteSession,
-  deleteSessionLink,
-  deleteStatus,
-  drainOutbox,
-  ensureSpecsPage,
-  getBoard,
   getReport,
-  getSession,
-  linksForSession,
-  listEvents,
-  listPageEvents,
   listReports,
-  moveStatus,
-  searchAll,
-  sessionFromPage,
-  setSessionStatus,
-  updateStory,
-  updateStatus,
-  upsertSession,
-  SessionTagsError,
-  deleteTag,
-  ensureTag,
-  listTags,
-  updateTag,
-} from "./db.ts";
-import { SPECS_WHEN } from "../track/help.ts";
+} from "../core/sessions.ts";
 import { syncOnce } from "./sync.ts";
+
 import { testHubApi } from "./sync-api.ts";
+
 import { startRealtime } from "./realtime.ts";
+
 import { getIdentity, updateUserProfile } from "./identity.ts";
+
 import {
   importClaudeSessions,
   scanClaudeSessions,
   setClaudeIgnored,
   setSessionIgnored,
 } from "./claude-import.ts";
+
 import { applyUpdate, checkUpdate, VERSION } from "./update.ts";
+
 import {
   attachUdbToPage,
-  createComment,
   createLink,
-  createPage,
-  deleteComment,
-  deletePage,
-  getPage,
-  listCommentInbox,
-  listComments,
   listLinks,
-  listPages,
   listShares,
   listUsers,
-  movePage,
   revokeLink,
   revokeShare,
-  setCommentAgentStatus,
   setShare,
-  updateComment,
-  updatePage,
-} from "./pages.ts";
+} from "../core/pages.ts";
 import { exportPage, importPage } from "./share.ts";
-import { agentIdentity, resolveCommentBlock } from "./agent-comments.ts";
+
+import {
+  agentIdentity,
+} from "../core/agent-comments.ts";
 import { listPresence, touchPresence } from "./presence.ts";
+
 import {
   createProperty,
   createRow,
@@ -127,6 +109,7 @@ import {
   updateProperty,
   updateUdb,
 } from "./udb.ts";
+
 
 const DESKTOP = Deno.env.get("TRACKER_DESKTOP") === "1";
 
@@ -672,6 +655,7 @@ function excalidrawPage(json: string, path: string): string {
 globalThis.EXCALIDRAW_ASSET_PATH ??= "https://unpkg.com/@excalidraw/excalidraw@0.18.1/dist/prod/";
 import React from "https://esm.sh/react@18.3.1";
 import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
+
 const { Excalidraw, serializeAsJSON } = await import("https://esm.sh/@excalidraw/excalidraw@0.18.1?deps=react@18.3.1,react-dom@18.3.1");
 const scene = JSON.parse(document.getElementById("scene").textContent);
 delete scene.appState?.collaborators; // serialized maps break restore
@@ -708,7 +692,7 @@ async function handler(req: Request): Promise<Response> {
   // Raw report pages — targets for "open in system browser".
   const rawDb = pathname.match(/^\/report\/([^/]+)$/);
   if (rawDb) {
-    const r = await getReport(rawDb[1]) as { html: string } | null;
+    const r = await getReport(APP_CTX, rawDb[1]) as { html: string } | null;
     return r ? html(r.html) : html("report not found", 404);
   }
   if (pathname === "/report-file" && req.method === "POST") {
@@ -977,13 +961,44 @@ async function handler(req: Request): Promise<Response> {
   if (pathname === "/api/plugins") return json(await listPluginManifests());
   if (pathname.startsWith("/api/plugins/")) return handlePluginRoute(req, url);
 
-  if (pathname === "/api/board") {
-    return json(await getBoard({ deleted: url.searchParams.get("deleted") === "1" }));
+  // Share: export a page subtree to a portable bundle file another Trame user can import.
+  if (pathname === "/api/pages/import" && req.method === "POST") {
+    const body = await req.json().catch(() => ({})) as {
+      parent_id?: string | null;
+    };
+    const picked = await pickOpenPath();
+    if (typeof picked !== "string") return json(picked);
+    let bundle: unknown;
+    try {
+      bundle = JSON.parse(await Deno.readTextFile(picked));
+    } catch {
+      return json({ error: "cannot read file" }, 400);
+    }
+    try {
+      return json({ id: await importPage(bundle, body.parent_id ?? null) });
+    } catch (e) {
+      return json({ error: (e as Error).message }, 400);
+    }
   }
-  // Quick-find (Ctrl+P): search sessions/pages/databases; empty q = recently touched.
-  if (pathname === "/api/search") {
-    return json(await searchAll(url.searchParams.get("q") ?? ""));
+  const pgexp = pathname.match(/^\/api\/pages\/([^/]+)\/export$/);
+  if (pgexp && req.method === "POST") {
+    const bundle = await exportPage(pgexp[1]);
+    if (!bundle) return json({ error: "page not found" }, 404);
+    const title = bundle.pages.find((p) =>
+      p.id === bundle.root
+    )?.title?.trim() || "page";
+    const safe =
+      title.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) ||
+      "page";
+    const picked = await pickSavePath(`${safe}.trame.json`);
+    if (typeof picked !== "string") return json(picked);
+    const dest = picked.endsWith(".json") ? picked : `${picked}.json`;
+    await Deno.writeTextFile(dest, JSON.stringify(bundle, null, 2));
+    return json({ path: dest });
   }
+  const core = await handleCoreApi(APP_CTX, req, url);
+  if (core) return core;
+
   if (pathname === "/api/status") {
     return json({
       nodeId: NODE_ID,
@@ -1047,109 +1062,10 @@ async function handler(req: Request): Promise<Response> {
     );
     return json(await scanClaudeSessions(days));
   }
-  if (pathname === "/api/sessions" && req.method === "POST") {
-    const body = await req.json();
-    let id: string;
-    try {
-      id = await upsertSession(body);
-    } catch (e) {
-      if (e instanceof SessionTagsError) return json({ error: e.message }, 400);
-      throw e;
-    }
-    // A summary from track/MCP is a worklog entry, not just a field.
-    if (
-      typeof body.summary === "string" && body.summary.trim() && !body.no_event
-    ) {
-      await addTrackEvent(id, body.summary, typeof body.agent === "string" ? body.agent : null);
-    }
-    // Planned-work backlinks (plan/TODO pages) ride the same POST; dedupe by
-    // page+block+anchor so repeated tracking doesn't pile up chips, while two items
-    // of the same list block stay distinct.
-    if (Array.isArray(body.links) && body.links.length) {
-      const key = (l: { page_id: string; block_id?: string | null; anchor?: string | null }) =>
-        `${l.page_id}:${l.block_id ?? ""}:${l.anchor ?? ""}`;
-      const have = new Set(
-        (await linksForSession(id) as { page_id: string; block_id: string | null; anchor: string }[])
-          .map(key),
-      );
-      for (const l of body.links) {
-        if (typeof l?.page_id !== "string") continue;
-        // an agent knows the task's text, not its block id: resolve the anchor to a
-        // block the way page comments do (a todo is a block, so this covers todos)
-        let blockId: string | null = l.block_id ?? null;
-        if (!blockId && typeof l.anchor === "string" && l.anchor.trim()) {
-          const page = await getPage(l.page_id) as { content?: unknown } | null;
-          try {
-            blockId = resolveCommentBlock(page?.content, { block_text: l.anchor }).id;
-          } catch {
-            blockId = null; // no unique match — fall back to a page-level link
-          }
-        }
-        const want = { page_id: l.page_id, block_id: blockId, anchor: l.anchor ?? "" };
-        if (have.has(key(want))) continue;
-        have.add(key(want));
-        await addSessionLink(id, l.page_id, blockId, want.anchor);
-      }
-    }
-    // Nudge every write path (skill, writer, MCP, raw curl) toward a specs page.
-    const pg = await db();
-    const s = (await pg.query(`select specs_page_id from sessions where id=$1`, [id]))
-      .rows[0] as { specs_page_id: string | null } | undefined;
-    const spec = s?.specs_page_id
-      ? (await pg.query(
-        `select 1 from pages where id=$1 and not deleted and content::text <> '[]'`,
-        [s.specs_page_id],
-      )).rows[0]
-      : undefined;
-    const note = spec
-      ? undefined
-      : (`card has no specs page. ${SPECS_WHEN.replaceAll("\n", " ")} Write it with the page writer/trame_update_page using {"session_id": "${id}"}`);
-    return json({ id, specs_page_id: s?.specs_page_id ?? null, ...(note ? { note } : {}) });
-  }
-  const spm = pathname.match(/^\/api\/sessions\/([^/]+)\/specs-page$/);
-  if (spm && req.method === "POST") {
-    return json({ page_id: await ensureSpecsPage(spm[1]) });
-  }
-  const lm = pathname.match(/^\/api\/sessions\/([^/]+)\/links$/);
-  if (lm && req.method === "POST") {
-    const b = await req.json();
-    return json({ id: await addSessionLink(lm[1], b.page_id, b.block_id ?? null, b.anchor ?? "") });
-  }
-  if (lm) return json(await linksForSession(lm[1]));
-  const ldm = pathname.match(/^\/api\/links\/([^/]+)\/delete$/);
-  if (ldm && req.method === "POST") {
-    await deleteSessionLink(ldm[1]);
-    return json({ ok: true });
-  }
-  const em = pathname.match(/^\/api\/sessions\/([^/]+)\/events$/);
-  if (em && req.method === "POST") {
-    await addEvent(em[1], (await req.json()).summary ?? "");
-    return json({ ok: true });
-  }
-  if (em) return json(await listEvents(em[1]));
-  // one resolved session card (project/story by name, links, worklog) — see getSession
-  const sm = pathname.match(/^\/api\/sessions\/([^/]+)$/);
-  if (sm && req.method === "GET") {
-    const s = await getSession(sm[1], Number(url.searchParams.get("events")) || 20);
-    return s ? json(s) : json({ error: "not found" }, 404);
-  }
-  const dm = pathname.match(/^\/api\/sessions\/([^/]+)\/delete$/);
-  if (dm && req.method === "POST") {
-    await deleteSession(dm[1]);
-    return json({ ok: true });
-  }
-  if (pathname === "/api/stories" && req.method === "POST") {
-    return json({ id: await createStory(await req.json()) });
-  }
-  const om = pathname.match(/^\/api\/stories\/([^/]+)$/);
-  if (om && req.method === "POST") {
-    await updateStory({ id: om[1], ...(await req.json()) });
-    return json({ ok: true });
-  }
   if (pathname === "/api/reports" && req.method === "POST") {
-    return json({ id: await createReport(await req.json()) });
+    return json({ id: await createReport(APP_CTX, await req.json()) });
   }
-  if (pathname === "/api/reports") return json(await listReports());
+  if (pathname === "/api/reports") return json(await listReports(APP_CTX));
   if (pathname === "/api/settings" && req.method === "POST") {
     const body = await req.json();
     await saveExploreSettings({
@@ -1224,102 +1140,14 @@ async function handler(req: Request): Promise<Response> {
   }
   const rdm = pathname.match(/^\/api\/reports\/([^/]+)\/delete$/);
   if (rdm && req.method === "POST") {
-    await deleteReport(rdm[1]);
+    await deleteReport(APP_CTX, rdm[1]);
     return json({ ok: true });
   }
   const rm = pathname.match(/^\/api\/reports\/([^/]+)$/);
   if (rm) {
-    const report = await getReport(rm[1]);
+    const report = await getReport(APP_CTX, rm[1]);
     return report ? json(report) : json({ error: "not found" }, 404);
   }
-  const m = pathname.match(/^\/api\/sessions\/([^/]+)\/status$/);
-  if (m && req.method === "POST") {
-    await setSessionStatus(m[1], (await req.json()).status);
-    return json({ ok: true });
-  }
-
-  // statuses — the kanban columns (add/rename/recolor/reorder/delete)
-  if (pathname === "/api/statuses" && req.method === "POST") {
-    const b = await req.json();
-    return json({
-      id: await createStatus({
-        label: b.label,
-        color: b.color,
-        terminal: b.terminal,
-      }),
-    });
-  }
-  const stm = pathname.match(/^\/api\/statuses\/([^/]+)(\/delete|\/move)?$/);
-  if (stm && req.method === "POST") {
-    try {
-      if (stm[2] === "/delete") await deleteStatus(stm[1]);
-      else if (stm[2] === "/move") {
-        await moveStatus(stm[1], (await req.json()).dir === -1 ? -1 : 1);
-      } else await updateStatus(stm[1], await req.json());
-    } catch (e) {
-      return json({ error: (e as Error).message }, 400);
-    }
-    return json({ ok: true });
-  }
-
-  // tags — free labels on pages (create is find-or-create, cf. ensureTag)
-  if (pathname === "/api/tags") {
-    if (req.method === "POST") {
-      const b = await req.json();
-      if (typeof b.label !== "string" || !b.label.trim()) {
-        return json({ error: "label required" }, 400);
-      }
-      return json(await ensureTag({ label: b.label.trim(), color: b.color }));
-    }
-    return json(await listTags());
-  }
-  const tgm = pathname.match(/^\/api\/tags\/([^/]+)(\/delete)?$/);
-  if (tgm && req.method === "POST") {
-    try {
-      if (tgm[2] === "/delete") await deleteTag(tgm[1]);
-      else await updateTag(tgm[1], await req.json());
-    } catch (e) {
-      return json({ error: (e as Error).message }, 400);
-    }
-    return json({ ok: true });
-  }
-
-  // inline page comments (block-level notes)
-  if (pathname === "/api/comments" && req.method === "POST") {
-    return json({ id: await createComment(await req.json()) });
-  }
-  if (pathname === "/api/comments/inbox") {
-    const stale = Number(url.searchParams.get("stale") ?? "600");
-    const pages = (url.searchParams.get("page") ?? "").split(",")
-      .map((s) => s.trim()).filter((s) => UUID_RE.test(s));
-    return json(await listCommentInbox(Number.isFinite(stale) ? stale : 600, {
-      pages: pages.length ? pages : undefined,
-      // mode=all: any pending human comment, not just replies on agent threads
-      all: url.searchParams.get("mode") === "all",
-    }));
-  }
-  if (pathname === "/api/comments") {
-    const pageId = url.searchParams.get("page");
-    return json(pageId ? await listComments(pageId) : []);
-  }
-  const cmtStatus = pathname.match(/^\/api\/comments\/([^/]+)\/agent-status$/);
-  if (cmtStatus && req.method === "POST") {
-    const body = await req.json();
-    // enum-indexed badge in the UI crashes on an unknown status — reject up front
-    const STATUSES = ["seen", "answering", "failed", "answered", "clear"];
-    if (!STATUSES.includes(body.status)) {
-      return json({ error: "invalid status" }, 400);
-    }
-    await setCommentAgentStatus(cmtStatus[1], body);
-    return json({ ok: true });
-  }
-  const cmt = pathname.match(/^\/api\/comments\/([^/]+)(\/delete)?$/);
-  if (cmt && req.method === "POST") {
-    if (cmt[2]) await deleteComment(cmt[1]);
-    else await updateComment(cmt[1], await req.json());
-    return json({ ok: true });
-  }
-
   // who am I — lets the UI gate comment editing to the local author
   if (pathname === "/api/identity") return json(await getIdentity());
 
@@ -1409,31 +1237,31 @@ async function handler(req: Request): Promise<Response> {
   }
 
   // sharing (phase 7): grants live in page_shares and ride the normal sync
-  if (pathname === "/api/users") return json(await listUsers());
+  if (pathname === "/api/users") return json(await listUsers(APP_CTX));
   if (pathname === "/api/shares" && req.method === "POST") {
-    return json({ id: await setShare(await req.json()) });
+    return json({ id: await setShare(APP_CTX, await req.json()) });
   }
   if (pathname === "/api/shares") {
     const pageId = url.searchParams.get("page");
-    return json(pageId ? await listShares(pageId) : []);
+    return json(pageId ? await listShares(APP_CTX, pageId) : []);
   }
   const shr = pathname.match(/^\/api\/shares\/([^/]+)\/delete$/);
   if (shr && req.method === "POST") {
-    await revokeShare(shr[1]);
+    await revokeShare(APP_CTX, shr[1]);
     return json({ ok: true });
   }
   // page share links live under /api/page-links — /api/links/:id/delete belongs
   // to session links above and would shadow a same-path delete here
   if (pathname === "/api/page-links" && req.method === "POST") {
     const body = await req.json();
-    const { id, token } = await createLink(String(body.page_id));
+    const { id, token } = await createLink(APP_CTX, String(body.page_id));
     const base = await getLinkBase();
     return json({ id, url: base ? `${base}/l/${token}` : null, token });
   }
   if (pathname === "/api/page-links") {
     const pageId = url.searchParams.get("page");
     const base = await getLinkBase();
-    const links = pageId ? await listLinks(pageId) : [];
+    const links = pageId ? await listLinks(APP_CTX, pageId) : [];
     return json({
       base,
       links: links.map((l) => ({
@@ -1445,83 +1273,11 @@ async function handler(req: Request): Promise<Response> {
   }
   const lnk = pathname.match(/^\/api\/page-links\/([^/]+)\/delete$/);
   if (lnk && req.method === "POST") {
-    await revokeLink(lnk[1]);
+    await revokeLink(APP_CTX, lnk[1]);
     return json({ ok: true });
   }
 
   // pages — the nestable tree; story pages are also served by /api/stories above
-  if (pathname === "/api/pages" && req.method === "POST") {
-    try {
-      return json({ id: await createPage(await req.json()) });
-    } catch (e) {
-      // Same contract as the update route below: a rejected field is the
-      // caller's problem, not a 500.
-      return json({ error: (e as Error).message }, 400);
-    }
-  }
-  if (pathname === "/api/pages") return json(await listPages());
-  // Share: export a page subtree to a portable bundle file another Trame user can import.
-  if (pathname === "/api/pages/import" && req.method === "POST") {
-    const body = await req.json().catch(() => ({})) as {
-      parent_id?: string | null;
-    };
-    const picked = await pickOpenPath();
-    if (typeof picked !== "string") return json(picked);
-    let bundle: unknown;
-    try {
-      bundle = JSON.parse(await Deno.readTextFile(picked));
-    } catch {
-      return json({ error: "cannot read file" }, 400);
-    }
-    try {
-      return json({ id: await importPage(bundle, body.parent_id ?? null) });
-    } catch (e) {
-      return json({ error: (e as Error).message }, 400);
-    }
-  }
-  const pgev = pathname.match(/^\/api\/pages\/([^/]+)\/events$/);
-  if (pgev && req.method === "GET") return json(await listPageEvents(pgev[1]));
-  // a page becomes a card whose specs are that page (idempotent: same page, same card)
-  const pgses = pathname.match(/^\/api\/pages\/([^/]+)\/session$/);
-  if (pgses && req.method === "POST") {
-    try {
-      return json(await sessionFromPage(pgses[1]));
-    } catch (e) {
-      return json({ error: (e as Error).message }, 400);
-    }
-  }
-  const pgexp = pathname.match(/^\/api\/pages\/([^/]+)\/export$/);
-  if (pgexp && req.method === "POST") {
-    const bundle = await exportPage(pgexp[1]);
-    if (!bundle) return json({ error: "page not found" }, 404);
-    const title = bundle.pages.find((p) =>
-      p.id === bundle.root
-    )?.title?.trim() || "page";
-    const safe =
-      title.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) ||
-      "page";
-    const picked = await pickSavePath(`${safe}.trame.json`);
-    if (typeof picked !== "string") return json(picked);
-    const dest = picked.endsWith(".json") ? picked : `${picked}.json`;
-    await Deno.writeTextFile(dest, JSON.stringify(bundle, null, 2));
-    return json({ path: dest });
-  }
-  const pgm = pathname.match(/^\/api\/pages\/([^/]+)(\/delete|\/move)?$/);
-  if (pgm && req.method === "POST") {
-    try {
-      if (pgm[2] === "/delete") await deletePage(pgm[1]);
-      else if (pgm[2] === "/move") await movePage(pgm[1], await req.json());
-      else await updatePage(pgm[1], await req.json());
-    } catch (e) {
-      return json({ error: (e as Error).message }, 400);
-    }
-    return json({ ok: true });
-  }
-  if (pgm && !pgm[2]) {
-    const page = await getPage(pgm[1]);
-    return page ? json(page) : json({ error: "not found" }, 404);
-  }
-
   // user-defined databases — specific routes before the /api/udb/:id catch-all
   if (pathname === "/api/udb" && req.method === "POST") {
     return json({ id: await createUdb((await req.json()).name ?? "Untitled") });
@@ -1576,7 +1332,7 @@ async function handler(req: Request): Promise<Response> {
   const udm = pathname.match(/^\/api\/udb\/([^/]+)$/);
   if (udm && req.method === "POST") {
     const b = await req.json();
-    if ("page_id" in b) await attachUdbToPage(udm[1], b.page_id);
+    if ("page_id" in b) await attachUdbToPage(APP_CTX, udm[1], b.page_id);
     await updateUdb(udm[1], b);
     return json({ ok: true });
   }

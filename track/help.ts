@@ -3,6 +3,8 @@
 // own curated summary and point back at this text.
 import app from "../app/deno.json" with { type: "json" };
 import { QUERY_SYNTAX } from "../app/web/src/query.ts";
+import { SPECS_WHEN } from "../core/agent-texts.ts";
+export { SPECS_WHEN };
 
 export { QUERY_SYNTAX };
 
@@ -211,16 +213,6 @@ A chart view is read-only and live: filters narrow what it draws, numbers wear
 their column's format, and a config it cannot read degrades to a plain table
 rather than failing.`;
 
-// When a session gets a spec page — one text, shared by the CLI help, the MCP
-// descriptions, and the tracker's specs-less note.
-export const SPECS_WHEN =
-  `Write a spec page whenever the session produced knowledge worth keeping — planned
-work (goal, scope, acceptance, with \`links\` back to the TODO/plan item) and
-investigations (what broke, what was ruled out, what is still open) alike; the page is
-the only place that survives, \`summary\` is 1–3 lines. When the session's whole story
-is its diff, the spec page and the PR description are the same text — write it once on
-the page and reuse it for the PR.`;
-
 // Field-by-field composition conventions for `tramecli track` (formerly
 // skills/trame-track/fields.md).
 export const TRACK_FIELDS =
@@ -394,8 +386,11 @@ Commands:
   mcp        serve the Trame MCP server on stdio
   --version  print the CLI version (the app's is at GET /api/status)
 
-The Trame app must be running (it writes its port to the port file); only
-\`tramecli track\` works without it, by queuing to the offline outbox.
+Commands talk to the running Trame app (it writes its port to the port file).
+With no app running they go to the hub instead — hubApi + hubApiToken in
+settings.json (or TRACKER_HUB_API + TRACKER_HUB_API_TOKEN), members only — except
+\`watch\` and \`answer\`, which need the app. With neither, \`tramecli track\` queues
+to the offline outbox.
 
 Run \`tramecli <command> --help\` for each input contract and the composition
 conventions — compose fields from the conversation, do not ask the user.`;

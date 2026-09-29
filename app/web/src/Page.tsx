@@ -75,13 +75,13 @@ import {
   stripMarks,
   todayMark,
   touchTodo,
-} from "../../todo-marks.ts";
-import { PAGE_STATUSES } from "../../page-status.ts";
+} from "../../../core/todo-marks.ts";
+import { PAGE_STATUSES } from "../../../core/page-status.ts";
 import { DatabaseView } from "./udb/DatabaseTable";
 import { FolderBlock } from "./FolderBlock";
 import { TagEditor } from "./TagEditor";
 import { CockpitTicket } from "./plugins/cockpit/CockpitTicket";
-import { refOfContent, usOfContent } from "../../plugins/cockpit/mirror.ts";
+import { refOfContent, usOfContent } from "../../../core/content-marks.ts";
 import { HtmlBlock } from "./HtmlBlock";
 
 // project chip palette (matches the client palette + a few extras)

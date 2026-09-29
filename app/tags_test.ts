@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { splitTagLabel, TAG_COLORS, tagColor } from "./tags.ts";
+import { splitTagLabel, TAG_COLORS, tagColor } from "../core/tags.ts";
 
 Deno.test("splitTagLabel only splits a real namespace", async (t) => {
   const cases: [string, string, { ns: string | null; value: string }][] = [

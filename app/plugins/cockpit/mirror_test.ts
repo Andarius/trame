@@ -1,21 +1,6 @@
 import { assertEquals, assertNotEquals } from "@std/assert";
-import {
-  groupByProject,
-  type MirrorPage,
-  pageStatusOf,
-  pendingOf,
-  planMirror,
-  REF_MARK,
-  refOfContent,
-  specsDescription,
-  stampMark,
-  ticketBlocks,
-  ticketFromSession,
-  ticketMarkdown,
-  ticketStatusOf,
-  US_MARK,
-  userStoryFromPage,
-} from "./mirror.ts";
+import { groupByProject, type MirrorPage, pageStatusOf, pendingOf, planMirror, specsDescription, stampMark, ticketBlocks, ticketFromSession, ticketMarkdown, ticketStatusOf, userStoryFromPage } from "./mirror.ts";
+import { REF_MARK, refOfContent, US_MARK } from "../../../core/content-marks.ts";
 import type { Ticket } from "./api.ts";
 
 // Mirroring is the first thing this plugin writes to the Trame database, and

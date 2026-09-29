@@ -10,7 +10,7 @@
 // AND the newest human comment on the watched pages is older than --quiet seconds
 // (the commenter went quiet), printing the pending items as JSON on stdout.
 import { PORT_FILE } from "../app/config.ts";
-import { AGENT_AUTHOR_ID } from "../app/agent-comments.ts";
+import { AGENT_AUTHOR_ID } from "../core/agent-comments.ts";
 import { resolvePages } from "./watch.ts";
 
 const USAGE = `Waits for human feedback on a Trame page, then exits (0 = feedback ready).

@@ -1,10 +1,10 @@
-// Trame MCP server (stdio). Thin wrapper over the running app's HTTP API, so any
-// Claude session can read the board, track sessions, and move cards. The app writes
-// its bound port to PORT_FILE on startup (random port in desktop mode).
+// Trame MCP server (stdio). Thin wrapper over the /api of the running app, or of the
+// hub when no app runs (track/target.ts), so any Claude session can read the board,
+// track sessions, and move cards.
 import { McpServer } from "npm:@modelcontextprotocol/sdk@^1.12/server/mcp.js";
 import { StdioServerTransport } from "npm:@modelcontextprotocol/sdk@^1.12/server/stdio.js";
 import { z } from "npm:zod@^3.24";
-import { PORT_FILE } from "../app/config.ts";
+import { apiRequest, appUrl, resolveTarget } from "../track/target.ts";
 import { HTML_BLOCK_MAX_BYTES } from "../protocol/html.ts";
 import {
   GRAPH_FENCE,
@@ -19,27 +19,8 @@ import { writePage } from "../track/page.ts";
 import { addComment } from "../track/comment.ts";
 import { parseSessionRef } from "./session_url.ts";
 
-async function appPort(): Promise<number> {
-  try {
-    return JSON.parse(await Deno.readTextFile(PORT_FILE)).port;
-  } catch {
-    throw new Error(
-      "Trame app is not running (no port file). Start it with `just dev` or `just serve`.",
-    );
-  }
-}
-
 async function api(path: string, init?: RequestInit): Promise<unknown> {
-  const port = await appPort();
-  const res = await fetch(`http://127.0.0.1:${port}${path}`, init).catch(() => {
-    throw new Error(
-      "Trame app is not reachable (stale port file?). Start it with `just dev` or `just serve`.",
-    );
-  });
-  if (!res.ok) {
-    throw new Error(`${path} → HTTP ${res.status}: ${await res.text()}`);
-  }
-  return res.json();
+  return await apiRequest(await resolveTarget(), path, init, null);
 }
 
 const post = (path: string, body: unknown) =>
@@ -193,7 +174,7 @@ server.tool(
     // hand back a link the user can click, even when called with a bare id
     return text({
       ...card,
-      url: `http://127.0.0.1:${await appPort()}/?session=${ref.id}&full=1`,
+      url: appUrl(await resolveTarget(), `session=${ref.id}&full=1`),
     });
   },
 );
@@ -267,7 +248,7 @@ server.tool(
   ) => {
     const res = await writePage(
       { title, markdown, ...(parent_id ? { parent_id } : {}), repo_path, icon },
-      `http://127.0.0.1:${await appPort()}`,
+      await resolveTarget(),
     );
     if (res.action !== "created") throw new Error("expected a page creation");
     return text({ id: res.id, filed_under: res.parent });
@@ -296,7 +277,7 @@ server.tool(
     if (!args.session_id && !args.page_id && !args.page_title) {
       throw new Error("use page_id, page_title, or session_id");
     }
-    const res = await writePage(args, `http://127.0.0.1:${await appPort()}`);
+    const res = await writePage(args, await resolveTarget());
     return text({ page_id: res.id });
   },
 );
@@ -361,7 +342,7 @@ server.tool(
       meta: { model: string; in?: number; out?: number; ms?: number };
     },
   ) => {
-    const res = await addComment(args, `http://127.0.0.1:${await appPort()}`);
+    const res = await addComment(args, await resolveTarget());
     return text({ id: res.id });
   },
 );
