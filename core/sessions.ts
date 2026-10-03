@@ -333,7 +333,9 @@ export async function upsertSession(ctx: Ctx, s: Record<string, unknown>, out?: 
   // unbranched import) is the match. A done card is never resurrected.
   const story = typeof s.story === "string" && s.story.trim() ? s.story : null;
   if (!s.id && s.claude_id) {
-    const storyId = story ? await matchStory(ctx, story, (s.client_id as string) ?? null, out) : null;
+    const matched = story ? await matchStory(ctx, story, (s.client_id as string) ?? null, out) : null;
+    // cards anchor to the story above (below): a nested story must look there too
+    const storyId = matched ? await storyAbove(ctx, matched) ?? matched : null;
     const hit = storyId
       ? (await pg.query(
         `select id from sessions where (claude_id=$1 or id=$1) and page_id=$2 and ${OPEN_SESSION}
