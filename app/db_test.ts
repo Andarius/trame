@@ -127,6 +127,34 @@ Deno.test("one session and story share a card across branches and repos", async 
   assertEquals((await card(first)).status, "done");
 });
 
+// Regression: a story nested under another story anchors its cards to the outer one, so
+// the lookup by the named story missed and every track minted a card (11 in one night).
+Deno.test("a nested story still shares one card across branches", async () => {
+  const { upsertSession } = await import("../core/sessions.ts");
+  const { createPage } = await import("../core/pages.ts");
+  const claude = crypto.randomUUID();
+  await upsertSession(APP_CTX, { title: "outer", client: "Nested", story: "Nouvelle infra" });
+  const { getBoard } = await import("../core/sessions.ts");
+  const outer = ((await getBoard(APP_CTX)).sessions as { title: string; page_id: string }[])
+    .find((s) => s.title === "outer")!.page_id;
+  // the Cockpit mirror nests US stories under the user's story; createPage refuses it
+  const inner = await createPage(APP_CTX, { title: "GEN-1 — Prod cut-over", kind: "story", status: "open" });
+  await APP_CTX.q.query(`update pages set parent_id=$2, client_id=(select client_id from pages where id=$2) where id=$1`, [
+    inner,
+    outer,
+  ]);
+  const track = (branch: string) =>
+    upsertSession(APP_CTX, {
+      title: "follow-ups",
+      client: "Nested",
+      story: "GEN-1 — Prod cut-over",
+      claude_id: claude,
+      repo_path: `/tmp/wt-${branch}`,
+      branch,
+    });
+  assertEquals(await track("chore/a"), await track("chore/b"));
+});
+
 // Without an agent session id (MCP, manual), repo + branch still finds a card through
 // any branch it shipped, not only the latest one.
 Deno.test("repo + branch matches a card through an earlier branch", async () => {
