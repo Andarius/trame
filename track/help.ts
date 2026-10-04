@@ -102,14 +102,20 @@ omits them — so a page update does not have to repeat the dates it did not cha
 (\`updated_at\` unions both sides rather than picking one).
 Quote a block by its visible text when commenting; the marks are not part of it.`;
 
-// User databases — no tramecli command: plain REST on the running app. The column
+// User databases — rows via `tramecli db rows`, the rest plain REST. The column
 // `config` is free-form jsonb server-side, so this text is the only place the
 // vocabulary is written down for agents (the UI's own copy is app/web/src/api.ts,
 // type PropConfig).
 export const UDB_CONTRACT =
-  `Databases (the Notion-style tables in Trame) have no tramecli command — they are
-plain REST on the running app; the port is in ~/.local/share/trame/port.json and
-nothing here is queued when the app is closed.
+  `Databases (the Notion-style tables in Trame) are plain REST on the running app (the
+port is in ~/.local/share/trame/port.json) or the hub; nothing is queued when both are
+down. Rows have a command — JSON on stdin, one row or an array:
+
+  tramecli db rows <db> [--json] <<< '[{"vals":{"Name":"Q3","Cost":120}},
+                                       {"id":"<row>","vals":{"Cost":null}}]'
+
+A row with an \`id\` merges into it, one without is created; \`vals\` keys are column
+names or property ids, cells shaped as below (relation/formula/rollup refused).
 
   POST /api/udb               {name}                    → {id}, with a "Name" title column
   POST /api/udb/<db>          {name?, icon?, page_id?}  rename, icon, show it on a page
@@ -396,7 +402,7 @@ Commands:
   stories    open stories similar to a topic (pick one before tracking)
   convert    turn a page into a session card whose specs are that page
   setup      install the agent skills embedded in this binary
-  db         print the database contract — columns, cells, chart views (REST)
+  db         write database rows (\`db rows <db>\`); bare, the database contract
   query      print the board's session-filter syntax
   mcp        serve the Trame MCP server on stdio
   --version  print the CLI version (the app's is at GET /api/status)

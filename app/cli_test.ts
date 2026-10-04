@@ -1,6 +1,7 @@
 import { testTempDir } from "./test_tmp.ts";
-import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertRejects, assertStringIncludes, assertThrows } from "@std/assert";
 import { boardRows, formatBoard, run, staleWarning } from "../track/cli.ts";
+import { resolveVals } from "../track/db.ts";
 import { ensureOnPath, EMBEDS, installHook, setup } from "../track/setup.ts";
 import {
   COMMENT_HELP,
@@ -71,6 +72,18 @@ Deno.test("db contract documents every column type and config key", async () => 
     assertStringIncludes(UDB_CONTRACT, k);
   }
   assertStringIncludes(OVERVIEW, "\n  db ");
+});
+
+Deno.test("db rows keys cells by column name or id, refusing derived columns", () => {
+  const props = [
+    { id: "p1", name: "Name", type: "title" },
+    { id: "p2", name: "Cost", type: "number" },
+    { id: "p3", name: "Total", type: "formula" },
+  ];
+  assertEquals(resolveVals({ Name: "Q3", p2: null }, props), { p1: "Q3", p2: null });
+  for (const [vals, msg] of [[{ Nope: 1 }, "unknown column"], [{ Total: 1 }, "is a formula"]] as const) {
+    assertThrows(() => resolveVals(vals, props), Error, msg);
+  }
 });
 
 Deno.test("dispatch: help and version exit 0, unknown command exits 2", async () => {
