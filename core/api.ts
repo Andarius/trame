@@ -37,6 +37,7 @@ import {
   listPageEvents,
   listTags,
   moveStatus,
+  restoreSession,
   searchAll,
   sessionFromPage,
   SessionTagsError,
@@ -202,6 +203,11 @@ export async function handleCoreApi(
   const dm = pathname.match(/^\/api\/sessions\/([^/]+)\/delete$/);
   if (dm && req.method === "POST") {
     await deleteSession(ctx, dm[1]);
+    return json({ ok: true });
+  }
+  const rm = pathname.match(/^\/api\/sessions\/([^/]+)\/restore$/);
+  if (rm && req.method === "POST") {
+    await restoreSession(ctx, rm[1]);
     return json({ ok: true });
   }
   if (pathname === "/api/stories/similar") {
