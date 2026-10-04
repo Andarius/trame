@@ -604,6 +604,11 @@ export async function deleteSession(ctx: Ctx, id: string): Promise<void> {
   await pg.query(`update sessions set deleted=true, origin=$2, updated_at=clock_timestamp() where id=$1`, [id, ctx.origin]);
 }
 
+export async function restoreSession(ctx: Ctx, id: string): Promise<void> {
+  const pg = ctx.q;
+  await pg.query(`update sessions set deleted=false, origin=$2, updated_at=clock_timestamp() where id=$1`, [id, ctx.origin]);
+}
+
 export async function listEvents(ctx: Ctx, sessionId: string, limit?: number) {
   const pg = ctx.q;
   return (await pg.query(
