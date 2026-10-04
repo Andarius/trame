@@ -9,7 +9,7 @@
 // GET /api/comments/inbox?page&mode=all filtered to --agent. Exits 0 once items exist
 // AND the newest human comment on the watched pages is older than --quiet seconds
 // (the commenter went quiet), printing the pending items as JSON on stdout.
-import { PORT_FILE } from "../app/config.ts";
+import { apiRequest, resolveTarget, type Target } from "./target.ts";
 import { AGENT_AUTHOR_ID } from "../core/agent-comments.ts";
 import { resolvePages } from "./watch.ts";
 
@@ -52,22 +52,12 @@ function parseFlags(argv: string[]): Flags {
   return f;
 }
 
-function readBase(): string | null {
-  try {
-    const port = JSON.parse(Deno.readTextFileSync(PORT_FILE)).port;
-    return `http://127.0.0.1:${port}`;
-  } catch {
-    return null;
-  }
+async function readTarget(): Promise<Target | null> {
+  return await resolveTarget().catch(() => null);
 }
 
-async function api(base: string, path: string, init?: RequestInit): Promise<unknown> {
-  const res = await fetch(`${base}${path}`, {
-    ...init,
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) throw new Error(`${path} → HTTP ${res.status}`);
-  return res.json();
+function api(target: Target, path: string, init?: RequestInit): Promise<unknown> {
+  return apiRequest(target, path, init, 8000);
 }
 
 type InboxItem = {
@@ -79,11 +69,11 @@ type InboxItem = {
 type Comment = { author_id: string | null; updated_at: string };
 
 // Newest human comment across the watched pages, epoch ms (0 when none).
-async function lastHumanActivity(base: string, pages: string[]): Promise<number> {
+async function lastHumanActivity(target: Target, pages: string[]): Promise<number> {
   let newest = 0;
   for (const p of pages) {
     const comments = await api(
-      base,
+      target,
       `/api/comments?page=${encodeURIComponent(p)}`,
     ) as Comment[];
     for (const c of comments) {
@@ -96,8 +86,8 @@ async function lastHumanActivity(base: string, pages: string[]): Promise<number>
 
 // Badge writes are advisory — a failing one must never break the watch loop.
 // "seen" keeps the item in the inbox (it is a display ack); "answering" claims it.
-const setStatus = (base: string, id: string, status: string, agent: string) =>
-  api(base, `/api/comments/${id}/agent-status`, {
+const setStatus = (target: Target, id: string, status: string, agent: string) =>
+  api(target, `/api/comments/${id}/agent-status`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ status, agent }),
@@ -105,10 +95,10 @@ const setStatus = (base: string, id: string, status: string, agent: string) =>
 
 // A standalone `tramecli answer` covering every page would answer the same threads
 // as this session — say so rather than double-answering silently.
-async function warnOnGlobalWatcher(base: string, page: string, agent: string) {
+async function warnOnGlobalWatcher(target: Target, page: string, agent: string) {
   try {
     const here = await api(
-      base,
+      target,
       `/api/presence?page=${encodeURIComponent(page)}`,
     ) as { id: string; page_id: string }[];
     if (here.some((p) => p.id === `watcher:${agent}` && p.page_id === "*")) {
@@ -127,7 +117,7 @@ export async function main(argv: string[] = Deno.args) {
     return;
   }
   const f = parseFlags(argv);
-  const first = readBase();
+  const first = await readTarget();
   if (first) {
     f.pages = [...await resolvePages(first, new Set(f.pages))];
     if (!f.pages.length) throw new Error("no page matched (by id or title)");
@@ -139,16 +129,16 @@ export async function main(argv: string[] = Deno.args) {
   );
   const acked = new Set<string>(); // comments already marked seen this run
   for (;;) {
-    const base = readBase();
-    if (base) {
+    const target = await readTarget();
+    if (target) {
       try {
-        await api(base, "/api/presence", {
+        await api(target, "/api/presence", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ watcher: f.agent, pages: f.pages }),
         });
         const inbox = await api(
-          base,
+          target,
           `/api/comments/inbox?page=${f.pages.join(",")}&mode=all&stale=${f.stale}`,
         ) as InboxItem[];
         const mine = inbox.filter((i) => i.agent === f.agent);
@@ -158,14 +148,14 @@ export async function main(argv: string[] = Deno.args) {
           for (const i of mine) {
             if (acked.has(i.comment.id)) continue;
             acked.add(i.comment.id);
-            await setStatus(base, i.comment.id, "seen", f.agent);
+            await setStatus(target, i.comment.id, "seen", f.agent);
           }
-          const sinceMs = Date.now() - await lastHumanActivity(base, f.pages);
+          const sinceMs = Date.now() - await lastHumanActivity(target, f.pages);
           if (sinceMs > f.quiet * 1000) {
             // handing off to the session that composes the reply: claim the threads
             // so "⟳ answering…" pulses and a global watcher can't double-answer
             for (const i of mine) {
-              await setStatus(base, i.comment.id, "answering", f.agent);
+              await setStatus(target, i.comment.id, "answering", f.agent);
             }
             console.log(
               `${mine.length} pending comment(s) — feedback ready:\n` +
@@ -191,7 +181,7 @@ export async function main(argv: string[] = Deno.args) {
         console.warn(`pass failed: ${(e as Error).message}`);
       }
     } else {
-      console.warn("Trame app not running (no port file) — waiting…");
+      console.warn("Trame app not running and no hub reachable — waiting…");
     }
     await new Promise((r) => setTimeout(r, f.interval * 1000));
   }

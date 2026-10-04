@@ -490,13 +490,13 @@ Deno.test("--page selectors resolve by id or exact title, subpages included", as
       ),
   );
   try {
-    const base = `http://127.0.0.1:${await ready}`;
+    const target = { base: `http://127.0.0.1:${await ready}`, hub: false, headers: {} };
     assertEquals(
-      [...await resolvePages(base, new Set(["plan: TRAMECLI"]))].sort(),
+      [...await resolvePages(target, new Set(["plan: TRAMECLI"]))].sort(),
       ["p1", "p2"],
     );
-    assertEquals([...await resolvePages(base, new Set(["p3"]))], ["p3"]);
-    assertEquals([...await resolvePages(base, new Set(["nope"]))], []);
+    assertEquals([...await resolvePages(target, new Set(["p3"]))], ["p3"]);
+    assertEquals([...await resolvePages(target, new Set(["nope"]))], []);
   } finally {
     await server.shutdown();
   }

@@ -42,6 +42,7 @@ fi
 # deployed layout is flat (protocol/ beside api/), unlike the repo — pin the mounts
 grep -q TRACKER_PROTOCOL_SRC .env || echo "TRACKER_PROTOCOL_SRC=./protocol" >> .env
 grep -q TRACKER_CORE_SRC .env || echo "TRACKER_CORE_SRC=./core" >> .env
+grep -q TRACKER_FORMULA_PASSWORD .env || echo "TRACKER_FORMULA_PASSWORD=$(openssl rand -hex 16)" >> .env
 # public hostname for share links, routed by the host's Traefik (set your own)
 grep -q TRACKER_LINK_HOST .env || echo "TRACKER_LINK_HOST=links.example.com  # ← set me" >> .env
 . ./.env
@@ -57,6 +58,8 @@ done
 # (the initdb mount only runs on an empty data volume)
 docker exec -i trame-db psql -q -U tracker -d tracker -v ON_ERROR_STOP=1 < schema.sql
 echo "schema.sql applied"
+# pg_hba.conf is a bind mount — reload so new rules (e.g. the formula role) apply
+docker exec trame-db psql -q -U tracker -d tracker -c "select pg_reload_conf()" > /dev/null
 # api/ + protocol/ + core/ are bind mounts — compose sees no config change, so the running
 # Deno keeps its old in-memory modules; restart to load the freshly copied source
 docker restart trame-api > /dev/null

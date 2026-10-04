@@ -17,9 +17,9 @@ import { assert, assertEquals, assertNotEquals, assertRejects } from "@std/asser
 const app = {
   db: () => import("./db.ts").then((m) => m.db()),
   createPage: (p: Record<string, unknown>) => import("../core/pages.ts").then(async (m) => m.createPage((await import("./ctx.ts")).APP_CTX, p)),
-  createUdb: (n: string) => import("./udb.ts").then((m) => m.createUdb(n)),
-  createProperty: (id: string, p: Record<string, unknown>) => import("./udb.ts").then((m) => m.createProperty(id, p as never)),
-  createRow: (id: string, vals: Record<string, unknown>) => import("./udb.ts").then((m) => m.createRow(id, vals)),
+  createUdb: (n: string) => import("../core/udb.ts").then(async (m) => m.createUdb((await import("./ctx.ts")).APP_CTX, n)),
+  createProperty: (id: string, p: Record<string, unknown>) => import("../core/udb.ts").then(async (m) => m.createProperty((await import("./ctx.ts")).APP_CTX, id, p as never)),
+  createRow: (id: string, vals: Record<string, unknown>) => import("../core/udb.ts").then(async (m) => m.createRow((await import("./ctx.ts")).APP_CTX, id, vals)),
   attach: (dbId: string, pageId: string | null) => import("../core/pages.ts").then(async (m) => m.attachUdbToPage((await import("./ctx.ts")).APP_CTX, dbId, pageId)),
   exportPage: (id: string) => import("./share.ts").then((m) => m.exportPage(id)),
   importPage: (b: unknown, parent: string | null) => import("./share.ts").then((m) => m.importPage(b, parent)),

@@ -20,7 +20,7 @@
 // TRAME_WATCH_<AGENT>_CMD, e.g. TRAME_WATCH_GLM_CMD — a command where an `{}` arg is
 // replaced by the prompt (no `{}` → prompt on stdin). TRAME_WATCH_TIMEOUT (secs) caps a
 // run (default 300).
-import { PORT_FILE } from "../app/config.ts";
+import { apiRequest, resolveTarget, type Target } from "./target.ts";
 import { agentIdentity, type AgentKind } from "../core/agent-comments.ts";
 
 const AGENT_AUTHOR_ID = "00000000-0000-4000-8000-0000000000aa";
@@ -87,37 +87,21 @@ function parseFlags(argv: string[]): Flags {
   return f;
 }
 
-function readBase(): string | null {
-  try {
-    const port = JSON.parse(Deno.readTextFileSync(PORT_FILE)).port;
-    return `http://127.0.0.1:${port}`;
-  } catch {
-    return null;
-  }
+async function readTarget(): Promise<Target | null> {
+  return await resolveTarget().catch(() => null);
 }
 
-async function api(
-  base: string,
-  path: string,
-  init?: RequestInit,
-): Promise<unknown> {
-  const res = await fetch(`${base}${path}`, {
-    ...init,
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) {
-    throw new Error(`${path} → HTTP ${res.status}: ${await res.text()}`);
-  }
-  return res.json();
+function api(target: Target, path: string, init?: RequestInit): Promise<unknown> {
+  return apiRequest(target, path, init, 8000);
 }
 
 const setStatus = (
-  base: string,
+  target: Target,
   id: string,
   status: "seen" | "answering" | "answered" | "failed",
   agent?: string,
 ) =>
-  api(base, `/api/comments/${id}/agent-status`, {
+  api(target, `/api/comments/${id}/agent-status`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ status, agent }),
@@ -471,13 +455,13 @@ async function runAgent(
 
 // Re-read the reply's current body; null if it vanished or the fetch failed.
 async function refetchBody(
-  base: string,
+  target: Target,
   pageId: string,
   id: string,
 ): Promise<string | null> {
   try {
     const comments = await api(
-      base,
+      target,
       `/api/comments?page=${encodeURIComponent(pageId)}`,
     ) as Comment[];
     return comments.find((c) => c.id === id)?.body ?? null;
@@ -489,7 +473,7 @@ async function refetchBody(
 const dryLogged = new Set<string>();
 
 async function handle(
-  base: string,
+  target: Target,
   item: InboxItem,
   flags: Flags,
 ): Promise<void> {
@@ -505,8 +489,8 @@ async function handle(
     return;
   }
 
-  await setStatus(base, id, "seen", agent);
-  await setStatus(base, id, "answering", agent);
+  await setStatus(target, id, "seen", agent);
+  await setStatus(target, id, "answering", agent);
 
   // Retry generation only; the answer is POSTed at most once per successful run.
   let lastErr: unknown;
@@ -524,7 +508,7 @@ async function handle(
 
     // Stale-reply guard: if the human edited their comment while we generated, skip
     // posting and leave it for the next pass to answer the new text.
-    const current = await refetchBody(base, item.page.id, id);
+    const current = await refetchBody(target, item.page.id, id);
     if (current !== item.comment.body) {
       console.log(`skipped ${id}: reply changed during generation`);
       return;
@@ -534,7 +518,7 @@ async function handle(
     // for one generation); success then marks "answered", and a failing status call is
     // only logged so we don't re-POST.
     try {
-      await api(base, "/api/comments", {
+      await api(target, "/api/comments", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -553,7 +537,7 @@ async function handle(
       );
       continue;
     }
-    await setStatus(base, id, "answered", agent).catch((e) =>
+    await setStatus(target, id, "answered", agent).catch((e) =>
       console.error(`answered ${id} but status set failed: ${e.message}`)
     );
     const t = meta.ms ? ` (${(meta.ms / 1000).toFixed(1)}s)` : "";
@@ -561,7 +545,7 @@ async function handle(
     return;
   }
   // give up: park it as failed so it won't loop; a human edit re-triggers it
-  await setStatus(base, id, "failed", agent).catch(() => {});
+  await setStatus(target, id, "failed", agent).catch(() => {});
   console.error(`gave up on ${id}: ${(lastErr as Error)?.message}`);
 }
 
@@ -593,10 +577,10 @@ const warnedSelectors = new Set<string>();
 // name/id scopes the watcher to every page under it. Re-resolved each pass, so
 // renames and new subpages are picked up while running.
 export async function resolvePages(
-  base: string,
+  target: Target,
   selectors: Set<string>,
 ): Promise<Set<string>> {
-  const pages = await api(base, "/api/pages") as PageRow[];
+  const pages = await api(target, "/api/pages") as PageRow[];
   const out = new Set<string>();
   for (const sel of selectors) {
     const s = sel.toLowerCase();
@@ -626,9 +610,9 @@ export async function resolvePages(
 }
 
 async function pass(flags: Flags): Promise<boolean> {
-  const base = readBase();
-  if (!base) {
-    console.warn("Trame app not running (no port file) — waiting…");
+  const target = await readTarget();
+  if (!target) {
+    console.warn("Trame app not running and no hub reachable — waiting…");
     return false;
   }
   // resolve --page selectors (ids or titles) to the covered page-id set; an
@@ -636,7 +620,7 @@ async function pass(flags: Flags): Promise<boolean> {
   let pageIds: Set<string> | null = null;
   if (flags.pages) {
     try {
-      pageIds = await resolvePages(base, flags.pages);
+      pageIds = await resolvePages(target, flags.pages);
     } catch (e) {
       console.warn(`pages unreachable: ${(e as Error).message}`);
       return false;
@@ -645,7 +629,7 @@ async function pass(flags: Flags): Promise<boolean> {
   // presence heartbeat: which agents are watched — every page's UI, or only the
   // --page ones when scoped
   for (const a of watchedAgents(flags)) {
-    await api(base, "/api/presence", {
+    await api(target, "/api/presence", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -657,7 +641,7 @@ async function pass(flags: Flags): Promise<boolean> {
   let inbox: InboxItem[];
   try {
     inbox = await api(
-      base,
+      target,
       `/api/comments/inbox?stale=${flags.stale}`,
     ) as InboxItem[];
   } catch (e) {
@@ -682,7 +666,7 @@ async function pass(flags: Flags): Promise<boolean> {
       } — set TRAME_WATCH_<AGENT>_CMD`,
     );
   }
-  for (const item of mine) await handle(base, item, flags);
+  for (const item of mine) await handle(target, item, flags);
   return true;
 }
 

@@ -1,9 +1,27 @@
 // The /api routes both the laptop app and the hub serve: board, sessions, stories,
 // statuses, tags, pages, comments. Null = not a core route.
-import { resolveCommentBlock } from "./agent-comments.ts";
+import { agentIdentity, resolveCommentBlock } from "./agent-comments.ts";
 import { SPECS_WHEN } from "./agent-texts.ts";
 import type { Ctx } from "./ctx.ts";
+import { identityOf } from "./identity.ts";
+import { AGENT_ID_RE, listPresence, touchPresence } from "./presence.ts";
 import {
+  createProperty,
+  createRow,
+  createUdb,
+  deleteProperty,
+  deleteRow,
+  deleteUdb,
+  getUdb,
+  listIcons,
+  listUdbs,
+  patchRow,
+  setLink,
+  updateProperty,
+  updateUdb,
+} from "./udb.ts";
+import {
+  attachUdbToPage,
   createComment,
   createPage,
   deleteComment,
@@ -351,6 +369,117 @@ export async function handleCoreApi(
   if (pgm && !pgm[2]) {
     const page = await getPage(ctx, pgm[1]);
     return page ? json(page) : json({ error: "not found" }, 404);
+  }
+  // ephemeral presence (device-local, not synced): who's on a page + active watchers
+  if (pathname === "/api/presence" && req.method === "POST") {
+    const b = await req.json();
+    if (typeof b.watcher === "string" && AGENT_ID_RE.test(b.watcher)) {
+      const a = agentIdentity(b.watcher);
+      // no pages → global watcher ("*"); a --page-scoped watcher registers one
+      // entry per page so its badge only shows there
+      const pages: string[] = Array.isArray(b.pages)
+        ? b.pages.filter((p: unknown) =>
+          typeof p === "string" && UUID_RE.test(p)
+        )
+        : [];
+      for (const pid of pages.length ? pages : ["*"]) {
+        touchPresence({
+          id: pid === "*"
+            ? `watcher:${b.watcher}`
+            : `watcher:${b.watcher}:${pid}`,
+          kind: "watcher",
+          name: a.name,
+          avatar: a.avatar,
+          page_id: pid,
+        });
+      }
+    } else {
+      const me = await identityOf(ctx);
+      const page = String(b.page_id ?? "");
+      touchPresence({
+        // key by user AND page so the same user in two tabs on different pages
+        // gets one entry each instead of flapping over a single user-keyed row
+        id: `${me.userId ?? `dev:${ctx.origin}`}:${page}`,
+        kind: "viewer",
+        name: me.name,
+        avatar: me.avatar,
+        page_id: page,
+      });
+    }
+    return json({ ok: true });
+  }
+  if (pathname === "/api/presence") {
+    return json(listPresence(url.searchParams.get("page") ?? ""));
+  }
+  // user-defined databases — specific routes before the /api/udb/:id catch-all
+  if (pathname === "/api/udb" && req.method === "POST") {
+    return json({
+      id: await createUdb(ctx, (await req.json()).name ?? "Untitled"),
+    });
+  }
+  if (pathname === "/api/udb") return json(await listUdbs(ctx));
+  if (pathname === "/api/udb/icons") return json(await listIcons(ctx));
+  if (pathname === "/api/udb/links" && req.method === "POST") {
+    const b = await req.json();
+    await setLink(ctx, b.prop_id, b.from_row, b.to_row, Boolean(b.remove));
+    return json({ ok: true });
+  }
+  const upd = pathname.match(/^\/api\/udb\/props\/([^/]+)(\/delete)?$/);
+  if (upd && req.method === "POST") {
+    if (upd[2]) await deleteProperty(ctx, upd[1]);
+    else {
+      try {
+        await updateProperty(ctx, upd[1], await req.json());
+      } catch (e) {
+        return json({ error: (e as Error).message }, 400);
+      }
+    }
+    return json({ ok: true });
+  }
+  const urw = pathname.match(/^\/api\/udb\/rows\/([^/]+)(\/delete)?$/);
+  if (urw && req.method === "POST") {
+    if (urw[2]) await deleteRow(ctx, urw[1]);
+    else {
+      const b = await req.json();
+      await patchRow(
+        ctx,
+        urw[1],
+        b.vals ?? {},
+        "icon" in b ? b.icon : undefined,
+      );
+    }
+    return json({ ok: true });
+  }
+  const usub = pathname.match(/^\/api\/udb\/([^/]+)\/(props|rows|delete)$/);
+  if (usub && req.method === "POST") {
+    if (usub[2] === "delete") {
+      await deleteUdb(ctx, usub[1]);
+      return json({ ok: true });
+    }
+    if (usub[2] === "props") {
+      try {
+        return json({
+          id: await createProperty(ctx, usub[1], await req.json()),
+        });
+      } catch (e) {
+        return json({ error: (e as Error).message }, 400);
+      }
+    }
+    const rb = await req.json();
+    return json({
+      id: await createRow(ctx, usub[1], rb.vals, rb.icon ?? null),
+    });
+  }
+  const udm = pathname.match(/^\/api\/udb\/([^/]+)$/);
+  if (udm && req.method === "POST") {
+    const b = await req.json();
+    if ("page_id" in b) await attachUdbToPage(ctx, udm[1], b.page_id);
+    await updateUdb(ctx, udm[1], b);
+    return json({ ok: true });
+  }
+  if (udm) {
+    const data = await getUdb(ctx, udm[1]);
+    return data ? json(data) : json({ error: "not found" }, 404);
   }
   return null;
 }

@@ -21,4 +21,6 @@ export async function syncOnce(): Promise<
 
 if (import.meta.main && Deno.args[0] === "once") {
   console.log(await syncOnce());
+  // open PGlite handles keep the event loop alive
+  Deno.exit(0);
 }

@@ -216,3 +216,91 @@ Deno.test("pull after a hub /api track delivers the session before its event", a
   assertEquals(session >= 0 && event >= 0, true);
   assertEquals(session < event, true);
 });
+
+// udb over the hub: user formula SQL may only run through the injected sandbox
+// executor; without one the hub refuses to evaluate it.
+const formulaCalls: string[] = [];
+// PGlite is one connection: a spy querying it from inside the request txn would
+// deadlock, so this app's core runs untransacted (production uses a 2nd connection)
+const sandboxApp = createApp(db, { ...db, transaction: (fn) => fn(db) }, {
+  query: async <T>(text: string, params?: unknown[]) => {
+    formulaCalls.push(text);
+    return { rows: (await pg.query(text, params)).rows as T[] };
+  },
+});
+const udbCall = async (target: typeof app, path: string, body?: unknown) =>
+  await (await target.request(path, {
+    method: body === undefined ? "GET" : "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-trame-protocol": String(PROTOCOL_VERSION),
+      authorization: `Bearer ${memberToken}`,
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })).json();
+
+async function udbWithFormula(target: typeof app) {
+  const { id: dbId } = await udbCall(target, "/api/udb", { name: "Scores" });
+  const { id: n } = await udbCall(target, `/api/udb/${dbId}/props`, {
+    name: "n",
+    type: "number",
+    config: {},
+  });
+  await udbCall(target, `/api/udb/${dbId}/rows`, { vals: { [n]: 2 } });
+  return { dbId, n };
+}
+
+for (
+  const [id, target, expected] of [
+    ["sandbox executor evaluates", sandboxApp, 6],
+    ["no executor refuses", app, "formulas are not evaluated on this hub"],
+  ] as const
+) {
+  Deno.test(`hub /api udb formulas: ${id}`, async () => {
+    formulaCalls.length = 0;
+    const { dbId } = await udbWithFormula(target);
+    const created = await udbCall(target, `/api/udb/${dbId}/props`, {
+      name: "triple",
+      type: "formula",
+      config: { expr: "n * 3" },
+    });
+    if (typeof expected === "string") {
+      assertEquals(String(created.error).includes(expected), true);
+      return;
+    }
+    const data = await udbCall(target, `/api/udb/${dbId}`) as {
+      rows: { derived: Record<string, unknown> }[];
+    };
+    assertEquals(data.rows.map((r) => Number(r.derived[created.id])), [
+      expected,
+    ]);
+    // validation + evaluation, both through the sandbox, never the core tx
+    assertEquals(formulaCalls.length >= 2, true);
+    assertEquals(formulaCalls.every((t) => t.includes("vals")), true);
+  });
+}
+
+// rollup config rides /sync from any editor: its ids are spliced into SQL
+Deno.test("hub /api udb rejects a rollup whose config smuggles SQL", async () => {
+  const { dbId } = await udbWithFormula(sandboxApp);
+  const rel = ((await pg.query(
+    `insert into udb_properties (db_id, name, type, config, sort_key, origin)
+     values ($1, 'rel', 'relation', $2, 'r', 'test') returning id`,
+    [dbId, { owner: true, target_db: dbId }],
+  )).rows[0] as { id: string }).id;
+  const roll = ((await pg.query(
+    `insert into udb_properties (db_id, name, type, config, sort_key, origin)
+     values ($1, 'roll', 'rollup', $2, 's', 'test') returning id`,
+    [dbId, {
+      relation_prop: rel,
+      agg: "sum",
+      target_prop: "x'))::numeric) from api_tokens --",
+    }],
+  )).rows[0] as { id: string }).id;
+  const data = await udbCall(sandboxApp, `/api/udb/${dbId}`) as {
+    rows: { derived: Record<string, { error?: string }> }[];
+  };
+  assertEquals(data.rows[0].derived[roll], {
+    error: "rollup: invalid property id",
+  });
+});

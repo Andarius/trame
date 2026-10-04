@@ -16,6 +16,8 @@ export type Ctx = {
   origin: string;
   // tags stamped on stories minted for a repo path (TRACKER_CLIENTS on a laptop)
   defaultTags?: (repoPath: string) => string[];
+  // where user-written formula SQL runs; the hub points it at a sandboxed role
+  formula?: Q;
   // per-device author override (laptop settings.json), wins over the synced profile
   localAuthor?: () => Promise<{ name: string; avatar: string }>;
 };

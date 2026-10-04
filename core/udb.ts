@@ -1,10 +1,9 @@
 // User-defined databases (Notion-style): fixed physical tables (udb_*), user schemas
 // as data. Derived values (formula/rollup) are computed here on read, never stored.
 // Formulas are raw SQL expressions: property references are rewritten to jsonb
-// extractions and PGlite evaluates them (single-user local app — that's a feature).
-import { midKey } from "../core/sort-key.ts";
-import { db } from "./db.ts";
-import { NODE_ID } from "./config.ts";
+// extractions and evaluated through ctx.formula (the hub's sandboxed role).
+import type { Ctx } from "./ctx.ts";
+import { midKey } from "./sort-key.ts";
 
 export type UdbProp = {
   id: string;
@@ -18,10 +17,11 @@ export type UdbProp = {
 
 
 async function nextKey(
+  ctx: Ctx,
   table: "udb_databases" | "udb_properties" | "udb_rows",
   dbId?: string,
 ): Promise<string> {
-  const pg = await db();
+  const pg = ctx.q;
   const where = dbId ? `where db_id=$1 and not deleted` : `where not deleted`;
   const last = (await pg.query(
     `select max(sort_key) as k from ${table} ${where}`,
@@ -32,8 +32,8 @@ async function nextKey(
 
 // databases
 
-export async function listUdbs() {
-  const pg = await db();
+export async function listUdbs(ctx: Ctx) {
+  const pg = ctx.q;
   return (await pg.query(
     `select d.id, d.name, d.icon, d.page_id, d.sort_key,
             (select count(*)::int from udb_rows r where r.db_id = d.id and not r.deleted) as row_count
@@ -41,25 +41,26 @@ export async function listUdbs() {
   )).rows;
 }
 
-export async function createUdb(name: string): Promise<string> {
-  const pg = await db();
-  const key = await nextKey("udb_databases");
+export async function createUdb(ctx: Ctx, name: string): Promise<string> {
+  const pg = ctx.q;
+  const key = await nextKey(ctx, "udb_databases");
   const row = (await pg.query(
     `insert into udb_databases (name, sort_key, origin) values ($1,$2,$3) returning id`,
-    [name, key, NODE_ID],
+    [name, key, ctx.origin],
   )).rows[0] as { id: string };
   await pg.query(
     `insert into udb_properties (db_id, name, type, sort_key, origin) values ($1,'Name','title',$2,$3)`,
-    [row.id, midKey("", ""), NODE_ID],
+    [row.id, midKey("", ""), ctx.origin],
   );
   return row.id;
 }
 
 export async function updateUdb(
+  ctx: Ctx,
   id: string,
   patch: { name?: string; icon?: string | null; views?: unknown },
 ): Promise<void> {
-  const pg = await db();
+  const pg = ctx.q;
   await pg.query(
     `update udb_databases set name = coalesce($2, name),
             icon = case when $4 then $3 else icon end,
@@ -70,15 +71,15 @@ export async function updateUdb(
       patch.name ?? null,
       patch.icon ?? null,
       "icon" in patch,
-      NODE_ID,
+      ctx.origin,
       "views" in patch,
       JSON.stringify(patch.views ?? []),
     ],
   );
 }
 
-export async function deleteUdb(id: string): Promise<void> {
-  const pg = await db();
+export async function deleteUdb(ctx: Ctx, id: string): Promise<void> {
+  const pg = ctx.q;
   // links under this db's props, links pointing at this db's rows,
   // relation pair props living in OTHER dbs, then props + rows + the db itself.
   await pg.query(
@@ -87,27 +88,27 @@ export async function deleteUdb(id: string): Promise<void> {
         prop_id in (select id from udb_properties where db_id=$1)
         or to_row in (select id from udb_rows where db_id=$1)
         or from_row in (select id from udb_rows where db_id=$1))`,
-    [id, NODE_ID],
+    [id, ctx.origin],
   );
   await pg.query(
     `update udb_properties set deleted=true, origin=$2, updated_at=now()
       where not deleted and (db_id=$1 or (type='relation' and config->>'target_db' = $1::text))`,
-    [id, NODE_ID],
+    [id, ctx.origin],
   );
   await pg.query(
     `update udb_rows set deleted=true, origin=$2, updated_at=now() where db_id=$1 and not deleted`,
-    [id, NODE_ID],
+    [id, ctx.origin],
   );
   await pg.query(
     `update udb_databases set deleted=true, origin=$2, updated_at=now() where id=$1`,
-    [id, NODE_ID],
+    [id, ctx.origin],
   );
 }
 
 // properties
 
-async function propsOf(dbId: string): Promise<UdbProp[]> {
-  const pg = await db();
+async function propsOf(ctx: Ctx, dbId: string): Promise<UdbProp[]> {
+  const pg = ctx.q;
   return (await pg.query(
     `select id, db_id, name, type, config, sort_key, width
        from udb_properties where db_id=$1 and not deleted order by sort_key, name`,
@@ -116,18 +117,19 @@ async function propsOf(dbId: string): Promise<UdbProp[]> {
 }
 
 export async function createProperty(
+  ctx: Ctx,
   dbId: string,
   p: { name: string; type: string; config?: Record<string, unknown> },
 ): Promise<string> {
-  const pg = await db();
+  const pg = ctx.q;
   const config = p.config ?? {};
 
   if (p.type === "formula") {
-    rewriteFormula(String(config.expr ?? ""), await propsOf(dbId)); // throws on bad expr
-    await validateFormula(String(config.expr ?? ""), await propsOf(dbId));
+    rewriteFormula(String(config.expr ?? ""), await propsOf(ctx, dbId)); // throws on bad expr
+    await validateFormula(ctx, String(config.expr ?? ""), await propsOf(ctx, dbId));
   }
   if (p.type === "rollup") {
-    const rel = (await propsOf(dbId)).find((x) =>
+    const rel = (await propsOf(ctx, dbId)).find((x) =>
       x.id === config.relation_prop
     );
     if (!rel || rel.type !== "relation") {
@@ -140,11 +142,11 @@ export async function createProperty(
     }
   }
 
-  const key = await nextKey("udb_properties", dbId);
+  const key = await nextKey(ctx, "udb_properties", dbId);
   const row = (await pg.query(
     `insert into udb_properties (db_id, name, type, config, sort_key, origin)
      values ($1,$2,$3,$4,$5,$6) returning id`,
-    [dbId, p.name, p.type, JSON.stringify(config), key, NODE_ID],
+    [dbId, p.name, p.type, JSON.stringify(config), key, ctx.origin],
   )).rows[0] as { id: string };
 
   if (p.type === "relation") {
@@ -154,7 +156,7 @@ export async function createProperty(
       (await pg.query(`select name from udb_databases where id=$1`, [dbId]))
         .rows[0] as { name: string };
     const reverseName = String(config.reverse_name ?? srcName.name);
-    const revKey = await nextKey("udb_properties", target);
+    const revKey = await nextKey(ctx, "udb_properties", target);
     const rev = (await pg.query(
       `insert into udb_properties (db_id, name, type, config, sort_key, origin)
        values ($1,$2,'relation',$3,$4,$5) returning id`,
@@ -163,7 +165,7 @@ export async function createProperty(
         reverseName,
         JSON.stringify({ target_db: dbId, pair: row.id, owner: false }),
         revKey,
-        NODE_ID,
+        ctx.origin,
       ],
     )).rows[0] as { id: string };
     await pg.query(
@@ -171,7 +173,7 @@ export async function createProperty(
       [
         row.id,
         JSON.stringify({ target_db: target, pair: rev.id, owner: true }),
-        NODE_ID,
+        ctx.origin,
       ],
     );
   }
@@ -179,6 +181,7 @@ export async function createProperty(
 }
 
 export async function updateProperty(
+  ctx: Ctx,
   id: string,
   patch: {
     name?: string;
@@ -187,7 +190,7 @@ export async function updateProperty(
     sort_key?: string;
   },
 ): Promise<void> {
-  const pg = await db();
+  const pg = ctx.q;
   const cur = (await pg.query(
     `select db_id, type, config from udb_properties where id=$1 and not deleted`,
     [id],
@@ -199,9 +202,9 @@ export async function updateProperty(
     } | undefined;
   if (!cur) throw new Error("property not found");
   if (cur.type === "formula" && patch.config && "expr" in patch.config) {
-    await validateFormula(
+    await validateFormula(ctx, 
       String(patch.config.expr ?? ""),
-      await propsOf(cur.db_id),
+      await propsOf(ctx, cur.db_id),
     );
   }
   await pg.query(
@@ -219,13 +222,13 @@ export async function updateProperty(
       patch.width ?? null,
       patch.sort_key ?? null,
       "width" in patch,
-      NODE_ID,
+      ctx.origin,
     ],
   );
 }
 
-export async function deleteProperty(id: string): Promise<void> {
-  const pg = await db();
+export async function deleteProperty(ctx: Ctx, id: string): Promise<void> {
+  const pg = ctx.q;
   const cur = (await pg.query(
     `select type, config from udb_properties where id=$1 and not deleted`,
     [id],
@@ -242,27 +245,28 @@ export async function deleteProperty(id: string): Promise<void> {
   if (ownerId) {
     await pg.query(
       `update udb_links set deleted=true, origin=$2, updated_at=now() where prop_id=$1 and not deleted`,
-      [ownerId, NODE_ID],
+      [ownerId, ctx.origin],
     );
   }
   await pg.query(
     `update udb_properties set deleted=true, origin=$2, updated_at=now() where id = any($1::uuid[])`,
-    [ids, NODE_ID],
+    [ids, ctx.origin],
   );
 }
 
 // rows
 
 export async function createRow(
+  ctx: Ctx,
   dbId: string,
   vals?: Record<string, unknown>,
   icon?: string | null,
 ): Promise<string> {
-  const pg = await db();
-  const key = await nextKey("udb_rows", dbId);
+  const pg = ctx.q;
+  const key = await nextKey(ctx, "udb_rows", dbId);
   const row = (await pg.query(
     `insert into udb_rows (db_id, icon, vals, sort_key, origin) values ($1,$2,$3,$4,$5) returning id`,
-    [dbId, icon ?? null, JSON.stringify(vals ?? {}), key, NODE_ID],
+    [dbId, icon ?? null, JSON.stringify(vals ?? {}), key, ctx.origin],
   )).rows[0] as { id: string };
   return row.id;
 }
@@ -270,43 +274,45 @@ export async function createRow(
 // merge vals patch; JSON null clears a cell (checkbox false survives — only null is stripped).
 // icon: undefined = leave as is, null = remove, string = set.
 export async function patchRow(
+  ctx: Ctx,
   id: string,
   valsPatch: Record<string, unknown>,
   icon?: string | null,
 ): Promise<void> {
-  const pg = await db();
+  const pg = ctx.q;
   await pg.query(
     `update udb_rows set
        vals = jsonb_strip_nulls(vals || $2::jsonb),
        icon = case when $4 then $3 else icon end,
        origin=$5, updated_at=now()
      where id=$1`,
-    [id, JSON.stringify(valsPatch), icon ?? null, icon !== undefined, NODE_ID],
+    [id, JSON.stringify(valsPatch), icon ?? null, icon !== undefined, ctx.origin],
   );
 }
 
-export async function deleteRow(id: string): Promise<void> {
-  const pg = await db();
+export async function deleteRow(ctx: Ctx, id: string): Promise<void> {
+  const pg = ctx.q;
   await pg.query(
     `update udb_links set deleted=true, origin=$2, updated_at=now()
       where not deleted and (from_row=$1 or to_row=$1)`,
-    [id, NODE_ID],
+    [id, ctx.origin],
   );
   await pg.query(
     `update udb_rows set deleted=true, origin=$2, updated_at=now() where id=$1`,
-    [id, NODE_ID],
+    [id, ctx.origin],
   );
 }
 
 // links
 
 export async function setLink(
+  ctx: Ctx,
   propId: string,
   fromRow: string,
   toRow: string,
   remove = false,
 ): Promise<void> {
-  const pg = await db();
+  const pg = ctx.q;
   const prop = (await pg.query(
     `select type, config from udb_properties where id=$1 and not deleted`,
     [propId],
@@ -325,7 +331,7 @@ export async function setLink(
     await pg.query(
       `update udb_links set deleted=true, origin=$4, updated_at=now()
         where prop_id=$1 and from_row=$2 and to_row=$3 and not deleted`,
-      [owner, from, to, NODE_ID],
+      [owner, from, to, ctx.origin],
     );
     return;
   }
@@ -336,19 +342,19 @@ export async function setLink(
   if (existing) {
     await pg.query(
       `update udb_links set deleted=false, origin=$2, updated_at=now() where id=$1`,
-      [existing.id, NODE_ID],
+      [existing.id, ctx.origin],
     );
   } else {
     await pg.query(
       `insert into udb_links (prop_id, from_row, to_row, origin) values ($1,$2,$3,$4)`,
-      [owner, from, to, NODE_ID],
+      [owner, from, to, ctx.origin],
     );
   }
 }
 
 // distinct image icons in use across rows and databases — the "Icons" tab gallery
-export async function listIcons(): Promise<string[]> {
-  const pg = await db();
+export async function listIcons(ctx: Ctx): Promise<string[]> {
+  const pg = ctx.q;
   const rows = (await pg.query(
     `select icon from (
        select icon, updated_at from udb_rows where icon is not null and not deleted
@@ -476,11 +482,12 @@ function rewriteFormula(expr: string, props: UdbProp[]): string {
 }
 
 export async function validateFormula(
+  ctx: Ctx,
   expr: string,
   props: UdbProp[],
 ): Promise<string> {
   const rewritten = rewriteFormula(expr, props); // throws on unknown identifiers
-  const pg = await db();
+  const pg = ctx.formula ?? ctx.q;
   try {
     await pg.query(
       `select (${rewritten}) as v from (select '{}'::jsonb as vals) r`,
@@ -493,14 +500,14 @@ export async function validateFormula(
 
 // the big read
 
-export async function getUdb(dbId: string) {
-  const pg = await db();
+export async function getUdb(ctx: Ctx, dbId: string) {
+  const pg = ctx.q;
   const dbRow = (await pg.query(
     `select id, name, icon, views from udb_databases where id=$1 and not deleted`,
     [dbId],
   )).rows[0];
   if (!dbRow) return null;
-  const properties = await propsOf(dbId);
+  const properties = await propsOf(ctx, dbId);
   const rows = (await pg.query(
     `select id, icon, vals, sort_key from udb_rows where db_id=$1 and not deleted order by sort_key, id`,
     [dbId],
@@ -561,7 +568,7 @@ export async function getUdb(dbId: string) {
   for (const p of properties.filter((x) => x.type === "formula")) {
     try {
       const rewritten = rewriteFormula(String(p.config.expr ?? ""), properties);
-      const vals = (await pg.query(
+      const vals = (await (ctx.formula ?? ctx.q).query(
         `select id, (${rewritten}) as val from udb_rows r where db_id=$1 and not deleted`,
         [dbId],
       )).rows as { id: string; val: unknown }[];
@@ -574,7 +581,7 @@ export async function getUdb(dbId: string) {
   }
   for (const p of properties.filter((x) => x.type === "rollup")) {
     try {
-      derived[p.id] = await rollup(p, properties);
+      derived[p.id] = await rollup(ctx, p, properties);
     } catch (e) {
       derived[p.id] = Object.fromEntries(
         rows.map((r) => [r.id, { error: (e as Error).message }]),
@@ -597,11 +604,14 @@ export async function getUdb(dbId: string) {
   };
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function rollup(
+  ctx: Ctx,
   p: UdbProp,
   props: UdbProp[],
 ): Promise<Record<string, unknown>> {
-  const pg = await db();
+  const pg = ctx.q;
   const cfg = p.config as {
     relation_prop?: string;
     target_prop?: string;
@@ -612,6 +622,10 @@ async function rollup(
     x.id === cfg.relation_prop && x.type === "relation"
   );
   if (!rel) throw new Error("rollup: relation property missing");
+  // these ids are spliced into SQL: synced config is untrusted, ids are uuids
+  for (const id of [cfg.target_prop, cfg.date_prop]) {
+    if (id !== undefined && !UUID_RE.test(id)) throw new Error("rollup: invalid property id");
+  }
   const ownerId = rel.config.owner ? rel.id : String(rel.config.pair);
   const [rowCol, tgtCol] = rel.config.owner
     ? ["from_row", "to_row"]

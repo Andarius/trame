@@ -29,24 +29,41 @@ async function localBase(): Promise<string | null> {
   return alive ? base : null;
 }
 
-// the hub's private CA, same file the app's sync trusts
+// the hub's private CA, same file the app's sync trusts; one client per process —
+// watchers resolve their target every poll
+let client: Deno.HttpClient | undefined | null = null;
 function hubClient(): Deno.HttpClient | undefined {
+  if (client !== null) return client;
   try {
-    return Deno.createHttpClient({
+    client = Deno.createHttpClient({
       caCerts: [Deno.readTextFileSync(`${TLS_DIR}/ca.crt`)],
     });
   } catch {
-    return undefined;
+    client = undefined;
   }
+  return client;
 }
 
 let noted = false;
+let lastWasHub = false;
 
 export async function resolveTarget(): Promise<Target> {
   const local = await localBase();
-  if (local) return { base: local, hub: false, headers: {} };
+  if (local) {
+    // back from the hub: pull first, or a watcher reads a stale inbox and re-answers
+    if (lastWasHub) {
+      await fetch(`${local}/api/sync`, {
+        method: "POST",
+        signal: AbortSignal.timeout(30_000),
+      })
+        .then((r) => r.body?.cancel()).catch(() => {});
+    }
+    lastWasHub = false;
+    return { base: local, hub: false, headers: {} };
+  }
   const hub = await getHubApi();
   if (!hub) throw new Error(NOT_RUNNING);
+  lastWasHub = true;
   if (!noted) {
     console.error(`note: Trame app not running — using the hub at ${hub.url}`);
   }

@@ -3,7 +3,9 @@
 // browser) if you don't have the desktop subcommand yet.
 import { handleCoreApi } from "../core/api.ts";
 
+
 import { APP_CTX } from "./ctx.ts";
+
 
 import {
   APP_ROOT,
@@ -19,15 +21,19 @@ import {
   WINDOW_FILE,
 } from "./config.ts";
 
+
 import {
   handlePluginRoute,
   listPluginManifests,
   startPlugins,
 } from "./plugins/index.ts";
 
+
 import { getAsset, putAsset } from "./assets.ts";
 
+
 import { isCrossSite } from "./csrf.ts";
+
 
 import {
   ghosttyRunning,
@@ -35,6 +41,7 @@ import {
   shq,
   spawnTerminal,
 } from "./terminal.ts";
+
 
 import {
   deleteReportFile,
@@ -50,9 +57,12 @@ import {
   writeReportFile,
 } from "./files.ts";
 
+
 import { ASSETS } from "./embed.ts";
 
+
 import { db, drainOutbox } from "./db.ts";
+
 
 import {
   createReport,
@@ -60,13 +70,18 @@ import {
   getReport,
   listReports,
 } from "../core/sessions.ts";
+
 import { syncOnce } from "./sync.ts";
+
 
 import { testHubApi } from "./sync-api.ts";
 
+
 import { startRealtime } from "./realtime.ts";
 
+
 import { getIdentity, updateUserProfile } from "./identity.ts";
+
 
 import {
   importClaudeSessions,
@@ -75,10 +90,11 @@ import {
   setSessionIgnored,
 } from "./claude-import.ts";
 
+
 import { applyUpdate, checkUpdate, VERSION } from "./update.ts";
 
+
 import {
-  attachUdbToPage,
   createLink,
   listLinks,
   listShares,
@@ -89,26 +105,10 @@ import {
 } from "../core/pages.ts";
 import { exportPage, importPage } from "./share.ts";
 
-import {
-  agentIdentity,
-} from "../core/agent-comments.ts";
-import { listPresence, touchPresence } from "./presence.ts";
 
-import {
-  createProperty,
-  createRow,
-  createUdb,
-  deleteProperty,
-  deleteRow,
-  deleteUdb,
-  getUdb,
-  listIcons,
-  listUdbs,
-  patchRow,
-  setLink,
-  updateProperty,
-  updateUdb,
-} from "./udb.ts";
+import { AGENT_ID_RE, listPresence } from "../core/presence.ts";
+
+
 
 
 const DESKTOP = Deno.env.get("TRACKER_DESKTOP") === "1";
@@ -276,9 +276,6 @@ const WEB_DIST = `${APP_ROOT}/web/dist`;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Free-form agent ids (codex, claude, glm, …) that reach presence keys and, for
-// /api/watcher/start, a shell command — so keep the charset strict.
-const AGENT_ID_RE = /^[a-z0-9][a-z0-9._-]{0,31}$/;
 
 // Run qdbus (Qt6 preferred), returning both streams so callers can inspect errors.
 async function qdbusRaw(
@@ -656,6 +653,7 @@ globalThis.EXCALIDRAW_ASSET_PATH ??= "https://unpkg.com/@excalidraw/excalidraw@0
 import React from "https://esm.sh/react@18.3.1";
 import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
 
+
 const { Excalidraw, serializeAsJSON } = await import("https://esm.sh/@excalidraw/excalidraw@0.18.1?deps=react@18.3.1,react-dom@18.3.1");
 const scene = JSON.parse(document.getElementById("scene").textContent);
 delete scene.appState?.collaborators; // serialized maps break restore
@@ -996,6 +994,9 @@ async function handler(req: Request): Promise<Response> {
     await Deno.writeTextFile(dest, JSON.stringify(bundle, null, 2));
     return json({ path: dest });
   }
+  if (pathname === "/api/pick-image" && req.method === "POST") {
+    return json(await pickImage());
+  }
   const core = await handleCoreApi(APP_CTX, req, url);
   if (core) return core;
 
@@ -1151,46 +1152,6 @@ async function handler(req: Request): Promise<Response> {
   // who am I — lets the UI gate comment editing to the local author
   if (pathname === "/api/identity") return json(await getIdentity());
 
-  // ephemeral presence (device-local, not synced): who's on a page + active watchers
-  if (pathname === "/api/presence" && req.method === "POST") {
-    const b = await req.json();
-    if (typeof b.watcher === "string" && AGENT_ID_RE.test(b.watcher)) {
-      const a = agentIdentity(b.watcher);
-      // no pages → global watcher ("*"); a --page-scoped watcher registers one
-      // entry per page so its badge only shows there
-      const pages: string[] = Array.isArray(b.pages)
-        ? b.pages.filter((p: unknown) =>
-          typeof p === "string" && UUID_RE.test(p)
-        )
-        : [];
-      for (const pid of pages.length ? pages : ["*"]) {
-        touchPresence({
-          id: pid === "*" ? `watcher:${b.watcher}` : `watcher:${b.watcher}:${pid}`,
-          kind: "watcher",
-          name: a.name,
-          avatar: a.avatar,
-          page_id: pid,
-        });
-      }
-    } else {
-      const me = await getIdentity();
-      const page = String(b.page_id ?? "");
-      touchPresence({
-        // key by user AND page so the same user in two tabs on different pages
-        // gets one entry each instead of flapping over a single user-keyed row
-        id: `${me.userId ?? `dev:${NODE_ID}`}:${page}`,
-        kind: "viewer",
-        name: me.name,
-        avatar: me.avatar,
-        page_id: page,
-      });
-    }
-    return json({ ok: true });
-  }
-  if (pathname === "/api/presence") {
-    return json(listPresence(url.searchParams.get("page") ?? ""));
-  }
-
   // start the comment watcher for one agent, in a visible terminal (logs, Ctrl+C to
   // stop). Best-effort like /api/resume: when nothing launches, the UI copies `cmd`.
   if (pathname === "/api/watcher/start" && req.method === "POST") {
@@ -1278,68 +1239,6 @@ async function handler(req: Request): Promise<Response> {
   }
 
   // pages — the nestable tree; story pages are also served by /api/stories above
-  // user-defined databases — specific routes before the /api/udb/:id catch-all
-  if (pathname === "/api/udb" && req.method === "POST") {
-    return json({ id: await createUdb((await req.json()).name ?? "Untitled") });
-  }
-  if (pathname === "/api/udb") return json(await listUdbs());
-  if (pathname === "/api/udb/icons") return json(await listIcons());
-  if (pathname === "/api/pick-image" && req.method === "POST") {
-    return json(await pickImage());
-  }
-  if (pathname === "/api/udb/links" && req.method === "POST") {
-    const b = await req.json();
-    await setLink(b.prop_id, b.from_row, b.to_row, Boolean(b.remove));
-    return json({ ok: true });
-  }
-  const upd = pathname.match(/^\/api\/udb\/props\/([^/]+)(\/delete)?$/);
-  if (upd && req.method === "POST") {
-    if (upd[2]) await deleteProperty(upd[1]);
-    else {
-      try {
-        await updateProperty(upd[1], await req.json());
-      } catch (e) {
-        return json({ error: (e as Error).message }, 400);
-      }
-    }
-    return json({ ok: true });
-  }
-  const urw = pathname.match(/^\/api\/udb\/rows\/([^/]+)(\/delete)?$/);
-  if (urw && req.method === "POST") {
-    if (urw[2]) await deleteRow(urw[1]);
-    else {
-      const b = await req.json();
-      await patchRow(urw[1], b.vals ?? {}, "icon" in b ? b.icon : undefined);
-    }
-    return json({ ok: true });
-  }
-  const usub = pathname.match(/^\/api\/udb\/([^/]+)\/(props|rows|delete)$/);
-  if (usub && req.method === "POST") {
-    if (usub[2] === "delete") {
-      await deleteUdb(usub[1]);
-      return json({ ok: true });
-    }
-    if (usub[2] === "props") {
-      try {
-        return json({ id: await createProperty(usub[1], await req.json()) });
-      } catch (e) {
-        return json({ error: (e as Error).message }, 400);
-      }
-    }
-    const rb = await req.json();
-    return json({ id: await createRow(usub[1], rb.vals, rb.icon ?? null) });
-  }
-  const udm = pathname.match(/^\/api\/udb\/([^/]+)$/);
-  if (udm && req.method === "POST") {
-    const b = await req.json();
-    if ("page_id" in b) await attachUdbToPage(APP_CTX, udm[1], b.page_id);
-    await updateUdb(udm[1], b);
-    return json({ ok: true });
-  }
-  if (udm) {
-    const data = await getUdb(udm[1]);
-    return data ? json(data) : json({ error: "not found" }, 404);
-  }
   if (!pathname.startsWith("/api/")) return serveStatic(pathname);
   return json({ error: "not found" }, 404);
 }
