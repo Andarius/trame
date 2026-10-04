@@ -2,6 +2,9 @@
 // heartbeat while a page is open; the watcher heartbeats which agents it covers.
 // Entries expire on a TTL so a closed tab or stopped watcher drops off on its own.
 
+// Free-form agent ids (codex, claude, glm, …): presence keys and a shell command — keep it strict.
+export const AGENT_ID_RE = /^[a-z0-9][a-z0-9._-]{0,31}$/;
+
 export type PresenceKind = "viewer" | "watcher";
 export type Presence = {
   id: string;

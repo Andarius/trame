@@ -68,3 +68,41 @@ for (
     }
   });
 }
+
+// Back from the hub, the local app may not have pulled yet: a watcher reading its
+// stale inbox would re-answer, so the switch syncs it first — once.
+Deno.test("switching from the hub back to the local app syncs it first", async () => {
+  const { resolveTarget } = await import("../track/target.ts");
+  const hub = Deno.serve(
+    { port: 0, onListen: () => {} },
+    () => new Response("{}"),
+  );
+  const syncs: string[] = [];
+  const local = Deno.serve({ port: 0, onListen: () => {} }, (req) => {
+    const path = new URL(req.url).pathname;
+    if (req.method === "POST") syncs.push(path);
+    return Response.json(path === "/api/sync" ? { pulled: 0 } : { ok: true });
+  });
+  try {
+    await Deno.remove(`${tmp}/port.json`).catch(() => {});
+    await Deno.writeTextFile(
+      `${tmp}/settings.json`,
+      JSON.stringify({
+        hubApi: `http://127.0.0.1:${hub.addr.port}`,
+        hubApiToken: "t",
+      }),
+    );
+    assertEquals((await resolveTarget()).hub, true);
+    await Deno.writeTextFile(
+      `${tmp}/port.json`,
+      JSON.stringify({ port: local.addr.port }),
+    );
+    assertEquals((await resolveTarget()).hub, false);
+    assertEquals((await resolveTarget()).hub, false);
+    assertEquals(syncs, ["/api/sync"]);
+  } finally {
+    await Deno.remove(`${tmp}/port.json`).catch(() => {});
+    await hub.shutdown();
+    await local.shutdown();
+  }
+});

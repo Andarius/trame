@@ -5,6 +5,12 @@ import postgres from "postgres";
 import { pgAdapter } from "./db.ts";
 import { ensureAuthSchema, mintToken } from "./auth.ts";
 import { createApp } from "./app.ts";
+import {
+  ensureFormulaRole,
+  FORMULA_ROLE,
+  formulaQuery,
+  formulasDisabled,
+} from "./formula.ts";
 
 const sql = postgres(
   Deno.env.get("DATABASE_URL") ?? "postgres://tracker@trame-db:5432/tracker",
@@ -89,7 +95,21 @@ if (Deno.args[0] === "invite") {
 }
 
 const PORT = Number(Deno.env.get("PORT") ?? "8443");
-const app = createApp(db, pgAdapter(coreSql));
+// udb formulas run under the sandboxed role, or not at all without its password
+const formulaPassword = Deno.env.get("TRACKER_FORMULA_PASSWORD");
+let formula = formulasDisabled;
+if (formulaPassword) {
+  await ensureFormulaRole(db, formulaPassword);
+  const url = new URL(
+    Deno.env.get("DATABASE_URL") ?? "postgres://tracker@trame-db:5432/tracker",
+  );
+  url.username = FORMULA_ROLE;
+  url.password = formulaPassword;
+  formula = formulaQuery(
+    postgres(url.toString(), { max: 2, onnotice: () => {} }),
+  );
+}
+const app = createApp(db, pgAdapter(coreSql), formula);
 
 // ONE LISTEN connection between PG and the API (never one per laptop) — the
 // change_log triggers NOTIFY 'changes'; debounce bursts, then nudge every socket.

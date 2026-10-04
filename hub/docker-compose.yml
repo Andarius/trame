@@ -51,6 +51,8 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://tracker:${POSTGRES_PASSWORD}@trame-db:5432/tracker
+      # udb formula sandbox role; unset = formulas are not evaluated on the hub
+      TRACKER_FORMULA_PASSWORD: ${TRACKER_FORMULA_PASSWORD:-}
       DENO_DIR: /deno-cache
       # the public link listener speaks plain HTTP: the front proxy (Traefik/DSM)
       # terminates TLS and talks HTTP to backends, like every other service here

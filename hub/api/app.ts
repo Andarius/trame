@@ -7,6 +7,7 @@ import type { DB } from "./db.ts";
 import { type Caller, verifyToken } from "./auth.ts";
 import { handleCoreApi } from "../../core/api.ts";
 import type { Q as CoreQ } from "../../core/ctx.ts";
+import { formulasDisabled } from "./formula.ts";
 
 type Env = { Variables: { caller: Caller } };
 
@@ -23,7 +24,12 @@ function protocolMismatch(version: string | undefined): string | null {
 
 // `core` runs the shared /api routes; main.ts gives it a connection that stores
 // JSON-text params as jsonb values (the core SQL passes JSON.stringify'd strings).
-export function createApp(db: DB, core: DB = db): Hono<Env> {
+// `formula` runs user formula SQL (formula.ts); formulas are off unless one is given.
+export function createApp(
+  db: DB,
+  core: DB = db,
+  formula: CoreQ = formulasDisabled,
+): Hono<Env> {
   const app = new Hono<Env>();
 
   app.get("/health", (c) => c.json({ ok: true, protocol: PROTOCOL_VERSION }));
@@ -67,7 +73,7 @@ export function createApp(db: DB, core: DB = db): Hono<Env> {
         }),
       };
       const out = await handleCoreApi(
-        { q, origin: caller.nodeId },
+        { q, origin: caller.nodeId, formula },
         c.req.raw,
         new URL(c.req.url),
       );

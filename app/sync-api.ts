@@ -43,17 +43,40 @@ async function post(
   return await res.json() as SyncResponse;
 }
 
-async function applyChanges(
+// Parents first within a page (ENTITIES order); a row whose parent lands in a later
+// page is held in `deferred` and retried with each page — only those stay in memory.
+const ENTITY_ORDER = new Map(ENTITIES.map((e, i) => [e.name as string, i]));
+const FK_VIOLATION = "23503";
+
+export async function applyChanges(
   pg: Awaited<ReturnType<typeof db>>,
   changes: Change[],
+  deferred: Change[],
 ): Promise<number> {
+  let pending = [...deferred.splice(0), ...changes].sort(
+    (a, b) => (ENTITY_ORDER.get(a.entity) ?? 0) - (ENTITY_ORDER.get(b.entity) ?? 0),
+  );
   let applied = 0;
-  for (const c of changes) {
-    const stmt = c.value === null
-      ? lwwSoftDelete(c.entity, c.id, new Date().toISOString())
-      : lwwUpsert(c.entity, c.value);
-    await pg.query(stmt.text, stmt.params);
-    applied++;
+  // passes until no progress: a child page can precede its parent page in one window
+  while (pending.length) {
+    const failed: Change[] = [];
+    for (const c of pending) {
+      const stmt = c.value === null
+        ? lwwSoftDelete(c.entity, c.id, new Date().toISOString())
+        : lwwUpsert(c.entity, c.value);
+      try {
+        await pg.query(stmt.text, stmt.params);
+        applied++;
+      } catch (e) {
+        if ((e as { code?: string }).code !== FK_VIOLATION) throw e;
+        failed.push(c);
+      }
+    }
+    if (failed.length === pending.length) {
+      deferred.push(...failed);
+      break;
+    }
+    pending = failed;
   }
   return applied;
 }
@@ -125,12 +148,17 @@ export async function syncOnceApi(
     // surfaced, never silently dropped; the watermark stays put so they retry
     console.error("hub API rejected mutations:", rejected);
   }
-  let pulled = await applyChanges(pg, res.changes);
+  const deferred: Change[] = [];
+  let pulled = await applyChanges(pg, res.changes, deferred);
   cursor = res.nextCursor;
   while (res.hasMore) {
     res = await post({ ...api }, { cursor, mutations: [] }, client);
-    pulled += await applyChanges(pg, res.changes);
+    pulled += await applyChanges(pg, res.changes, deferred);
     cursor = res.nextCursor;
+  }
+  // the cursor is only saved below: throwing here retries the whole pull later
+  if (deferred.length) {
+    throw new Error(`${deferred.length} pulled row(s) still miss their parent row`);
   }
 
   // reconcile (same as the direct path): re-promote pages that have sessions if a
