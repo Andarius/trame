@@ -12,6 +12,7 @@ import { main as commentMain } from "./comment.ts";
 import { main as watchMain } from "./page-watch.ts";
 import { main as answerMain } from "./watch.ts";
 import { run as setupRun } from "./setup.ts";
+import { main as dbMain } from "./db.ts";
 // static: a dynamic import of the npm MCP SDK dies silently under deno compile
 import { serve as mcpServe } from "../mcp/server.ts";
 import {
@@ -36,7 +37,7 @@ const HELP_TOPICS: Record<string, string> = {
   stories: STORIES_HELP,
   convert: CONVERT_HELP,
   setup: SETUP_HELP,
-  db: UDB_CONTRACT, // topic, not a command: databases are plain REST
+  db: UDB_CONTRACT,
   query: QUERY_SYNTAX,
 };
 
@@ -227,7 +228,7 @@ async function warnIfStale(): Promise<void> {
 
 // the commands that speak to the app — the ones a version mismatch breaks
 const APP_COMMANDS = new Set(
-  ["track", "page", "comment", "watch", "answer", "list", "convert", "mcp"],
+  ["track", "page", "comment", "watch", "answer", "list", "convert", "mcp", "db"],
 );
 
 export async function run(argv: string[]): Promise<number> {
@@ -249,8 +250,9 @@ export async function run(argv: string[]): Promise<number> {
     case "query": // topic, like db
       console.log(QUERY_SYNTAX);
       return 0;
-    case "db": // not a command: prints the REST contract, same as `help db`
-      console.log(UDB_CONTRACT);
+    case "db": // bare or --help: the contract, same as `help db`
+      if (!rest.length || wantsHelp) console.log(UDB_CONTRACT);
+      else await dbMain(rest, json);
       return 0;
     case "-V":
     case "--version":
