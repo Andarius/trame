@@ -208,13 +208,16 @@ export async function handleCoreApi(
   // a harness pushes what its agent is doing (ephemeral, see agent-presence.ts)
   const apm = pathname.match(/^\/api\/sessions\/([^/]+)\/presence$/);
   if (apm && req.method === "POST") {
-    const sid = apm[1].toLowerCase(); // db ids are lowercase; the GET joins on them
-    if (!UUID_RE.test(sid)) return json({ error: "invalid session id" }, 400);
-    const known = (await ctx.q.query(
-      `select 1 from sessions where id=$1 and not deleted`,
-      [sid],
-    )).rows.length;
-    if (!known) return json({ error: "not found" }, 404);
+    const raw = apm[1].toLowerCase(); // db ids are lowercase; the GET joins on them
+    if (!UUID_RE.test(raw)) return json({ error: "invalid session id" }, 400);
+    // a card id, or the harness's own session uuid (Claude/Codex, stored as claude_id)
+    const card = (await ctx.q.query(
+      `select id from sessions where (id=$1 or claude_id=$1) and not deleted
+        order by (id=$1) desc, last_touched desc limit 1`,
+      [raw],
+    )).rows[0] as { id: string } | undefined;
+    if (!card) return json({ error: "no card for that session" }, 404);
+    const sid = card.id;
     const b = await req.json().catch(() => null);
     if (!b || typeof b !== "object" || Array.isArray(b)) {
       return json({ error: "JSON object expected" }, 400);

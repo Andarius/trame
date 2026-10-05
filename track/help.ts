@@ -350,7 +350,15 @@ Pipe ONE JSON object on stdin (or pass it as the single argument):
 
 Push on every state change and at least every minute while working: Trame shows the
 agent as live until the last push is older than the "live" setting, then stale. Each
-push is ephemeral (memory only, not synced).`;
+push is ephemeral (memory only, not synced). session_id may also be the harness's own
+session uuid (Claude Code / Codex): it resolves to the card tracked for it.
+
+Hook mode — register as a Claude Code or Codex hook (UserPromptSubmit, PreToolUse,
+Notification, Stop); stdin is the hook event, model/tokens come from its transcript:
+
+  tramecli presence --hook claude     (or --hook codex)
+
+It never fails the agent: no tracked card, no app, bad input — it exits 0 silently.`;
 
 export const SETUP_HELP =
   `tramecli setup — install the agent skills from this binary
@@ -360,6 +368,7 @@ export const SETUP_HELP =
   tramecli setup --codex           the same skills into ~/.agents/skills
   tramecli setup --skills-dir DIR  any Agent Skills directory (repeatable)
   tramecli setup --hook            the git pre-push guard, into the repo you run it from
+  tramecli setup --presence        hooks that report agent presence (Claude Code, Codex)
 
 The docs are embedded in the binary and call the bare \`tramecli\`; when that name is
 not on PATH the binary links itself into ~/.local/bin first. From a dev checkout,
@@ -367,7 +376,11 @@ not on PATH the binary links itself into ~/.local/bin first. From a dev checkout
 
 \`--hook\` writes the pre-push guard into the repo you run it from (core.hooksPath is
 honoured): it refuses a push whose Trame session is missing or older than the commits
-being pushed. Bypass one push with \`git push --no-verify\`.`;
+being pushed. Bypass one push with \`git push --no-verify\`.
+
+\`--presence\` adds \`tramecli presence --hook …\` to ~/.claude/settings.json and
+~/.codex/hooks.json (whichever exist), so working / waiting / idle show on Trame todos.
+Existing hooks are kept; running it twice adds nothing. Codex asks you to trust them.`;
 
 export const LIST_HELP = `tramecli list — print open sessions grouped by story
 

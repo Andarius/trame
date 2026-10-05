@@ -1,6 +1,8 @@
 import { assertEquals, assertThrows } from "@std/assert";
 import { AgentPresenceError, listAgentPresence, touchAgentPresence } from "../core/agent-presence.ts";
 import { normalizeAgentPresence } from "./files.ts";
+import { stateOf, usageOf } from "../track/presence.ts";
+import { withPresenceHooks } from "../track/setup.ts";
 
 Deno.test("touchAgentPresence rejects pushes the UI cannot render", async (t) => {
   for (
@@ -96,4 +98,60 @@ Deno.test("normalizeAgentPresence keeps unchecked boxes, drops unknown keys", ()
   const n = normalizeAgentPresence({ fields: { tokens: false, extra: true }, tint: false, evil: 1 });
   assertEquals(n.fields, { harness: true, provider: true, model: true, tokens: false, step: true });
   assertEquals([n.tint, "evil" in n], [false, false]);
+});
+
+Deno.test("hook events map to presence states", async (t) => {
+  for (
+    const [event, state] of [
+      ["UserPromptSubmit", "working"],
+      ["PreToolUse", "working"],
+      ["Notification", "waiting"],
+      ["Stop", "idle"],
+      ["PostToolUse", null],
+      ["SubagentStop", null],
+    ] as const
+  ) {
+    await t.step(event, () => assertEquals(stateOf({ hook_event_name: event }), state));
+  }
+});
+
+Deno.test("usageOf reads model and tokens from both transcript formats", async (t) => {
+  const claude = [
+    '{"type":"assistant","message":{"model":"claude-opus-5-5","usage":{"input_tokens":10,' +
+    '"cache_creation_input_tokens":200,"cache_read_input_tokens":40000,"output_tokens":300}}}',
+    '{"type":"user","message":{"content":"next"}}',
+  ].join("\n");
+  const codex = [
+    '{"type":"turn_context","payload":{"model":"gpt-5.5-codex"}}',
+    '{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":131904},' +
+    '"total_token_usage":{"total_tokens":900000},"model_context_window":272000}}}',
+  ].join("\n");
+  for (
+    const [id, tail, expected] of [
+      ["claude jsonl", claude, { model: "claude-opus-5-5", tokens: 40510 }],
+      ["codex rollout", codex, { model: "gpt-5.5-codex", tokens: 131904, context_max: 272000 }],
+      ["cut first line + junk", `"usage":{"inp\n${claude}`, { model: "claude-opus-5-5", tokens: 40510 }],
+      ["no usage yet", '{"type":"user"}', {}],
+    ] as const
+  ) {
+    await t.step(id, () => assertEquals(usageOf(tail), expected));
+  }
+});
+
+Deno.test("setup --presence adds its hooks once and keeps the others", async (t) => {
+  const mine = (f: ReturnType<typeof withPresenceHooks>) =>
+    JSON.stringify(f).split("tramecli presence --hook claude").length - 1;
+  for (
+    const [id, start] of [
+      ["empty settings", {}],
+      ["existing hooks", { hooks: { Stop: [{ hooks: [{ type: "command", command: "choub notify" }] }] }, model: "x" }],
+    ] as const
+  ) {
+    await t.step(id, () => {
+      const once = withPresenceHooks(structuredClone(start) as Parameters<typeof withPresenceHooks>[0], "claude");
+      const twice = withPresenceHooks(once, "claude");
+      assertEquals([mine(once), mine(twice)], [4, 4]);
+      assertEquals(JSON.stringify(twice).includes("choub notify"), id === "existing hooks");
+    });
+  }
 });

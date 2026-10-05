@@ -31,6 +31,58 @@ const SKILL_FILES: Record<string, string> = {
   "trame-watch/SKILL.md": watchSkill,
 };
 
+// Claude Code / Codex hook events that feed `tramecli presence --hook`
+const PRESENCE_EVENTS: Record<"claude" | "codex", [string, string | undefined][]> = {
+  claude: [
+    ["UserPromptSubmit", undefined],
+    ["PreToolUse", undefined],
+    ["Notification", "permission_prompt|elicitation_dialog|agent_needs_input"],
+    ["Stop", undefined],
+  ],
+  codex: [["UserPromptSubmit", undefined], ["PreToolUse", undefined], ["Stop", undefined]],
+};
+
+type HookFile = { hooks?: Record<string, { matcher?: string; hooks: Record<string, unknown>[] }[]> };
+
+// Adds the presence hooks to a settings/hooks.json object; entries already there are kept.
+export function withPresenceHooks(file: HookFile, harness: "claude" | "codex"): HookFile {
+  const command = `tramecli presence --hook ${harness}`;
+  const hooks = { ...file.hooks };
+  for (const [event, matcher] of PRESENCE_EVENTS[harness]) {
+    const list = [...(hooks[event] ?? [])];
+    if (!JSON.stringify(list).includes(command)) {
+      list.push({
+        ...(matcher ? { matcher } : {}),
+        // claude runs it in the background; codex has no async hooks, the timeout bounds it
+        hooks: [{ type: "command", command, timeout: 5, ...(harness === "claude" ? { async: true } : {}) }],
+      });
+    }
+    hooks[event] = list;
+  }
+  return { ...file, hooks };
+}
+
+async function installPresenceHooks(home: string): Promise<string[]> {
+  const done: string[] = [];
+  for (
+    const [path, harness] of [
+      [`${home}/.claude/settings.json`, "claude"],
+      [`${home}/.codex/hooks.json`, "codex"],
+    ] as const
+  ) {
+    let file: HookFile;
+    try {
+      file = JSON.parse(await Deno.readTextFile(path));
+    } catch (e) {
+      if (e instanceof Deno.errors.NotFound) continue; // that agent isn't installed
+      throw new Error(`${path} is not valid JSON — fix it first`);
+    }
+    await Deno.writeTextFile(path, JSON.stringify(withPresenceHooks(file, harness), null, 2) + "\n");
+    done.push(path);
+  }
+  return done;
+}
+
 export type SetupPlan = {
   claude: boolean;
   skillDirs: string[];
@@ -201,10 +253,12 @@ export async function run(argv: string[]): Promise<number> {
   const skillDirs: string[] = [];
   let claude = false;
   let hook = false;
+  let presence = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--claude") claude = true;
     else if (a === "--hook") hook = true;
+    else if (a === "--presence") presence = true;
     else if (a === "--codex") skillDirs.push(`${home}/.agents/skills`);
     else if (a === "--skills-dir") {
       const dir = argv[++i];
@@ -218,7 +272,7 @@ export async function run(argv: string[]): Promise<number> {
       return 2;
     }
   }
-  const interactive = !claude && !skillDirs.length && !hook;
+  const interactive = !claude && !skillDirs.length && !hook && !presence;
   if (interactive) {
     if (!Deno.stdout.isTerminal()) {
       console.error(SETUP_HELP);
@@ -234,6 +288,15 @@ export async function run(argv: string[]): Promise<number> {
   if (hook) {
     try {
       console.log(`installed → ${await installHook()}`);
+    } catch (e) {
+      console.error((e as Error).message);
+      return 1;
+    }
+  }
+  if (presence) {
+    try {
+      const paths = await installPresenceHooks(home);
+      console.log(paths.length ? `presence hooks → ${paths.join(", ")}` : "no Claude Code or Codex config found");
     } catch (e) {
       console.error((e as Error).message);
       return 1;
