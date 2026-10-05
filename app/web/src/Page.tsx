@@ -77,6 +77,7 @@ import {
   touchTodo,
 } from "../../../core/todo-marks.ts";
 import { PAGE_STATUSES } from "../../../core/page-status.ts";
+import { LiveLine, LiveRail, liveRingCls, liveRowCls, LiveTrail, useAgents, worksOn } from "./agents";
 import { DatabaseView } from "./udb/DatabaseTable";
 import { FolderBlock } from "./FolderBlock";
 import { TagEditor } from "./TagEditor";
@@ -991,6 +992,7 @@ export function BlockEditor(
   },
 ) {
   const refs = useRef<(HTMLTextAreaElement | null)[]>([]);
+  const { live, cfg: liveCfg } = useAgents();
   const [focusIdx, setFocusIdx] = useState<number | null>(null);
   const [menuIdx, setMenuIdx] = useState<number | null>(null); // block showing the slash menu
   const [menuSel, setMenuSel] = useState(0); // highlighted item in the slash menu
@@ -1884,6 +1886,10 @@ export function BlockEditor(
           : isTable
           ? "my-1 rounded-md bg-panel px-2 font-mono text-[11.5px] leading-relaxed text-ink-soft"
           : `bg-transparent ${textCls}`;
+        // the live agent working on this todo, if any
+        const lv = b.type === "todo" && !b.done && b.id && liveCfg
+          ? live.find((x) => worksOn(x.a, b.id as string))
+          : undefined;
         return (
           <Fragment key={b.id ?? i}>
             <div
@@ -1902,7 +1908,7 @@ export function BlockEditor(
                   : ""
               } ${
                 dropClass(i)
-              }`}
+              } ${lv && liveCfg ? liveRowCls(lv.state, liveCfg) : ""}`}
               // nested blocks shift right; overrides the base pl-6 (24px)
               style={b.indent ? { paddingLeft: 24 + b.indent * 20 } : undefined}
               onMouseMove={() => {
@@ -1910,6 +1916,7 @@ export function BlockEditor(
               }}
             >
               {dragHandle(i)}
+              {lv && liveCfg && <LiveRail state={lv.state} cfg={liveCfg} />}
               {b.type === "todo" && (
                 // same visual language as session-report lists: ○ open, ✓ done
                 <button
@@ -1925,7 +1932,11 @@ export function BlockEditor(
                       </span>
                     )
                     : (
-                      <span className="h-3 w-3 rounded-full border-[1.5px] border-copper hover:bg-copper/20" />
+                      <span
+                        className={`h-3 w-3 rounded-full border-[1.5px] hover:bg-copper/20 ${
+                          (lv && liveCfg && liveRingCls(lv.state, liveCfg)) || "border-copper"
+                        }`}
+                      />
                     )}
                 </button>
               )}
@@ -2017,6 +2028,12 @@ export function BlockEditor(
                     ? (item) => onLinkItem(b.id as string, item)
                     : undefined}
                 />
+                {lv && liveCfg && (
+                  // reading the activity line shouldn't open the editor
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <LiveLine a={lv.a} state={lv.state} cfg={liveCfg} />
+                  </div>
+                )}
               </div>
               <textarea
                 ref={(el) => {
@@ -2228,6 +2245,7 @@ export function BlockEditor(
               />
               {/* a todo is its own block, not a list item — carry its chips here, after
                   the textarea so edit mode does not move them left of the task text */}
+              {lv && liveCfg && <LiveTrail a={lv.a} state={lv.state} cfg={liveCfg} />}
               {b.type === "todo" &&
                 chipsFor(links?.filter((x) => x.block_id === b.id) ?? []).map((lk) => (
                   <span key={lk.sessionId} className="mt-[3px] shrink-0">

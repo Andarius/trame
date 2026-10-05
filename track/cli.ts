@@ -9,6 +9,7 @@ import { newer } from "../app/update.ts";
 import { main as trackMain } from "./track.ts";
 import { main as pageMain } from "./page.ts";
 import { main as commentMain } from "./comment.ts";
+import { main as presenceMain } from "./presence.ts";
 import { main as watchMain } from "./page-watch.ts";
 import { main as answerMain } from "./watch.ts";
 import { run as setupRun } from "./setup.ts";
@@ -17,6 +18,7 @@ import { main as dbMain } from "./db.ts";
 import { serve as mcpServe } from "../mcp/server.ts";
 import {
   COMMENT_HELP,
+  PRESENCE_HELP,
   CONVERT_HELP,
   LIST_HELP,
   STORIES_HELP,
@@ -33,6 +35,7 @@ const HELP_TOPICS: Record<string, string> = {
   track: TRACK_HELP,
   page: PAGE_HELP,
   comment: COMMENT_HELP,
+  presence: PRESENCE_HELP,
   list: LIST_HELP,
   stories: STORIES_HELP,
   convert: CONVERT_HELP,
@@ -228,7 +231,7 @@ async function warnIfStale(): Promise<void> {
 
 // the commands that speak to the app — the ones a version mismatch breaks
 const APP_COMMANDS = new Set(
-  ["track", "page", "comment", "watch", "answer", "list", "convert", "mcp", "db"],
+  ["track", "page", "comment", "presence", "watch", "answer", "list", "convert", "mcp", "db"],
 );
 
 export async function run(argv: string[]): Promise<number> {
@@ -269,6 +272,10 @@ export async function run(argv: string[]): Promise<number> {
     case "comment":
       if (wantsHelp) console.log(COMMENT_HELP);
       else await commentMain(rest);
+      return 0;
+    case "presence":
+      if (wantsHelp) console.log(PRESENCE_HELP);
+      else await presenceMain(rest);
       return 0;
     case "watch": // handles its own --help
       await watchMain(rest);

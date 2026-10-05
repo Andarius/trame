@@ -20,7 +20,58 @@ export type ExploreConfig = {
   hubHasToken: boolean;
   authorName: string; // display name stamped on comments (empty = falls back to node id)
   authorAvatar: string; // optional avatar stamped on comments: image URL or data URI
+  agentPresence: AgentPresenceSettings;
 };
+
+// How a todo shows that an agent is working on it (Settings › Agent presence)
+export type AgentPresenceSettings = {
+  marker: "ring" | "rail";
+  activity: "always" | "hover" | "off";
+  fields: {
+    harness: boolean;
+    provider: boolean;
+    model: boolean;
+    tokens: boolean;
+    step: boolean;
+  };
+  chip: boolean;
+  tint: boolean;
+  timer: boolean;
+  motion: boolean;
+  liveMinutes: number;
+  staleMinutes: number;
+};
+
+const PRESENCE_FIELDS = ["harness", "provider", "model", "tokens", "step"] as const;
+const PRESENCE_FLAGS = ["chip", "tint", "timer", "motion"] as const;
+
+// Fills defaults and clamps a stored/posted value; unknown keys are dropped.
+export function normalizeAgentPresence(raw: unknown): AgentPresenceSettings {
+  const r = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const f = r.fields && typeof r.fields === "object"
+    ? r.fields as Record<string, unknown>
+    : {};
+  const int = (v: unknown, def: number, lo: number, hi: number) => {
+    // settings.json is hand-editable: "5" counts as 5
+    const n = typeof v === "string" && v.trim() ? Number(v) : v;
+    return typeof n === "number" && Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.round(n))) : def;
+  };
+  const liveMinutes = int(r.liveMinutes, 2, 1, 30);
+  return {
+    marker: r.marker === "rail" ? "rail" : "ring",
+    activity: r.activity === "hover" || r.activity === "off" ? r.activity : "always",
+    fields: Object.fromEntries(
+      PRESENCE_FIELDS.map((k) => [k, f[k] !== false]),
+    ) as AgentPresenceSettings["fields"],
+    ...Object.fromEntries(PRESENCE_FLAGS.map((k) => [k, r[k] !== false])) as Pick<
+      AgentPresenceSettings,
+      typeof PRESENCE_FLAGS[number]
+    >,
+    liveMinutes,
+    // stale can't come before live
+    staleMinutes: int(r.staleMinutes, 30, Math.max(5, liveMinutes), 240),
+  };
+}
 
 // Hub API sync config: settings.json wins over env; re-read on every sync pass
 // so a settings change applies without a restart. Unconfigured = offline-only.
@@ -92,6 +143,7 @@ export async function getReportPaths(): Promise<ExploreConfig> {
   const authorAvatar = typeof settings.authorAvatar === "string"
     ? settings.authorAvatar.trim()
     : "";
+  const agentPresence = normalizeAgentPresence(settings.agentPresence);
   if (Array.isArray(settings.reportPaths)) {
     return {
       paths: list("reportPaths").map(expand),
@@ -104,6 +156,7 @@ export async function getReportPaths(): Promise<ExploreConfig> {
       hubHasToken,
       authorName,
       authorAvatar,
+      agentPresence,
     };
   }
   return {
@@ -117,6 +170,7 @@ export async function getReportPaths(): Promise<ExploreConfig> {
     hubHasToken,
     authorName,
     authorAvatar,
+    agentPresence,
   };
 }
 
@@ -130,9 +184,13 @@ export async function saveExploreSettings(
     hubApiToken?: string;
     authorName?: string;
     authorAvatar?: string;
+    agentPresence?: unknown;
   },
 ): Promise<void> {
   await updateSettings((settings) => {
+    if (patch.agentPresence !== undefined) {
+      settings.agentPresence = normalizeAgentPresence(patch.agentPresence);
+    }
     if (patch.authorName !== undefined) {
       const name = patch.authorName.trim();
       if (name) settings.authorName = name;

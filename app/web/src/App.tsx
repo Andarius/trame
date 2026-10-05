@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -11,6 +11,7 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import {
+  type AgentPresenceSettings,
   applyUpdate,
   type AppStatus,
   type BoardData,
@@ -22,14 +23,17 @@ import {
   deleteStatus,
   deleteUdb,
   exportPage,
+  getAgentPresence,
   getBoard,
   getIdentity,
   getPlugins,
+  getSettings,
   getStatus,
   getUpdate,
   importPage,
   listPages,
   listUdbs,
+  type LiveAgent,
   movePage,
   moveStatus as apiMoveStatus,
   openInBrowser,
@@ -45,7 +49,9 @@ import {
   updateStatus,
   updateUdb,
 } from "./api";
+import { AgentIcon, AgentsContext, Elapsed, type Live, liveAgents, useAgents } from "./agents";
 import { AgentSessions } from "./AgentSessions";
+import { stripMarks } from "../../../core/todo-marks.ts";
 import { Board } from "./Board";
 import { Drawer } from "./Drawer";
 import { Explore } from "./Explore";
@@ -202,6 +208,36 @@ function NewChip(
   );
 }
 
+type LiveCount = { working: number; waiting: number; own: boolean };
+// live agents per page, rolled up the tree so a collapsed parent still shows them
+const LiveCounts = createContext<Map<string, LiveCount>>(new Map());
+
+function LiveMarker({ id }: { id: string }) {
+  const c = useContext(LiveCounts).get(id);
+  const { cfg } = useAgents();
+  if (!c) return null;
+  const spin = cfg?.motion ? "motion-safe:animate-spin" : "";
+  const tip = [c.working && `${c.working} working`, c.waiting && `${c.waiting} needs you`].filter(Boolean).join(", ");
+  return (
+    <span className="ml-auto flex shrink-0 items-center gap-1.5 pl-1 font-mono text-[10.5px] font-semibold text-ink-soft" title={tip}>
+      {c.working > 0 && (
+        <span className="inline-flex items-center gap-1">
+          {c.own
+            ? <span className={`h-2.5 w-2.5 rounded-full border-[1.5px] border-live/40 border-t-live ${spin}`} />
+            : <span className="h-1.5 w-1.5 rounded-full bg-live" />}
+          {(c.working > 1 || !c.own) && c.working}
+        </span>
+      )}
+      {c.waiting > 0 && (
+        <span className="inline-flex items-center gap-1">
+          <span className="h-1.5 w-1.5 rounded-full bg-wait" />
+          {(c.waiting > 1 || !c.own) && c.waiting}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function PageNode(
   {
     p,
@@ -299,6 +335,7 @@ function PageNode(
           >
             {p.title || "Untitled"}
           </span>
+          <LiveMarker id={p.id} />
         </button>
         <button
           type="button"
@@ -544,6 +581,30 @@ function Sidebar(
   }, [udbs, byId]);
   const looseDbs = udbs.filter((d) => !d.page_id || !byId.has(d.page_id));
 
+  const { live } = useAgents();
+  const liveCounts = useMemo(() => {
+    const m = new Map<string, LiveCount>();
+    for (const { a, state } of live) {
+      // one count per agent per page, even when it links several todos below it
+      const seen = new Map<string, boolean>(); // page id -> own (directly linked)
+      for (const l of a.page_id ? [{ page_id: a.page_id }] : a.links) {
+        let own = true;
+        for (let p = byId.get(l.page_id); p; p = p.parent_id ? byId.get(p.parent_id) : undefined) {
+          seen.set(p.id, (seen.get(p.id) ?? false) || own);
+          own = false;
+        }
+      }
+      for (const [id, own] of seen) {
+        const c = m.get(id) ?? { working: 0, waiting: 0, own: false };
+        c[state]++;
+        c.own ||= own;
+        m.set(id, c);
+      }
+    }
+    return m;
+  }, [live, byId]);
+  const runningRef = useRef<HTMLElement>(null);
+
   // the whole tree by mtime — sliced short/long at render
   const recentsOpen = expanded.has(RECENTS_KEY);
   const recents = useMemo(() => recentRows(pages), [pages]);
@@ -644,6 +705,7 @@ function Sidebar(
 
   return (
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+    <LiveCounts.Provider value={liveCounts}>
     <aside className="flex w-[240px] shrink-0 flex-col border-r border-line bg-sidebar">
       {/* Seule la liste défile : le statut de synchro et l'accès aux réglages
           restent visibles, sinon il faut dérouler tout l'arbre pour les
@@ -673,6 +735,12 @@ function Sidebar(
               {item.glyph}
             </span>
             {item.label}
+            {item.key === "agents" && live.length > 0 && (
+              <span className="ml-auto inline-flex items-center gap-1 rounded-full border border-chipline px-1.5 text-[10.5px] font-medium text-ink-soft">
+                <span className="h-1.5 w-1.5 rounded-full bg-live" />
+                {live.length} live
+              </span>
+            )}
           </button>
         );
       })}
@@ -701,6 +769,42 @@ function Sidebar(
           </button>
         );
       })}
+      {live.length > 0 && (
+        <nav ref={runningRef} aria-label="Running agents" className="flex flex-col gap-0.5">
+          <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+            RUNNING
+          </div>
+          {live.map(({ a, state }) => {
+            const link = a.links.find((l) => a.block_id ? l.block_id === a.block_id : l.block_id) ?? a.links[0];
+            const what = (link?.anchor && stripMarks(link.anchor).trim()) || a.session_title;
+            return (
+              <button
+                type="button"
+                key={a.session_id}
+                disabled={!link}
+                onClick={() => link && onOpenPage(link.page_id)}
+                title={`${a.harness} · ${a.session_title}${link ? ` — ${link.page_title}` : ""}`}
+                className={`grid grid-cols-[auto_1fr_auto] items-center gap-x-2 rounded-md px-2 py-[5px] text-left hover:bg-active-row ${
+                  state === "waiting" ? "bg-wait/[0.1]" : ""
+                }`}
+              >
+                <AgentIcon a={a} />
+                <span className="truncate text-[13px] text-ink">{what}</span>
+                <span className="font-mono text-[10.5px] font-semibold tabular-nums text-ink-soft">
+                  <Elapsed since={a.since} state={state} />
+                </span>
+                <span
+                  className={`col-span-2 col-start-2 truncate text-[11.5px] ${
+                    state === "waiting" ? "italic text-ink-soft" : "text-ink-muted"
+                  }`}
+                >
+                  {state === "waiting" ? `needs you: ${a.question ?? "waiting for input"}` : link?.page_title ?? "no linked todo"}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+      )}
       {recents.length > 0 && (
         <>
           {/* a landmark, so the rows are addressable apart from STARRED's identical ones */}
@@ -731,6 +835,7 @@ function Sidebar(
                   <EntityIcon icon={p.icon} fallback={pageGlyph(p.kind)} />
                 </span>
                 <span className="flex-1 truncate">{p.title || "Untitled"}</span>
+                <LiveMarker id={p.id} />
                 {count > 0 && (
                   <span className="shrink-0 rounded-full bg-copper/15 px-1.5 text-[10px] font-medium text-copper">
                     {count}
@@ -897,6 +1002,24 @@ function Sidebar(
       })}
       <NewChip label="New database" indent={26} onClick={onNewDb} />
       </div>
+      {live.length > 0 && (
+        <button
+          type="button"
+          title="show the running agents"
+          className="flex shrink-0 items-center gap-3 border-t border-line px-5 pt-2 text-[11.5px] text-ink-soft hover:text-ink"
+          onClick={() => runningRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+        >
+          {(["working", "waiting"] as const).map((st) => {
+            const n = live.filter((l) => l.state === st).length;
+            return n > 0 && (
+              <span key={st} className="inline-flex items-center gap-1.5">
+                <span className={`h-[7px] w-[7px] rounded-full ${st === "working" ? "bg-live" : "bg-wait"}`} />
+                {n} {st === "working" ? "working" : "needs you"}
+              </span>
+            );
+          })}
+        </button>
+      )}
       <div className="flex shrink-0 items-center gap-2 border-t border-line px-5 py-2 text-[11.5px] text-ink-muted">
         <span
           className="h-[7px] w-[7px] rounded-full"
@@ -940,6 +1063,7 @@ function Sidebar(
         </button>
       </div>
     </aside>
+    </LiveCounts.Provider>
     <DragOverlay>
       {dragged && (
         <div className="flex w-fit items-center gap-1.5 rounded-md border border-line bg-sidebar px-2 py-1 text-[13px] shadow-lg">
@@ -1160,6 +1284,35 @@ export function App() {
     setOpenId(id);
   };
   const [exploreEpoch, setExploreEpoch] = useState(0); // bump to rescan files after settings change
+  const [agents, setAgents] = useState<LiveAgent[]>([]);
+  const [tick, setTick] = useState(0); // re-derives liveness even when a poll fails
+  const [presenceCfg, setPresenceCfg] = useState<AgentPresenceSettings | null>(null);
+  useEffect(() => {
+    getSettings().then((s) => setPresenceCfg(s.agentPresence)).catch(() => {});
+  }, [exploreEpoch]);
+  useEffect(() => {
+    let busy = false; // one request at a time, so an old answer can't land last
+    const load = () => {
+      setTick((n) => n + 1);
+      if (busy) return;
+      busy = true;
+      getAgentPresence()
+        .then((next) => setAgents((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next)))
+        .catch(() => {})
+        .finally(() => (busy = false));
+    };
+    load();
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, []);
+  // same states as before → same object, so the page editor doesn't re-render every poll
+  const liveRef = useRef<{ key: string; value: { live: Live[]; cfg: AgentPresenceSettings | null } }>();
+  const agentsCtx = useMemo(() => {
+    const live = liveAgents(agents, presenceCfg);
+    const key = JSON.stringify([presenceCfg, live.map((l) => [l.a, l.state])]);
+    if (liveRef.current?.key !== key) liveRef.current = { key, value: { live, cfg: presenceCfg } };
+    return liveRef.current.value;
+  }, [agents, presenceCfg, tick]);
   const [exploreTarget, setExploreTarget] = useState<string | null>(null); // report path to pre-open in Explore
   const [exploreReturn, setExploreReturn] = useState<string | null>(null); // page id to go back to from Explore
   const [udbs, setUdbs] = useState<UdbMeta[]>([]);
@@ -1461,6 +1614,14 @@ export function App() {
   const currentDb = view === "database"
     ? udbs.find((d) => d.id === dbId) ?? null
     : null;
+  // settings cover the main area only — navigating from the sidebar closes them
+  const navKey = useRef(`${view}:${pageId}:${dbId}:${pluginId}:${clientId}`);
+  useEffect(() => {
+    const k = `${view}:${pageId}:${dbId}:${pluginId}:${clientId}`;
+    if (k === navKey.current) return; // mount (e.g. ?new=settings deep link)
+    navKey.current = k;
+    setModal((m) => (m === "settings" ? null : m));
+  }, [view, pageId, dbId, pluginId, clientId]);
   const currentPage = view === "page"
     ? pages.find((p) => p.id === pageId) ?? null
     : null;
@@ -1516,6 +1677,7 @@ export function App() {
     });
 
   return (
+    <AgentsContext.Provider value={agentsCtx}>
     <div className="flex h-full">
       {!zen && (
       <Sidebar
@@ -1547,7 +1709,7 @@ export function App() {
         onUpdate={onUpdate}
       />
       )}
-      <main className="flex min-w-0 flex-1 flex-col">
+      <main className="relative flex min-w-0 flex-1 flex-col">
         {zen && (
           <button
             type="button"
@@ -2144,5 +2306,6 @@ export function App() {
       )}
       <ConfirmHost />
     </div>
+    </AgentsContext.Provider>
   );
 }

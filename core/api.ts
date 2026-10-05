@@ -5,6 +5,7 @@ import { SPECS_WHEN } from "./agent-texts.ts";
 import type { Ctx } from "./ctx.ts";
 import { identityOf } from "./identity.ts";
 import { AGENT_ID_RE, listPresence, touchPresence } from "./presence.ts";
+import { AgentPresenceError, listLiveAgents, touchAgentPresence } from "./agent-presence.ts";
 import {
   createProperty,
   createRow,
@@ -68,6 +69,8 @@ import {
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// page block ids: editor genId (8 chars) or uuids
+const BLOCK_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -201,6 +204,50 @@ export async function handleCoreApi(
   if (ldm && req.method === "POST") {
     await deleteSessionLink(ctx, ldm[1]);
     return json({ ok: true });
+  }
+  // a harness pushes what its agent is doing (ephemeral, see agent-presence.ts)
+  const apm = pathname.match(/^\/api\/sessions\/([^/]+)\/presence$/);
+  if (apm && req.method === "POST") {
+    const sid = apm[1].toLowerCase(); // db ids are lowercase; the GET joins on them
+    if (!UUID_RE.test(sid)) return json({ error: "invalid session id" }, 400);
+    const known = (await ctx.q.query(
+      `select 1 from sessions where id=$1 and not deleted`,
+      [sid],
+    )).rows.length;
+    if (!known) return json({ error: "not found" }, 404);
+    const b = await req.json().catch(() => null);
+    if (!b || typeof b !== "object" || Array.isArray(b)) {
+      return json({ error: "JSON object expected" }, 400);
+    }
+    // the todo being worked on: must be a real block of a real page
+    if (b.page_id !== undefined || b.block_id !== undefined) {
+      if (!UUID_RE.test(String(b.page_id)) || !BLOCK_ID_RE.test(String(b.block_id))) {
+        return json({ error: "page_id (uuid) and block_id go together" }, 400);
+      }
+      b.page_id = String(b.page_id).toLowerCase();
+      const page = await getPage(ctx, b.page_id) as { content?: { id?: string }[] } | null;
+      if (!page?.content?.some((x) => x.id === b.block_id)) {
+        return json({ error: "no such block on that page" }, 400);
+      }
+    }
+    let p;
+    try {
+      p = touchAgentPresence(sid, b);
+    } catch (e) {
+      if (e instanceof AgentPresenceError) return json({ error: e.message }, 400);
+      throw e;
+    }
+    // link the session to that todo once, so the card shows it too
+    if (b.block_id) {
+      const linked = (await ctx.q.query(
+        `select 1 from session_links where session_id=$1 and block_id=$2 and not deleted`,
+        [sid, b.block_id],
+      )).rows.length;
+      if (!linked) {
+        await addSessionLink(ctx, sid, b.page_id, b.block_id, typeof b.anchor === "string" ? b.anchor : "");
+      }
+    }
+    return json(p);
   }
   const em = pathname.match(/^\/api\/sessions\/([^/]+)\/events$/);
   if (em && req.method === "POST") {
@@ -414,6 +461,7 @@ export async function handleCoreApi(
     }
     return json({ ok: true });
   }
+  if (pathname === "/api/agent-presence") return json(await listLiveAgents(ctx));
   if (pathname === "/api/presence") {
     return json(listPresence(url.searchParams.get("page") ?? ""));
   }

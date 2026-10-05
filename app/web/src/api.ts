@@ -137,6 +137,45 @@ export type Settings = {
   hubHasToken: boolean;
   authorName: string;
   authorAvatar: string;
+  agentPresence: AgentPresenceSettings;
+};
+// mirrors app/files.ts — the server fills defaults and clamps
+export type AgentPresenceSettings = {
+  marker: "ring" | "rail";
+  activity: "always" | "hover" | "off";
+  fields: { harness: boolean; provider: boolean; model: boolean; tokens: boolean; step: boolean };
+  chip: boolean;
+  tint: boolean;
+  timer: boolean;
+  motion: boolean;
+  liveMinutes: number;
+  staleMinutes: number;
+};
+// one agent session as its harness last reported it (core/agent-presence.ts)
+export type LiveAgent = {
+  session_id: string;
+  state: "working" | "waiting" | "idle";
+  harness: string;
+  icon: string | null;
+  provider: string | null;
+  model: string | null;
+  tokens: number | null;
+  context_max: number | null;
+  step: string | null;
+  question: string | null;
+  page_id: string | null; // current target; links are history
+  block_id: string | null;
+  since: number;
+  at: number;
+  session_title: string;
+  links: { page_id: string; block_id: string | null; anchor: string; page_title: string }[];
+};
+export const getAgentPresence = async (): Promise<LiveAgent[]> => {
+  const r = await fetch("/api/agent-presence");
+  if (!r.ok) throw new Error(`agent-presence: ${r.status}`);
+  const data = await r.json();
+  if (!Array.isArray(data)) throw new Error("agent-presence: not a list");
+  return data as LiveAgent[];
 };
 export const getSettings = () =>
   fetch("/api/settings").then((r) => r.json() as Promise<Settings>);
@@ -150,6 +189,7 @@ export const patchSettings = (
     hubApiToken?: string;
     authorName?: string;
     authorAvatar?: string;
+    agentPresence?: AgentPresenceSettings;
   },
 ) =>
   fetch("/api/settings", {

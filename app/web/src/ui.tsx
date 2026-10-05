@@ -132,8 +132,11 @@ export function shiftRange(ordered: string[], anchorId: string | null, id: strin
 // Centered overlay panel: Escape or a backdrop click closes it, ⌘/Ctrl+Enter submits
 // when the caller takes an action.
 export function Modal(
-  { width = 560, onClose, onSubmit, children }: {
+  { width = 560, full = false, label, onClose, onSubmit, children }: {
     width?: number;
+    label?: string; // accessible name of the dialog
+    // covers the main area (sidebar stays), content in a centered column
+    full?: boolean;
     onClose: () => void;
     onSubmit?: () => void;
     children: ReactNode;
@@ -149,6 +152,14 @@ export function Modal(
   }, [onClose, onSubmit]);
   // portalled: a modal opened from inside the page editor must not sit under the
   // block's [data-block-id], or selecting its text offers a comment on that block
+  if (full) {
+    return createPortal(
+      <div role="dialog" aria-label={label} className="absolute inset-0 z-40 overflow-y-auto bg-canvas">
+        <div className="mx-auto flex max-w-[860px] flex-col gap-3 px-6 py-8">{children}</div>
+      </div>,
+      document.querySelector("main") ?? document.body,
+    );
+  }
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/45 pt-[16vh]" onClick={onClose}>
       <div

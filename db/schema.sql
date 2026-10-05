@@ -229,6 +229,8 @@ create table if not exists session_links (
 );
 create index if not exists session_links_session on session_links (session_id);
 create index if not exists session_links_page on session_links (page_id);
+-- editor block ids are short strings (genId), not uuids
+alter table session_links alter column block_id type text using block_id::text;
 -- Pasted images; page blocks reference them as ![...](/api/assets/<id>). Metadata
 -- only — bytes live on disk (ASSETS_DIR) or in S3 (TRACKER_S3_*). Not in the sync
 -- table set, so references don't resolve on other nodes unless both point at S3.

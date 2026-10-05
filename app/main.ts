@@ -1092,6 +1092,7 @@ async function handler(req: Request): Promise<Response> {
       authorAvatar: typeof body.authorAvatar === "string"
         ? body.authorAvatar
         : undefined,
+      agentPresence: body.agentPresence,
     });
     // an explicit save also updates the synced profile (never done at startup —
     // stale local names on two machines would ping-pong the users row)

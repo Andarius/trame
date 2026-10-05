@@ -18,6 +18,8 @@
   --color-copper-ink: #120e0b;
   --color-active: #7bd88f;
   --color-paused: #e3c567;
+  --color-live: #7bd88f; /* agent presence: working */
+  --color-wait: #e3c567; /* agent presence: needs you */
   --color-blocked: #e06c75;
   --color-done: #6b7280;
 
@@ -56,6 +58,8 @@
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
     color-scheme: light;
+    --color-live: #15803d;
+    --color-wait: #a16207;
     --color-canvas: #f6f7f9;
     --color-sidebar: #eef0f3;
     --color-panel: #ffffff;
@@ -92,6 +96,8 @@
 }
 :root[data-theme="light"] {
   color-scheme: light;
+  --color-live: #15803d;
+  --color-wait: #a16207;
   --color-canvas: #f6f7f9;
   --color-sidebar: #eef0f3;
   --color-panel: #ffffff;

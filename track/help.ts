@@ -333,6 +333,25 @@ Pipe ONE JSON object on stdin (or pass it as the single argument):
   both harnesses report their own usage, so read it there. Other agents omit what
   they cannot measure; never guess (a visible footer must mean real data).`;
 
+export const PRESENCE_HELP =
+  `tramecli presence — report what your agent is doing right now
+
+Pipe ONE JSON object on stdin (or pass it as the single argument):
+
+  {session_id, state, harness, icon?, provider?, model?, tokens?, context_max?,
+   step?, question?, page_id?, block_id?, anchor?}
+
+- state: working | waiting (blocked on the human — put the ask in question) | idle.
+- harness: what runs the agent (claude-code, codex, spatchou, …). Known harnesses
+  and providers get a logo; others may send icon (an emoji or an image URL).
+- tokens: tokens used so far in the session; context_max: the model's window.
+- step: the latest action in a few words (e.g. "Edit tofu/s3/main.tf").
+- page_id + block_id: the todo being worked on — linked to the session once.
+
+Push on every state change and at least every minute while working: Trame shows the
+agent as live until the last push is older than the "live" setting, then stale. Each
+push is ephemeral (memory only, not synced).`;
+
 export const SETUP_HELP =
   `tramecli setup — install the agent skills from this binary
 
@@ -396,6 +415,7 @@ Commands:
   track      create/update this work session's card (JSON on stdin)
   page       create/update a page, or write a session's specs (JSON on stdin)
   comment    add an inline agent comment to a page block (JSON on stdin)
+  presence   report what the agent is doing now: working / waiting / idle
   watch      wait for human feedback on page(s); exits 0 when feedback is ready
   answer     daemon: auto-answer human replies on agent comment threads
   list       print open sessions grouped by story
