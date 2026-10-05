@@ -5,6 +5,7 @@ import {
   type ClaudeSession,
   scanClaudeImport,
 } from "./api";
+import { matchQuery, parseQuery } from "./query";
 import { clientColor, Select, timeAgo } from "./ui";
 
 // This view never launches terminals (unlike Drawer.tsx's tracked-card resume) —
@@ -186,7 +187,19 @@ export function AgentSessions(
   );
   const [sourceFilter, setSourceFilter] = useState("all");
   const [sortBy, setSortBy] = useState<"date" | "repo">("date");
-  const [q, setQ] = useState("");
+  // persisted so a `-term` hide sticks across visits
+  const [q, setQ] = useState(() => {
+    try {
+      return localStorage.getItem("trame:agentsQuery") ?? "";
+    } catch {
+      return "";
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("trame:agentsQuery", q);
+    } catch { /* storage blocked */ }
+  }, [q]);
   const [allMsg, setAllMsg] = useState<string | null>(null);
   const allTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(allTimer.current), []);
@@ -209,13 +222,15 @@ export function AgentSessions(
     }
   }, [scan]);
 
-  const query = q.trim().toLowerCase();
+  // board query syntax: bare words hit repo/title/branch, `-word` hides, repo:/title:/branch: scope
+  const { terms } = parseQuery(q);
   const isVisible = (s: ClaudeSession, repoName: string) =>
     (statusFilter === "all" || s.suggestedStatus === statusFilter) &&
     (sourceFilter === "all" || s.source === sourceFilter) &&
-    (!query ||
-      repoName.toLowerCase().includes(query) ||
-      s.title.toLowerCase().includes(query));
+    matchQuery(terms, (key) => {
+      const repo = repoName.toLowerCase(), title = s.title.toLowerCase(), branch = (s.branch ?? "").toLowerCase();
+      return key === "repo" ? [repo] : key === "title" ? [title] : key === "branch" ? [branch] : [repo, title, branch];
+    });
 
   // an imported (or /trame:track-created) card carries this transcript's uuid as
   // its own id, or in the claude_id column — either way, jump straight to it
@@ -232,8 +247,12 @@ export function AgentSessions(
     );
 
   // click a project name / status badge / AI icon → filter on it (click again to clear)
+  // toggles a `repo:` term, keeping the rest (e.g. `-term` hides) intact
   const toggleRepoFilter = (name: string) =>
-    setQ((cur) => (cur === name ? "" : name));
+    setQ((cur) => {
+      const term = `repo:"${name}"`;
+      return cur.includes(term) ? cur.replace(term, "").replace(/\s+/g, " ").trim() : `${cur} ${term}`.trim();
+    });
   const toggleStatusFilter = (status: "active" | "paused") =>
     setStatusFilter((cur) => (cur === status ? "all" : status));
   const toggleSourceFilter = (source: string) =>
@@ -327,7 +346,7 @@ export function AgentSessions(
         </div>
         <input
           className="ml-1 min-w-0 flex-1 rounded-md border border-chipline bg-transparent px-2 py-1 text-[11.5px] text-ink outline-none placeholder:text-ink-muted/60 focus:border-copper/50"
-          placeholder={scan ? `filter ${scan.total} sessions…` : "scanning…"}
+          placeholder={scan ? `filter ${scan.total} sessions… (-word hides)` : "scanning…"}
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
