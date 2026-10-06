@@ -41,6 +41,7 @@ import {
   type PluginManifest,
   type SearchHit,
   setStatus as apiSetStatus,
+  type Session,
   type Status,
   type StatusDef,
   syncNow,
@@ -77,6 +78,8 @@ import {
   pageGlyph,
   Popover,
   setStatuses,
+  StatusDot,
+  statusStyle,
   timeAgo,
 } from "./ui";
 import { FRONTEND_PLUGINS } from "./plugins";
@@ -92,6 +95,7 @@ type View =
   | "explore"
   | "database"
   | "page"
+  | "card"
   | "client"
   | "plugin";
 
@@ -208,6 +212,10 @@ function NewChip(
   );
 }
 
+// open cards per user story, for the sidebar tree
+type TreeCards = { byStory: Map<string, Session[]>; open: (id: string) => void; current: string | null };
+const TreeCardsCtx = createContext<TreeCards>({ byStory: new Map(), open: () => {}, current: null });
+
 type LiveCount = { working: number; waiting: number; own: boolean };
 // live agents per page, rolled up the tree so a collapsed parent still shows them
 const LiveCounts = createContext<Map<string, LiveCount>>(new Map());
@@ -274,7 +282,10 @@ function PageNode(
   const allKids = childrenOf.get(p.id) ?? [];
   const { normal: kids, archived } = splitArchived(allKids, starred);
   const dbs = dbsOf.get(p.id) ?? [];
-  const hasKids = allKids.length + dbs.length > 0;
+  const treeCards = useContext(TreeCardsCtx);
+  const { live: liveNow } = useAgents();
+  const cards = treeCards.byStory.get(p.id) ?? [];
+  const hasKids = allKids.length + dbs.length + cards.length > 0;
   const open = expanded.has(p.id);
   const active = p.id === current;
   const sharedIn = isSharedIn(p, meId);
@@ -358,6 +369,26 @@ function PageNode(
           ＋
         </button>
       </div>
+      {open && cards.map((c) => {
+        const on = liveNow.find(({ a }) => a.session_id === c.id);
+        return (
+          <button
+            type="button"
+            key={c.id}
+            onClick={() => treeCards.open(c.id)}
+            className={`flex items-center gap-1.5 rounded-md py-[5px] pr-1 text-left text-[13px] ${
+              c.id === treeCards.current ? "bg-active-row font-medium text-ink" : "text-ink-muted hover:text-ink-soft"
+            }`}
+            style={{ paddingLeft: 8 + (depth + 1) * 14 + 14 }}
+            title={`${c.title} — ${statusStyle(c.status).label}`}
+          >
+            <span className="text-[11px]">▦</span>
+            <span className="flex-1 truncate">{c.title}</span>
+            {on && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${on.state === "working" ? "bg-live" : "bg-wait"}`} />}
+            <StatusDot status={c.status} size={6} />
+          </button>
+        );
+      })}
       {open && dbs.map((d) => {
         const dbActive = d.id === currentDb;
         return (
@@ -1214,6 +1245,8 @@ export function App() {
   const [board, setBoard] = useState<BoardData | null>(null);
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [view, setView] = useState<View>(() => {
+    // a card link (or a legacy full-screen session link) opens the card view
+    if (params.get("card") || (params.get("session") && params.get("full") !== "0")) return "card";
     const v = params.get("view") as View | null;
     if (v) return v;
     // bare entity links (?page=, ?db=, ...) imply their view
@@ -1271,17 +1304,24 @@ export function App() {
     (params.get("new") as "session" | "settings" | "udb" | "import" | null) ??
       null,
   );
-  const [openId, setOpenId] = useState<string | null>(params.get("session"));
+  // the side panel only; a full session is the card view (cardId)
+  const [openId, setOpenId] = useState<string | null>(params.get("full") === "0" ? params.get("session") : null);
+  const [cardId, setCardId] = useState<string | null>(
+    params.get("card") ?? (params.get("full") !== "0" ? params.get("session") : null),
+  );
   // double-click in the Sessions list opens the drawer already expanded; mirrored
   // to the URL so a refresh restores it. A session link WITHOUT &full defaults to
   // the full ticket (a direct link means "show me this session") — only an
   // explicit full=0 (written when collapsing in-app) keeps the side panel.
-  const [drawerFull, setDrawerFull] = useState(
-    params.get("session") !== null && params.get("full") !== "0",
-  );
+  const [drawerFull, setDrawerFull] = useState(false);
   const openSession = (id: string, full = false) => {
-    setDrawerFull(full);
-    setOpenId(id);
+    setDrawerFull(false);
+    if (full) {
+      // a session opens as its own view, inside the app chrome like a page
+      setOpenId(null);
+      setCardId(id);
+      setView("card");
+    } else setOpenId(id);
   };
   const [exploreEpoch, setExploreEpoch] = useState(0); // bump to rescan files after settings change
   const [agents, setAgents] = useState<LiveAgent[]>([]);
@@ -1306,11 +1346,13 @@ export function App() {
     return () => clearInterval(t);
   }, []);
   // same states as before → same object, so the page editor doesn't re-render every poll
-  const liveRef = useRef<{ key: string; value: { live: Live[]; cfg: AgentPresenceSettings | null } }>();
+  const liveRef = useRef<
+    { key: string; value: { live: Live[]; recent: LiveAgent[]; cfg: AgentPresenceSettings | null } }
+  >();
   const agentsCtx = useMemo(() => {
     const live = liveAgents(agents, presenceCfg);
-    const key = JSON.stringify([presenceCfg, live.map((l) => [l.a, l.state])]);
-    if (liveRef.current?.key !== key) liveRef.current = { key, value: { live, cfg: presenceCfg } };
+    const key = JSON.stringify([presenceCfg, live.map((l) => [l.a, l.state]), agents.map((a) => [a.session_id, a.name])]);
+    if (liveRef.current?.key !== key) liveRef.current = { key, value: { live, recent: agents, cfg: presenceCfg } };
     return liveRef.current.value;
   }, [agents, presenceCfg, tick]);
   const [exploreTarget, setExploreTarget] = useState<string | null>(null); // report path to pre-open in Explore
@@ -1437,6 +1479,15 @@ export function App() {
     syncFlashTimer.current = setTimeout(() => setSyncFlash(null), 2500);
   };
   useEffect(() => () => clearTimeout(syncFlashTimer.current), []);
+  // a location (view + the entity it shows) is a browser-history entry; filters and the
+  // drawer only rewrite the current one
+  const locKey = (
+    v: View,
+    ids: { page?: string | null; db?: string | null; client?: string | null; plugin?: string | null; card?: string | null },
+  ) =>
+    [v, v === "page" ? ids.page : "", v === "database" ? ids.db : "", v === "client" ? ids.client : "",
+      v === "plugin" ? ids.plugin : "", v === "card" ? ids.card : ""].join("|");
+  const lastLoc = useRef(locKey(view, { page: pageId, db: dbId, client: clientId, plugin: pluginId, card: cardId }));
   // mirror the navigational state into the URL so a refresh/reload restores it
   useEffect(() => {
     const u = new URL(location.href);
@@ -1450,6 +1501,7 @@ export function App() {
     put("db", view === "database" ? dbId : null);
     put("client", view === "client" ? clientId : null);
     put("plugin", view === "plugin" ? pluginId : null);
+    put("card", view === "card" ? cardId : null);
     put("session", openId);
     put("full", openId ? (drawerFull ? "1" : "0") : null);
     put("group", group === "none" ? null : group);
@@ -1457,13 +1509,37 @@ export function App() {
     put("nospecs", noSpecs ? "1" : null);
     put("q", sessionQuery.trim() || null);
     put("zen", zen ? "1" : null);
-    history.replaceState(null, "", u);
-  }, [view, pageId, dbId, clientId, pluginId, openId, drawerFull, group, storyFilter, noSpecs, sessionQuery, zen]);
+    const k = locKey(view, { page: pageId, db: dbId, client: clientId, plugin: pluginId, card: cardId });
+    if (k !== lastLoc.current) {
+      lastLoc.current = k;
+      history.pushState(null, "", u);
+    } else history.replaceState(null, "", u);
+  }, [view, pageId, dbId, clientId, pluginId, cardId, openId, drawerFull, group, storyFilter, noSpecs, sessionQuery, zen]);
   // Browser Back from the full-screen ticket returns to the view behind it (the
   // board for a direct link) instead of leaving the app: the underlying view is
   // written as its own history entry beneath the ticket, and popstate closes it.
   useEffect(() => {
-    const onPop = () => setOpenId(null);
+    // Back/Forward: restore the location (and drawer) the entry was written with
+    const onPop = () => {
+      const q = new URLSearchParams(location.search);
+      const v = (q.get("view") as View | null) ??
+        (q.get("card") ? "card" : q.get("page") ? "page" : q.get("db") ? "database" : q.get("client") ? "client" : q.get("plugin") ? "plugin" : "board");
+      lastLoc.current = locKey(v, {
+        page: q.get("page"),
+        db: q.get("db"),
+        client: q.get("client"),
+        plugin: q.get("plugin"),
+        card: q.get("card"),
+      });
+      setView(v);
+      if (v === "page") setPageId(q.get("page"));
+      if (v === "database") setDbId(q.get("db"));
+      if (v === "client") setClientId(q.get("client"));
+      if (v === "plugin") setPluginId(q.get("plugin"));
+      if (v === "card") setCardId(q.get("card"));
+      setOpenId(q.get("session"));
+      setDrawerFull(false);
+    };
     addEventListener("popstate", onPop);
     return () => removeEventListener("popstate", onPop);
   }, []);
@@ -1478,8 +1554,8 @@ export function App() {
   }, [openId, drawerFull]);
   // browser-tab title follows what's on screen (full session ticket > page/db/client/plugin view)
   useEffect(() => {
-    const t = openId && drawerFull
-      ? board?.sessions.find((s) => s.id === openId)?.title
+    const t = view === "card"
+      ? board?.sessions.find((s) => s.id === cardId)?.title
       : view === "page"
       ? pages.find((p) => p.id === pageId)?.title
       : view === "database"
@@ -1491,7 +1567,7 @@ export function App() {
       ? plugins.find((p) => p.id === pluginId)?.label
       : null;
     document.title = t ? `${t} — Trame` : "Trame";
-  }, [view, pageId, dbId, clientId, pluginId, openId, drawerFull, board, pages, udbs, plugins]);
+  }, [view, pageId, dbId, clientId, pluginId, cardId, openId, drawerFull, board, pages, udbs, plugins]);
   useEffect(() => {
     refresh();
     const t = setInterval(refresh, 5000);
@@ -1615,17 +1691,49 @@ export function App() {
     ? udbs.find((d) => d.id === dbId) ?? null
     : null;
   // settings cover the main area only — navigating from the sidebar closes them
-  const navKey = useRef(`${view}:${pageId}:${dbId}:${pluginId}:${clientId}`);
+  const navKey = useRef(`${view}:${pageId}:${dbId}:${pluginId}:${clientId}:${cardId}`);
   useEffect(() => {
-    const k = `${view}:${pageId}:${dbId}:${pluginId}:${clientId}`;
+    const k = `${view}:${pageId}:${dbId}:${pluginId}:${clientId}:${cardId}`;
     if (k === navKey.current) return; // mount (e.g. ?new=settings deep link)
     navKey.current = k;
     setModal((m) => (m === "settings" ? null : m));
-  }, [view, pageId, dbId, pluginId, clientId]);
+  }, [view, pageId, dbId, pluginId, clientId, cardId]);
   const currentPage = view === "page"
     ? pages.find((p) => p.id === pageId) ?? null
     : null;
 
+  const cardSession = view === "card" ? board?.sessions.find((x) => x.id === cardId) ?? null : null;
+  // the card view's breadcrumb: its story and the story's ancestors
+  const cardCrumbs = useMemo(() => {
+    if (!cardSession?.page_id) return [];
+    const byId = new Map(pages.map((p) => [p.id, p]));
+    const out: PageMeta[] = [];
+    for (let p = byId.get(cardSession.page_id); p; p = byId.get(p.parent_id ?? "")) out.unshift(p);
+    return out;
+  }, [cardSession, pages]);
+  // open cards under their user story in the sidebar tree
+  const treeCards = useMemo<TreeCards>(() => {
+    const byStory = new Map<string, Session[]>();
+    for (const x of board?.sessions ?? []) {
+      if (!x.page_id || statusStyle(x.status).terminal) continue;
+      byStory.set(x.page_id, [...(byStory.get(x.page_id) ?? []), x]);
+    }
+    return { byStory, open: (id) => openSession(id, true), current: view === "card" ? cardId : null };
+  }, [board, view, cardId]);
+  // the spec pages behind cards: storage, never shown as pages
+  const specPageIds = useMemo(
+    () => new Set((board?.sessions ?? []).map((x) => x.specs_page_id).filter(Boolean) as string[]),
+    [board],
+  );
+  // an old link to a spec page opens its card (replacing the entry, not stacking it)
+  useEffect(() => {
+    if (view !== "page" || !pageId || !board) return;
+    const owner = board.sessions.find((x) => x.specs_page_id === pageId);
+    if (!owner) return;
+    lastLoc.current = locKey("card", { card: owner.id });
+    setCardId(owner.id);
+    setView("card");
+  }, [view, pageId, board]);
   // breadcrumb: ancestors of the open page (nearest last)
   const crumbs = useMemo(() => {
     if (!currentPage) return [];
@@ -1678,6 +1786,7 @@ export function App() {
 
   return (
     <AgentsContext.Provider value={agentsCtx}>
+    <TreeCardsCtx.Provider value={treeCards}>
     <div className="flex h-full">
       {!zen && (
       <Sidebar
@@ -1690,7 +1799,7 @@ export function App() {
         }}
         status={status}
         onSettings={() => setModal("settings")}
-        pages={pages}
+        pages={pages.filter((x) => !specPageIds.has(x.id))}
         pageId={pageId}
         plugins={plugins}
         pluginId={pluginId}
@@ -1723,7 +1832,34 @@ export function App() {
         {!zen && (
         <header className="flex flex-col gap-2 border-b border-line px-6 py-3">
           <div className="flex items-center gap-3">
-            {view === "page" && currentPage
+            {view === "card" && cardSession
+              ? (
+                <div className="flex min-w-0 items-center gap-1 text-[13px] text-ink-muted">
+                  {cardCrumbs.map((c) => (
+                    <span key={c.id} className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        className="flex max-w-[160px] items-center gap-1 hover:text-ink-soft"
+                        onClick={() => openPage(c.id)}
+                      >
+                        <EntityIcon icon={c.icon} className="shrink-0 text-[11px]" size={14} />
+                        <span className="truncate">{c.title || "Untitled"}</span>
+                      </button>
+                      <span className="text-ink-muted/50">/</span>
+                    </span>
+                  ))}
+                  <span className="flex min-w-0 items-center gap-1 font-medium text-ink">
+                    <EntityIcon
+                      icon={pages.find((x) => x.id === cardSession.specs_page_id)?.icon}
+                      fallback="▦"
+                      className="shrink-0 text-[11px]"
+                      size={14}
+                    />
+                    <span className="truncate">{cardSession.title}</span>
+                  </span>
+                </div>
+              )
+              : view === "page" && currentPage
               ? (
                 <div className="flex min-w-0 items-center gap-1 text-[13px] text-ink-muted">
                   {crumbs.map((c) => (
@@ -2100,6 +2236,21 @@ export function App() {
               />
             )
             : <p className="p-6 text-ink-muted">No page selected.</p>)
+          : view === "card"
+          ? (cardSession
+            ? (
+              <Drawer
+                key={cardSession.id}
+                session={cardSession}
+                board={board}
+                embedded
+                onOpenPage={openPage}
+                // closing a card goes back to its story
+                onClose={() => (cardSession.page_id ? openPage(cardSession.page_id) : setView("board"))}
+                onSaved={refresh}
+              />
+            )
+            : <p className="p-6 text-ink-muted">Session not found.</p>)
           : view === "database"
           ? (dbId
             ? (
@@ -2180,8 +2331,7 @@ export function App() {
               key={session.id}
               session={session}
               board={board}
-              defaultExpanded={drawerFull}
-              onExpandedChange={setDrawerFull}
+              onExpandedChange={(full) => full && openSession(session.id, true)}
               onOpenPage={openPage}
               onClose={() => setOpenId(null)}
               onSaved={refresh}
@@ -2306,6 +2456,7 @@ export function App() {
       )}
       <ConfirmHost />
     </div>
+    </TreeCardsCtx.Provider>
     </AgentsContext.Provider>
   );
 }

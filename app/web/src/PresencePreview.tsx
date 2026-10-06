@@ -6,6 +6,7 @@ const sample = (a: Partial<LiveAgent>): LiveAgent => ({
   session_id: "",
   state: "working",
   harness: "",
+  name: null,
   icon: null,
   provider: null,
   model: null,

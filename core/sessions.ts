@@ -90,7 +90,7 @@ async function findStory(ctx: Ctx, title: string, clientId: string | null): Prom
   const pg = ctx.q;
   const hit = (await pg.query(
     `select id from pages
-      where kind in ('story','page') and not deleted
+      where (kind = 'story' or (kind = 'page' and parent_id is null)) and not deleted
         and lower(regexp_replace(trim(title), '\\s+', ' ', 'g')) = lower($1)
         and ($2::uuid is null or client_id = $2 or client_id is null)
       order by (title = $1) desc, (kind='story') desc,
@@ -161,6 +161,16 @@ export async function resolveStory(
   if (out && near.length) {
     out.story_note = `similar open stories: ${near.map((n) => `'${n.title}' (${n.score})`).join(", ")}; ` +
       "re-track with one of them if it is the same topic";
+  }
+  // a nested page with this title is part of a document tree: never promoted by name
+  const nested = (await pg.query(
+    `select id from pages where kind='page' and parent_id is not null and not deleted
+        and lower(regexp_replace(trim(title), '\\s+', ' ', 'g')) = lower($1) limit 1`,
+    [clean],
+  )).rows[0] as { id: string } | undefined;
+  if (out && nested) {
+    out.story_note = [out.story_note, `a page named '${clean}' exists (${nested.id}) and was left as is; ` +
+      `use "Convert to user story" on it (or \`tramecli convert --story ${nested.id}\`) if it should be this story`].filter(Boolean).join("; ");
   }
   await checkStoryParent(ctx, clientId);
   // default tags (TRACKER_CLIENTS) stamp NEW stories only — an existing page's tags
@@ -244,6 +254,43 @@ export async function ensureSpecsPage(ctx: Ctx, sessionId: string): Promise<stri
 // double as its own story. Deterministic id, same reason as specsPageId: two nodes
 // converting the same page converge on one card instead of forking two.
 const PAGE_CARD_NS = "9c1f4a02-7d3e-4c85-b6a1-0e58d2f7c934";
+
+// A plain page becomes a user story under its project, on purpose (the explicit twin of
+// sessionFromPage). Idempotent; never nests a story, never takes a card's spec page.
+export async function storyFromPage(ctx: Ctx, pageId: string): Promise<{ id: string }> {
+  const pg = ctx.q;
+  const page = (await pg.query(
+    `select kind, parent_id, client_id from pages where id=$1 and not deleted`,
+    [pageId],
+  )).rows[0] as { kind: string; parent_id: string | null; client_id: string | null } | undefined;
+  if (!page) throw new Error(`unknown page ${pageId}`);
+  if (page.kind === "story") return { id: pageId };
+  if (page.kind !== "page") throw new Error("a project cannot become a user story");
+  const spec = (await pg.query(`select 1 from sessions where specs_page_id=$1 and not deleted limit 1`, [pageId]))
+    .rows.length;
+  if (spec) throw new Error("this page is a card's specs — it belongs to that card");
+  if (page.parent_id && await storyAbove(ctx, page.parent_id)) {
+    throw new Error("this page is already under a user story — stories don't nest; convert it to a session instead");
+  }
+  const below = (await pg.query(
+    `with recursive down as (
+       select id, kind, array[id] as path from pages where parent_id=$1 and not deleted
+       union all
+       select p.id, p.kind, down.path || p.id from pages p join down on p.parent_id=down.id
+        where not p.deleted and not p.id = any(down.path)
+     ) select 1 from down where kind='story' limit 1`,
+    [pageId],
+  )).rows.length;
+  if (below) throw new Error("a user story sits below this page — stories don't nest");
+  const project = await projectAbove(ctx, pageId) ?? page.client_id;
+  if (!project) throw new Error("file this page under a project first");
+  await pg.query(
+    `update pages set kind='story', parent_id=$2, client_id=$2, origin=$3, updated_at=clock_timestamp()
+      where id=$1`,
+    [pageId, project, ctx.origin],
+  );
+  return { id: pageId };
+}
 
 export async function sessionFromPage(
   ctx: Ctx,
@@ -612,7 +659,7 @@ export async function restoreSession(ctx: Ctx, id: string): Promise<void> {
 export async function listEvents(ctx: Ctx, sessionId: string, limit?: number) {
   const pg = ctx.q;
   return (await pg.query(
-    `select id, at, summary, kind, agent from session_events where session_id=$1 and not deleted
+    `select id, at, summary, kind, agent, model, tokens, cost_usd, agent_name from session_events where session_id=$1 and not deleted
      order by at desc, id desc${limit ? " limit $2" : ""}`,
     limit ? [sessionId, limit] : [sessionId],
   )).rows;
@@ -623,7 +670,7 @@ export async function listEvents(ctx: Ctx, sessionId: string, limit?: number) {
 export async function listPageEvents(ctx: Ctx, pageId: string, limit = 100) {
   const pg = ctx.q;
   return (await pg.query(
-    `select distinct e.id, e.at, e.summary, e.kind, e.agent, e.session_id,
+    `select distinct e.id, e.at, e.summary, e.kind, e.agent, e.model, e.tokens, e.cost_usd, e.agent_name, e.session_id,
             s.title as session_title, s.status as session_status
        from session_events e
        join session_links l on l.session_id = e.session_id and not l.deleted
@@ -643,17 +690,49 @@ export async function countEvents(ctx: Ctx, sessionId: string): Promise<number> 
   return row.n;
 }
 
-export async function addEvent(ctx: Ctx, sessionId: string, summary: string, kind = "log", agent: string | null = null): Promise<void> {
+// what an agent reports about the entry it writes; every field optional
+export type EventUsage = {
+  model?: string | null;
+  tokens?: number | null;
+  cost_usd?: number | null;
+  agent_name?: string | null; // the writing session's own name
+};
+
+export async function addEvent(
+  ctx: Ctx,
+  sessionId: string,
+  summary: string,
+  kind = "log",
+  agent: string | null = null,
+  usage: EventUsage = {},
+): Promise<void> {
   const pg = ctx.q;
   await pg.query(
-    `insert into session_events (session_id, summary, kind, origin, agent) values ($1,$2,$3,$4,$5)`,
-    [sessionId, summary, kind, ctx.origin, agent],
+    `insert into session_events (session_id, summary, kind, origin, agent, model, tokens, cost_usd, agent_name)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [
+      sessionId,
+      summary,
+      kind,
+      ctx.origin,
+      agent,
+      usage.model ?? null,
+      usage.tokens ?? null,
+      usage.cost_usd ?? null,
+      usage.agent_name ?? null,
+    ],
   );
   await pg.query(`update sessions set last_touched=clock_timestamp(), origin=$2, updated_at=clock_timestamp() where id=$1`, [sessionId, ctx.origin]);
 }
 
 // A track repeating the last one is a no-op (upsertSession already touched the card); manual logs always append.
-export async function addTrackEvent(ctx: Ctx, sessionId: string, summary: string, agent: string | null = null): Promise<void> {
+export async function addTrackEvent(
+  ctx: Ctx,
+  sessionId: string,
+  summary: string,
+  agent: string | null = null,
+  usage: EventUsage = {},
+): Promise<void> {
   const pg = ctx.q;
   const last = (await pg.query(
     `select summary, agent from session_events where session_id=$1 and kind='track' and not deleted
@@ -661,7 +740,7 @@ export async function addTrackEvent(ctx: Ctx, sessionId: string, summary: string
     [sessionId],
   )).rows[0] as { summary: string | null; agent: string | null } | undefined;
   if (last && (last.summary ?? "").trim() === summary.trim() && (last.agent ?? null) === agent) return;
-  await addEvent(ctx, sessionId, summary, "track", agent);
+  await addEvent(ctx, sessionId, summary, "track", agent, usage);
 }
 
 export async function linksForSession(ctx: Ctx, sessionId: string) {
@@ -690,13 +769,34 @@ export async function addSessionLink(
   return row.id;
 }
 
+// Links the session to a page block unless that exact link exists; block ids are only
+// unique within a page, so a same-id block on another page is a different link.
+export async function ensureSessionLink(
+  ctx: Ctx,
+  sessionId: string,
+  pageId: string,
+  blockId: string,
+  anchor: string,
+): Promise<void> {
+  const linked = (await ctx.q.query(
+    `select 1 from session_links where session_id=$1 and page_id=$2 and block_id=$3 and not deleted`,
+    [sessionId, pageId, blockId],
+  )).rows.length;
+  if (!linked) await addSessionLink(ctx, sessionId, pageId, blockId, anchor);
+}
+
 // One session as the drawer shows it: the ids it joins (project, story) resolved to
 // names, plus the worklog and backlinks /api/board leaves out. Null when unknown/deleted.
 export async function getSession(ctx: Ctx, id: string, eventLimit = 20) {
   const pg = ctx.q;
-  const s = (await pg.query(`select * from sessions where id=$1 and not deleted`, [id]))
-    .rows[0] as Record<string, unknown> | undefined;
+  // a card id, or the harness's own session uuid (stored as claude_id)
+  const s = (await pg.query(
+    `select * from sessions where (id=$1 or claude_id=$1) and not deleted
+      order by (id=$1) desc, last_touched desc limit 1`,
+    [id],
+  )).rows[0] as Record<string, unknown> | undefined;
   if (!s) return null;
+  id = s.id as string;
   const one = async (pageId: unknown, kind?: string) => {
     if (typeof pageId !== "string") return null;
     return (await pg.query(

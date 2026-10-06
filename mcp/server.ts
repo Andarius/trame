@@ -139,10 +139,10 @@ server.tool(
 
 server.tool(
   "trame_session",
-  "Read ONE work session — the card the user sees in the app: project and story by name (not raw ids), status, repo path, branch, PR, next step, specs (rendered read-only from the spec page; write via trame_update_page with session_id), backlink chips and the activity worklog. Accepts a session id or a Trame URL the user pasted (`…/?session=<id>`); a `?page=<id>` link with no session returns that page's sessions instead. Use this instead of scanning trame_board when you have a specific card or link.",
+  "Read ONE work session — the card the user sees in the app: project and story by name (not raw ids), status, repo path, branch, PR, next step, specs (rendered read-only from the spec page; write via trame_update_page with session_id), backlink chips and the activity worklog. Accepts a session id or a Trame URL the user pasted (`…/?view=card&card=<id>`, or the older `…/?session=<id>`); a `?page=<id>` link with no session returns that page's sessions instead. Use this instead of scanning trame_board when you have a specific card or link.",
   {
     session: z.string().describe(
-      "Session id, or a pasted Trame URL (…/?session=<id>&full=1 or …/?page=<id>)",
+      "Session id, or a pasted Trame URL (…/?view=card&card=<id>, …/?session=<id> or …/?page=<id>)",
     ),
     events: z.number().optional().describe(
       "Worklog entries to return, newest first (default 20)",
@@ -174,7 +174,7 @@ server.tool(
     // hand back a link the user can click, even when called with a bare id
     return text({
       ...card,
-      url: appUrl(await resolveTarget(), `session=${ref.id}&full=1`),
+      url: appUrl(await resolveTarget(), `view=card&card=${ref.id}`),
     });
   },
 );
@@ -202,6 +202,10 @@ server.tool(
       ),
     pr_url: z.string().optional(),
     summary: z.string().optional(),
+    model: z.string().optional(),
+    tokens: z.number().optional(),
+    cost_usd: z.number().optional(),
+    agent_name: z.string().optional(),
   },
   // the MCP server runs per agent session, so its env names the session (see track.ts)
   async (args: Record<string, unknown>) => {

@@ -9,7 +9,9 @@
 // Specs live on the session's spec page — write them with the page writer
 // (track/page.ts) using { session_id } after tracking.
 import { CLAUDE_MAP, OUTBOX } from "../app/config.ts";
-import { resolveTarget, type Target, targetFetch } from "./target.ts";
+import { appLink, resolveTarget, type Target, targetFetch } from "./target.ts";
+import { parseSessionRef } from "../mcp/session_url.ts";
+import { readTail, usageOf } from "./presence.ts";
 
 type Input = {
   title: string;
@@ -26,7 +28,40 @@ type Input = {
   claude_id?: string;
   agent?: "claude" | "codex";
   agent_id?: string;
+  card?: string; // an existing card to adopt: its id or a pasted Trame link
+  agent_name?: string; // this session's own name; read from the transcript when absent
+  model?: string; // exact model id writing this entry; stamped on the worklog line
+  tokens?: number; // tokens spent on the work this entry reports
+  cost_usd?: number;
 };
+
+// The session's own name (and model, unless given) from its Claude transcript, so the
+// worklog line says which session wrote it. Best effort: no transcript, no stamp.
+async function stampFromTranscript(inp: Input) {
+  const id = inp.agent === "codex" ? null : (inp.agent_id ?? Deno.env.get("CLAUDE_CODE_SESSION_ID"));
+  const home = Deno.env.get("HOME");
+  if (!id || !home || (inp.agent_name && inp.model)) return;
+  // per-backend launchers (glmclaude, pglmclaude, …) keep transcripts in their own config dir
+  const root = `${Deno.env.get("CLAUDE_CONFIG_DIR") ?? `${home}/.claude`}/projects`;
+  try {
+    for await (const dir of Deno.readDir(root)) {
+      const path = `${root}/${dir.name}/${id}.jsonl`;
+      const tail = await readTail(path).catch(() => null);
+      if (tail === null) continue;
+      const u = usageOf(tail);
+      inp.agent_name ??= u.name;
+      inp.model ??= u.model;
+      return;
+    }
+  } catch { /* no ~/.claude: nothing to stamp */ }
+}
+
+// a pasted Trame link names its card in the query string
+function cardId(v: string): string {
+  const ref = parseSessionRef(v);
+  if (!ref || ref.kind !== "session") throw new Error(`card: not a card id or card link: ${v}`);
+  return ref.id;
+}
 
 async function readInput(argv: string[]): Promise<Input> {
   const arg = argv[0];
@@ -54,6 +89,8 @@ export async function main(
   opts: { json?: boolean } = {},
 ) {
   const inp = await readInput(argv);
+  if (inp.card) inp.card = cardId(inp.card);
+  await stampFromTranscript(inp);
   // Codex and Claude Code both export the current session UUID to every shell call,
   // subagents and worktrees included. The hook's cwd map is the fallback for older
   // Claude Code builds; it is keyed by the prompt's cwd, not the tracked repo_path.
@@ -101,7 +138,7 @@ export async function main(
   console.log(
     `ok: session ${id} tracked in Trame (${
       inp.status ?? "active"
-    } — ${inp.title})`,
+    } — ${inp.title})${appLink(target, `view=card&card=${id}`)}`,
   );
   if (specs_page_id) console.log(`specs page: ${specs_page_id}`);
   if (story_note) console.log(`story: ${story_note}`);

@@ -5,6 +5,7 @@ import {
   deleteSession,
   deleteSessionLink,
   getEvents,
+  getPageEvents,
   getSessionLinks,
   probeResume,
   type ResumeInfo,
@@ -15,8 +16,12 @@ import {
   type SessionEvent,
   type SessionLink,
   type Status,
+  getPage,
+  updatePage,
 } from "./api";
-import { appConfirm, clientColor, ExpandIcon, pageOptions, Popover, Select, TagChips, timeAgo } from "./ui";
+import { appConfirm, clientColor, EntityIcon, ExpandIcon, pageOptions, Popover, Select, TagChips, timeAgo } from "./ui";
+import { AgentIcon, AgentsSummary, EventMeta, PresencePill, useAgents } from "./agents";
+import { summarizeAgents } from "./agent-summary";
 import { PrChip } from "./md";
 import { SpecsEditor } from "./SpecsEditor";
 import { TagEditor } from "./TagEditor";
@@ -36,31 +41,6 @@ const RESUME_DONE: Record<ResumeMode, string> = {
 const sectionLbl = "text-[10px] font-medium tracking-[0.8px] text-ink-muted/70";
 const rowLbl = "shrink-0 pt-[5px] text-[11px] text-ink-muted";
 
-// journal attribution: which coding agent produced a track/import entry.
-// Brand paths mirror app/agent-comments.ts (Simple Icons OpenAI v15.0.0 /
-// Anthropic v16.21.0) — copied, not imported: web code never pulls server modules.
-const OPENAI_PATH =
-  "M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z";
-const ANTHROPIC_PATH =
-  "M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z";
-const AGENT_MARKS: Record<string, { title: string; bg: string; path: string }> = {
-  claude: { title: "Claude Code", bg: "#D97757", path: ANTHROPIC_PATH },
-  codex: { title: "Codex", bg: "#111827", path: OPENAI_PATH },
-};
-function AgentMark({ agent }: { agent: string }) {
-  const m = AGENT_MARKS[agent];
-  if (!m) return null;
-  return (
-    <svg width="13" height="13" viewBox="0 0 32 32" className="shrink-0">
-      <title>{m.title}</title>
-      <circle cx="16" cy="16" r="16" fill={m.bg} />
-      <g transform="translate(5 5) scale(.9166667)" fill="white">
-        <path d={m.path} />
-      </g>
-    </svg>
-  );
-}
-
 const rowVal =
   "w-full truncate rounded-md border border-transparent bg-transparent px-2 py-1 text-xs text-ink outline-none transition-colors hover:bg-panel focus:border-chipline focus:bg-panel";
 
@@ -74,17 +54,21 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 export function Drawer(
-  { session, board, onClose, onSaved, defaultExpanded, onExpandedChange, onOpenPage }: {
+  { session, board, onClose, onSaved, defaultExpanded, onExpandedChange, onOpenPage, embedded = false }: {
     session: Session;
     board: BoardData;
     onClose: () => void;
     onSaved: () => void;
     defaultExpanded?: boolean;
+    // the card view: full layout inside the main area (sidebar + top bar stay), no overlay
+    embedded?: boolean;
     onExpandedChange?: (v: boolean) => void; // App mirrors it into the URL
     onOpenPage?: (id: string) => void; // navigate to a linked page
   },
 ) {
+  const { live, recent } = useAgents();
   const [title, setTitle] = useState(session.title);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [status, setStatus] = useState<Status>(session.status);
   const [client, setClient] = useState(board.projects.find((c) => c.id === session.client_id)?.name ?? "");
   const [pageId, setPageId] = useState(session.page_id ?? "");
@@ -113,7 +97,18 @@ export function Drawer(
     el.style.height = `${el.scrollHeight}px`;
   };
   const prLinks = prUrl.split("\n").map((s) => s.trim()).filter(Boolean);
-  const [events, setEvents] = useState<SessionEvent[]>([]);
+  // the card's journal plus, through its spec page, the entries of sessions working on its todos
+  const [events, setEvents] = useState<(SessionEvent & { session_id?: string; session_title?: string | null })[]>([]);
+  const loadJournal = () =>
+    Promise.all([
+      getEvents(session.id),
+      session.specs_page_id ? getPageEvents(session.specs_page_id).catch(() => []) : Promise.resolve([]),
+    ]).then(([own, linked]) => {
+      // guard: a stale backend may answer an error object instead of an array
+      if (!Array.isArray(own)) return;
+      const others = (Array.isArray(linked) ? linked : []).filter((e) => e.session_id !== session.id);
+      setEvents([...own, ...others].sort((a, b) => b.at.localeCompare(a.at)));
+    }).catch(() => {});
   // page-item links ("this session works on that TODO line")
   const [links, setLinks] = useState<SessionLink[]>([]);
   useEffect(() => {
@@ -172,8 +167,7 @@ export function Drawer(
   };
 
   useEffect(() => {
-    // guard: a stale backend may answer an error object instead of an array
-    getEvents(session.id).then((e) => Array.isArray(e) && setEvents(e)).catch(() => {});
+    loadJournal();
     return () => {
       clearTimeout(flashTimer.current);
       clearTimeout(resumeTimer.current);
@@ -208,7 +202,7 @@ export function Drawer(
     if (!log.trim()) return;
     addLog(session.id, log.trim()).then(() => {
       setLog("");
-      getEvents(session.id).then((e) => Array.isArray(e) && setEvents(e)).catch(() => {});
+      loadJournal();
       onSaved();
     });
   };
@@ -238,13 +232,15 @@ export function Drawer(
           {session.repo_path.split("/").slice(-2).join("/")}
         </span>
       )}
-      <button type="button"
-        className="flex items-center rounded-md px-1.5 py-1 text-ink-muted transition-colors hover:bg-panel hover:text-ink"
-        title={expanded ? "collapse to side panel" : "expand to full screen"}
-        onClick={() => setExpanded((v) => !v)}
-      >
-        <ExpandIcon open={expanded} />
-      </button>
+      {!embedded && (
+        <button type="button"
+          className="flex items-center rounded-md px-1.5 py-1 text-ink-muted transition-colors hover:bg-panel hover:text-ink"
+          title={expanded ? "collapse to side panel" : "open the session"}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          <ExpandIcon open={expanded} />
+        </button>
+      )}
       <button type="button"
         className="rounded-md px-1.5 py-0.5 text-[13px] text-ink-muted transition-colors hover:bg-panel hover:text-ink"
         title="close (esc)"
@@ -255,14 +251,65 @@ export function Drawer(
     </div>
   );
 
+  // a session has no icon of its own: its spec page's stands in
+  const specIcon = board.pages.find((p) => p.id === session.specs_page_id)?.icon ?? null;
+  // agents on this card: its own presence, or anyone working on its spec page
+  const cardAgents = live.filter(({ a }) =>
+    a.session_id === session.id || (!!session.specs_page_id && a.page_id === session.specs_page_id)
+  );
+  const titleInput = (
+    <div className="flex items-start gap-1.5">
+      {specIcon && <EntityIcon icon={specIcon} className="mt-1 text-[17px]" />}
+      <textarea
+        className="field-sizing-content resize-none rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[15px] font-semibold leading-snug text-ink outline-none transition-colors hover:bg-panel/60 focus:border-chipline focus:bg-panel"
+        rows={2}
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        onBlur={() => commitIf(title !== session.title)}
+      />
+    </div>
+  );
+  // every named session that wrote to this card's worklog, plus the ones live or recently seen
+  const workedBy = [...new Set([
+    ...cardAgents.map(({ a }) => a.name).filter(Boolean),
+    ...recent.filter((a) =>
+      a.session_id === session.id || (!!session.specs_page_id && a.page_id === session.specs_page_id)
+    ).map((a) => a.name).filter(Boolean),
+    ...events.map((e) => e.agent_name).filter(Boolean),
+  ] as string[])];
+  // design 4: per-agent model, tokens, time and state, from the journal plus live reports
+  const agentSummaries = summarizeAgents(events, [
+    ...cardAgents.map(({ a, state }) => ({ name: a.name, harness: a.harness, model: a.model, tokens: a.tokens, state })),
+    ...recent.filter((a) =>
+      (a.session_id === session.id || (!!session.specs_page_id && a.page_id === session.specs_page_id)) &&
+      !cardAgents.some((l) => l.a.session_id === a.session_id)
+    ).map((a) => ({ name: a.name, harness: a.harness, model: a.model, tokens: a.tokens, state: null })),
+  ]);
+  const agentChips = cardAgents.length > 0 && (
+    <div className="flex flex-wrap gap-1.5">
+      {cardAgents.map(({ a, state }) => (
+        <span
+          key={a.session_id}
+          title={`${a.session_title} — ${state === "working" ? "working" : "needs you"}`}
+          className="inline-flex items-center gap-1.5 rounded-md border border-chipline/60 px-1.5 py-0.5 text-[11px] text-ink-muted"
+        >
+          <AgentIcon a={a} />
+          {a.name ?? a.harness}
+          <span className={`h-1.5 w-1.5 rounded-full ${state === "working" ? "bg-live" : "bg-wait"}`} />
+        </span>
+      ))}
+    </div>
+  );
   const titleField = (
-    <textarea
-      className="field-sizing-content resize-none rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[15px] font-semibold leading-snug text-ink outline-none transition-colors hover:bg-panel/60 focus:border-chipline focus:bg-panel"
-      rows={2}
-      value={title}
-      onChange={(e) => setTitle(e.target.value)}
-      onBlur={() => commitIf(title !== session.title)}
-    />
+    <div className="flex flex-col gap-1">
+      {titleInput}
+      {workedBy.length > 0 && (
+        <div className="px-1 text-[11.5px] text-ink-faint">
+          worked on by <span className="text-ink-muted">{workedBy.join(" · ")}</span>
+        </div>
+      )}
+      {agentChips && <div className="px-1">{agentChips}</div>}
+    </div>
   );
 
   const statusDef = board.statuses.find((d) => d.key === status);
@@ -361,11 +408,20 @@ export function Drawer(
     />
   );
   const storyTags = board.stories.find((x) => x.id === pageId)?.tags;
+  // the hidden spec page's tags are the card's too; the first edit moves them onto the card
+  const [specTags, setSpecTags] = useState<string[]>([]);
+  useEffect(() => {
+    if (!session.specs_page_id) return setSpecTags([]);
+    getPage(session.specs_page_id).then((p) => setSpecTags(p.tags ?? [])).catch(() => {});
+  }, [session.specs_page_id]);
   const sessionTags = Array.isArray(session.tags) ? (
     <div role="group" aria-label="Session tags" className="min-w-0 py-1">
-      <TagEditor tags={tags} onChange={(next) => {
+      <TagEditor tags={[...new Set([...tags, ...specTags])]} onChange={(next) => {
         setTags(next);
         commit({ tags: next });
+        if (specTags.length && session.specs_page_id) {
+          updatePage(session.specs_page_id, { tags: [] }).then(() => setSpecTags([])).catch(() => {});
+        }
       }} />
     </div>
   ) : null;
@@ -387,6 +443,32 @@ export function Drawer(
         commit({ page_id: v || null });
       }}
     />
+  );
+  // the card view's story chooser: a content-sized pill like status and project
+  const storyPill = (
+    <div className="flex min-w-0 items-center gap-1.5">
+      <div className="w-fit min-w-[130px] max-w-full">
+        <Select
+          value={pageId}
+          className="rounded-md px-2.5 py-1 text-xs font-medium outline-none"
+          triggerStyle={{ background: "var(--color-card)" }}
+          options={[
+            { value: "", label: "none" },
+            ...pageOptions(
+              board.stories.filter((s) => s.status !== "archived" || s.id === pageId),
+              board.pages ?? [],
+            ),
+          ]}
+          onChange={(v) => {
+            setPageId(v);
+            commit({ page_id: v || null });
+          }}
+        />
+      </div>
+      <div className="shrink-0">
+        <TagChips keys={storyTags} />
+      </div>
+    </div>
   );
   const storyRow = (
     <div className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -503,20 +585,21 @@ export function Drawer(
       {events.map((e) => (
         <div key={e.id} className="relative">
           <span className={`absolute -left-[18px] top-[4px] h-[7px] w-[7px] rounded-full border-2 bg-chipline ${dotRing}`} />
-          <div className="flex items-center gap-1.5 text-[10.5px] text-ink-muted">
-            {/* the entry's own agent wins; older track/import rows predate the
-                column and fall back to the session's agent. Manual logs stay bare. */}
-            {(() => {
-              const a = e.agent ?? (e.kind !== "log" ? session.agent : null);
-              return a && <AgentMark agent={a} />;
-            })()}
-            <span>
-              <span className="font-medium text-ink-soft/90">{e.kind}</span> · {timeAgo(e.at)}
-            </span>
-          </div>
-          {e.summary && (
-            <p className="mt-0.5 whitespace-pre-wrap text-xs leading-relaxed text-ink-soft">{e.summary}</p>
+          {e.session_id && e.session_id !== session.id && e.session_title && (
+            <div className="mb-0.5 truncate text-[10.5px] font-medium text-ink-muted">{e.session_title}</div>
           )}
+          {e.kind === "presence"
+            ? <PresencePill e={e} when={timeAgo(e.at)} />
+            : (
+              <>
+                {e.summary && (
+                  <p className="whitespace-pre-wrap text-xs leading-relaxed text-ink-soft">{e.summary}</p>
+                )}
+                {/* the entry's own agent wins; older track/import rows predate the
+                    column and fall back to the session's agent. Manual logs stay bare. */}
+                <EventMeta e={e} agent={e.agent ?? (e.kind !== "log" ? session.agent : null)} when={timeAgo(e.at)} />
+              </>
+            )}
         </div>
       ))}
       {events.length === 0 && <span className="py-1 text-[11px] text-ink-muted/60">No entries yet</span>}
@@ -581,27 +664,9 @@ export function Drawer(
 
   // expanded = ticket view (design C): left = title + fields + specs, right = journal
   // with Resume/NEXT/composer pinned; below 1000px the panes stack into one document
-  if (expanded) {
+  if (expanded || embedded) {
     const lblCls = "text-[11px] text-ink-muted";
-    return (
-      <div className="fixed inset-0 z-50 flex flex-col bg-sidebar">
-        {headerBar}
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto min-[1000px]:flex-row min-[1000px]:overflow-hidden">
-          <div className="flex-1 px-8 pb-6 pt-3 min-[1000px]:min-h-0 min-[1000px]:overflow-y-auto">
-            <div className="mx-auto flex max-w-[860px] flex-col gap-5">
-              <div className="flex flex-col gap-2">
-                {titleField}
-                {sessionTags}
-              </div>
-              <div className="flex flex-col gap-3">
-                <div className="grid grid-cols-[minmax(120px,180px)_1fr_1fr] gap-3">
-                  <div className="flex min-w-0 flex-col gap-1">
-                    <span className={lblCls}>Status</span>
-                    {statusSelect}
-                  </div>
-                  <div className="flex min-w-0 flex-col gap-1">
-                    <span className={lblCls}>Project</span>
-                    {(() => {
+    const projectPill = (() => {
                       const proj = board.projects.find((c) => c.name === client);
                       const c = proj ? clientColor(proj.name, proj.color) : null;
                       return c
@@ -623,7 +688,100 @@ export function Drawer(
                           </div>
                         )
                         : projectSelect;
-                    })()}
+                    })();
+    return (
+      <div className={embedded ? "flex min-h-0 flex-1 flex-col bg-canvas" : "fixed inset-0 z-50 flex flex-col bg-sidebar"}>
+        {!embedded && headerBar}
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto min-[1000px]:flex-row min-[1000px]:overflow-hidden">
+          <div className="flex-1 px-8 pb-6 pt-3 min-[1000px]:min-h-0 min-[1000px]:overflow-y-auto">
+            <div className="mx-auto flex max-w-[860px] flex-col gap-5">
+              {embedded
+                ? (
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-start gap-3">
+                      <div className="min-w-0 flex-1">{titleInput}</div>
+                      <div className="relative shrink-0 pt-1">
+                        <button
+                          type="button"
+                          title="More session actions"
+                          aria-label="More session actions"
+                          aria-haspopup="menu"
+                          aria-expanded={moreOpen}
+                          className="rounded-md px-1.5 py-0.5 text-[16px] leading-none text-ink-muted hover:bg-panel hover:text-ink-soft"
+                          onClick={() => setMoreOpen((v) => !v)}
+                        >
+                          ⋯
+                        </button>
+                        {moreOpen && (
+                          <Popover onClose={() => setMoreOpen(false)} className="!left-auto right-0 w-[210px]">
+                            <button
+                              type="button"
+                              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12.5px] text-ink-soft hover:bg-panel"
+                              onClick={() => {
+                                navigator.clipboard?.writeText(session.id).catch(() => {});
+                                setMoreOpen(false);
+                              }}
+                            >
+                              ⧉ Copy session id
+                            </button>
+                            <button
+                              type="button"
+                              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12.5px] text-blocked hover:bg-panel"
+                              onClick={() => {
+                                setMoreOpen(false);
+                                remove();
+                              }}
+                            >
+                              ✕ Delete session
+                            </button>
+                          </Popover>
+                        )}
+                      </div>
+                    </div>
+                    {/* the fields as label / value rows, two columns on wide screens (row-major order) */}
+                    <div className="grid grid-cols-1 gap-x-10 min-[900px]:grid-cols-2">
+                      {([
+                        ["Status", statusSelect],
+                        ["Branch", branchInput],
+                        ["Project", projectPill],
+                        ["PR / MR", prField],
+                        ["User story", storyPill],
+                        ["Repo", (
+                          session.repo_path
+                            ? <span className="block truncate font-mono text-[11.5px] text-ink-muted" title={session.repo_path}>{session.repo_path}</span>
+                            : <span className="text-[12px] text-ink-faint">none</span>
+                        )],
+                        ["Agents", <AgentsSummary key="agents" agents={agentSummaries} />],
+                        ["Last touched", (
+                          <span className="text-[12px] text-ink-muted" title={new Date(session.last_touched).toLocaleString()}>
+                            {timeAgo(session.last_touched)}
+                          </span>
+                        )],
+                        ["Tags", sessionTags],
+                      ] as [string, ReactNode][]).map(([label, value]) => (
+                        <div key={label} className="grid grid-cols-[96px_minmax(0,1fr)] items-center gap-3 py-1.5">
+                          <span className="text-[11.5px] text-ink-muted">{label}</span>
+                          <div className="min-w-0">{value}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+                : (
+                  <>
+              <div className="flex flex-col gap-2">
+                {titleField}
+                {sessionTags}
+              </div>
+              <div className="flex flex-col gap-3">
+                <div className="grid grid-cols-[minmax(120px,180px)_1fr_1fr] gap-3">
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <span className={lblCls}>Status</span>
+                    {statusSelect}
+                  </div>
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <span className={lblCls}>Project</span>
+                    {projectPill}
                   </div>
                   <div className="flex min-w-0 flex-col gap-1">
                     <span className={lblCls}>Story</span>
@@ -641,6 +799,8 @@ export function Drawer(
                   </div>
                 </div>
               </div>
+                  </>
+                )}
               {linkedRow}
               <div className="max-w-[760px]">
                 <SpecsEditor
@@ -667,7 +827,7 @@ export function Drawer(
             </div>
           </div>
         </div>
-        {footerBar}
+        {!embedded && footerBar}
       </div>
     );
   }

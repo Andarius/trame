@@ -1,6 +1,6 @@
 ---
 name: trame-page
-description: Create standalone or nested Trame pages from Markdown, update pages in place (unchanged blocks keep their comment anchors), and add inline agent review comments (attributed to the real model — codex, claude, or any other) to page blocks. Use when the user asks to create, save, publish, or revise a Trame page, document, note, plan, or write-up, or asks an agent to review, annotate, or comment on an existing Trame page.
+description: Create standalone or nested Trame pages from Markdown, update pages in place (unchanged blocks keep their comment anchors), and add inline agent review comments (attributed to the real model — codex, claude, or any other) to page blocks. Use when the user asks to create, save, publish, read, or revise a Trame page, document, note, plan, or write-up, or asks an agent to review, annotate, or comment on an existing Trame page.
 ---
 
 # Work with Trame pages
@@ -171,6 +171,7 @@ instead (next section).
    self-contained avatar from `agent`. Repeat the call for additional target blocks, then report the
    comment IDs and page URL.
 
+To read a page or a pasted Trame link, run `tramecli show <id or URL>` (`--json` for the raw page).
 Do not search the Trame source tree or reconstruct its HTTP routes. The writers own
 page/block resolution and attribution. With no app running they go to the Trame hub
 when one is configured; if neither is reachable, report that the app must be started —

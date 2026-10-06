@@ -51,7 +51,15 @@ export async function getPage(ctx: Ctx, id: string) {
       .rows[0];
   if (!page) return null;
   const children = (await pg.query(
-    `select ${LIST_COLS} from pages where parent_id=$1 and not deleted order by sort_key, title`,
+    // todo progress per sub-page; a non-array content (hub jsonb-string rows) counts as empty
+    `select ${LIST_COLS},
+            (select count(*)::int from jsonb_array_elements(
+               case when jsonb_typeof(content)='array' then content else '[]'::jsonb end) b
+              where b->>'type'='todo') as todos,
+            (select count(*)::int from jsonb_array_elements(
+               case when jsonb_typeof(content)='array' then content else '[]'::jsonb end) b
+              where b->>'type'='todo' and b->>'done'='true') as todos_done
+       from pages where parent_id=$1 and not deleted order by sort_key, title`,
     [id],
   )).rows;
   const databases = (await pg.query(

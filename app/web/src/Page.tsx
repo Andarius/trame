@@ -24,6 +24,7 @@ import {
   type PageComment,
   type PageDetail,
   pageToSession,
+  pageToStory,
   pingPresence,
   type Presence,
   type Session,
@@ -45,6 +46,7 @@ import {
   StatusDot,
   statusStyle,
   storyOf,
+  TagChips,
   timeAgo,
   uuid7Time,
 } from "./ui";
@@ -77,7 +79,7 @@ import {
   touchTodo,
 } from "../../../core/todo-marks.ts";
 import { PAGE_STATUSES } from "../../../core/page-status.ts";
-import { LiveLine, LiveRail, liveRingCls, liveRowCls, LiveTrail, useAgents, worksOn } from "./agents";
+import { AgentIcon, LiveLine, LiveRail, liveRingCls, liveRowCls, LiveTrail, useAgents, worksOn } from "./agents";
 import { DatabaseView } from "./udb/DatabaseTable";
 import { FolderBlock } from "./FolderBlock";
 import { TagEditor } from "./TagEditor";
@@ -2553,6 +2555,7 @@ export function Page(
   const [linkPick, setLinkPick] = useState<
     { blockId: string; item: string } | null
   >(null);
+  const { live: liveAgentsAll, recent: recentAgents } = useAgents();
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [comments, setComments] = useState<PageComment[]>([]);
   const [showResolved, setShowResolved] = useState(false);
@@ -2585,6 +2588,7 @@ export function Page(
   const [flash, setFlash] = useState<string | null>(null);
   const flashTimer = useRef<number | undefined>(undefined);
   const [idCopied, setIdCopied] = useState(false);
+  const [headerMenu, setHeaderMenu] = useState(false);
   const [mdOpen, setMdOpen] = useState(false);
   const [mdCopied, setMdCopied] = useState(false);
   const [meId, setMeId] = useState<string | null>(null);
@@ -2835,13 +2839,30 @@ export function Page(
   const childStoryIds = new Set(
     page.children.filter((c) => c.kind === "story").map((c) => c.id),
   );
-  const sessions = board.sessions
-    .filter((s) => inSubtree(s, pageId, byId))
+  const subtreeSessions = board.sessions.filter((s) => inSubtree(s, pageId, byId));
+  // the card whose specs are this page — off the polled board, so it stays live
+  const specCard = board.sessions.find((x) => x.specs_page_id === page.id);
+  // a story can't hold another one: no "Convert to user story" below a story
+  let underStory = false;
+  for (let a = page.parent_id ? byId.get(page.parent_id) : undefined; a; a = a.parent_id ? byId.get(a.parent_id) : undefined) {
+    if (a.kind === "story") underStory = true;
+  }
+  // on a story, its cards' spec pages render as the cards themselves
+  const specIds = new Set(isStory ? subtreeSessions.map((s) => s.specs_page_id).filter(Boolean) as string[] : []);
+  // a card already shown as a chip on one of this page's todos isn't listed again
+  const todoIds = new Set(blocks.flatMap((b) => (b.type === "todo" && b.id ? [b.id] : [])));
+  const chipped = new Set(
+    (page.links ?? []).filter((l) => l.session_id && l.block_id && todoIds.has(l.block_id)).map((l) => l.session_id),
+  );
+  const sessions = subtreeSessions
+    .filter((s) => !chipped.has(s.id))
     .sort((a, b) =>
       (statusStyle(a.status).terminal ? 1 : 0) -
       (statusStyle(b.status).terminal ? 1 : 0)
     );
   const done = sessions.filter((s) => statusStyle(s.status).terminal).length;
+  // the header's progress counts every card, chipped or not
+  const doneAll = subtreeSessions.filter((s) => statusStyle(s.status).terminal).length;
   // a project's sessions come from several stories — group them under their story
   // instead of one flat list; a story only ever shows its own.
   const sessionsByStory = isProject
@@ -3035,6 +3056,16 @@ export function Page(
                 e.key === "Enter" && (e.target as HTMLInputElement).blur()}
             />
             {linkedSessions > 0 && <PageActivityChip pageId={page.id} sessions={linkedSessions} />}
+            {specCard && (
+              <button
+                type="button"
+                title="Open the session this page is the specs of"
+                className="shrink-0 rounded-md border border-copper/40 bg-copper/[0.06] px-2 py-0.5 text-[11.5px] text-copper transition-colors hover:border-copper/60 hover:bg-copper/10"
+                onClick={() => onOpenSession(specCard.id, true)}
+              >
+                ▦ Open session ↗
+              </button>
+            )}
             {isProject && (
               <div className="relative shrink-0">
                 <button
@@ -3106,8 +3137,11 @@ export function Page(
 
           {(() => {
             const created = uuid7Time(page.id);
+            const canConvert = !isProject && !isStory && !specCard;
+            const item =
+              "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12.5px] text-ink-soft hover:bg-panel";
             return (
-              <div className="-mt-2.5 flex flex-wrap items-center gap-1.5 px-1 text-[10.5px] text-ink-muted/70">
+              <div className="-mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 px-1 text-[11px] text-ink-muted/70">
                 {created && (
                   <span title={created.toLocaleString()}>
                     Created {created.toLocaleDateString(undefined, {
@@ -3121,63 +3155,88 @@ export function Page(
                 <span title={new Date(page.updated_at).toLocaleString()}>
                   Updated {timeAgo(page.updated_at)}
                 </span>
-                <button
-                  type="button"
-                  title={`Copy page id: ${page.id}`}
-                  className={`ml-1 rounded-md border border-line-soft px-2 py-0.5 transition-colors ${
-                    idCopied
-                      ? "border-copper/50 text-copper"
-                      : "hover:bg-panel hover:text-ink-soft"
-                  }`}
-                  onClick={() => {
-                    navigator.clipboard?.writeText(page.id).then(() => {
-                      setIdCopied(true);
-                      setTimeout(() => setIdCopied(false), 1500);
-                    }).catch(() => {});
-                  }}
-                >
-                  {idCopied ? "copied ✓" : "copy id"}
-                </button>
-                <button
-                  type="button"
-                  title="show this page as Markdown"
-                  className="rounded-md border border-line-soft px-2 py-0.5 transition-colors hover:bg-panel hover:text-ink-soft"
-                  onClick={() => setMdOpen(true)}
-                >
-                  markdown
-                </button>
-                {!isProject && !isStory && (() => {
-                  // the card whose specs are this page — off the polled board, so the
-                  // pill tells the truth without a fetch of its own
-                  const card = board.sessions.find((x) =>
-                    x.specs_page_id === page.id
-                  );
-                  return (
-                    <button
-                      type="button"
-                      title={card
-                        ? "Open the session this page is the specs of"
-                        : "Track this page as a session — the page becomes the card's specs"}
-                      className="rounded-md border border-copper/40 bg-copper/[0.06] px-2 py-0.5 text-copper transition-colors hover:border-copper/60 hover:bg-copper/10"
-                      onClick={() => {
-                        if (card) return onOpenSession(card.id, true);
-                        pageToSession(page.id)
-                          .then((r) => {
-                            onChanged(); // the drawer renders only once the board has the card
-                            onOpenSession(r.id, true);
-                          })
-                          .catch((e: Error) => appConfirm(e.message, "OK"));
-                      }}
-                    >
-                      {card ? "▦ Open session ↗" : "▦ Convert to session"}
-                    </button>
-                  );
-                })()}
-                {/* with the metadata, not on the title row — there they fought the title for space */}
+                <span className="mx-1 h-3 w-px bg-line" />
                 <TagEditor
                   tags={page.tags ?? []}
                   onChange={(tags) => patch({ tags })}
                 />
+                <span className="flex-1" />
+                {/* rarely-used page actions, out of the metadata line */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    title="More page actions"
+                    aria-label="More page actions"
+                    aria-haspopup="menu"
+                    aria-expanded={headerMenu}
+                    className="rounded-md px-1.5 py-0.5 text-[15px] leading-none text-ink-muted hover:bg-panel hover:text-ink-soft"
+                    onClick={() => setHeaderMenu((v) => !v)}
+                  >
+                    ⋯
+                  </button>
+                  {headerMenu && (
+                    <Popover onClose={() => setHeaderMenu(false)} className="!left-auto right-0 w-[230px]">
+                      <button
+                        type="button"
+                        className={item}
+                        onClick={() => {
+                          navigator.clipboard?.writeText(page.id).then(() => {
+                            setIdCopied(true);
+                            setTimeout(() => setIdCopied(false), 1500);
+                          }).catch(() => {});
+                        }}
+                      >
+                        ⧉ {idCopied ? "Copied ✓" : "Copy page id"}
+                      </button>
+                      <button
+                        type="button"
+                        className={item}
+                        onClick={() => {
+                          setHeaderMenu(false);
+                          setMdOpen(true);
+                        }}
+                      >
+                        ⌘ Show as Markdown
+                      </button>
+                      {canConvert && (
+                        <button
+                          type="button"
+                          className={item}
+                          title="Track this page as a session — the page becomes the card's specs"
+                          onClick={() => {
+                            setHeaderMenu(false);
+                            pageToSession(page.id)
+                              .then((r) => {
+                                onChanged(); // the drawer renders only once the board has the card
+                                onOpenSession(r.id, true);
+                              })
+                              .catch((e: Error) => appConfirm(e.message, "OK"));
+                          }}
+                        >
+                          ▦ Convert to session
+                        </button>
+                      )}
+                      {canConvert && page.kind === "page" && !underStory && (
+                        <button
+                          type="button"
+                          className={item}
+                          title="Make this page a user story under its project — cards will attach to it"
+                          onClick={() => {
+                            setHeaderMenu(false);
+                            pageToStory(page.id)
+                              .then(() => {
+                                onChanged();
+                                getPage(page.id).then(setPage);
+                              })
+                              .catch((e: Error) => appConfirm(e.message, "OK"));
+                          }}
+                        >
+                          ◇ Convert to user story
+                        </button>
+                      )}
+                    </Popover>
+                  )}
+                </div>
               </div>
             );
           })()}
@@ -3253,16 +3312,16 @@ export function Page(
                   onClick={() => onOpenClient(client.id)}
                 />
               )}
-              {sessions.length > 0 && (
+              {subtreeSessions.length > 0 && (
                 <>
                   <div className="h-[5px] w-[140px] overflow-hidden rounded-full bg-line">
                     <div
                       className="h-full rounded-full bg-copper"
-                      style={{ width: `${(done / sessions.length) * 100}%` }}
+                      style={{ width: `${(doneAll / subtreeSessions.length) * 100}%` }}
                     />
                   </div>
                   <span className="text-[11.5px] font-medium text-ink-muted">
-                    {done} / {sessions.length} done
+                    {doneAll} / {subtreeSessions.length} done
                   </span>
                 </>
               )}
@@ -3294,7 +3353,75 @@ export function Page(
             onDone={() => reload()}
           />
 
-          {sessions.length > 0 && sessionsPanel(true)}
+          {/* a story's cards show as agents on its sub-pages and chips on todos */}
+          {!isStory && sessions.length > 0 && sessionsPanel(true)}
+          {isStory && subtreeSessions.length > 0 && (
+            <div className="flex flex-col gap-0.5 border-b border-line-soft pb-3">
+              <span className="mb-1 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">CARDS</span>
+              {subtreeSessions.map((s) => {
+                const spec = page.children.find((c) => c.id === s.specs_page_id);
+                const agents = liveAgentsAll.filter(({ a }) =>
+                  a.session_id === s.id || (!!s.specs_page_id && a.page_id === s.specs_page_id)
+                );
+                const done = statusStyle(s.status).terminal;
+                return (
+                  <div
+                    key={s.id}
+                    title="open the session"
+                    // the full session view: its specs, worklog and links in one place
+                    onClick={() => onOpenSession(s.id, true)}
+                    className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-[13px] hover:bg-panel"
+                  >
+                    <StatusDot status={s.status} size={7} />
+                    {spec?.icon && <EntityIcon icon={spec.icon} className="text-[13px]" />}
+                    <span className={done ? "text-ink-muted line-through decoration-ink-faint" : "text-ink-soft"}>
+                      {s.title}
+                    </span>
+                    {(() => {
+                      // the session working this card, by its own name (live or recently seen)
+                      const name = recentAgents.find((a) => a.session_id === s.id && a.name)?.name;
+                      return name && <span className="font-mono text-[11px] text-ink-faint">{name}</span>;
+                    })()}
+                    {/* the card's tags and its spec page's */}
+                    {(() => {
+                      const keys = [...new Set([...(s.tags ?? []), ...(spec?.tags ?? [])])];
+                      return keys.length > 0 && <TagChips keys={keys} />;
+                    })()}
+                    <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+                      {agents.map(({ a, state }) => (
+                        <span
+                          key={a.session_id}
+                          title={`${a.session_title} — ${state === "working" ? "working" : "needs you"}`}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-chipline/60 px-1.5 py-0.5 text-[11px] text-ink-muted"
+                        >
+                          <AgentIcon a={a} />
+                          {a.name ?? a.harness}
+                          <span className={`h-1.5 w-1.5 rounded-full ${state === "working" ? "bg-live" : "bg-wait"}`} />
+                        </span>
+                      ))}
+                      {!!spec?.todos && (
+                        <span
+                          className="inline-flex items-center gap-1.5 pl-1 font-mono text-[11px] tabular-nums text-ink-faint"
+                          title={`${spec.todos_done ?? 0} of ${spec.todos} todos done`}
+                        >
+                          <span className="inline-block h-1 w-10 overflow-hidden rounded bg-line">
+                            <span
+                              className="block h-full rounded bg-live"
+                              style={{ width: `${((spec.todos_done ?? 0) / spec.todos) * 100}%` }}
+                            />
+                          </span>
+                          {spec.todos_done ?? 0}/{spec.todos}
+                        </span>
+                      )}
+                      <span className="w-[64px] text-right text-[10.5px] text-ink-muted/70">
+                        {statusStyle(s.status).label}
+                      </span>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {(openCount > 0 || resolvedCount > 0) && (
             <div className="-mb-2 flex items-center gap-3 self-start">
@@ -3491,7 +3618,10 @@ export function Page(
           ))}
 
           <div className="flex flex-col gap-0.5">
-            {page.children.map((c) => (
+            {isStory && page.children.some((c) => !specIds.has(c.id)) && (
+              <span className="mb-1 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">DOCUMENTS</span>
+            )}
+            {page.children.filter((c) => !specIds.has(c.id)).map((c) => (
               <button
                 type="button"
                 key={c.id}
@@ -3517,6 +3647,38 @@ export function Page(
                     archived
                   </span>
                 )}
+                {c.tags.length > 0 && <TagChips keys={c.tags} />}
+                {/* agents live on that sub-page right now, then its progress and age */}
+                <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+                  {liveAgentsAll
+                    .filter(({ a }) => a.page_id ? a.page_id === c.id : a.links.some((l) => l.page_id === c.id))
+                    .map(({ a, state }) => (
+                      <span
+                        key={a.session_id}
+                        title={`${a.session_title} — ${state === "working" ? "working" : "needs you"}`}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-chipline/60 px-1.5 py-0.5 text-[11px] text-ink-muted"
+                      >
+                        <AgentIcon a={a} />
+                        {a.name ?? a.harness}
+                        <span className={`h-1.5 w-1.5 rounded-full ${state === "working" ? "bg-live" : "bg-wait"}`} />
+                      </span>
+                    ))}
+                  {!!c.todos && (
+                    <span
+                      className="inline-flex items-center gap-1.5 pl-1 font-mono text-[11px] tabular-nums text-ink-faint"
+                      title={`${c.todos_done ?? 0} of ${c.todos} todos done`}
+                    >
+                      <span className="inline-block h-1 w-10 overflow-hidden rounded bg-line">
+                        <span
+                          className="block h-full rounded bg-live"
+                          style={{ width: `${((c.todos_done ?? 0) / c.todos) * 100}%` }}
+                        />
+                      </span>
+                      {c.todos_done ?? 0}/{c.todos}
+                    </span>
+                  )}
+                  <span className="w-[52px] text-right text-[11px] text-ink-faint">{timeAgo(c.updated_at)}</span>
+                </span>
               </button>
             ))}
             <button
@@ -3529,8 +3691,6 @@ export function Page(
             </button>
           </div>
 
-          {/* empty state stays at the bottom; sessions themselves sit up top */}
-          {isStory && sessions.length === 0 && sessionsPanel(false)}
         </div>
       </div>
       {commentMode === "panel" && panelOpen && (

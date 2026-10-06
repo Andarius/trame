@@ -1,5 +1,6 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, Fragment, type ReactNode, useContext, useEffect, useState } from "react";
 import type { AgentPresenceSettings, LiveAgent } from "./api";
+import { type AgentSummary, fmtDuration } from "./agent-summary";
 
 // brand marks for the harnesses/providers Trame knows; others send their own icon
 const ICONS: Record<string, { viewBox: string; d: string }> = {
@@ -52,8 +53,10 @@ export type Live = { a: LiveAgent; state: LiveState };
 export const worksOn = (a: LiveAgent, blockId: string) =>
   a.block_id ? a.block_id === blockId : a.links.some((l) => l.block_id === blockId);
 
-export const AgentsContext = createContext<{ live: Live[]; cfg: AgentPresenceSettings | null }>({
+// live: working/waiting now; recent: every report of the last hours, idle included
+export const AgentsContext = createContext<{ live: Live[]; recent: LiveAgent[]; cfg: AgentPresenceSettings | null }>({
   live: [],
+  recent: [],
   cfg: null,
 });
 export const useAgents = () => useContext(AgentsContext);
@@ -115,62 +118,39 @@ export function LiveRail({ state, cfg }: { state: LiveState; cfg: AgentPresenceS
   );
 }
 
+// The step (or the agent's question) first, then who/model/numbers in the shared AgentLine.
 export function LiveLine({ a, state, cfg }: Live & { cfg: AgentPresenceSettings }) {
   if (cfg.activity === "off") return null;
   const f = cfg.fields;
-  const provider = a.provider ? PROVIDER_ICON.get(a.provider.toLowerCase()) : undefined;
-  const sep = <span className="text-ink-muted/50">·</span>;
+  const what = f.step
+    ? state === "waiting" ? a.question && `asks: “${a.question}”` : a.step
+    : null;
   return (
     <div
-      className={`flex-wrap items-center gap-x-1.5 pb-1 font-mono [overflow-wrap:anywhere] text-[11.5px] leading-relaxed text-ink-muted ${
+      className={`flex-col pb-1 [overflow-wrap:anywhere] ${
         cfg.activity === "hover" ? "hidden group-focus-within:flex group-hover:flex" : "flex"
       }`}
     >
-      {f.harness && (
-        <span className="inline-flex items-center gap-1 rounded border border-chipline px-1 text-ink-soft">
-          <AgentIcon a={a} />
-          {a.harness}
-        </span>
+      {what && (
+        <span className={`text-[12px] text-ink-soft ${state === "waiting" ? "italic" : ""}`}>{what}</span>
       )}
-      {f.provider && a.provider && (
-        <span title={a.provider} className="inline-flex text-ink-soft">
-          {provider ? <Svg name={provider} /> : a.provider}
-        </span>
-      )}
-      {f.model && a.model && <b className="font-semibold text-ink-soft">{a.model}</b>}
-      {f.tokens && a.tokens !== null && (
-        <span className="inline-flex items-center gap-1.5 text-ink-soft" title={`${a.tokens.toLocaleString()} tokens so far`}>
-          {sep}
-          {fmtTokens(a.tokens)} tok
-          {a.context_max
-            ? (
-              <span className="inline-block h-1 w-9 overflow-hidden rounded bg-card">
-                <span
-                  className="block h-full bg-ink-muted"
-                  style={{ width: `${Math.min(100, (a.tokens / a.context_max) * 100)}%` }}
-                />
-              </span>
-            )
-            : null}
-        </span>
-      )}
-      {f.step && state === "waiting" && a.question && (
-        <span className="italic text-ink-soft">
-          {sep} asks: “{a.question}”
-        </span>
-      )}
-      {f.step && state === "working" && a.step && (
-        <span>
-          {sep} {a.step} {sep} {ago(Date.now() - a.at)}
-        </span>
-      )}
+      <AgentLine
+        agent={f.harness ? a.harness : null}
+        name={f.harness ? a.name : null}
+        icon={a.icon}
+        provider={f.provider ? a.provider : null}
+        model={f.model ? a.model : null}
+        tokens={f.tokens ? a.tokens : null}
+        contextMax={a.context_max}
+        when={state === "working" ? ago(Date.now() - a.at) : undefined}
+      />
     </div>
   );
 }
 
 export function LiveTrail({ a, state, cfg }: Live & { cfg: AgentPresenceSettings }) {
   return (
-    <span className="mt-1 flex shrink-0 items-center gap-1.5" title={`${a.harness} · ${a.session_title}`}>
+    <span className="mt-1 flex shrink-0 items-center gap-1.5" title={`${a.name ?? a.harness} · ${a.session_title}`}>
       {cfg.chip && (
         <span
           className={`inline-flex items-center gap-1.5 rounded-md border px-1.5 py-0.5 text-[11px] leading-none text-ink-soft ${
@@ -188,5 +168,175 @@ export function LiveTrail({ a, state, cfg }: Live & { cfg: AgentPresenceSettings
         </span>
       )}
     </span>
+  );
+}
+
+// provider of a model id, for its logo: claude-* → Anthropic, gpt-*/o*/codex → OpenAI
+function providerOf(model: string | null | undefined, agent: string | null | undefined): string | undefined {
+  const m = (model ?? "").toLowerCase();
+  if (m.startsWith("claude") || (!m && agent === "claude")) return "anthropic";
+  if (/^(gpt|o\d|codex)/.test(m) || (!m && agent === "codex")) return "openai";
+  return undefined;
+}
+
+const fmtCost = (usd: number) => (usd < 0.01 ? "<$0.01" : `$${usd.toFixed(2)}`);
+
+// "Ⓐ claude · Ⓐ claude-opus-5-5 · 48.2k tok ▬ · $0.62 · log · now" — who in ink-muted,
+// the rest dimmed (ink-faint); shared by live todos and worklog entries
+export function AgentLine({ agent, name, icon, provider, model, tokens, contextMax, cost, kind, when }: {
+  agent?: string | null;
+  name?: string | null; // the session's own name, shown instead of the agent id
+  icon?: string | null;
+  provider?: string | null; // explicit provider name; else inferred from the model
+  model?: string | null;
+  tokens?: number | null;
+  contextMax?: number | null;
+  cost?: number | null;
+  kind?: string;
+  when?: string;
+}) {
+  const logo = (provider ? PROVIDER_ICON.get(provider.toLowerCase()) : undefined) ?? providerOf(model, agent);
+  // Claude on an Anthropic model (Codex on OpenAI) says it once: the agent's logo + the model
+  const vendor = { claude: "anthropic", openai: "openai" }[HARNESS_ICON.get((agent ?? "").toLowerCase()) ?? ""];
+  const sameVendor = !!logo && logo === vendor;
+  const label = name ?? (sameVendor && model ? null : agent);
+  const parts: ReactNode[] = [];
+  if (model || (provider && !logo)) {
+    parts.push(
+      <span key="m" className="inline-flex items-center gap-1 font-mono" title={provider ?? undefined}>
+        {logo && !sameVendor && <Svg name={logo} className="h-3 w-3" />}
+        {model ?? provider}
+      </span>,
+    );
+  }
+  if (tokens != null) {
+    const pct = contextMax ? Math.min(100, (tokens / contextMax) * 100) : null;
+    parts.push(
+      <span
+        key="t"
+        className="inline-flex items-center gap-1.5 font-mono tabular-nums"
+        title={pct !== null
+          ? `${fmtTokens(tokens)} of ${fmtTokens(contextMax!)} tokens (${Math.round(pct)}% of the context window)`
+          : `${tokens.toLocaleString()} tokens`}
+      >
+        {fmtTokens(tokens)} tok
+        {pct !== null && (
+          <span className="inline-block h-1 w-9 overflow-hidden rounded bg-card">
+            <span className="block h-full bg-ink-faint" style={{ width: `${pct}%` }} />
+          </span>
+        )}
+      </span>,
+    );
+  }
+  if (cost != null) parts.push(<span key="c" className="font-mono tabular-nums">{fmtCost(cost)}</span>);
+  if (kind) parts.push(<span key="k">{kind}</span>);
+  if (when) parts.push(<span key="w">{when}</span>);
+  if (!agent && !parts.length) return null;
+  const lead = agent && (
+    <span className="inline-flex items-center gap-1 font-medium text-ink-muted">
+      <AgentIcon a={{ harness: agent, icon: icon ?? null }} />
+      {label}
+    </span>
+  );
+  return (
+    <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-ink-faint">
+      {lead}
+      {parts.map((part, i) => (
+        <Fragment key={i}>
+          {(i > 0 || label) && <span className="opacity-60">·</span>}
+          {part}
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+// a worklog entry's attribution line
+export function EventMeta({ e, agent, when }: {
+  e: { kind: string; model?: string | null; tokens?: number | null; cost_usd?: number | null; agent_name?: string | null };
+  agent: string | null;
+  when: string;
+}) {
+  return (
+    <AgentLine agent={agent} name={e.agent_name} model={e.model} tokens={e.tokens} cost={e.cost_usd} kind={e.kind} when={when} />
+  );
+}
+
+// a session joining or leaving a card: one pill in the journal instead of a log line
+export function PresencePill({ e, when }: {
+  e: { summary: string | null; agent_name?: string | null; agent?: string | null };
+  when: string;
+}) {
+  const joined = (e.summary ?? "").startsWith("joined");
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-chipline/70 px-2 py-0.5 text-[11px] text-ink-muted">
+        <span className={`h-1.5 w-1.5 rounded-full ${joined ? "bg-live" : "bg-ink-faint"}`} />
+        <span className="font-medium text-ink-soft">{e.agent_name ?? e.agent ?? "agent"}</span>
+        {e.summary}
+      </span>
+      <span className="text-[11px] text-ink-faint">{when}</span>
+    </div>
+  );
+}
+
+// Design 4: one line with stacked logos and totals; the per-agent list folds under it.
+export function AgentsSummary({ agents }: { agents: AgentSummary[] }) {
+  const [open, setOpen] = useState(false);
+  if (!agents.length) return <span className="text-[12px] text-ink-faint">none yet</span>;
+  const tokens = agents.reduce((n, a) => n + (a.tokens ?? 0), 0);
+  const cost = agents.some((a) => a.cost != null) ? agents.reduce((n, a) => n + (a.cost ?? 0), 0) : null;
+  const ms = agents.reduce((n, a) => n + a.ms, 0);
+  const sep = <span className="text-ink-faint/60">·</span>;
+  const dot = (s: AgentSummary["state"]) => (
+    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${s === "working" ? "bg-live" : s === "waiting" ? "bg-wait" : "bg-ink-faint"}`} />
+  );
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        aria-expanded={open}
+        className="flex w-fit items-center gap-1.5 whitespace-nowrap rounded-md px-1 py-0.5 text-left text-[12px] text-ink-soft hover:bg-panel"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="mr-1 flex">
+          {agents.slice(0, 4).map((a) => (
+            <span
+              key={a.key}
+              className="-mr-1.5 grid h-5 w-5 place-items-center rounded-full border-2 border-canvas bg-card"
+            >
+              <AgentIcon a={{ harness: a.agent, icon: null }} />
+            </span>
+          ))}
+        </span>
+        <b className="font-semibold">{agents.length} agent{agents.length > 1 ? "s" : ""}</b>
+        {tokens > 0 && <>{sep}<span className="tabular-nums">{fmtTokens(tokens)} tok</span></>}
+        {ms > 0 && <>{sep}<span>{fmtDuration(ms)}</span></>}
+        {cost != null && <>{sep}<span className="tabular-nums">${cost.toFixed(2)}</span></>}
+        {agents.some((a) => a.state) && dot(agents.find((a) => a.state)!.state)}
+        <svg
+          viewBox="0 0 16 16"
+          aria-hidden="true"
+          className={`h-3.5 w-3.5 shrink-0 text-ink-muted transition-transform ${open ? "rotate-180" : ""}`}
+        >
+          <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && (
+        <div className="flex flex-col gap-1 pl-1">
+          {agents.map((a) => (
+            <div key={a.key} className="flex items-center gap-2 text-[12px]">
+              <AgentIcon a={{ harness: a.agent, icon: null }} />
+              <b className="font-semibold text-ink-soft">{a.key}</b>
+              {a.model && <span className="tabular-nums text-ink-faint">{a.model}</span>}
+              <span className="flex-1" />
+              {a.tokens != null && <span className="tabular-nums text-ink-muted">{fmtTokens(a.tokens)}</span>}
+              {a.ms > 0 && <span className="text-[11px] text-ink-faint">{fmtDuration(a.ms)}</span>}
+              {dot(a.state)}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
