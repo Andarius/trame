@@ -229,7 +229,7 @@ Deno.test("tag sync sends empty sets too, with the selected scope and source ide
 });
 
 Deno.test("status push re-PATCHes on the current row after a 409", async () => {
-  const { syncTicketStatus } = await import("./api.ts");
+  const { syncStatus } = await import("./api.ts");
   const sent: unknown[] = [];
   await withFetch(async (_url, init) => {
     sent.push(await new Response(String(init?.body)).json());
@@ -237,9 +237,10 @@ Deno.test("status push re-PATCHes on the current row after a 409", async () => {
       ? reply(409, { error: "conflict", current: { updated_at: "t2" } })
       : reply(200, { reference: "GEN-1", updated_at: "t3" });
   }, async () => {
-    await syncTicketStatus(
+    await syncStatus(
       "https://cockpit.test",
       "tok",
+      "tickets",
       "GEN-1",
       "t1",
       "done",
@@ -251,4 +252,23 @@ Deno.test("status push re-PATCHes on the current row after a 409", async () => {
     ["t1", "t2"],
   );
   assertEquals((sent[1] as Record<string, unknown>).fields, { status: "done" });
+});
+
+Deno.test("user stories drain their own key and expose a missing route as a bare 404", async () => {
+  const { fetchUserStories, CockpitError } = await import("./api.ts");
+  const scope = { kind: "product", slug: "devops" } as const;
+  await withFetch(
+    () => reply(200, { now: "n", has_more: false, next_since: null, user_stories: [{ reference: "US-1" }] }),
+    async () => {
+      assertEquals((await fetchUserStories("https://cockpit.test", "tok", scope)).map((u) => u.reference), ["US-1"]);
+    },
+  );
+  await withFetch(
+    () => new Response("<html>not found</html>", { status: 404 }),
+    async () => {
+      const e = await fetchUserStories("https://cockpit.test", "tok", scope).catch((e) => e);
+      assertEquals(e instanceof CockpitError && e.status, 404);
+      assertEquals((e.body as { error?: string }).error, undefined);
+    },
+  );
 });

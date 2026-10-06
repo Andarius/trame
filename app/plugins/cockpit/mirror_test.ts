@@ -1,5 +1,5 @@
 import { assertEquals, assertNotEquals } from "@std/assert";
-import { groupByProject, type MirrorPage, pageStatusOf, pendingOf, planMirror, sessionStatusFor, specsDescription, stampMark, statusSyncOf, ticketBlocks, ticketFromSession, ticketMarkdown, ticketStatusOf, userStoryFromPage } from "./mirror.ts";
+import { groupByProject, type MirrorPage, pageStatusOf, pendingOf, planMirror, sessionStatusFor, specsDescription, stampMark, statusSyncOf, storySyncOf, ticketBlocks, ticketFromSession, ticketMarkdown, ticketStatusOf, userStoryFromPage } from "./mirror.ts";
 import { REF_MARK, refOfContent, US_MARK } from "../../../core/content-marks.ts";
 import type { Ticket } from "./api.ts";
 
@@ -618,4 +618,20 @@ Deno.test("status sync: Trame wins conflicts, pulls only Cockpit-side moves", ()
     sessionStatusFor("todo", board.filter((s) => s.key !== "todo")),
     null,
   );
+});
+
+Deno.test("story status sync: archived page ↔ done US, open page ↔ any open US", () => {
+  const cases: [string, string, string | null, ReturnType<typeof storySyncOf>][] = [
+    ["archived", "in_development", "in_development", { kind: "push", status: "done" }],
+    ["open", "done", "done", { kind: "push", status: "in_development" }],
+    ["open", "archived", "next_up", { kind: "pull", status: "archived" }],
+    ["archived", "research", "done", { kind: "pull", status: "open" }],
+    ["open", "done", "backlog", { kind: "pull", status: "archived" }],
+    ["archived", "backlog", null, { kind: "push", status: "done" }],
+    ["open", "research", "backlog", { kind: "none" }],
+    ["archived", "archived", null, { kind: "record" }],
+  ];
+  for (const [page, status, base, expected] of cases) {
+    assertEquals(storySyncOf(page, { status, base }), expected);
+  }
 });

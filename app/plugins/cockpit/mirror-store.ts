@@ -616,3 +616,20 @@ export async function loadCardStatuses(sessionIds: string[]): Promise<{
     statuses: statuses.rows as { key: string; terminal: boolean }[],
   };
 }
+
+/** Live pages filed as user stories, by US reference. */
+export async function loadUserStoryPages(): Promise<
+  Map<string, { id: string; status: string }>
+> {
+  const pg = await db();
+  const rows = (await pg.query(
+    `select id, status, content from pages
+      where not deleted and content::text like '%trame:cockpit_us=%'`,
+  )).rows as { id: string; status: string; content: unknown }[];
+  const out = new Map<string, { id: string; status: string }>();
+  for (const r of rows) {
+    const ref = usOfContent(Array.isArray(r.content) ? r.content : []);
+    if (ref) out.set(ref, { id: r.id, status: r.status });
+  }
+  return out;
+}
