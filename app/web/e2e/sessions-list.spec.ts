@@ -96,21 +96,22 @@ test("project pill click filters the list to that project", async ({ page, reque
   await expect(page.getByText("other session e2e")).toBeVisible();
 });
 
-test("double-click opens the drawer full screen; single click stays a side panel", async ({ page, request }) => {
+test("double-click opens the card view; single click stays a side panel", async ({ page, request }) => {
   await seed(request);
   await page.goto("/?view=list");
 
   await page.getByText("other session e2e").click();
-  await expect(page.getByTitle("expand to full screen")).toBeVisible();
-  await page.getByTitle("expand to full screen").press("Escape");
-  await expect(page.getByTitle("expand to full screen")).not.toBeVisible();
+  await expect(page.getByTitle("open the session")).toBeVisible();
+  await page.getByTitle("open the session").press("Escape");
+  await expect(page.getByTitle("open the session")).not.toBeVisible();
 
   await page.getByText("chip session e2e").dblclick();
-  await expect(page.getByTitle("collapse to side panel")).toBeVisible();
+  await expect(page).toHaveURL(/view=card&card=/);
 
-  // full-screen survives a refresh (&full=1 in the URL)
+  // the card view survives a refresh
   await page.reload();
-  await expect(page.getByTitle("collapse to side panel")).toBeVisible();
+  await expect(page).toHaveURL(/view=card&card=/);
+  await expect(page.getByRole("group", { name: "Session tags" })).toBeVisible();
 });
 
 test("board card project chip filters the board", async ({ page, request }) => {
@@ -121,11 +122,11 @@ test("board card project chip filters the board", async ({ page, request }) => {
   await expect(page.getByText("chip session e2e")).toBeVisible();
 });
 
-test("double-click on a board card opens the drawer full screen", async ({ page, request }) => {
+test("double-click on a board card opens the card view", async ({ page, request }) => {
   await seed(request);
   await page.goto("/?view=board");
   await page.getByText("other session e2e").dblclick();
-  await expect(page.getByTitle("collapse to side panel")).toBeVisible();
+  await expect(page).toHaveURL(/view=card&card=/);
 });
 
 test("expanded ticket: journal pane and page-backed specs", async ({ page, request }) => {
@@ -147,10 +148,6 @@ test("expanded ticket: journal pane and page-backed specs", async ({ page, reque
   await expect(page.getByPlaceholder(/type \/ for blocks/)).toHaveValue(
     "first spec item",
   );
-
-  // "open as page" closes the drawer and lands on the spec page proper
-  await page.getByRole("button", { name: /open as page/ }).click();
-  await expect(page.getByPlaceholder("Untitled")).toHaveValue(/chip session e2e/);
 });
 
 test("item ⋯ menu links a session; chips render on both sides", async ({ page, request }) => {

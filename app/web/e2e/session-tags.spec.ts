@@ -16,7 +16,7 @@ for (const full of [false, true]) {
 
     await page.goto(`/?session=${id}${full ? "&full=1" : ""}`);
     const tags = page.getByRole("group", { name: "Session tags" });
-    await expect(page.locator('textarea + [aria-label="Session tags"]')).toBeVisible();
+    await expect(tags).toBeVisible();
     await tags.getByTitle("add a tag").click();
     await tags.getByRole("button", { name: "priority:P1", exact: true }).click();
     await expect(tags.getByText("P1", { exact: true })).toBeVisible();
@@ -30,10 +30,6 @@ for (const full of [false, true]) {
       return session.tags;
     }).toEqual([priority.key, `review-${id}`]);
 
-    await page.getByTitle("close (esc)").click();
-    const card = page.getByText(title, { exact: true }).locator("..");
-    await expect(card.getByText(id, { exact: true })).toBeVisible();
-    await page.getByText(title, { exact: true }).click();
     await page.reload();
     await expect(tags.getByText("P1", { exact: true })).toBeVisible();
     await expect(tags.getByText(id, { exact: true })).toBeVisible();

@@ -23,7 +23,8 @@ test("a story page shows its brief, blocks and sessions", async ({ page, request
   await page.goto("/");
   await page.locator("aside div.group").getByRole("button", { name: /Pages Project/ }).first().click();
   await expect(page.getByPlaceholder(/add the brief/)).toHaveValue("the pages e2e brief");
-  await expect(page.getByText("no sessions yet")).toBeVisible();
+  // a story without cards shows no cards panel
+  await expect(page.getByText("CARDS", { exact: true })).toHaveCount(0);
 
   // block editor: type, autosave, survive a reload
   const editor = page.getByPlaceholder(/type \/ for blocks/);
@@ -137,6 +138,7 @@ test("Convert to session turns a page into a card whose specs are that page", as
   })).json() as { id: string };
 
   await page.goto(`/?view=page&page=${plan.id}`);
+  await page.getByRole("button", { name: "More page actions" }).click();
   await page.getByRole("button", { name: "▦ Convert to session" }).click();
 
   // the ticket opened on the new card, and its specs ARE the page
@@ -153,9 +155,9 @@ test("Convert to session turns a page into a card whose specs are that page", as
   expect(after.kind).toBe("page");
   expect(after.sessions.map((s) => s.title)).toEqual(["Plan to convert"]);
 
-  // back on the page, the button leads to that same card rather than making another
+  // the page is that card's spec page now: its URL lands on the card, no second card made
   await page.goto(`/?view=page&page=${plan.id}`);
-  await expect(page.getByRole("button", { name: "▦ Open session ↗" })).toBeVisible();
+  await expect(page).toHaveURL(/view=card&card=/);
   const board = await (await request.get("/api/board")).json() as {
     sessions: { title: string }[];
   };
