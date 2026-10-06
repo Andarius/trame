@@ -5,7 +5,7 @@ import { SPECS_WHEN } from "./agent-texts.ts";
 import type { Ctx } from "./ctx.ts";
 import { identityOf } from "./identity.ts";
 import { AGENT_ID_RE, listPresence, touchPresence } from "./presence.ts";
-import { AgentPresenceError, listLiveAgents, touchAgentPresence } from "./agent-presence.ts";
+import { AgentPresenceError, journalPresence, listLiveAgents, touchAgentPresence } from "./agent-presence.ts";
 import {
   createProperty,
   createRow,
@@ -39,6 +39,7 @@ import {
 import {
   addEvent,
   addSessionLink,
+  ensureSessionLink,
   addTrackEvent,
   createStatus,
   createStory,
@@ -59,6 +60,7 @@ import {
   restoreSession,
   searchAll,
   sessionFromPage,
+  storyFromPage,
   SessionTagsError,
   setSessionStatus,
   updateStatus,
@@ -69,6 +71,13 @@ import {
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// a model id as agents report it (claude-opus-5-5, gpt-5.5-codex, glm-4.6)
+const usageOf = (b: Record<string, unknown>) => ({
+  model: typeof b.model === "string" && b.model.trim() ? b.model.trim().slice(0, 80) : null,
+  tokens: typeof b.tokens === "number" && Number.isFinite(b.tokens) && b.tokens >= 0 ? Math.round(b.tokens) : null,
+  cost_usd: typeof b.cost_usd === "number" && Number.isFinite(b.cost_usd) && b.cost_usd >= 0 ? b.cost_usd : null,
+  agent_name: typeof b.agent_name === "string" && b.agent_name.trim() ? b.agent_name.trim().slice(0, 60) : null,
+});
 // page block ids: editor genId (8 chars) or uuids
 const BLOCK_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
@@ -95,6 +104,16 @@ export async function handleCoreApi(
   }
   if (pathname === "/api/sessions" && req.method === "POST") {
     const body = await req.json();
+    // an agent picking up an existing card adopts it: no story matching, and its own
+    // session id lands in claude_id so presence and Resume follow the new agent
+    if (body.card !== undefined) {
+      const card = String(body.card).toLowerCase();
+      if (!UUID_RE.test(card)) return json({ error: "card must be a session id" }, 400);
+      const known = (await ctx.q.query(`select 1 from sessions where id=$1 and not deleted`, [card])).rows.length;
+      if (!known) return json({ error: `no card ${card}` }, 404);
+      body.id = card;
+      delete body.card;
+    }
     let id: string;
     const storyOut: { story_note?: string } = {};
     try {
@@ -112,6 +131,7 @@ export async function handleCoreApi(
         id,
         body.summary,
         typeof body.agent === "string" ? body.agent : null,
+        usageOf(body),
       );
     }
     // Planned-work backlinks (plan/TODO pages) ride the same POST; dedupe by
@@ -240,21 +260,21 @@ export async function handleCoreApi(
       if (e instanceof AgentPresenceError) return json({ error: e.message }, 400);
       throw e;
     }
+    await journalPresence(ctx, sid, p, b.ended === true);
     // link the session to that todo once, so the card shows it too
     if (b.block_id) {
-      const linked = (await ctx.q.query(
-        `select 1 from session_links where session_id=$1 and block_id=$2 and not deleted`,
-        [sid, b.block_id],
-      )).rows.length;
-      if (!linked) {
-        await addSessionLink(ctx, sid, b.page_id, b.block_id, typeof b.anchor === "string" ? b.anchor : "");
-      }
+      await ensureSessionLink(ctx, sid, b.page_id, b.block_id, typeof b.anchor === "string" ? b.anchor : "");
     }
     return json(p);
   }
   const em = pathname.match(/^\/api\/sessions\/([^/]+)\/events$/);
   if (em && req.method === "POST") {
-    await addEvent(ctx, em[1], (await req.json()).summary ?? "");
+    const b = await req.json();
+    // optional attribution: which agent/model wrote this entry (null = a human)
+    const agent = typeof b.agent === "string" && AGENT_ID_RE.test(b.agent) ? b.agent : null;
+    // presence: a session joining or leaving the card (rendered as a pill, not a log line)
+    const kind = b.kind === "presence" ? "presence" : "log";
+    await addEvent(ctx, em[1], b.summary ?? "", kind, agent, usageOf(b));
     return json({ ok: true });
   }
   if (em) return json(await listEvents(ctx, em[1]));
@@ -400,6 +420,15 @@ export async function handleCoreApi(
   const pgev = pathname.match(/^\/api\/pages\/([^/]+)\/events$/);
   if (pgev && req.method === "GET") {
     return json(await listPageEvents(ctx, pgev[1]));
+  }
+  // a page becomes a user story under its project (explicit; see storyFromPage)
+  const pgsto = pathname.match(/^\/api\/pages\/([^/]+)\/story$/);
+  if (pgsto && req.method === "POST") {
+    try {
+      return json(await storyFromPage(ctx, pgsto[1]));
+    } catch (e) {
+      return json({ error: (e as Error).message }, 400);
+    }
   }
   // a page becomes a card whose specs are that page (idempotent: same page, same card)
   const pgses = pathname.match(/^\/api\/pages\/([^/]+)\/session$/);

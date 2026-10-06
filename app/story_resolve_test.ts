@@ -8,10 +8,13 @@ Deno.env.set("TRACKER_PORT_FILE", `${tmp}/port.json`);
 Deno.env.set("TRACKER_APP_ROOT", new URL(".", import.meta.url).pathname);
 const { APP_CTX } = await import("./ctx.ts");
 
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 
 const { db } = await import("./db.ts");
-const { resolveClient, resolveStory, upsertSession } = await import("../core/sessions.ts");
+const { ensureSessionLink, linksForSession, resolveClient, resolveStory, sessionFromPage, storyFromPage, upsertSession } =
+  await import(
+  "../core/sessions.ts"
+);
 const { createPage } = await import("../core/pages.ts");
 
 const pageOf = async (id: string) => {
@@ -122,6 +125,26 @@ Deno.test("an unfiled plain page is reused and promoted", async () => {
   assertEquals(after.client_id, clientId);
 });
 
+// regression: tracking under a sub-page's title silently turned that page into a story
+Deno.test("a nested plain page is never promoted by name", async () => {
+  const parent = await createPage(APP_CTX, { title: "Features hub" });
+  const nested = await createPage(APP_CTX, { title: "Presence demo", parent_id: parent });
+  const out: { story_note?: string } = {};
+  const id = await upsertSession(APP_CTX, {
+    title: "repo — nested",
+    repo_path: "/tmp/repo-n",
+    branch: "main",
+    client: "Proj Nested",
+    story: "Presence demo",
+  }, out);
+  const pg = await db();
+  const page = (await pg.query(`select kind, parent_id from pages where id=$1`, [nested]))
+    .rows[0] as { kind: string; parent_id: string };
+  assertEquals([page.kind, page.parent_id], ["page", parent]);
+  assert((await pageOf(id)).page_id !== nested, "the card gets its own story");
+  assert(out.story_note?.includes(nested), "the reply points at the page");
+});
+
 Deno.test("a blank story attaches nothing", async () => {
   const before = await storyCount();
   const id = await upsertSession(APP_CTX, {
@@ -132,4 +155,88 @@ Deno.test("a blank story attaches nothing", async () => {
   });
   assertEquals((await pageOf(id)).page_id, null);
   assertEquals(await storyCount(), before);
+});
+
+// regression: a block id reused on another page (copied content) was taken as already linked
+Deno.test("ensureSessionLink links once per page + block", async (t) => {
+  const id = await upsertSession(APP_CTX, { title: "repo — links", repo_path: "/tmp/repo-l", branch: "main" });
+  const a = await createPage(APP_CTX, { title: "Links A" });
+  const b = await createPage(APP_CTX, { title: "Links B" });
+  for (
+    const [step, page, expected] of [
+      ["first link", a, 1],
+      ["same page + block again", a, 1],
+      ["same block id on another page", b, 2],
+    ] as const
+  ) {
+    await t.step(step, async () => {
+      await ensureSessionLink(APP_CTX, id, page, "blk00001", "todo");
+      assertEquals((await linksForSession(APP_CTX, id)).length, expected);
+    });
+  }
+});
+
+Deno.test("storyFromPage converts on purpose and refuses to nest", async (t) => {
+  const project = await resolveClient(APP_CTX, "Proj Convert");
+  const folder = await createPage(APP_CTX, { title: "Docs", parent_id: project });
+  const plain = await createPage(APP_CTX, { title: "Becomes a story", parent_id: folder });
+  const story = await createPage(APP_CTX, { title: "Existing US", kind: "story", parent_id: project });
+  const underStory = await createPage(APP_CTX, { title: "Doc under a US", parent_id: story });
+  const spec = await createPage(APP_CTX, { title: "Spec of a card", parent_id: project });
+  await sessionFromPage(APP_CTX, spec);
+  const parentOfStory = await createPage(APP_CTX, { title: "Holds a US", parent_id: project });
+  await createPage(APP_CTX, { title: "Nested US", kind: "story", parent_id: parentOfStory });
+  const loose = await createPage(APP_CTX, { title: "No project" });
+  for (
+    const [id, page, error] of [
+      ["plain page under a folder", plain, null],
+      ["already a story is a no-op", story, null],
+      ["under a user story", underStory, "already under a user story"],
+      ["a card's spec page", spec, "card's specs"],
+      ["a user story below it", parentOfStory, "sits below this page"],
+      ["no project to file it under", loose, "under a project first"],
+    ] as const
+  ) {
+    await t.step(id, async () => {
+      if (error) {
+        await assertRejects(() => storyFromPage(APP_CTX, page), Error, error);
+        return;
+      }
+      await storyFromPage(APP_CTX, page);
+      const pg = await db();
+      const row = (await pg.query(`select kind, parent_id from pages where id=$1`, [page])).rows[0] as {
+        kind: string;
+        parent_id: string;
+      };
+      assertEquals([row.kind, row.parent_id], ["story", project]);
+    });
+  }
+});
+
+Deno.test("journalPresence: one joined per visit, left on end, active unless done", async (t) => {
+  const { journalPresence, touchAgentPresence } = await import("../core/agent-presence.ts");
+  const pg = await db();
+  const card = async (slug: string, status: string) =>
+    await upsertSession(APP_CTX, { title: `repo — ${slug}`, status, repo_path: `/tmp/repo-${slug}`, branch: "main" });
+  const journal = async (id: string) =>
+    ((await pg.query(`select summary from session_events where session_id=$1 and kind='presence' order by at, id`, [id]))
+      .rows as { summary: string }[]).map((r) => r.summary.split(" ·")[0]);
+  const status = async (id: string) =>
+    ((await pg.query(`select status from sessions where id=$1`, [id])).rows[0] as { status: string }).status;
+  for (
+    const [id, start, reports, pills, end] of [
+      ["paused card picked up", "paused", ["working", "working"], ["joined"], "active"],
+      ["visit ends", "paused", ["working", "ended"], ["joined", "left"], "active"],
+      ["a done card stays done", "done", ["working"], ["joined"], "done"],
+    ] as const
+  ) {
+    await t.step(id, async () => {
+      const cid = await card(id.replaceAll(" ", "-"), start);
+      for (const r of reports) {
+        const p = touchAgentPresence(cid, { state: r === "ended" ? "idle" : r, harness: "claude-code", name: "w-1" });
+        await journalPresence(APP_CTX, cid, p, r === "ended");
+      }
+      assertEquals([await journal(cid), await status(cid)], [[...pills], end]);
+    });
+  }
 });

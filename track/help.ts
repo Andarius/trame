@@ -233,18 +233,24 @@ by full URL, never a bare \`#42\` — full links render as badges.
 - \`title\` — \`<repo-basename> — <short topic>\`; the card's heading.
 - \`status\` — column key, inferred from the conversation: default \`active\`; \`paused\`, \`blocked\`, \`done\` only if evident. Columns are user-editable and an unknown key is parked on the first column — when unsure of a key (or an existing project/story name), \`GET /api/board\` returns them all (\`statuses\`, \`projects\`, \`stories\`).
 - \`client\` — **Project** name, resolved/created server-side. From the working dir: \`TRACKER_CLIENTS\` is a JSON map of path segment → project or \`{"project":"…","tags":["…"],"repos":["…"]}\` (e.g. \`{"Work":{"project":"Soren","tags":["infra"]}}\` files a \`/Work/\` repo — or a \`…-Work-…\` scratchpad worktree — under **Soren**, stamping the tags on newly minted stories — only for whitelisted \`repos\` when set); no match → **Side-projects**.
-- \`story\` — **Story** the session serves: the topic key that groups its branches onto one card. Pick it BEFORE tracking: \`tramecli stories -q "<topic>"\` lists similar open stories of the project — reuse one that fits, else name a short new topic. Found-or-created by name under the project; a near-identical open story is reused (the response's \`story_note\` says so), and a new story that resembles existing ones returns them in \`story_note\` — re-track with one of them when it is the same topic. Do not nest user stories. Sessions attach directly to their enclosing US; documentation may nest below it. A story bound for Cockpit needs a brief and a routing tag: its sessions inherit that routing and file as tickets, with \`next_step\` as the objective.
+- \`story\` — **Story** the session serves: the topic key that groups its branches onto one card. Pick it BEFORE tracking: \`tramecli stories -q "<topic>"\` lists similar open stories of the project — reuse one that fits, else name a short new topic. Found-or-created by name under the project; a near-identical open story is reused (the response's \`story_note\` says so), and a new story that resembles existing ones returns them in \`story_note\` — re-track with one of them when it is the same topic. Do not nest user stories. Sessions attach directly to their enclosing US; documentation may nest below it. Naming a story never converts a page nested in another page — that takes \`tramecli convert --story <page-id>\`. A story bound for Cockpit needs a brief and a routing tag: its sessions inherit that routing and file as tickets, with \`next_step\` as the objective.
 - \`tags\` — optional array of session tag keys from \`GET /api/tags\`, e.g. \`["priority-p1", "cockpit-devops"]\`. Omission preserves existing tags; \`[]\` clears them. Independent of story and specs-page tags. Create vocabulary labels such as \`priority:P1\` with \`POST /api/tags {"label":"priority:P1"}\`; store the returned \`key\`.
 - \`repo_path\` — the working dir (with \`branch\`, the upsert key when there is no agent session id). A planned card (open, no branch) on the repo is adopted by the first track naming its story — or by any first track when it has no story anchor.
 - \`branch\` — current git branch.
 - \`next_step\` — one imperative line: the very next thing to do on resume; incorporate the user's note.
 - \`pr_url\` — PR/MR link, only if evident; added to the card's PRs, never replacing them.
+- \`card\` — an existing card you were asked to work on (its id or a pasted Trame link). This
+  session adopts that card instead of matching by story: its updates, Resume and live presence
+  follow you. Use it whenever the prompt names a card; still send the full object.
+- \`model\` — the exact model id you run as (e.g. claude-opus-5-5, gpt-5.5-codex); the worklog entry shows it next to the agent. Never guess it.
+- \`tokens\`, \`cost_usd\` — optional usage behind this entry (tokens, USD), shown on the worklog line. Only real numbers your harness reports.
 - \`summary\` — worklog entry, 1–3 lines, PR-description style: outcome first, plus decisions and dead-ends worth remembering ("X fails because Y") — no implementation narration.
 - \`links\` — optional backlink chips to plan/TODO pages: \`[{ "page_id", "anchor"?, "block_id"? }]\`; deduped server-side, only ever appended. Pass the task line's exact text as \`anchor\` (marks may be omitted) and the chip lands on that todo, carrying this card's worklog — so each \`summary\` reads as an update under the task. No unique match, or no anchor at all, files the chip on the page. Every session linked to a page also feeds that page's **Activity** timeline — all their worklogs merged newest-first, read without opening a card.
 
 Specs
 
-Specs are a real page — a subpage of the card's story; the tracker's response returns its
+Specs are the card's content: the app shows them inside the card view (\`?view=card&card=<id>\`),
+stored as a page that is never listed on its own — the tracker's response returns its
 \`specs_page_id\`. ${SPECS_WHEN} Update only when the user asks or the plan materially
 changed; unchanged blocks keep their comment anchors.
 
@@ -333,17 +339,28 @@ Pipe ONE JSON object on stdin (or pass it as the single argument):
   both harnesses report their own usage, so read it there. Other agents omit what
   they cannot measure; never guess (a visible footer must mean real data).`;
 
+export const SHOW_HELP = `tramecli show — read a card or a page
+
+  tramecli show <session id | page id | Trame URL> [--events N] [--json]
+
+A card (a session id, or a link with ?view=card&card= or ?session=) prints its fields,
+specs and worklog (newest first, N entries, default 20; each line names the agent and
+model that wrote it). A page (?page= link, or an id that is not a card) prints its
+blocks as Markdown, its sub-pages and the cards anchored to it. --json prints the raw
+API response. Reads only — use it instead of raw HTTP to look something up.`;
+
 export const PRESENCE_HELP =
   `tramecli presence — report what your agent is doing right now
 
 Pipe ONE JSON object on stdin (or pass it as the single argument):
 
-  {session_id, state, harness, icon?, provider?, model?, tokens?, context_max?,
+  {session_id, state, harness, name?, icon?, provider?, model?, tokens?, context_max?,
    step?, question?, page_id?, block_id?, anchor?}
 
 - state: working | waiting (blocked on the human — put the ask in question) | idle.
 - harness: what runs the agent (claude-code, codex, spatchou, …). Known harnesses
   and providers get a logo; others may send icon (an emoji or an image URL).
+- name: this session's own name, if it has one (e.g. "asso-fix-2"); shown instead of the harness.
 - tokens: tokens used so far in the session; context_max: the model's window.
 - step: the latest action in a few words (e.g. "Edit tofu/s3/main.tf").
 - page_id + block_id: the todo being worked on — linked to the session once.
@@ -358,7 +375,14 @@ Notification, Stop); stdin is the hook event, model/tokens come from its transcr
 
   tramecli presence --hook claude     (or --hook codex)
 
-It never fails the agent: no tracked card, no app, bad input — it exits 0 silently.`;
+It never fails the agent: no tracked card, no app, bad input — it exits 0 silently.
+
+  tramecli presence --install-hooks
+
+Puts the presence hooks back into the active Claude Code config ($CLAUDE_CONFIG_DIR,
+else ~/.claude) and Codex's, writing a file only when a hook was missing. Silent and
+cheap. For Claude Code, the provider shown is ANTHROPIC_BASE_URL's host (Anthropic
+when unset).`;
 
 export const SETUP_HELP =
   `tramecli setup — install the agent skills from this binary
@@ -369,6 +393,7 @@ export const SETUP_HELP =
   tramecli setup --skills-dir DIR  any Agent Skills directory (repeatable)
   tramecli setup --hook            the git pre-push guard, into the repo you run it from
   tramecli setup --presence        hooks that report agent presence (Claude Code, Codex)
+  tramecli setup --mod             a Claude Code band showing this session's Trame card
 
 The docs are embedded in the binary and call the bare \`tramecli\`; when that name is
 not on PATH the binary links itself into ~/.local/bin first. From a dev checkout,
@@ -378,9 +403,13 @@ not on PATH the binary links itself into ~/.local/bin first. From a dev checkout
 honoured): it refuses a push whose Trame session is missing or older than the commits
 being pushed. Bypass one push with \`git push --no-verify\`.
 
-\`--presence\` adds \`tramecli presence --hook …\` to ~/.claude/settings.json and
-~/.codex/hooks.json (whichever exist), so working / waiting / idle show on Trame todos.
-Existing hooks are kept; running it twice adds nothing. Codex asks you to trust them.`;
+\`--presence\` adds \`tramecli presence --hook …\` to the active Claude Code settings
+($CLAUDE_CONFIG_DIR, else ~/.claude) and ~/.codex/hooks.json (whichever exist), so working / waiting / idle show on Trame todos.
+Existing hooks are kept; running it twice adds nothing. Codex asks you to trust them.
+
+\`--mod\` writes a Claude Code mod to ~/.local/share/trame/claude-mod and installs it with
+\`claude plugin\`: above the prompt, the card this session is linked to and an open button.
+Open sessions pick it up with /reload-plugins.`;
 
 export const LIST_HELP = `tramecli list — print open sessions grouped by story
 
@@ -406,9 +435,10 @@ directory) whose title resembles the topic, best first, with a 0–1 score and t
 card count. Run it before naming a story in \`tramecli track\`: reuse a story that fits
 so the session's work lands on one card. Reads only.`;
 
-export const CONVERT_HELP = `tramecli convert — turn a page into a session card
+export const CONVERT_HELP = `tramecli convert — turn a page into a session card, or a user story
 
-  tramecli convert <page-id>
+  tramecli convert <page-id>            the page becomes a card's specs
+  tramecli convert --story <page-id>    the page becomes a user story under its project
 
 The page becomes the card's specs (specs_page_id) — same page, no copy; the card
 anchors to the nearest story above it and inherits that branch's project. Same call as
@@ -417,7 +447,12 @@ page id, so converting again returns the existing card (--json prints
 {id, created:false}) instead of forking a second one.
 
 Then track it as usual — \`repo_path\`/\`branch\` land on the card on the first
-\`tramecli track\` that names it.`;
+\`tramecli track\` that names it.
+
+--story is the deliberate way a page becomes a user story (same as the page header's
+"Convert to user story"): it moves under its nearest project and keeps its content,
+comments and links. Refused for a card's spec page, under another user story, or above
+one — stories don't nest. Tracking by name never does this to a nested page.`;
 
 export const OVERVIEW =
   `tramecli ${VERSION} — agent CLI for Trame, the local-first session tracker
@@ -429,6 +464,7 @@ Commands:
   page       create/update a page, or write a session's specs (JSON on stdin)
   comment    add an inline agent comment to a page block (JSON on stdin)
   presence   report what the agent is doing now: working / waiting / idle
+  show       read a card (fields, specs, worklog) or a page, by id or Trame URL
   watch      wait for human feedback on page(s); exits 0 when feedback is ready
   answer     daemon: auto-answer human replies on agent comment threads
   list       print open sessions grouped by story

@@ -17,6 +17,7 @@ Deno.test("parseSessionRef reads what a pasted Trame link points at", async (t) 
       kind: "page",
       id: PAGE,
     }],
+    ["the card view", `${base}?view=card&card=${SESSION}`, { kind: "session", id: SESSION }],
     ["the board, no ids at all", `${base}?group=story`, null],
     ["not a url and not an id", "Session tracker build", null],
     ["a url whose session param is junk", `${base}?session=nope`, null],

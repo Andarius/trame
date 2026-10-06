@@ -26,6 +26,7 @@ import {
   setStatus,
 } from "./api";
 import { Modal, Popover, statusStyle, timeAgo } from "./ui";
+import { EventMeta, PresencePill } from "./agents";
 import { CARD_COLORS, parseCards } from "./cards";
 import { type EdgeGeo, edgeGeometry, parseGraph } from "./graph";
 
@@ -960,7 +961,14 @@ function SessionFeed({ lk, onClose }: { lk: ItemLink; onClose: () => void }) {
         <span className="min-w-0 truncate">{lk.title}</span>
         <span className="ml-auto shrink-0 text-[11px] font-normal text-ink-muted">open the card →</span>
       </button>
-      <FeedList events={events} />
+      <FeedList
+        events={events}
+        limit={3}
+        onMore={() => {
+          onClose();
+          lk.open();
+        }}
+      />
     </Modal>
   );
 }
@@ -969,8 +977,15 @@ function SessionFeed({ lk, onClose }: { lk: ItemLink; onClose: () => void }) {
 // page feed, where several sessions are merged and each line has to name its own.
 type FeedEvent = SessionEvent & Partial<Pick<PageEvent, "session_title" | "session_status">>;
 
-function FeedList({ events }: { events: FeedEvent[] | "failed" | null }) {
-  const feed = Array.isArray(events) ? events : [];
+// `limit` keeps a peek short (the chip popover); the rest stays in the card's journal
+function FeedList({ events, limit, onMore }: {
+  events: FeedEvent[] | "failed" | null;
+  limit?: number;
+  onMore?: () => void;
+}) {
+  const all = Array.isArray(events) ? events : [];
+  const feed = limit ? all.slice(0, limit) : all;
+  const hidden = all.length - feed.length;
   return (
     <div className={`ml-[3px] flex flex-col gap-3.5 pl-3.5 ${feed.length ? "border-l border-line" : ""}`}>
       {feed.map((e) => (
@@ -984,17 +999,28 @@ function FeedList({ events }: { events: FeedEvent[] | "failed" | null }) {
                   style={{ background: statusStyle(e.session_status ?? "active").color }}
                 />
                 <span className="max-w-[240px] truncate font-medium text-ink-soft/90">{e.session_title}</span>
-                <span>·</span>
               </>
             )}
-            <span className="truncate">
-              {e.agent ? `${e.agent} · ` : ""}
-              <span className="font-medium text-ink-soft/90">{e.kind}</span> · {timeAgo(e.at)}
-            </span>
           </div>
-          {e.summary && <Markdown className="text-[12.5px] text-ink-soft" text={e.summary} />}
+          {e.kind === "presence"
+            ? <PresencePill e={e} when={timeAgo(e.at)} />
+            : (
+              <>
+                {e.summary && <Markdown className="text-[12.5px] text-ink-soft" text={e.summary} />}
+                <EventMeta e={e} agent={e.agent ?? null} when={timeAgo(e.at)} />
+              </>
+            )}
         </div>
       ))}
+      {hidden > 0 && (
+        <button
+          type="button"
+          className="w-fit text-left text-[11.5px] text-ink-muted hover:text-copper"
+          onClick={onMore}
+        >
+          {hidden} more in the card →
+        </button>
+      )}
       <span className="text-[11px] text-ink-muted/60">
         {events === null
           ? "loading…"

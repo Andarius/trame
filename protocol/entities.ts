@@ -6,7 +6,8 @@
 // v5: tags entity + pages.tags (the keys a page carries); pages.story renamed to brief.
 // v6: session-owned tags, independent of story and specs-page tags.
 // v7: sessions.branches (a card holds every branch it shipped).
-export const PROTOCOL_VERSION = 7;
+// v8: session_events.model / tokens / cost_usd / agent_name (who wrote a worklog entry, at what cost).
+export const PROTOCOL_VERSION = 8;
 
 export const ENTITIES = [
   {
@@ -158,6 +159,10 @@ export const ENTITIES = [
       "at",
       "summary",
       "agent",
+      "model",
+      "tokens",
+      "cost_usd",
+      "agent_name",
       "kind",
       "origin",
       "updated_at",

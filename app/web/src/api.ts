@@ -78,6 +78,10 @@ export type SessionEvent = {
   id: string;
   at: string;
   agent?: string | null;
+  model?: string | null;
+  tokens?: number | null;
+  cost_usd?: number | null;
+  agent_name?: string | null;
   summary: string | null;
   kind: string;
 };
@@ -156,6 +160,7 @@ export type LiveAgent = {
   session_id: string;
   state: "working" | "waiting" | "idle";
   harness: string;
+  name: string | null;
   icon: string | null;
   provider: string | null;
   model: string | null;
@@ -255,6 +260,8 @@ export const pageToSession = (id: string) =>
   post(`/api/pages/${id}/session`, {}).then(jsonOrThrow) as Promise<
     { id: string; created: boolean }
   >;
+export const pageToStory = (id: string) =>
+  post(`/api/pages/${id}/story`, {}).then(jsonOrThrow) as Promise<{ id: string }>;
 export const addLog = (id: string, summary: string) =>
   post(`/api/sessions/${id}/events`, { summary });
 export const updateStory = (id: string, patch: Record<string, unknown>) =>
@@ -622,10 +629,12 @@ export type PageMeta = {
   owner_id: string | null;
   updated_at: string;
 };
+// a sub-page row as getPage lists it: meta plus its todo progress
+export type PageChild = PageMeta & { todos?: number; todos_done?: number };
 export type PageDetail = PageMeta & {
   brief: string;
   content: Block[];
-  children: PageMeta[];
+  children: PageChild[];
   databases: {
     id: string;
     name: string;

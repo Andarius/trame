@@ -55,16 +55,6 @@ export function SpecsEditor(
       <div className="flex items-center gap-2">
         <span className={sectionLbl}>SPECS</span>
         <span className="flex-1" />
-        {pageId && (
-          <button
-            type="button"
-            title="open the spec page"
-            className="rounded-md px-1.5 py-0.5 text-[11px] text-ink-muted transition-colors hover:bg-panel hover:text-ink"
-            onClick={() => onOpenPage?.(pageId)}
-          >
-            open as page ↗
-          </button>
-        )}
       </div>
       {pageId
         ? (
@@ -82,6 +72,8 @@ export function SpecsEditor(
             flash={null}
             meId={meId}
             onToggleThread={doc.toggleThread}
+            // which sessions work on which todo: the same chips as on the page itself
+            links={doc.page?.links}
           />
         )
         : (

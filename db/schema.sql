@@ -212,6 +212,10 @@ create table if not exists session_events (
   deleted boolean not null default false
 );
 alter table session_events add column if not exists agent text;  -- claude | codex; null = human/unknown
+alter table session_events add column if not exists model text;  -- exact model id that wrote the entry
+alter table session_events add column if not exists tokens bigint;  -- tokens the writer reports for this entry
+alter table session_events add column if not exists cost_usd double precision;  -- cost the writer reports, USD
+alter table session_events add column if not exists agent_name text;  -- the writing session's own name (e.g. asso-fix-2)
 alter table session_events alter column id set default uuidv7();  -- time-ordered: the tiebreak after `at`
 
 -- Session <-> page-item links ("this session works on that TODO line"). Anchored

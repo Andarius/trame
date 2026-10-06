@@ -1,7 +1,7 @@
 import { assertEquals, assertThrows } from "@std/assert";
 import { AgentPresenceError, listAgentPresence, touchAgentPresence } from "../core/agent-presence.ts";
 import { normalizeAgentPresence } from "./files.ts";
-import { stateOf, usageOf } from "../track/presence.ts";
+import { providerFromBase, stateOf, usageOf } from "../track/presence.ts";
 import { withPresenceHooks } from "../track/setup.ts";
 
 Deno.test("touchAgentPresence rejects pushes the UI cannot render", async (t) => {
@@ -107,6 +107,7 @@ Deno.test("hook events map to presence states", async (t) => {
       ["PreToolUse", "working"],
       ["Notification", "waiting"],
       ["Stop", "idle"],
+      ["SessionEnd", "idle"],
       ["PostToolUse", null],
       ["SubagentStop", null],
     ] as const
@@ -132,6 +133,11 @@ Deno.test("usageOf reads model and tokens from both transcript formats", async (
       ["codex rollout", codex, { model: "gpt-5.5-codex", tokens: 131904, context_max: 272000 }],
       ["cut first line + junk", `"usage":{"inp\n${claude}`, { model: "claude-opus-5-5", tokens: 40510 }],
       ["no usage yet", '{"type":"user"}', {}],
+      ["named session", `{"type":"agent-name","agentName":"asso-fix-2"}\n${claude}`, {
+        model: "claude-opus-5-5",
+        tokens: 40510,
+        name: "asso-fix-2",
+      }],
     ] as const
   ) {
     await t.step(id, () => assertEquals(usageOf(tail), expected));
@@ -150,8 +156,22 @@ Deno.test("setup --presence adds its hooks once and keeps the others", async (t)
     await t.step(id, () => {
       const once = withPresenceHooks(structuredClone(start) as Parameters<typeof withPresenceHooks>[0], "claude");
       const twice = withPresenceHooks(once, "claude");
-      assertEquals([mine(once), mine(twice)], [4, 4]);
+      assertEquals([mine(once), mine(twice)], [5, 5]);
       assertEquals(JSON.stringify(twice).includes("choub notify"), id === "existing hooks");
     });
+  }
+});
+
+Deno.test("providerFromBase names the backend behind Claude Code", async (t) => {
+  for (
+    const [base, want] of [
+      [undefined, "Anthropic"],
+      ["https://api.anthropic.com", "Anthropic"],
+      ["https://api.z.ai/api/anthropic", "api.z.ai"],
+      ["http://localhost:4000", "localhost:4000"],
+      ["not a url", "Anthropic"],
+    ] as const
+  ) {
+    await t.step(String(base), () => assertEquals(providerFromBase(base), want));
   }
 });

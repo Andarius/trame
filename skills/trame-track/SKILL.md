@@ -1,6 +1,6 @@
 ---
 name: trame-track
-description: Log, update, pause, block, complete, or list coding-agent work sessions in Trame. Use when the user invokes $trame-track, asks to track the current Claude Code or Codex session, save a next step, update its Trame status, or list open Trame sessions.
+description: Log, update, pause, block, complete, list, or read coding-agent work sessions in Trame. Use when the user invokes $trame-track, asks to track the current Claude Code or Codex session, save a next step, update its Trame status, list open Trame sessions, or pastes a Trame card link to read.
 allowed-tools: Bash(tramecli:*), Bash(pwd), Bash(git branch:*), Bash(git remote:*)
 ---
 
@@ -21,12 +21,16 @@ Interpret an optional first argument as the action:
 
 - Empty or `log`: status `active`.
 - `paused`, `blocked`, or `done`: use that status; treat the remaining text as a note.
-- `list`: run `tramecli list`. Do not write.
+- `list`: run `tramecli list` (filter with `-q`, syntax in `tramecli query`). Do not write.
+- `show <id or Trame URL>`: run `tramecli show` to read one card (fields, specs, worklog) or page. Do not write.
 
 For tracking actions:
 
 1. Run `tramecli track --help` for the writer contract and the field conventions.
-2. Pick the story first: run `tramecli stories -q "<topic>"` and reuse the open story
+2. If your prompt names an existing Trame card (a card id or a Trame link, e.g. from a
+   dispatcher), pass it as `card`: this session adopts that card, so its updates, Resume
+   and live presence follow you. Do it on your first track, before working. Otherwise
+   pick the story first: run `tramecli stories -q "<topic>"` and reuse the open story
    that fits; name a short new topic only when none does.
 3. Read the current working directory and Git branch, compose every field from THIS
    conversation (do not ask the user), and pipe one JSON object to `tramecli track`.

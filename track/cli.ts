@@ -10,6 +10,7 @@ import { main as trackMain } from "./track.ts";
 import { main as pageMain } from "./page.ts";
 import { main as commentMain } from "./comment.ts";
 import { main as presenceMain } from "./presence.ts";
+import { main as showMain } from "./show.ts";
 import { main as watchMain } from "./page-watch.ts";
 import { main as answerMain } from "./watch.ts";
 import { run as setupRun } from "./setup.ts";
@@ -19,6 +20,7 @@ import { serve as mcpServe } from "../mcp/server.ts";
 import {
   COMMENT_HELP,
   PRESENCE_HELP,
+  SHOW_HELP,
   CONVERT_HELP,
   LIST_HELP,
   STORIES_HELP,
@@ -36,6 +38,7 @@ const HELP_TOPICS: Record<string, string> = {
   page: PAGE_HELP,
   comment: COMMENT_HELP,
   presence: PRESENCE_HELP,
+  show: SHOW_HELP,
   list: LIST_HELP,
   stories: STORIES_HELP,
   convert: CONVERT_HELP,
@@ -176,9 +179,20 @@ async function list(json: boolean, query: string | null, deleted: boolean): Prom
 async function convert(
   pageId: string | undefined,
   json: boolean,
+  asStory = false,
 ): Promise<void> {
-  if (!pageId) throw new Error("usage: tramecli convert <page-id>");
+  if (!pageId) throw new Error("usage: tramecli convert [--story] <page-id>");
   const target = await resolveTarget();
+  if (asStory) {
+    const res = await targetFetch(target, `/api/pages/${pageId}/story`, {
+      method: "POST",
+      signal: AbortSignal.timeout(5000),
+    });
+    const body = await res.json() as { id: string; error?: string };
+    if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+    console.log(json ? JSON.stringify(body) : `ok: page ${body.id} is a user story${appLink(target, `page=${body.id}`)}`);
+    return;
+  }
   const res = await targetFetch(target, `/api/pages/${pageId}/session`, {
     method: "POST",
     signal: AbortSignal.timeout(5000),
@@ -194,7 +208,7 @@ async function convert(
       ? JSON.stringify(body)
       : `ok: session ${body.id} ${
         body.created ? "created from" : "already specced by"
-      } this page${appLink(target, `session=${body.id}`)}`,
+      } this page${appLink(target, `view=card&card=${body.id}`)}`,
   );
 }
 
@@ -231,7 +245,7 @@ async function warnIfStale(): Promise<void> {
 
 // the commands that speak to the app — the ones a version mismatch breaks
 const APP_COMMANDS = new Set(
-  ["track", "page", "comment", "presence", "watch", "answer", "list", "convert", "mcp", "db"],
+  ["track", "page", "comment", "presence", "show", "watch", "answer", "list", "convert", "mcp", "db"],
 );
 
 export async function run(argv: string[]): Promise<number> {
@@ -273,6 +287,10 @@ export async function run(argv: string[]): Promise<number> {
       if (wantsHelp) console.log(COMMENT_HELP);
       else await commentMain(rest);
       return 0;
+    case "show":
+      if (wantsHelp) console.log(SHOW_HELP);
+      else await showMain(rest, { json });
+      return 0;
     case "presence":
       if (wantsHelp) console.log(PRESENCE_HELP);
       else await presenceMain(rest);
@@ -308,7 +326,7 @@ export async function run(argv: string[]): Promise<number> {
       return 0;
     case "convert":
       if (wantsHelp) console.log(CONVERT_HELP);
-      else await convert(rest[0], json);
+      else await convert(rest.find((a) => a !== "--story"), json, rest.includes("--story"));
       return 0;
     case "setup":
       if (wantsHelp) {

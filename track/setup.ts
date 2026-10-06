@@ -9,6 +9,10 @@ import trackSkillOpenai from "../skills/trame-track/agents/openai.yaml" with {
 import pageSkill from "../skills/trame-page/SKILL.md" with { type: "text" };
 import watchSkill from "../skills/trame-watch/SKILL.md" with { type: "text" };
 import prePush from "./pre-push.sh" with { type: "text" };
+import modManifest from "../claude-mod/.claude-plugin/plugin.json" with { type: "text" };
+import modHooks from "../claude-mod/hooks/hooks.json" with { type: "text" };
+import modRegister from "../claude-mod/hooks/register.tsx" with { type: "text" };
+import modTypes from "../claude-mod/types/index.d.ts" with { type: "text" };
 import * as p from "@clack/prompts";
 import { QUERY_SYNTAX, SETUP_HELP } from "./help.ts";
 
@@ -18,6 +22,19 @@ export const EMBEDS = {
   pageSkill,
   watchSkill,
   prePush,
+};
+
+// the Claude Code mod (card band above the prompt), as a local marketplace folder
+const MOD_FILES: Record<string, string> = {
+  ".claude-plugin/marketplace.json": JSON.stringify(
+    { name: "trame", owner: { name: "Trame" }, plugins: [{ name: "trame", source: "./trame" }] },
+    null,
+    2,
+  ),
+  "trame/.claude-plugin/plugin.json": modManifest,
+  "trame/hooks/hooks.json": modHooks,
+  "trame/hooks/register.tsx": modRegister,
+  "trame/types/index.d.ts": modTypes,
 };
 
 /** In the hook's header: how we recognise a hook we wrote, and may overwrite. */
@@ -38,6 +55,7 @@ const PRESENCE_EVENTS: Record<"claude" | "codex", [string, string | undefined][]
     ["PreToolUse", undefined],
     ["Notification", "permission_prompt|elicitation_dialog|agent_needs_input"],
     ["Stop", undefined],
+    ["SessionEnd", undefined],
   ],
   codex: [["UserPromptSubmit", undefined], ["PreToolUse", undefined], ["Stop", undefined]],
 };
@@ -62,23 +80,36 @@ export function withPresenceHooks(file: HookFile, harness: "claude" | "codex"): 
   return { ...file, hooks };
 }
 
-async function installPresenceHooks(home: string): Promise<string[]> {
+// The active Claude Code config (CLAUDE_CONFIG_DIR, Claude Code's own convention, else
+// ~/.claude) and Codex's. Other config folders are their owner's business.
+function hookTargets(home: string): [string, "claude" | "codex"][] {
+  const claude = Deno.env.get("CLAUDE_CONFIG_DIR") ?? `${home}/.claude`;
+  return [[`${claude}/settings.json`, "claude"], [`${home}/.codex/hooks.json`, "codex"]];
+}
+
+// Idempotent: a file is rewritten only when a presence hook was missing. Returns the
+// paths it changed (all present ones when `report` asks for the full list).
+export async function installPresenceHooks(home: string, report = false): Promise<string[]> {
   const done: string[] = [];
-  for (
-    const [path, harness] of [
-      [`${home}/.claude/settings.json`, "claude"],
-      [`${home}/.codex/hooks.json`, "codex"],
-    ] as const
-  ) {
+  for (const [path, harness] of hookTargets(home)) {
+    let text: string;
+    try {
+      text = await Deno.readTextFile(path);
+    } catch (e) {
+      if (e instanceof Deno.errors.NotFound) continue; // that agent / backend isn't set up
+      throw e;
+    }
     let file: HookFile;
     try {
-      file = JSON.parse(await Deno.readTextFile(path));
-    } catch (e) {
-      if (e instanceof Deno.errors.NotFound) continue; // that agent isn't installed
+      file = JSON.parse(text);
+    } catch {
       throw new Error(`${path} is not valid JSON — fix it first`);
     }
-    await Deno.writeTextFile(path, JSON.stringify(withPresenceHooks(file, harness), null, 2) + "\n");
-    done.push(path);
+    const next = JSON.stringify(withPresenceHooks(file, harness), null, 2) + "\n";
+    if (next !== JSON.stringify(file, null, 2) + "\n") {
+      await Deno.writeTextFile(path, next);
+      done.push(path);
+    } else if (report) done.push(path);
   }
   return done;
 }
@@ -179,6 +210,22 @@ export async function installHook(cwd = Deno.cwd()): Promise<string> {
   return path;
 }
 
+/**
+ * Write the mod's marketplace folder and install it into the active Claude config.
+ * Claude reads a folder marketplace in place, so rerunning only refreshes the files.
+ */
+export async function installMod(home: string): Promise<string> {
+  const dir = `${home}/.local/share/trame/claude-mod`;
+  for (const [rel, text] of Object.entries(MOD_FILES)) await write(`${dir}/${rel}`, text);
+  for (const args of [["marketplace", "add", dir], ["install", "trame@trame"]]) {
+    const r = await new Deno.Command("claude", { args: ["plugin", ...args], stdout: "piped", stderr: "piped" })
+      .output();
+    const out = new TextDecoder().decode(r.success ? r.stdout : r.stderr).trim();
+    if (!r.success && !/already/i.test(out)) throw new Error(`claude plugin ${args.join(" ")}: ${out}`);
+  }
+  return dir;
+}
+
 export async function setup(plan: SetupPlan): Promise<void> {
   const dirs = new Set(plan.skillDirs);
   if (plan.claude) {
@@ -254,11 +301,13 @@ export async function run(argv: string[]): Promise<number> {
   let claude = false;
   let hook = false;
   let presence = false;
+  let mod = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--claude") claude = true;
     else if (a === "--hook") hook = true;
     else if (a === "--presence") presence = true;
+    else if (a === "--mod") mod = true;
     else if (a === "--codex") skillDirs.push(`${home}/.agents/skills`);
     else if (a === "--skills-dir") {
       const dir = argv[++i];
@@ -272,7 +321,7 @@ export async function run(argv: string[]): Promise<number> {
       return 2;
     }
   }
-  const interactive = !claude && !skillDirs.length && !hook && !presence;
+  const interactive = !claude && !skillDirs.length && !hook && !presence && !mod;
   if (interactive) {
     if (!Deno.stdout.isTerminal()) {
       console.error(SETUP_HELP);
@@ -295,8 +344,16 @@ export async function run(argv: string[]): Promise<number> {
   }
   if (presence) {
     try {
-      const paths = await installPresenceHooks(home);
+      const paths = await installPresenceHooks(home, true);
       console.log(paths.length ? `presence hooks → ${paths.join(", ")}` : "no Claude Code or Codex config found");
+    } catch (e) {
+      console.error((e as Error).message);
+      return 1;
+    }
+  }
+  if (mod) {
+    try {
+      console.log(`claude mod → ${await installMod(home)} (run /reload-plugins in open sessions)`);
     } catch (e) {
       console.error((e as Error).message);
       return 1;

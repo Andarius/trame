@@ -14,6 +14,7 @@
   --color-ink: #e6e9ef;
   --color-ink-soft: #a9b2c3;
   --color-ink-muted: #8b93a3;
+  --color-ink-faint: #6b7385; /* dimmed metadata (times, numbers); not for sole labels */
   --color-copper: #c98a63;
   --color-copper-ink: #120e0b;
   --color-active: #7bd88f;
@@ -71,6 +72,7 @@
     --color-ink: #1c1f26;
     --color-ink-soft: #4b5262;
     --color-ink-muted: #626a7c;
+    --color-ink-faint: #8a91a0;
 
     --color-active-row: #eef1f5;
     --color-hover: #f2f3f6;
@@ -109,6 +111,7 @@
   --color-ink: #1c1f26;
   --color-ink-soft: #4b5262;
   --color-ink-muted: #626a7c;
+  --color-ink-faint: #8a91a0;
 
   --color-active-row: #eef1f5;
   --color-hover: #f2f3f6;

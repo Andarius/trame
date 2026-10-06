@@ -59,6 +59,12 @@ const { addEvent, addSessionLink, addTrackEvent, deleteSession, ensureSpecsPage,
   ]);
   assertEquals(card.activity_total, 3);
 
+  // the harness's own session id reads the same card (the Claude Code status band does this)
+  const harnessId = crypto.randomUUID();
+  await (await db()).query(`update sessions set claude_id=$2 where id=$1`, [id, harnessId]);
+  const viaHarness = await getSession(APP_CTX, harnessId);
+  assertEquals([viaHarness?.id, viaHarness?.activity_total], [id, 3]);
+
   // a truncated feed still reports the real count, so the agent knows it is truncated
   const capped = await getSession(APP_CTX, id, 2);
   assertEquals((capped!.activity as { summary: string }[]).map((e) => e.summary), ["third", "second"]);
