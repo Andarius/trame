@@ -471,3 +471,50 @@ export function stampMark(
     i === at ? { ...block, text: writeMark(block.text, key, value) } : b
   );
 }
+
+/** Coarse status class: the granularity both sides can represent. */
+export type StatusClass = "todo" | "open" | "closed";
+
+export const statusClassOf = (ticketStatus: string): StatusClass =>
+  ticketStatus === "todo"
+    ? "todo"
+    : ticketStatus === "done" || ticketStatus === "cancelled"
+    ? "closed"
+    : "open";
+
+export type StatusSync =
+  | { kind: "none" }
+  | { kind: "record" }
+  | { kind: "push"; status: TicketStatus }
+  | { kind: "pull" };
+
+/**
+ * What to do with a filed card and its ticket. `base` is the status last
+ * synced (`meta.trame_status`); Trame wins when both moved or base is unknown.
+ */
+export function statusSyncOf(
+  card: { status: string; terminal: boolean },
+  ticket: { status: string; base: string | null },
+): StatusSync {
+  const want = ticketStatusOf(card.status, card.terminal);
+  const cardClass = statusClassOf(want);
+  const ticketClass = statusClassOf(ticket.status);
+  const baseClass = ticket.base ? statusClassOf(ticket.base) : null;
+  if (cardClass === ticketClass) {
+    return baseClass === ticketClass ? { kind: "none" } : { kind: "record" };
+  }
+  if (baseClass === cardClass) return { kind: "pull" };
+  return { kind: "push", status: want };
+}
+
+/** The board status a pulled ticket status lands on, exact key first. */
+export function sessionStatusFor(
+  ticketStatus: string,
+  statuses: readonly { key: string; terminal: boolean }[],
+): string | null {
+  const target = statusClassOf(ticketStatus);
+  const fits = statuses.filter((s) =>
+    statusClassOf(ticketStatusOf(s.key, s.terminal)) === target
+  );
+  return (fits.find((s) => s.key === ticketStatus) ?? fits[0])?.key ?? null;
+}

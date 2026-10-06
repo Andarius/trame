@@ -1,5 +1,5 @@
 import { assertEquals, assertNotEquals } from "@std/assert";
-import { groupByProject, type MirrorPage, pageStatusOf, pendingOf, planMirror, specsDescription, stampMark, ticketBlocks, ticketFromSession, ticketMarkdown, ticketStatusOf, userStoryFromPage } from "./mirror.ts";
+import { groupByProject, type MirrorPage, pageStatusOf, pendingOf, planMirror, sessionStatusFor, specsDescription, stampMark, statusSyncOf, ticketBlocks, ticketFromSession, ticketMarkdown, ticketStatusOf, userStoryFromPage } from "./mirror.ts";
 import { REF_MARK, refOfContent, US_MARK } from "../../../core/content-marks.ts";
 import type { Ticket } from "./api.ts";
 
@@ -575,4 +575,47 @@ Deno.test("mirroring an imported page preserves its authored blocks and comment 
   assertEquals(plan.update[0].blocks, content);
   assertEquals(plan.create, []);
   assertEquals(plan.remove, []);
+});
+
+Deno.test("status sync: Trame wins conflicts, pulls only Cockpit-side moves", () => {
+  const cases: [
+    string,
+    boolean,
+    string,
+    string | null,
+    ReturnType<typeof statusSyncOf>,
+  ][] = [
+    ["done", true, "in_progress", "in_progress", {
+      kind: "push",
+      status: "done",
+    }],
+    ["active", false, "done", "done", { kind: "push", status: "in_progress" }],
+    ["active", false, "done", "in_progress", { kind: "pull" }],
+    ["active", false, "cancelled", "todo", {
+      kind: "push",
+      status: "in_progress",
+    }],
+    ["todo", false, "done", null, { kind: "push", status: "todo" }],
+    ["paused", false, "to_verify", "in_progress", { kind: "none" }],
+    ["done", true, "cancelled", null, { kind: "record" }],
+  ];
+  for (const [status, terminal, ticket, base, expected] of cases) {
+    assertEquals(
+      statusSyncOf({ status, terminal }, { status: ticket, base }),
+      expected,
+    );
+  }
+  const board = [
+    { key: "active", terminal: false },
+    { key: "paused", terminal: false },
+    { key: "todo", terminal: false },
+    { key: "done", terminal: true },
+  ];
+  assertEquals(sessionStatusFor("to_verify", board), "active");
+  assertEquals(sessionStatusFor("cancelled", board), "done");
+  assertEquals(sessionStatusFor("todo", board), "todo");
+  assertEquals(
+    sessionStatusFor("todo", board.filter((s) => s.key !== "todo")),
+    null,
+  );
 });

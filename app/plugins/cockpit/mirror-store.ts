@@ -588,3 +588,31 @@ export async function loadTagSyncItems(
   }
   return out;
 }
+
+/** Live sessions' board status by id, plus the board's columns in order. */
+export async function loadCardStatuses(sessionIds: string[]): Promise<{
+  cards: Map<string, { status: string; terminal: boolean }>;
+  statuses: { key: string; terminal: boolean }[];
+}> {
+  const pg = await db();
+  const [cards, statuses] = await Promise.all([
+    pg.query(
+      `select s.id, s.status, coalesce(st.terminal, false) as terminal
+         from sessions s
+         left join statuses st on st.key = s.status and not st.deleted
+        where not s.deleted and s.id = any($1::uuid[])`,
+      [sessionIds],
+    ),
+    pg.query(
+      `select key, terminal from statuses where not deleted order by sort_key, key`,
+    ),
+  ]);
+  return {
+    cards: new Map(
+      (cards.rows as { id: string; status: string; terminal: boolean }[]).map((
+        r,
+      ) => [r.id, { status: r.status, terminal: r.terminal }]),
+    ),
+    statuses: statuses.rows as { key: string; terminal: boolean }[],
+  };
+}

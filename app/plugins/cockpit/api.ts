@@ -55,7 +55,11 @@ export type GrantedScope = {
 };
 
 export class CockpitError extends Error {
-  constructor(readonly status: number, message: string) {
+  constructor(
+    readonly status: number,
+    message: string,
+    readonly body?: unknown,
+  ) {
     super(message);
   }
 }
@@ -79,7 +83,11 @@ async function call<T>(
   });
   const body = await res.json().catch(() => ({})) as { error?: string };
   if (!res.ok) {
-    throw new CockpitError(res.status, body.error ?? `HTTP ${res.status}`);
+    throw new CockpitError(
+      res.status,
+      body.error ?? `HTTP ${res.status}`,
+      body,
+    );
   }
   return body as T;
 }
@@ -275,6 +283,44 @@ export function attachLegacyTicket(
       meta: { trame_migration: { page_id: pageId, user_story: userStory } },
     }),
   });
+}
+
+/**
+ * Write a ticket's status (or, with `write` false, only record it as synced)
+ * under `meta.trame_status`. Trame wins a 409: one retry on the current row.
+ */
+export async function syncTicketStatus(
+  baseUrl: string,
+  token: string,
+  reference: string,
+  expectedUpdatedAt: string,
+  status: string,
+  write: boolean,
+): Promise<{ reference: string; updated_at: string }> {
+  const patch = (at: string) =>
+    call<{ reference: string; updated_at: string }>(
+      baseUrl,
+      token,
+      `/tickets/${encodeURIComponent(reference)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          expected_updated_at: at,
+          ...(write ? { fields: { status } } : {}),
+          meta: { trame_status: status },
+        }),
+      },
+    );
+  try {
+    return await patch(expectedUpdatedAt);
+  } catch (e) {
+    const at = write && e instanceof CockpitError && e.status === 409
+      ? (e.body as { current?: { updated_at?: string } } | undefined)?.current
+        ?.updated_at
+      : undefined;
+    if (!at) throw e;
+    return patch(at);
+  }
 }
 
 /** Refuse exports to older servers that silently discard initial status fields. */

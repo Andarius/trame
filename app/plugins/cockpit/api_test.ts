@@ -227,3 +227,28 @@ Deno.test("tag sync sends empty sets too, with the selected scope and source ide
     );
   });
 });
+
+Deno.test("status push re-PATCHes on the current row after a 409", async () => {
+  const { syncTicketStatus } = await import("./api.ts");
+  const sent: unknown[] = [];
+  await withFetch(async (_url, init) => {
+    sent.push(await new Response(String(init?.body)).json());
+    return sent.length === 1
+      ? reply(409, { error: "conflict", current: { updated_at: "t2" } })
+      : reply(200, { reference: "GEN-1", updated_at: "t3" });
+  }, async () => {
+    await syncTicketStatus(
+      "https://cockpit.test",
+      "tok",
+      "GEN-1",
+      "t1",
+      "done",
+      true,
+    );
+  });
+  assertEquals(
+    sent.map((b) => (b as { expected_updated_at: string }).expected_updated_at),
+    ["t1", "t2"],
+  );
+  assertEquals((sent[1] as Record<string, unknown>).fields, { status: "done" });
+});
