@@ -471,3 +471,87 @@ export function stampMark(
     i === at ? { ...block, text: writeMark(block.text, key, value) } : b
   );
 }
+
+/** Coarse status class: the granularity both sides can represent. */
+export type StatusClass = "todo" | "open" | "closed";
+
+export const statusClassOf = (ticketStatus: string): StatusClass =>
+  ticketStatus === "todo"
+    ? "todo"
+    : ticketStatus === "done" || ticketStatus === "cancelled"
+    ? "closed"
+    : "open";
+
+export type StatusSync =
+  | { kind: "none" }
+  | { kind: "record" }
+  | { kind: "push"; status: TicketStatus }
+  | { kind: "pull" };
+
+/** Compare classes against the last synced one: who moved, Trame winning ties. */
+export function syncDecision(
+  local: string,
+  remote: string,
+  base: string | null,
+): "none" | "record" | "push" | "pull" {
+  if (local === remote) return base === remote ? "none" : "record";
+  return base === local ? "pull" : "push";
+}
+
+/**
+ * What to do with a filed card and its ticket. `base` is the status last
+ * synced (`meta.trame_status`); Trame wins when both moved or base is unknown.
+ */
+export function statusSyncOf(
+  card: { status: string; terminal: boolean },
+  ticket: { status: string; base: string | null },
+): StatusSync {
+  const want = ticketStatusOf(card.status, card.terminal);
+  const kind = syncDecision(
+    statusClassOf(want),
+    statusClassOf(ticket.status),
+    ticket.base ? statusClassOf(ticket.base) : null,
+  );
+  return kind === "push" ? { kind, status: want } : { kind };
+}
+
+const usClosed = (s: string) => s === "done" || s === "archived";
+
+/**
+ * Same rule for a story page filed as a user story: archived page ↔ done or
+ * archived US, open page ↔ any other US status. Returns the status to push,
+ * or the page status to pull.
+ */
+export function storySyncOf(
+  pageStatus: string,
+  us: { status: string; base: string | null },
+):
+  | { kind: "none" | "record" }
+  | { kind: "push"; status: "done" | "in_development" }
+  | { kind: "pull"; status: "archived" | "open" } {
+  const closed = pageStatus === "archived";
+  const kind = syncDecision(
+    String(closed),
+    String(usClosed(us.status)),
+    us.base ? String(usClosed(us.base)) : null,
+  );
+  if (kind === "push") {
+    return { kind, status: closed ? "done" : "in_development" };
+  }
+  if (kind === "pull") {
+    return { kind, status: usClosed(us.status) ? "archived" : "open" };
+  }
+  return { kind };
+}
+
+/** The board status a pulled ticket status lands on, exact key first. */
+export function sessionStatusFor(
+  ticketStatus: string,
+  statuses: readonly { key: string; terminal: boolean }[],
+): string | null {
+  const target = statusClassOf(ticketStatus);
+  const fits = statuses.filter((s) =>
+    statusClassOf(ticketStatusOf(s.key, s.terminal)) === target
+  );
+  return (fits.find((s) => s.key === ticketStatus) ?? fits[0])?.key ?? null;
+}

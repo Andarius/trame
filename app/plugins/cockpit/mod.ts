@@ -10,7 +10,7 @@ import { COCKPIT_FIXTURE, COCKPIT_POLL_IDLE_MS } from "../../config.ts";
 import { legacyParents } from "./migration.ts";
 import type { Plugin, PluginSettings } from "../types.ts";
 import { getPluginSettings, isPluginEnabled } from "../settings.ts";
-import { ensureTag, tagKey } from "../../../core/sessions.ts";
+import { ensureTag, setSessionStatus, tagKey } from "../../../core/sessions.ts";
 import {
   type Mapping,
   mappingTagLabel,
@@ -26,24 +26,40 @@ import {
   fetchRefs,
   fetchScopes,
   fetchTickets,
+  fetchUserStories,
   probe,
   requireImportSupport,
+  syncStatus,
   syncTags,
   type Ticket,
+  type UserStory,
 } from "./api.ts";
-import { groupByProject, isSessionTicket, planMirror, ticketFromSession, ticketStatusOf, userStoryFromPage } from "./mirror.ts";
+import {
+  groupByProject,
+  isSessionTicket,
+  planMirror,
+  SESSION_ORIGIN,
+  sessionStatusFor,
+  statusSyncOf,
+  storySyncOf,
+  ticketFromSession,
+  ticketStatusOf,
+  userStoryFromPage,
+} from "./mirror.ts";
 import { refOfContent, usOfContent } from "../../../core/content-marks.ts";
 import {
   adoptAsMirror,
   adoptAsUserStory,
   adoptSessionAsFiled,
   applyMirror,
+  loadCardStatuses,
   loadMirrorPages,
   loadPageRoutes,
   loadPendingPages,
   loadPendingSessions,
   loadSyncedPages,
   loadTagSyncItems,
+  loadUserStoryPages,
   type MirrorResult,
 } from "./mirror-store.ts";
 
@@ -155,6 +171,126 @@ async function mirror(
   // mirroring it as a story would make a second copy under the project.
   const ours = tickets.filter((t) => !isSessionTicket(t));
   return applyMirror(pageId, planMirror(ours, existing, live, tagsByRef));
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Keep filed cards and their tickets on the same status — see statusSyncOf. */
+async function syncStatuses(
+  baseUrl: string,
+  token: string,
+  tickets: Ticket[],
+  errors: CockpitState["errors"],
+): Promise<void> {
+  const filed = new Map<string, Ticket>();
+  for (const t of tickets) {
+    if (!isSessionTicket(t)) continue;
+    const id = String((t.meta!.sync as { origin_id: string }).origin_id)
+      .slice(SESSION_ORIGIN.length);
+    if (UUID.test(id)) filed.set(id, t);
+  }
+  if (!filed.size) return;
+  const { cards, statuses } = await loadCardStatuses([...filed.keys()]);
+  for (const [id, t] of filed) {
+    const card = cards.get(id);
+    if (!card) continue;
+    const base = typeof t.meta?.trame_status === "string"
+      ? t.meta.trame_status
+      : null;
+    const action = statusSyncOf(card, { status: t.status, base });
+    try {
+      if (action.kind === "push" || action.kind === "record") {
+        const push = action.kind === "push";
+        await syncStatus(
+          baseUrl,
+          token,
+          "tickets",
+          t.reference,
+          t.updated_at,
+          push ? action.status : t.status,
+          push,
+        );
+      } else if (action.kind === "pull") {
+        const key = sessionStatusFor(t.status, statuses);
+        if (!key) throw new Error(`no board status for "${t.status}"`);
+        await setSessionStatus(APP_CTX, id, key);
+      }
+    } catch (e) {
+      errors.push({
+        scope: `status: ${t.reference}`,
+        error: e instanceof CockpitError
+          ? `${e.status} — ${e.message}`
+          : String((e as Error)?.message ?? e),
+      });
+    }
+  }
+}
+
+/** Same sync for story pages filed as user stories (cockpit_us mark). */
+async function syncStoryStatuses(
+  baseUrl: string,
+  token: string,
+  scopes: Scope[],
+  errors: CockpitState["errors"],
+): Promise<void> {
+  const pages = await loadUserStoryPages();
+  if (!pages.size) return;
+  const stories = new Map<string, UserStory>();
+  for (const scope of scopes) {
+    try {
+      for (const us of await fetchUserStories(baseUrl, token, scope)) {
+        stories.set(us.reference, us);
+      }
+    } catch (e) {
+      // A bare 404 is an older Cockpit without the route: say so once, skip.
+      if (
+        e instanceof CockpitError && e.status === 404 &&
+        !(e.body as { error?: unknown } | undefined)?.error
+      ) {
+        errors.push({
+          scope: "user stories",
+          error: "Cockpit has no user-story sync yet — status not synced.",
+        });
+        return;
+      }
+      errors.push({
+        scope: `user stories: ${scopeKey(scope)}`,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+  for (const [ref, us] of stories) {
+    const page = pages.get(ref);
+    if (!page) continue;
+    const base = typeof us.meta?.trame_status === "string"
+      ? us.meta.trame_status
+      : null;
+    const action = storySyncOf(page.status, { status: us.status, base });
+    try {
+      if (action.kind === "push" || action.kind === "record") {
+        const push = action.kind === "push";
+        await syncStatus(
+          baseUrl,
+          token,
+          "user-stories",
+          ref,
+          us.updated_at,
+          push ? action.status : us.status,
+          push,
+        );
+      } else if (action.kind === "pull") {
+        const { updatePage } = await import("../../../core/pages.ts");
+        await updatePage(APP_CTX, page.id, { status: action.status });
+      }
+    } catch (e) {
+      errors.push({
+        scope: `status: ${ref}`,
+        error: e instanceof CockpitError
+          ? `${e.status} — ${e.message}`
+          : String((e as Error)?.message ?? e),
+      });
+    }
+  }
 }
 
 async function pollOnce(): Promise<CockpitState> {
@@ -335,6 +471,28 @@ async function pollOnce(): Promise<CockpitState> {
       }
     }),
   );
+
+  if (canFile) {
+    try {
+      await syncStatuses(
+        baseUrl,
+        token,
+        drained.flatMap((d) => d.tickets),
+        errors,
+      );
+      await syncStoryStatuses(
+        baseUrl,
+        token,
+        drained.map((d) => d.scope),
+        errors,
+      );
+    } catch (e) {
+      errors.push({
+        scope: "status",
+        error: String((e as Error)?.message ?? e),
+      });
+    }
+  }
 
   if (wantsMirror) {
     const groups = groupByProject(

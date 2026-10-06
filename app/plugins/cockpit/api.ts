@@ -55,7 +55,11 @@ export type GrantedScope = {
 };
 
 export class CockpitError extends Error {
-  constructor(readonly status: number, message: string) {
+  constructor(
+    readonly status: number,
+    message: string,
+    readonly body?: unknown,
+  ) {
     super(message);
   }
 }
@@ -79,26 +83,13 @@ async function call<T>(
   });
   const body = await res.json().catch(() => ({})) as { error?: string };
   if (!res.ok) {
-    throw new CockpitError(res.status, body.error ?? `HTTP ${res.status}`);
+    throw new CockpitError(
+      res.status,
+      body.error ?? `HTTP ${res.status}`,
+      body,
+    );
   }
   return body as T;
-}
-
-/**
- * One page of the delta for a scope. The caller advances its watermark with
- * `next_since` while `has_more`, then parks on `now` — always the SERVER's
- * clock, never the laptop's, since a few seconds of drift would skip tickets.
- */
-export function fetchDelta(
-  baseUrl: string,
-  token: string,
-  scope: Scope,
-  since: string | null,
-  limit = 100,
-): Promise<Delta> {
-  const q = [scopeQuery(scope), `limit=${limit}`];
-  if (since) q.push(`since=${encodeURIComponent(since)}`);
-  return call<Delta>(baseUrl, token, `/tickets?${q.join("&")}`);
 }
 
 /** Live references for a scope — the reconcile list (phase 3). */
@@ -239,23 +230,64 @@ export async function probe(baseUrl: string, token: string): Promise<Probe> {
 }
 
 /** Read a complete scope, refusing a truncated or broken cursor. */
-export async function fetchTickets(
+export function fetchTickets(
   baseUrl: string,
   token: string,
   scope: Scope,
 ): Promise<Ticket[]> {
-  const tickets: Ticket[] = [];
+  return drain<Ticket>(baseUrl, token, scope, "tickets", "tickets");
+}
+
+/** A user story as the status sync needs it; archived ones read `archived`. */
+export type UserStory = {
+  id: string;
+  reference: string;
+  title: string;
+  status: string;
+  updated_at: string;
+  archived_at: string | null;
+  meta: Record<string, unknown> | null;
+};
+
+/** Every user story in a scope — same paging contract as the tickets. */
+export function fetchUserStories(
+  baseUrl: string,
+  token: string,
+  scope: Scope,
+): Promise<UserStory[]> {
+  return drain<UserStory>(
+    baseUrl,
+    token,
+    scope,
+    "user-stories",
+    "user_stories",
+  );
+}
+
+// Pages by `next_since` — the SERVER's clock, never the laptop's.
+async function drain<T>(
+  baseUrl: string,
+  token: string,
+  scope: Scope,
+  path: string,
+  key: string,
+): Promise<T[]> {
+  const items: T[] = [];
   let since: string | null = null;
   for (let page = 0; page < 20; page++) {
-    const delta = await fetchDelta(baseUrl, token, scope, since);
-    tickets.push(...delta.tickets);
-    if (!delta.has_more) return tickets;
+    const q = [scopeQuery(scope), "limit=100"];
+    if (since) q.push(`since=${encodeURIComponent(since)}`);
+    const delta = await call<
+      Omit<Delta, "tickets"> & Record<string, T[] | undefined>
+    >(baseUrl, token, `/${path}?${q.join("&")}`);
+    items.push(...(delta[key] ?? []));
+    if (!delta.has_more) return items;
     if (!delta.next_since || delta.next_since === since) {
-      throw new Error("Cockpit returned an invalid ticket cursor.");
+      throw new Error("Cockpit returned an invalid cursor.");
     }
     since = delta.next_since;
   }
-  throw new Error("Cockpit ticket scope exceeds the 20-page import limit.");
+  throw new Error(`Cockpit ${path} scope exceeds the 20-page import limit.`);
 }
 
 /** Retain the original ticket beneath its converted US with an atomic retry receipt. */
@@ -275,6 +307,45 @@ export function attachLegacyTicket(
       meta: { trame_migration: { page_id: pageId, user_story: userStory } },
     }),
   });
+}
+
+/**
+ * Write a ticket's or user story's status (or, with `write` false, only record
+ * it as synced) under `meta.trame_status`. Trame wins a 409: one retry.
+ */
+export async function syncStatus(
+  baseUrl: string,
+  token: string,
+  resource: "tickets" | "user-stories",
+  reference: string,
+  expectedUpdatedAt: string,
+  status: string,
+  write: boolean,
+): Promise<{ reference: string; updated_at: string }> {
+  const patch = (at: string) =>
+    call<{ reference: string; updated_at: string }>(
+      baseUrl,
+      token,
+      `/${resource}/${encodeURIComponent(reference)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          expected_updated_at: at,
+          ...(write ? { fields: { status } } : {}),
+          meta: { trame_status: status },
+        }),
+      },
+    );
+  try {
+    return await patch(expectedUpdatedAt);
+  } catch (e) {
+    const at = write && e instanceof CockpitError && e.status === 409
+      ? (e.body as { current?: { updated_at?: string } } | undefined)?.current
+        ?.updated_at
+      : undefined;
+    if (!at) throw e;
+    return patch(at);
+  }
 }
 
 /** Refuse exports to older servers that silently discard initial status fields. */
