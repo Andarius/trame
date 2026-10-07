@@ -764,7 +764,6 @@ export function Drawer(
                             ? <RepoLink path={session.repo_path} prUrl={session.pr_url} />
                             : <span className="text-[12px] text-ink-faint">none</span>
                         )],
-                        ["Agents", <AgentsSummary key="agents" agents={agentSummaries} />],
                         ["Last touched", (
                           <span className="text-[12px] text-ink-muted" title={new Date(session.last_touched).toLocaleString()}>
                             {timeAgo(session.last_touched)}
@@ -796,6 +795,11 @@ export function Drawer(
                           <div className="min-w-0">{value}</div>
                         </div>
                       ))}
+                      {/* full width: the expanded per-agent lines need more than half the grid */}
+                      <div className="col-span-full grid grid-cols-[96px_minmax(0,1fr)] items-start gap-3 py-1.5">
+                        <span className="pt-1 text-[11.5px] text-ink-muted">Agents</span>
+                        <div className="min-w-0"><AgentsSummary agents={agentSummaries} /></div>
+                      </div>
                     </div>
                   </div>
                 )

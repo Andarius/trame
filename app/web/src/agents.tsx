@@ -323,12 +323,13 @@ export function AgentsSummary({ agents }: { agents: AgentSummary[] }) {
         </svg>
       </button>
       {open && (
-        <div className="flex flex-col gap-1 pl-1">
+        <div className="flex min-w-0 flex-col gap-1 pl-1">
           {agents.map((a) => (
-            <div key={a.key} className="flex items-center gap-2 text-[12px]">
+            // one line per agent: a long name or model truncates, the numbers never wrap
+            <div key={a.key} className="flex min-w-0 items-center gap-2 whitespace-nowrap text-[12px]">
               <AgentIcon a={{ harness: a.agent, icon: null }} />
-              <b className="font-semibold text-ink-soft">{a.key}</b>
-              {a.model && <span className="tabular-nums text-ink-faint">{a.model}</span>}
+              <b title={a.key} className="min-w-0 truncate font-semibold text-ink-soft">{a.key}</b>
+              {a.model && <span title={a.model} className="min-w-0 truncate text-ink-faint">{a.model}</span>}
               <span className="flex-1" />
               {a.tokens != null && <span className="tabular-nums text-ink-muted">{fmtTokens(a.tokens)}</span>}
               {a.ms > 0 && <span className="text-[11px] text-ink-faint">{fmtDuration(a.ms)}</span>}

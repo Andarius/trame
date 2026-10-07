@@ -1081,13 +1081,14 @@ function Sidebar(
         <button
           type="button"
           title="show the running agents"
-          className="flex shrink-0 items-center gap-3 border-t border-line px-5 pt-2 text-[11.5px] text-ink-soft hover:text-ink"
+          // one status block with the sync line below: same inset, dot and type
+          className="flex shrink-0 items-center gap-3 border-t border-line px-5 pt-2 text-[11.5px] text-ink-muted hover:text-ink"
           onClick={() => runningRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
         >
           {(["working", "waiting"] as const).map((st) => {
             const n = live.filter((l) => l.state === st).length;
             return n > 0 && (
-              <span key={st} className="inline-flex items-center gap-1.5">
+              <span key={st} className="inline-flex items-center gap-2">
                 <span className={`h-[7px] w-[7px] rounded-full ${st === "working" ? "bg-live" : "bg-wait"}`} />
                 {n} {st === "working" ? "working" : "needs you"}
               </span>
@@ -1095,7 +1096,11 @@ function Sidebar(
           })}
         </button>
       )}
-      <div className="flex shrink-0 items-center gap-2 border-t border-line px-5 py-2 text-[11.5px] text-ink-muted">
+      <div
+        className={`flex shrink-0 items-center gap-2 px-5 text-[11.5px] text-ink-muted ${
+          live.length > 0 ? "pb-2 pt-1.5" : "border-t border-line py-2"
+        }`}
+      >
         <span
           className="h-[7px] w-[7px] rounded-full"
           style={{
