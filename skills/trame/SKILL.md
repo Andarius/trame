@@ -1,7 +1,26 @@
 ---
 name: trame
-description: Query Trame (the local session tracker) — board, sessions, worklogs, projects/pages, user databases. Use when you need to read or cross-reference tracked work sessions, their status/blockers, or Trame's data.
+description: Entry point for Trame (the local session tracker) — routes /trame <anything> to the right trame-* skill (track, page, watch, plan review/done), else queries the board, sessions, worklogs, pages and user databases directly. Use for any Trame request or pasted Trame link.
 ---
+
+# Trame
+
+## Routing
+
+`/trame <args>` is the generic entry point. Pick the first match, invoke that skill with the
+same args, and let it drive — don't redo its work here (if it isn't installed, `tramecli <cmd> --help` covers it):
+
+| The ask / args | Skill |
+|---|---|
+| a bare card link (`?card=` / `?session=`) or card id | `trame-track` to adopt it, name the agent session after the card (a rename tool if your client has one, else end your first reply with `/rename <short-card-slug>` for the user), then **start working**: read its spec and next step (`tramecli show <id>`) and do the first open item, no confirmation. Each todo you start: re-track with `links: [{"page_id": <specs_page_id>, "anchor": "<todo text>"}]` so the todo shows you live; tick it on the spec page (`tramecli page`) once its change is pushed with a PR open (ops steps: once applied), adding any leftover as a new todo. A code todo that builds on this card's still-open PR in the same repo goes on a stacked PR (`gh stack`, one layer per todo; `gh-stack` skill); independent todos branch off the default branch; ops todos need no PR |
+| track / log / pause / block / done / next step / list open sessions | `trame-track` |
+| watch / follow / answer comments on a page | `trame-watch` |
+| address the feedback on the current plan | `trame-plan-review` (if installed) |
+| mark the current plan done | `trame-plan-done` (if installed) |
+| a page link (`?page=` only), or create / publish / update / comment on a page, note, plan, write-up | `trame-page` |
+| anything else (board questions, cross-referencing, user databases, reports) | stay here — data access below |
+
+No args: show the open sessions (Recipes) and stop.
 
 # Trame data access
 
@@ -33,8 +52,9 @@ impossible, and writes should go through the outbox writer instead (see Writes).
 | `GET /api/reports` | published exploration reports |
 | `GET /api/import/claude?days=7` | Claude Code transcripts grouped by repo (preview only, writes nothing) |
 
-A Trame URL the user pastes carries the ids in its query string: `?session=<id>` is the
-card, `?page=<id>` the page it sits on (`full` only picks panel vs. ticket). Read the card
+A Trame URL the user pastes carries the ids in its query string: `?card=<id>` (legacy
+`?session=<id>`) is the card, `?page=<id>` a page. `story=`, `view=`, `q=`, `full=` are UI
+state (filters/layout) — ignore them. Read the card
 with `GET /api/sessions/<session id>` — that one call is what the drawer shows.
 
 Session fields worth knowing: `status` (active|paused|blocked|done), `next_step` (for a
@@ -71,11 +91,8 @@ curl -s http://127.0.0.1:$PORT/api/sessions/$ID/events
 ## Writes
 
 Prefer the tracking writer over raw POSTs — it composes the payload correctly and queues
-to the offline outbox when the app is closed (`<repo>` = your trame checkout):
-
-```bash
-echo '{"title": "...", "status": "active", ...}' | deno run -A <repo>/track/track.ts
-```
+to the offline outbox when the app is closed: `tramecli track` (see `tramecli track --help`,
+or route to `trame-track`).
 
 Raw endpoints exist (`POST /api/sessions` upserts the open card of the agent session + story, else
 repo + any of its branches,
