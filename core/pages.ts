@@ -3,7 +3,7 @@
 // tolerates orphans (sync can deliver a child before its parent).
 import type { Ctx, Q } from "./ctx.ts";
 import { checkStoryParent, isUserStory, projectAbove } from "./hierarchy.ts";
-import { MARK_ROLE_COL } from "./mark-roles.ts";
+import { markRoleCol } from "./mark-roles.ts";
 import { identityOf } from "./identity.ts";
 import { resolveHomeProject } from "./sessions.ts";
 import { isPageStatus } from "./page-status.ts";
@@ -15,8 +15,8 @@ import {
   resolveCommentBlock,
 } from "./agent-comments.ts";
 
-const LIST_COLS =
-  `id, parent_id, kind, title, icon, status, client_id, color, tags, sort_key, owner_id, updated_at, ${MARK_ROLE_COL}`;
+const listCols = () =>
+  `id, parent_id, kind, title, icon, status, client_id, color, tags, sort_key, owner_id, updated_at, ${markRoleCol()}`;
 const COMMENT_COLS =
   "id, page_id, block_id, anchor, body, author, author_avatar, author_id, resolved, meta, updated_at";
 
@@ -41,7 +41,7 @@ async function commentsForPage(ctx: Ctx, pageId: string) {
 export async function listPages(ctx: Ctx) {
   const pg = ctx.q;
   return (await pg.query(
-    `select ${LIST_COLS} from pages where not deleted order by sort_key, title`,
+    `select ${listCols()} from pages where not deleted order by sort_key, title`,
   )).rows;
 }
 
@@ -53,7 +53,7 @@ export async function getPage(ctx: Ctx, id: string) {
   if (!page) return null;
   const children = (await pg.query(
     // todo progress per sub-page; a non-array content (hub jsonb-string rows) counts as empty
-    `select ${LIST_COLS},
+    `select ${listCols()},
             (select count(*)::int from jsonb_array_elements(
                case when jsonb_typeof(content)='array' then content else '[]'::jsonb end) b
               where b->>'type'='todo') as todos,
@@ -132,6 +132,7 @@ export async function createPage(
     : p.repo_path
     ? await resolveHomeProject(ctx, p.repo_path)
     : null;
+  if (p.content !== undefined && !Array.isArray(p.content)) throw new Error("page content must be a block array");
   if (isUserStory(p)) await checkStoryParent(ctx, parentId);
   const row = (await pg.query(
     `insert into pages

@@ -8,6 +8,11 @@ const { APP_CTX } = await import("./ctx.ts");
 
 import { assertEquals, assertRejects } from "@std/assert";
 const { createPage, getPage, movePage } = await import("../core/pages.ts");
+const { addMarkRoles } = await import("../core/mark-roles.ts");
+addMarkRoles([
+  { mark: "tracker_us", value: /^US-\d+$/, role: "linked-story" },
+  { mark: "tracker_ref", value: /^GEN-\d+$/, role: "ticket" },
+]);
 const pageMeta = async (id: string) =>
   await getPage(APP_CTX, id) as unknown as { kind: string; parent_id: string | null };
 const { db } = await import("./db.ts");
@@ -51,7 +56,7 @@ Deno.test("hierarchy rejects nested US creation and moves but preserves document
     title: "Legacy ticket",
     kind: "story",
     parent_id: us,
-    content: [{ id: crypto.randomUUID(), type: "text", text: "{{trame:cockpit_ref=GEN-900}}" }],
+    content: [{ id: crypto.randomUUID(), type: "text", text: "{{trame:tracker_ref=GEN-900}}" }],
   });
   const id = await upsertSession(APP_CTX, { title: "New ticket", page_id: deep });
   const pg = await db();

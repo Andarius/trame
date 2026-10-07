@@ -1,6 +1,7 @@
 // Composes out-of-tree plugins into this checkout from the gitignored plugins.local.json:
-//   { "plugins": ["../trame-cockpit"] }   (paths relative to the repo root, or absolute)
-// A plugin checkout may hold mod.ts (backend), web/index.ts (frontend) and e2e/*.spec.ts.
+//   { "plugins": ["../my-plugin"] }   (paths relative to the repo root, or absolute)
+// A plugin checkout may hold mod.ts (backend), web/index.ts (frontend), e2e/*.spec.ts and
+// mark-roles.json (what its page marks mean to the hierarchy, see core/mark-roles.ts).
 // Writes the registries the app imports statically (no runtime loading: deno desktop + WebKitGTK).
 // Without the file the registries are written empty, which is what the committed copies hold.
 import { dirname, join, relative, resolve } from "node:path";
@@ -10,6 +11,7 @@ const OUT = {
   backend: join(ROOT, "app/plugins/local.gen.ts"),
   web: join(ROOT, "app/web/src/plugins/local.gen.ts"),
   css: join(ROOT, "app/web/src/plugins/local.gen.css"),
+  roles: join(ROOT, "core/mark-roles.gen.ts"),
 };
 const exists = (p: string) => Deno.stat(p).then(() => true, () => false);
 
@@ -43,12 +45,26 @@ async function registry(out: string, entry: string, type: string, typeFrom: stri
     `\nexport const LOCAL_PLUGINS: ${type}[] = [${found.map((_, i) => `p${i}`).join(", ")}];\n`;
 }
 
+async function markRoles() {
+  const rules: { mark: string; value: string; role: string }[] = [];
+  for (const d of dirs) {
+    const f = join(d, "mark-roles.json");
+    if (await exists(f)) rules.push(...JSON.parse(await Deno.readTextFile(f)));
+  }
+  return rules.map((r) =>
+    `\n  { mark: ${JSON.stringify(r.mark)}, value: new RegExp(${JSON.stringify(r.value)}), role: ${JSON.stringify(r.role)} },`
+  ).join("") + (rules.length ? "\n" : "");
+}
+
 const files: [string, string][] = [
   [OUT.backend, await registry(OUT.backend, "mod.ts", "Plugin", "./types.ts")],
   [OUT.web, await registry(OUT.web, "web/index.ts", "FrontendPlugin", "./index")],
   // tailwind only scans the app's own tree; point it at each plugin's web code
   [OUT.css, HEADER.replace("//", "/*").replace("\n", " */\n") +
     dirs.map((d) => `@source "${rel(OUT.css, join(d, "web"))}";\n`).join("")],
+  // inlined, not imported: the hub gets only core/*.ts
+  [OUT.roles, HEADER + `import type { MarkRule } from "./mark-roles.ts";\n\n` +
+    `export const LOCAL_MARK_ROLES: MarkRule[] = [${await markRoles()}];\n`],
 ];
 for (const [path, text] of files) await Deno.writeTextFile(path, text);
 

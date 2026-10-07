@@ -17,10 +17,10 @@ const tint = (color: string): CSSProperties => ({
  * as its own slug. That is the whole point of storing the key — a page pulled
  * from another device before its tags arrived is readable rather than blank.
  *
- * A label with a colon renders split: `cockpit:devops` is a dim `cockpit` half
+ * A label with a colon renders split: `team:devops` is a dim `team` half
  * and a coloured `devops` half. The prefix repeats on every tag a source writes,
  * so it stops earning full contrast — and its colour comes from the tag row of
- * the namespace ITSELF (`cockpit`), which is why every `cockpit:*` pill shares
+ * the namespace ITSELF (`team`), which is why every `team:*` pill shares
  * one hue instead of each carrying its own copy.
  */
 export function TagEditor(
@@ -44,7 +44,7 @@ export function TagEditor(
   const byKey = new Map(known.map((t) => [t.key, t]));
   const trimmed = query.trim();
   // A row that only exists to colour a namespace is not itself a tag to put on
-  // a page — offering `cockpit` next to `cockpit:devops` would just be a trap.
+  // a page — offering `team` next to `team:devops` would just be a trap.
   const namespaces = new Set(
     known.map((t) => splitTagLabel(t.label).ns).filter((n): n is string => !!n)
       .map(tagKey),

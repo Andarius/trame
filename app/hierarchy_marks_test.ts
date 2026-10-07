@@ -11,20 +11,24 @@ const { APP_CTX } = await import("./ctx.ts");
 import { assertEquals } from "@std/assert";
 import { isUserStory, storyAbove } from "../core/hierarchy.ts";
 import { createPage } from "../core/pages.ts";
+import { addMarkRoles } from "../core/mark-roles.ts";
 
-// Pins what the Cockpit marks mean to the hierarchy, so moving that knowledge out of
-// core can't silently re-parent cards under existing data.
+// Pins what mark roles mean to the hierarchy; a plugin declares the real rules (mark-roles.json).
+addMarkRoles([
+  { mark: "tracker_us", value: /^US-\d+$/, role: "linked-story" },
+  { mark: "tracker_ref", value: /^GEN-\d+$/, role: "ticket" },
+]);
 const line = (text: string) => [{ id: crypto.randomUUID(), type: "text", text }];
-const US = (n: number) => line(`{{trame:cockpit_us=US-${n}}}`);
-const GEN = (n: number) => line(`{{trame:cockpit_ref=GEN-${n}}}`);
+const US = (n: number) => line(`{{trame:tracker_us=US-${n}}}`);
+const GEN = (n: number) => line(`{{trame:tracker_ref=GEN-${n}}}`);
 
 Deno.test("isUserStory: a US mark makes any page one; a GEN mark unmakes a story", async (t) => {
   const cases: [string, { kind?: string; content?: unknown[] }, boolean][] = [
     ["plain story", { kind: "story" }, true],
     ["story mirroring a ticket", { kind: "story", content: GEN(5) }, false],
-    ["story with a non-GEN ref", { kind: "story", content: line("{{trame:cockpit_ref=OPS-5}}") }, true],
+    ["story with a non-GEN ref", { kind: "story", content: line("{{trame:tracker_ref=OPS-5}}") }, true],
     ["page filed as a US", { kind: "page", content: US(3) }, true],
-    ["page with a malformed US", { kind: "page", content: line("{{trame:cockpit_us=story-3}}") }, false],
+    ["page with a malformed US", { kind: "page", content: line("{{trame:tracker_us=story-3}}") }, false],
     ["plain page", { kind: "page" }, false],
   ];
   for (const [name, page, expected] of cases) {
