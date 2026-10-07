@@ -555,7 +555,7 @@ const KIND_ICONS: Record<string, { tint?: string; paths: ReactNode }> = {
 function KindIcon({ glyph, className }: { glyph: string; className?: string }) {
   const k = KIND_ICONS[glyph];
   return (
-    <span className={`inline-flex items-center self-center align-middle ${className ?? ""}`}>
+    <span data-glyph={glyph} className={`inline-flex items-center self-center align-middle ${className ?? ""}`}>
       <svg width="1.15em" height="1.15em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
         strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={k.tint}
       >
