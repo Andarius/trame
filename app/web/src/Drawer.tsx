@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { refOfContent } from "../../../core/content-marks.ts";
 import { CockpitLogo, cockpitHref, useCockpitBase } from "./plugins/cockpit/CockpitTicket";
 import { AssignerAvatar, useAssigner } from "./plugins/cockpit/AssignedBy";
@@ -56,6 +57,10 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+export const TOPBAR_SLOT = "topbar-actions";
+const TOP_BTN =
+  "shrink-0 whitespace-nowrap rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft";
+
 export function Drawer(
   { session, board, onClose, onSaved, defaultExpanded, onExpandedChange, onOpenPage, embedded = false }: {
     session: Session;
@@ -71,7 +76,17 @@ export function Drawer(
 ) {
   const { live, recent } = useAgents();
   const [title, setTitle] = useState(session.title);
-  const [moreOpen, setMoreOpen] = useState(false);
+  // embedded: session actions live in App's top bar, next to "Sync now"
+  const [topSlot, setTopSlot] = useState<Element | null>(null);
+  useEffect(() => setTopSlot(embedded ? document.getElementById(TOPBAR_SLOT) : null), [embedded]);
+  const [copied, setCopied] = useState<string | null>(null);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(copiedTimer.current), []);
+  const flashCopied = (msg: string) => {
+    setCopied(msg);
+    clearTimeout(copiedTimer.current);
+    copiedTimer.current = setTimeout(() => setCopied(null), 2500);
+  };
   const [status, setStatus] = useState<Status>(session.status);
   const [client, setClient] = useState(board.projects.find((c) => c.id === session.client_id)?.name ?? "");
   const [pageId, setPageId] = useState(session.page_id ?? "");
@@ -715,43 +730,26 @@ export function Drawer(
                   <div className="flex flex-col gap-3">
                     <div className="flex items-start gap-3">
                       <div className="min-w-0 flex-1">{titleInput}</div>
-                      <div className="relative shrink-0 pt-1">
-                        <button
-                          type="button"
-                          title="More session actions"
-                          aria-label="More session actions"
-                          aria-haspopup="menu"
-                          aria-expanded={moreOpen}
-                          className="rounded-md px-1.5 py-0.5 text-[16px] leading-none text-ink-muted hover:bg-panel hover:text-ink-soft"
-                          onClick={() => setMoreOpen((v) => !v)}
-                        >
-                          ⋯
-                        </button>
-                        {moreOpen && (
-                          <Popover onClose={() => setMoreOpen(false)} className="!left-auto right-0 w-[210px]">
-                            <button
-                              type="button"
-                              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12.5px] text-ink-soft hover:bg-panel"
-                              onClick={() => {
-                                navigator.clipboard?.writeText(session.id).catch(() => {});
-                                setMoreOpen(false);
-                              }}
-                            >
-                              ⧉ Copy session id
-                            </button>
-                            <button
-                              type="button"
-                              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12.5px] text-blocked hover:bg-panel"
-                              onClick={() => {
-                                setMoreOpen(false);
-                                remove();
-                              }}
-                            >
-                              ✕ Delete session
-                            </button>
-                          </Popover>
-                        )}
-                      </div>
+                      {topSlot && createPortal(
+                        <>
+                          <button
+                            type="button"
+                            title={`Copy ${session.id}`}
+                            className={TOP_BTN}
+                            onClick={() =>
+                              navigator.clipboard.writeText(session.id).then(
+                                () => flashCopied("copied"),
+                                () => flashCopied("clipboard blocked"),
+                              )}
+                          >
+                            {copied ?? "⧉ Copy session id"}
+                          </button>
+                          <button type="button" className="shrink-0 whitespace-nowrap rounded-md border border-blocked/40 px-2.5 py-1 text-[11.5px] text-blocked hover:border-blocked" onClick={remove}>
+                            ✕ Delete session
+                          </button>
+                        </>,
+                        topSlot,
+                      )}
                     </div>
                     {/* the fields as label / value rows, two columns on wide screens (row-major order) */}
                     <div className="grid grid-cols-1 gap-x-10 min-[900px]:grid-cols-2">

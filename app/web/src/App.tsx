@@ -55,7 +55,7 @@ import { AgentSessions } from "./AgentSessions";
 import { stripMarks } from "../../../core/todo-marks.ts";
 import { DUE_TONE_CLS, dueLabel, dueTone, focusBlock, useDue } from "./due";
 import { Board } from "./Board";
-import { Drawer } from "./Drawer";
+import { Drawer, TOPBAR_SLOT } from "./Drawer";
 import { Explore } from "./Explore";
 import { List } from "./List";
 import { filterSessionBoard, sortSessionBoard, type Sort } from "./SessionSort";
@@ -2036,6 +2036,7 @@ export function App() {
                 ⇣ Import from Claude Code + Codex
               </button>
             )}
+            <div id={TOPBAR_SLOT} className="contents" />
             <button
               type="button"
               onClick={doSync}
