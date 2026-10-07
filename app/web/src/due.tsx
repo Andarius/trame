@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { daysUntil, isShownDue } from "../../../core/due.ts";
-import { type DueTodo, getDue } from "./api";
+import { type Block, type DueTodo, getDue } from "./api";
 import { todayMark } from "../../../core/todo-marks.ts";
 import { Popover } from "./ui";
 
@@ -38,6 +38,24 @@ export const DUE_TONE_CLS = {
 
 export function DuePill({ due }: { due: string }) {
   const { done, onDue } = useContext(TodoDueCtx);
+  // an empty mark is the editor's placeholder: a hover-only way in to the picker
+  if (!due) {
+    if (!onDue || done) return null;
+    return (
+      <button
+        type="button"
+        title="Set a due date"
+        className="ml-1.5 hidden whitespace-nowrap rounded-full border border-dashed border-line px-1.5 align-[1px] text-[0.78em] text-ink-faint hover:text-ink group-hover:inline-block"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onDue();
+        }}
+      >
+        ⚑ due
+      </button>
+    );
+  }
   const valid = /^\d{4}-\d{2}-\d{2}$/.test(due);
   const cls = `ml-1.5 inline-block whitespace-nowrap rounded-full px-1.5 py-px align-[1px] text-[0.78em] tabular-nums ${
     done || !valid ? DUE_TONE_CLS.later : DUE_TONE_CLS[dueTone(due)]
@@ -161,4 +179,36 @@ export function useDue(): DueTodo[] {
     };
   }, []);
   return due;
+}
+
+// a DUE row asks for its todo; the editor that renders it scrolls there and rings it
+let pendingFocus: string | null = null;
+export function focusBlock(id: string) {
+  pendingFocus = id;
+  dispatchEvent(new Event("trame:focus-block"));
+}
+
+// the block of `blocks` to ring now
+export function useFocusedBlock(blocks: readonly Block[]): string | null {
+  const [hit, setHit] = useState<string | null>(null);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const go = () => {
+      if (!pendingFocus || !blocks.some((b) => "id" in b && b.id === pendingFocus)) return; // another editor's block
+      const el = document.querySelector(`[data-block-id="${CSS.escape(pendingFocus)}"]`);
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setHit(pendingFocus);
+      pendingFocus = null;
+      clearTimeout(timer);
+      timer = setTimeout(() => setHit(null), 1600);
+    };
+    go();
+    addEventListener("trame:focus-block", go);
+    return () => {
+      removeEventListener("trame:focus-block", go);
+      clearTimeout(timer);
+    };
+  }, [blocks]);
+  return hit;
 }

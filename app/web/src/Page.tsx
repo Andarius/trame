@@ -80,7 +80,7 @@ import {
   touchTodo,
   writeMark,
 } from "../../../core/todo-marks.ts";
-import { DueMenu, TodoDueCtx } from "./due";
+import { DueMenu, TodoDueCtx, useFocusedBlock } from "./due";
 import { PAGE_STATUSES } from "../../../core/page-status.ts";
 import { AgentIcon, LiveLine, LiveRail, liveRingCls, liveRowCls, LiveTrail, useAgents, worksOn } from "./agents";
 import { DatabaseView } from "./udb/DatabaseTable";
@@ -2009,7 +2009,9 @@ export function BlockEditor(
                   value={b.type === "todo" ? { done: !!b.done, onDue: () => setDueIdx(i) } : { done: false }}
                 >
                 <Markdown
-                  text={b.text}
+                  text={b.type === "todo" && !b.done && !b.text.includes("{{trame:due=")
+                    ? `${b.text} {{trame:due=}}` // placeholder: DuePill's hover "⚑ due"
+                    : b.text}
                   listVariant={listVariant}
                   onEdit={isTable
                     ? (next) => set(i, { text: next })
@@ -2579,6 +2581,7 @@ export function Page(
   >(null);
   const { live: liveAgentsAll, recent: recentAgents } = useAgents();
   const [blocks, setBlocks] = useState<Block[]>([]);
+  const focused = useFocusedBlock(blocks);
   const [comments, setComments] = useState<PageComment[]>([]);
   const [showResolved, setShowResolved] = useState(false);
   const [sessionFilter, setSessionFilter] = useState<"active" | "done">("active");
@@ -3531,7 +3534,7 @@ export function Page(
             mode={commentMode}
             openThreads={openThreads}
             focusThread={focusThread}
-            flash={flash}
+            flash={flash ?? focused}
             meId={meId}
             onToggleThread={toggleThread}
           />

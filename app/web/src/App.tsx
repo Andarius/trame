@@ -53,7 +53,7 @@ import {
 import { AgentIcon, AgentsContext, Elapsed, type Live, liveAgents, useAgents } from "./agents";
 import { AgentSessions } from "./AgentSessions";
 import { stripMarks } from "../../../core/todo-marks.ts";
-import { DUE_TONE_CLS, dueLabel, dueTone, useDue } from "./due";
+import { DUE_TONE_CLS, dueLabel, dueTone, focusBlock, useDue } from "./due";
 import { Board } from "./Board";
 import { Drawer } from "./Drawer";
 import { Explore } from "./Explore";
@@ -858,7 +858,11 @@ function Sidebar(
               <button
                 type="button"
                 key={`${d.page_id}:${d.block_id ?? d.text}`}
-                onClick={() => (d.card_id ? treeCards.open(d.card_id) : onOpenPage(d.page_id))}
+                onClick={() => {
+                  if (d.block_id) focusBlock(d.block_id);
+                  if (d.card_id) treeCards.open(d.card_id);
+                  else onOpenPage(d.page_id);
+                }}
                 title={`${d.text} — ${d.page_title}`}
                 className="grid grid-cols-[auto_1fr_auto] items-center gap-x-2 rounded-md px-2 py-[5px] text-left hover:bg-active-row"
               >

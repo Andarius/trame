@@ -37,19 +37,35 @@ test("a due todo shows its pill and the DUE section; the picker moves and clears
   // the pill itself reopens the picker
   await row.getByRole("button", { name: "⚑ tomorrow" }).click();
   await page.getByRole("button", { name: "Clear due date" }).click();
-  await expect(row.getByText(/⚑/)).toHaveCount(0);
+  await expect(row.getByText(/⚑ \d|⚑ to/)).toHaveCount(0);
+  // an undated todo offers the picker on hover
+  await row.hover();
+  await row.getByRole("button", { name: "⚑ due" }).click();
+  await page.getByRole("button", { name: "Today" }).click();
+  await expect(row.getByText("⚑ today")).toBeVisible();
 });
 
 test("a due todo on a card's spec page opens the card from the sidebar", async ({ page, request }) => {
   const id = crypto.randomUUID();
   const title = `bump asyncpg ${id}`;
+  const second = crypto.randomUUID();
   expect((await request.post("/api/sessions", { data: { id, title: `Rollout ${id}`, no_event: true } })).ok()).toBeTruthy();
   const { page_id } = await (await request.post(`/api/sessions/${id}/specs-page`)).json() as { page_id: string };
   await request.post(`/api/pages/${page_id}`, {
-    data: { content: [{ id: crypto.randomUUID(), type: "todo", text: `${title} {{trame:due=${day(2)}}}`, done: false }] },
+    data: {
+      content: [
+        { id: crypto.randomUUID(), type: "todo", text: `${title} {{trame:due=${day(2)}}}`, done: false },
+        { id: second, type: "todo", text: `recheck stubs ${id} {{trame:due=${day(4)}}}`, done: false },
+      ],
+    },
   });
 
   await page.goto("/?view=list");
-  await page.getByRole("navigation", { name: "Due todos" }).getByText(title).click();
+  const due = page.getByRole("navigation", { name: "Due todos" });
+  await due.getByText(title).click();
   await expect(page).toHaveURL(new RegExp(`view=card&card=${id}`));
+  // the card is already open: the second row still answers, by ringing its todo
+  await due.getByText(`recheck stubs ${id}`).click();
+  await expect(page.locator(`[data-block-id="${second}"]`)).toHaveClass(/ring-copper/);
+  await page.locator(`[data-block-id="${second}"]`).hover();
 });
