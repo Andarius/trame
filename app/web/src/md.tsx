@@ -546,6 +546,34 @@ export function RepoLink({ path, prUrl }: { path: string; prUrl?: string | null 
   );
 }
 
+// Sentry issue URLs (bare or [text](url)) — Sentry logo + org + issue id, query dropped
+const SENTRY_ISSUE =
+  /^https?:\/\/(?:([\w-]+)\.)?sentry\.io\/(?:organizations\/([\w-]+)\/)?issues\/(\d+)\/?(?:[?#][^\s<>)]*)?/;
+
+export function SentryChip({ url, label }: { url: string; label?: string }) {
+  const m = url.match(SENTRY_ISSUE);
+  const org = m?.[2] ?? m?.[1];
+  return (
+    <a
+      href={url}
+      title={url}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openInBrowser(url);
+      }}
+      className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-chipline bg-panel px-1.5 py-px align-[-1px] font-mono text-[0.82em] text-ink no-underline transition-colors hover:border-copper/60"
+    >
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="shrink-0 text-[#a78bfa]">
+        <path d="M13.91 2.505c-.873-1.448-2.972-1.448-3.844 0L6.904 7.92a15.48 15.48 0 0 1 8.53 12.811h-2.221A13.3 13.3 0 0 0 5.784 9.814l-2.926 5.06a7.65 7.65 0 0 1 4.435 5.848H2.194a.365.365 0 0 1-.298-.534l1.413-2.402a5.2 5.2 0 0 0-1.614-.913L.296 19.275a2.18 2.18 0 0 0 .812 2.999 2.24 2.24 0 0 0 1.086.288h6.983a9.32 9.32 0 0 0-3.845-8.318l1.11-1.922a11.47 11.47 0 0 1 4.95 10.24h5.915a17.24 17.24 0 0 0-7.885-15.28l2.244-3.845a.37.37 0 0 1 .504-.13c.255.14 9.75 16.708 9.928 16.9a.365.365 0 0 1-.327.543h-2.287q.043.918 0 1.831h2.297a2.206 2.206 0 0 0 1.922-3.31z" />
+      </svg>
+      <span className="min-w-0 truncate">
+        {label ?? <>{org && <span className="text-ink-muted">{org} </span>}#{m?.[3]}</>}
+      </span>
+    </a>
+  );
+}
+
 export function PrChip({ url, label }: { url: string; label?: string }) {
   const [info, setInfo] = useState<PrInfo>(
     prInfoCache.get(url)?.info ?? { state: "unknown" },
@@ -662,6 +690,7 @@ const INLINE: [RegExp, (m: RegExpMatchArray, k: number) => ReactNode][] = [
     const h = linkHref(m[2]);
     if (!h) return m[0];
     if (PR_HREF.test(h)) return <PrChip key={k} url={h} label={m[1]} />;
+    if (SENTRY_ISSUE.test(h)) return <SentryChip key={k} url={h} label={m[1]} />;
     return <Link key={k} href={h}>{renderInline(m[1])}</Link>;
   }],
   // PR/MR chips before generic bare URLs; trailing path/query (e.g. /files) stays in the link
@@ -669,6 +698,7 @@ const INLINE: [RegExp, (m: RegExpMatchArray, k: number) => ReactNode][] = [
     /^(https?:\/\/[^\s<>)]+\/(?:pull|-\/merge_requests)\/\d+(?:[/?#][^\s<>)]*)?)/,
     (m, k) => <PrChip key={k} url={m[1]} />,
   ],
+  [SENTRY_ISSUE, (m, k) => <SentryChip key={k} url={m[0]} />],
   [
     /^((?:https?|file):\/\/[^\s<>)]+)/,
     (m, k) => <Link key={k} href={m[1]}>{m[1]}</Link>,
