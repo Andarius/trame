@@ -13,6 +13,7 @@ import { useRef, useState } from "react";
 import type { BoardData, Session, Status } from "./api.ts";
 import {
   ClientChip,
+  EntityIcon,
   matchesSessionFilter,
   ObjectiveChip,
   pageGlyph,
@@ -283,7 +284,7 @@ export function Board(
         key: o.id,
         // archived stories keep their lane while sessions remain visible
         title: o.status === "archived" ? `${o.title} (archived)` : o.title,
-        glyph: "◇",
+        glyph: pageGlyph("story", o.cockpit),
         // subtree: sessions anchored to the story or any page nested under it
         sessions: visible.filter((s) => storyOf(s, byId)?.id === o.id),
       })),
@@ -305,7 +306,7 @@ export function Board(
             {lane.title && (
               <div className="flex items-center gap-2 px-0.5">
                 <span className="text-[9.5px] text-ink-muted" style={lane.color ? { color: lane.color } : undefined}>
-                  {lane.glyph ?? "◇"}
+                  <EntityIcon icon={null} fallback={lane.glyph ?? "◇"} />
                 </span>
                 <span className="text-[12.5px] font-semibold">{lane.title}</span>
                 <span className="text-[11px] text-ink-muted">{lane.sessions.length}</span>

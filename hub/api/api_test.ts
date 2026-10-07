@@ -343,4 +343,7 @@ Deno.test("hub /api page lists carry the Cockpit kind a page mirrors", async () 
   const pages = await (await call("/api/pages")).json() as { id: string; cockpit: string | null }[];
   const kindOf = (id: string) => pages.find((p) => p.id === id)?.cockpit;
   assertEquals([kindOf(ids.ticket), kindOf(ids.us), kindOf(ids.none)], ["ticket", "us", null]);
+  // Ctrl+P search hits carry it too
+  const hits = await (await call("/api/search?q=cockpit%20kind")).json() as { id: string; cockpit: string | null }[];
+  assertEquals(hits.find((h) => h.id === ids.ticket)?.cockpit, "ticket");
 });

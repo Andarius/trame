@@ -97,6 +97,7 @@ export type SearchHit = {
   meta: string; // session status, or page kind (story|page), or "database"
   color: string; // project (client) chip color, "" elsewhere
   at: string;
+  cockpit?: "ticket" | "us" | null;
 };
 export const search = (q: string) =>
   fetch(`/api/search?q=${encodeURIComponent(q)}`).then((r) =>

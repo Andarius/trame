@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { search, type SearchHit } from "./api";
-import { clientColor, STATUS, timeAgo } from "./ui";
+import { clientColor, EntityIcon, pageGlyph, STATUS, timeAgo } from "./ui";
 
 // Quick-find (Ctrl+P), Notion-style: one input, one recency-ranked list across
 // sessions, projects, pages/stories, and databases. Empty query = recently touched.
@@ -66,7 +66,10 @@ export function Palette(
     }
     return (
       <span className="w-4 shrink-0 text-center text-[12px] leading-none">
-        {h.icon || (h.kind === "database" ? "▦" : h.meta === "story" ? "◇" : "📄")}
+        <EntityIcon
+          icon={h.icon || null}
+          fallback={h.kind === "database" ? "▦" : pageGlyph(h.meta === "story" ? "story" : "page", h.cockpit)}
+        />
       </span>
     );
   };
