@@ -75,7 +75,7 @@ test("a project can be created from the sidebar", async ({ page }) => {
 test("group by Story renders swimlanes; the control reflects the choice", async ({ page }) => {
   await page.goto("/?view=board&group=story");
   // the icon menu button shows the active dimension
-  await expect(page.getByTitle("Group the board")).toContainText("Story");
+  await expect(page.getByTitle("Group the board")).toContainText("User story");
   await expect(page.getByText("— No story")).toBeVisible();
 });
 

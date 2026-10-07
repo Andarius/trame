@@ -2177,7 +2177,7 @@ export function App() {
                   {group === "none"
                     ? "Group"
                     : group === "story"
-                    ? "Story"
+                    ? "User story"
                     : "Project"}
                   <span className="text-[8px]">▾</span>
                 </button>
@@ -2186,7 +2186,7 @@ export function App() {
                     <div className="px-2 pb-1 pt-1 text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70">
                       GROUP BY
                     </div>
-                    {([["none", "None", null], ["story", "Story", "◇"], ["project", "Project", "◎"]] as const).map((
+                    {([["none", "None", null], ["story", "User story", "◇"], ["project", "Project", "◎"]] as const).map((
                       [v, label, glyph],
                     ) => (
                       <button

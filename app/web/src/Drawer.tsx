@@ -795,7 +795,7 @@ export function Drawer(
                     {projectPill}
                   </div>
                   <div className="flex min-w-0 flex-col gap-1">
-                    <span className={lblCls}>Story</span>
+                    <span className={lblCls}>User story</span>
                     {storyRow}
                   </div>
                 </div>
@@ -856,7 +856,7 @@ export function Drawer(
 
       <div className="flex flex-col gap-1 border-t border-line-soft px-4 py-3.5">
         <Row label="Project">{projectSelect}</Row>
-        <Row label="Story">{storyRow}</Row>
+        <Row label="User story">{storyRow}</Row>
         <Row label="Branch">{branchInput}</Row>
         <Row label="PR / MR">{prField}</Row>
 
