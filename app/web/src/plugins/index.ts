@@ -6,10 +6,7 @@ import type { ComponentType } from "react";
 import type { PageDetail, Session } from "../api";
 import { DeploymentsPanel } from "./deployments/Panel";
 import { DeploymentsSettings } from "./deployments/Settings";
-import { CockpitPanel } from "./cockpit/Panel";
-import { CockpitSettings } from "./cockpit/Settings";
-import { COCKPIT_MARKS, CockpitCardFields, CockpitPageHeader } from "./cockpit/slots";
-import { AssignedBy } from "./cockpit/AssignedBy";
+import { LOCAL_PLUGINS } from "./local.gen";
 
 /** What the host hands a panel. A panel may declare only the props it uses. */
 export type PanelProps = {
@@ -34,15 +31,7 @@ export type FrontendPlugin = {
 
 export const FRONTEND_PLUGINS: FrontendPlugin[] = [
   { id: "deployments", Panel: DeploymentsPanel, Settings: DeploymentsSettings },
-  {
-    id: "cockpit",
-    Panel: CockpitPanel,
-    Settings: CockpitSettings,
-    PageHeader: CockpitPageHeader,
-    CardBadge: AssignedBy,
-    CardFields: CockpitCardFields,
-    metadataMarks: COCKPIT_MARKS,
-  },
+  ...LOCAL_PLUGINS,
 ];
 
 // lazy: the registry and the views that read it import each other

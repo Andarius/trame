@@ -1,5 +1,7 @@
 import { defineConfig } from "@playwright/test";
 import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { basename, resolve } from "node:path";
 
 // E2E against the real Deno backend (PGlite included) in a fully isolated sandbox:
 // data dir, port file, and settings all point at E2E_DIR so tests never touch real state.
@@ -33,8 +35,19 @@ const PORT = process.env.TRAME_E2E_PORT
 // global-setup (same process) reads the env, not this module — keep them agreeing
 process.env.TRAME_E2E_PORT = String(PORT);
 
+// out-of-tree plugins (scripts/gen-plugins.ts) bring their own e2e/ specs
+const plugins: string[] = (() => {
+  try {
+    return JSON.parse(readFileSync("../../plugins.local.json", "utf8")).plugins ?? [];
+  } catch { return []; }
+})();
+
 export default defineConfig({
   testDir: "./e2e",
+  projects: [
+    { name: "trame" },
+    ...plugins.map((p) => ({ name: basename(p), testDir: resolve("../..", p, "e2e") })),
+  ],
   globalSetup: "./e2e/global-setup.ts",
   timeout: 30_000,
   expect: { timeout: 10_000 }, // CI runners cold-boot PGlite on the first request

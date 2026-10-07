@@ -8,9 +8,9 @@ import {
   setPluginEnabled,
 } from "./settings.ts";
 import deployments from "./deployments/mod.ts";
-import cockpit from "./cockpit/mod.ts";
+import { LOCAL_PLUGINS } from "./local.gen.ts";
 
-export const PLUGINS: Plugin[] = [deployments, cockpit];
+export const PLUGINS: Plugin[] = [deployments, ...LOCAL_PLUGINS];
 
 const byId = new Map(PLUGINS.map((p) => [p.id, p]));
 

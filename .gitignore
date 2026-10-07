@@ -45,3 +45,6 @@ docs-site/.astro/
 
 # personal Trame pre-push guard (core.hooksPath is .githooks, so it must live there)
 /.githooks/pre-push
+
+# out-of-tree plugins composed into this checkout (scripts/gen-plugins.ts)
+/plugins.local.json
