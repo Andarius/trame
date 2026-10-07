@@ -332,18 +332,18 @@ for (
   });
 }
 
-// the page list says which Cockpit object a page mirrors, from its marks
-Deno.test("hub /api page lists carry the Cockpit kind a page mirrors", async () => {
+// the page list says which role a page's marks give it
+Deno.test("hub /api page lists carry the role a page's marks give it", async () => {
   const mark = (m: string) => [{ id: "b1", type: "text", text: `x {{trame:${m}}}` }];
   const ids: Record<string, string> = {};
   for (const [key, content] of [["ticket", mark("cockpit_ref=GEN-1")], ["us", mark("cockpit_us=US-1")], ["none", []]]) {
     const res = await call("/api/pages", { body: { title: `cockpit kind ${key}`, content, repo_path: "/srv/kind" } });
     ids[key as string] = ((await res.json()) as { id: string }).id;
   }
-  const pages = await (await call("/api/pages")).json() as { id: string; cockpit: string | null }[];
-  const kindOf = (id: string) => pages.find((p) => p.id === id)?.cockpit;
-  assertEquals([kindOf(ids.ticket), kindOf(ids.us), kindOf(ids.none)], ["ticket", "us", null]);
+  const pages = await (await call("/api/pages")).json() as { id: string; mark_role: string | null }[];
+  const kindOf = (id: string) => pages.find((p) => p.id === id)?.mark_role;
+  assertEquals([kindOf(ids.ticket), kindOf(ids.us), kindOf(ids.none)], ["ticket", "linked-story", null]);
   // Ctrl+P search hits carry it too
-  const hits = await (await call("/api/search?q=cockpit%20kind")).json() as { id: string; cockpit: string | null }[];
-  assertEquals(hits.find((h) => h.id === ids.ticket)?.cockpit, "ticket");
+  const hits = await (await call("/api/search?q=cockpit%20kind")).json() as { id: string; mark_role: string | null }[];
+  assertEquals(hits.find((h) => h.id === ids.ticket)?.mark_role, "ticket");
 });

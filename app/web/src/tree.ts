@@ -5,7 +5,7 @@ export type TreePage = {
   kind: string;
   title: string;
   icon: string | null;
-  cockpit?: string | null;
+  mark_role?: string | null;
 };
 
 // ancestor walk with a hop cap: parent_id has no FK, sync can deliver odd states

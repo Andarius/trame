@@ -13,7 +13,7 @@ const pageMeta = async (id: string) =>
 const { db } = await import("./db.ts");
 const { upsertSession } = await import("../core/sessions.ts");
 const { stampRef, stampMark } = await import("./plugins/cockpit/mirror.ts");
-const { US_MARK } = await import("../core/content-marks.ts");
+const { US_MARK } = await import("./plugins/cockpit/mark-names.ts");
 const {
   loadPendingPages,
   loadPendingSessions,

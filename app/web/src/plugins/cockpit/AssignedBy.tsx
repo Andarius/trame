@@ -42,8 +42,8 @@ export function AssignerAvatar({ a, size = 16 }: { a: Assigner; size?: number })
 }
 
 /** The assigner's face, for card rows and tiles; nothing on my own cards. */
-export function AssignedBy({ cardId, size }: { cardId: string; size?: number }) {
-  const a = useAssigner(cardId);
+export function AssignedBy({ sessionId, size }: { sessionId: string; size?: number }) {
+  const a = useAssigner(sessionId);
   return a && (
     <span title={`Assigned by ${a.name} in Cockpit`} className="inline-flex shrink-0">
       <AssignerAvatar a={a} size={size} />

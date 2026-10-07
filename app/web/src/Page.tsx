@@ -88,9 +88,8 @@ import { AgentIcon, LiveLine, LiveRail, liveRingCls, liveRowCls, LiveTrail, useA
 import { DatabaseView } from "./udb/DatabaseTable";
 import { FolderBlock } from "./FolderBlock";
 import { TagEditor } from "./TagEditor";
-import { CockpitTicket } from "./plugins/cockpit/CockpitTicket";
-import { AssignedBy } from "./plugins/cockpit/AssignedBy";
-import { hasCockpitMark, refOfContent, usOfContent } from "../../../core/content-marks.ts";
+import { FRONTEND_PLUGINS, isMetadataMark } from "./plugins";
+import { markRoleOf } from "../../../core/mark-roles.ts";
 import { HtmlBlock } from "./HtmlBlock";
 import { FinishedStrip, ProjectChildren, RepoChip, repoTitle, useFinishedCards } from "./project-page";
 
@@ -1859,7 +1858,7 @@ export function BlockEditor(
           openThreads.has(b.id as string);
         const bid = b.id ?? String(i);
         // empty/new/mid-navigation blocks always stay in raw-text edit mode
-        const editing = activeId === bid || (!stripMarks(b.text).trim() && !hasCockpitMark(b.text)) ||
+        const editing = activeId === bid || (!stripMarks(b.text).trim() && !Object.keys(readMarks(b.text)).some(isMetadataMark)) ||
           focusIdx === i;
         // session-report lists: the nearest heading above decides how bullets render
         // (Completed → green checks, Open/Next → copper rings; see md.tsx ListVariant)
@@ -2980,7 +2979,7 @@ export function Page(
               title={s.title}
               className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-hover"
             >
-              <EntityIcon icon={story.icon} fallback={pageGlyph("story", story.cockpit)} className="text-[11px] text-ink-muted" />
+              <EntityIcon icon={story.icon} fallback={pageGlyph("story", story.mark_role)} className="text-[11px] text-ink-muted" />
               <span className="shrink-0 text-[12px] font-semibold text-ink-soft">{story.title || "Untitled"}</span>
               <span className="min-w-0 truncate text-[11px] text-ink-muted">{rt.title}</span>
               <span className="flex-1" />
@@ -2999,7 +2998,7 @@ export function Page(
             <div className="flex items-center gap-2 px-1">
               <EntityIcon
                 icon={story.icon}
-                fallback={pageGlyph("story", story.cockpit)}
+                fallback={pageGlyph("story", story.mark_role)}
                 className="text-[11px] text-ink-muted"
               />
               <span className="text-[12px] font-semibold text-ink-soft">
@@ -3048,7 +3047,7 @@ export function Page(
     >
       <EntityIcon
         icon={c.icon}
-        fallback={pageGlyph(c.kind, c.cockpit)}
+        fallback={pageGlyph(c.kind, c.mark_role)}
         className="text-ink-muted"
       />
       <span className={c.title ? "" : "text-ink-muted/60 italic"}>
@@ -3152,7 +3151,7 @@ export function Page(
                   icon={page.icon}
                   fallback={pageGlyph(
                     page.kind,
-                    refOfContent(page.content ?? []) ? "ticket" : usOfContent(page.content ?? []) ? "us" : null,
+                    markRoleOf(page.content ?? []),
                   )}
                   className={page.icon ? "" : "text-ink-muted"}
                   size={isProject ? 32 : 22}
@@ -3468,13 +3467,7 @@ export function Page(
 
           {/* Below the brief, because the brief becomes the ticket's
               objective: the offer sits next to the text it will send. */}
-          <CockpitTicket
-            pageId={pageId}
-            parentId={page.parent_id}
-            tags={page.tags ?? []}
-            reference={usOfContent(page.content ?? []) ?? refOfContent(page.content ?? [])}
-            onDone={() => reload()}
-          />
+          {FRONTEND_PLUGINS.map((p) => p.PageHeader && <p.PageHeader key={p.id} page={page} onDone={() => reload()} />)}
 
           {/* a story's cards show as agents on its sub-pages and chips on todos */}
           {!isStory && sessions.length > 0 && sessionsPanel(true)}
@@ -3500,7 +3493,7 @@ export function Page(
                     <span className={done ? "text-ink-muted line-through decoration-ink-faint" : "text-ink-soft"}>
                       {s.title}
                     </span>
-                    <AssignedBy cardId={s.id} />
+                    {FRONTEND_PLUGINS.map((p) => p.CardBadge && <p.CardBadge key={p.id} sessionId={s.id} />)}
                     {(() => {
                       // the session working this card, by its own name (live or recently seen)
                       const name = recentAgents.find((a) => a.session_id === s.id && a.name)?.name;

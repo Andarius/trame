@@ -34,7 +34,9 @@
     "@std/assert": "jsr:@std/assert@^1",
     "@std/uuid": "jsr:@std/uuid@^1",
     "@electric-sql/pglite": "npm:@electric-sql/pglite@0.5.3",
-    "ws": "npm:ws@^8.18"
+    "ws": "npm:ws@^8.18",
+    "@trame/plugin-api": "./plugins/api.ts",
+    "@trame/plugin-test": "./test_tmp.ts"
   },
   "compilerOptions": {
     "lib": ["deno.window", "dom", "dom.iterable"]

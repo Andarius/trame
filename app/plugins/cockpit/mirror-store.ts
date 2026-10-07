@@ -1,13 +1,19 @@
 // The database side of mirroring. Kept apart from `mirror.ts` so the planner
 // stays pure and testable without a PGlite instance.
-import { APP_CTX } from "../../ctx.ts";
-import { db } from "../../db.ts";
-import { ensureSpecsPage, listTags, specsPageId, upsertSession } from "../../../core/sessions.ts";
-import { projectAbove } from "../../../core/hierarchy.ts";
+import {
+  APP_CTX,
+  createPage,
+  deletePage,
+  ensureSpecsPage,
+  listTags,
+  projectAbove,
+  specsPageId,
+  updatePage,
+  upsertSession,
+} from "@trame/plugin-api";
+import { refOfContent, US_MARK, usOfContent } from "./marks.ts";
 import { type AssignedCard, assignedCardId, ASSIGNED_STORY } from "./assigned.ts";
-import { createPage, deletePage, updatePage } from "../../../core/pages.ts";
 import { type FilingSkip, type MirrorPage, type MirrorPlan, stampMark, stampRef, taggedMapping, type TagMapping } from "./mirror.ts";
-import { refOfContent, US_MARK, usOfContent } from "../../../core/content-marks.ts";
 
 export type MirrorResult = {
   created: number;
@@ -42,7 +48,7 @@ async function storiesOwnedBy(
 ): Promise<OwnedStory[]> {
   const ids = [...new Set(mapped.filter(Boolean))];
   if (ids.length === 0) return [];
-  const pg = await db();
+  const pg = APP_CTX.q;
   const rows = (await pg.query(
     `with recursive up(id, anc) as (
        select p.id, p.parent_id
@@ -154,7 +160,7 @@ export async function adoptAsMirror(
   pageId: string,
   reference: string,
 ): Promise<void> {
-  const pg = await db();
+  const pg = APP_CTX.q;
   const row = (await pg.query(
     `select content from pages where id=$1 and not deleted`,
     [pageId],
@@ -170,7 +176,7 @@ export async function adoptAsUserStory(
   pageId: string,
   reference: string,
 ): Promise<void> {
-  const pg = await db();
+  const pg = APP_CTX.q;
   const row = (await pg.query(
     `select content from pages where id=$1 and not deleted`,
     [pageId],
@@ -190,7 +196,7 @@ type PageRoute = {
 export async function loadPageRoutes(
   mappings: TagMapping[],
 ): Promise<Map<string, PageRoute>> {
-  const pg = await db();
+  const pg = APP_CTX.q;
   const pages = (await pg.query(
     `select id, parent_id, kind, title, tags, content from pages where not deleted`,
   )).rows as {
@@ -287,7 +293,7 @@ export async function loadPendingSessions(
   const ids = [...new Set(mappings.map((m) => m.pageId).filter(Boolean))];
   if (!ids.length) return [];
   const routes = await loadPageRoutes(mappings);
-  const pg = await db();
+  const pg = APP_CTX.q;
   const rows = (await pg.query(
     `select s.id, s.title, s.next_step, s.page_id, s.client_id, s.tags, s.status,
             coalesce(st.terminal, false) as terminal, specs.content as specs
@@ -386,7 +392,7 @@ export type SyncedPage = {
  * prefilter — `refOfContent` decides.
  */
 export async function loadSyncedPages(): Promise<SyncedPage[]> {
-  const pg = await db();
+  const pg = APP_CTX.q;
   const rows = (await pg.query(
     `select p.id, p.title, p.content, p.updated_at, parent.title as parent_title
        from pages p
@@ -463,7 +469,7 @@ export async function mappedProjectOf(
 ): Promise<string | null> {
   const ids = [...new Set(candidates.filter(Boolean))];
   if (ids.length === 0) return null;
-  const pg = await db();
+  const pg = APP_CTX.q;
   const rows = (await pg.query(
     `with recursive up(anc) as (
        select parent_id from pages where id = $1 and not deleted
@@ -497,7 +503,7 @@ export async function loadTagSyncItems(
     ...new Set(mappings.map((m) => m.pageId).filter(Boolean)),
   ];
   if (!projectIds.length) return [];
-  const pg = await db();
+  const pg = APP_CTX.q;
   const [pagesResult, sessionsResult, catalogue] = await Promise.all([
     pg.query(
       `select id, title, parent_id, tags, content from pages where not deleted`,
@@ -598,7 +604,7 @@ export async function loadCardStatuses(sessionIds: string[]): Promise<{
   cards: Map<string, { status: string; terminal: boolean }>;
   statuses: { key: string; terminal: boolean }[];
 }> {
-  const pg = await db();
+  const pg = APP_CTX.q;
   const [cards, statuses] = await Promise.all([
     pg.query(
       `select s.id, s.status, coalesce(st.terminal, false) as terminal
@@ -625,7 +631,7 @@ export async function loadCardStatuses(sessionIds: string[]): Promise<{
 export async function loadUserStoryPages(): Promise<
   Map<string, { id: string; status: string }>
 > {
-  const pg = await db();
+  const pg = APP_CTX.q;
   const rows = (await pg.query(
     `select id, status, content from pages
       where not deleted and content::text like '%trame:cockpit_us=%'`,
@@ -646,7 +652,7 @@ export async function loadAssignedCards(refs: readonly string[]): Promise<{
   cards: Map<string, AssignedCard>;
   held: Set<string>;
 }> {
-  const pg = await db();
+  const pg = APP_CTX.q;
   const pages = (await pg.query(
     `select id, content from pages
       where not deleted and content::text like '%trame:cockpit_ref=%'`,
@@ -686,7 +692,7 @@ export async function loadAssignedCards(refs: readonly string[]): Promise<{
 /** Find-or-create the fallback story for assigned tickets under `projectId`. */
 // ponytail: find-by-title, two devices racing on the very first poll can mint two
 export async function ensureAssignedStory(projectId: string): Promise<string> {
-  const pg = await db();
+  const pg = APP_CTX.q;
   const hit = (await pg.query(
     `select id from pages where kind='story' and parent_id=$1 and title=$2 and not deleted
       order by id limit 1`,

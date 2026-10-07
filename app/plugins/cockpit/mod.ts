@@ -5,12 +5,21 @@
 // it stays off until a mapping names a project AND `mirror` is switched on:
 // what lands in the local database syncs to the hub and can be shared by link,
 // so it is never a side effect of merely enabling the plugin.
-import { APP_CTX } from "../../ctx.ts";
-import { COCKPIT_FIXTURE, COCKPIT_POLL_IDLE_MS } from "../../config.ts";
+import {
+  APP_CTX,
+  ensureTag,
+  getPluginSettings,
+  isPluginEnabled,
+  type Plugin,
+  type PluginSettings,
+  setSessionStatus,
+  tagKey,
+} from "@trame/plugin-api";
+import { refOfContent, usOfContent } from "./marks.ts";
+// One cadence only: tickets move on human timescales. The fixture (JSON file) is the offline escape hatch.
+const COCKPIT_POLL_IDLE_MS = Number(Deno.env.get("TRACKER_COCKPIT_POLL_IDLE_MS") ?? "300000");
+const COCKPIT_FIXTURE = Deno.env.get("TRACKER_COCKPIT_FIXTURE") ?? "";
 import { legacyParents } from "./migration.ts";
-import type { Plugin, PluginSettings } from "../types.ts";
-import { getPluginSettings, isPluginEnabled } from "../settings.ts";
-import { ensureTag, setSessionStatus, tagKey } from "../../../core/sessions.ts";
 import {
   type Mapping,
   mappingTagLabel,
@@ -48,7 +57,6 @@ import {
   ticketStatusOf,
   userStoryFromPage,
 } from "./mirror.ts";
-import { refOfContent, usOfContent } from "../../../core/content-marks.ts";
 import { assignedCardId, assignedMe, assignerOf, cardFields, planAssigned, storyOf } from "./assigned.ts";
 import {
   adoptAsMirror,
@@ -298,7 +306,7 @@ async function syncStoryStatuses(
           push,
         );
       } else if (action.kind === "pull") {
-        const { updatePage } = await import("../../../core/pages.ts");
+        const { updatePage } = await import("@trame/plugin-api");
         await updatePage(APP_CTX, page.id, { status: action.status });
       }
     } catch (e) {
@@ -708,7 +716,7 @@ export async function filePage(
 ): Promise<
   { reference: string; created: boolean } | { error: string; status: number }
 > {
-  const { getPage } = await import("../../../core/pages.ts");
+  const { getPage } = await import("@trame/plugin-api");
   const page = await getPage(APP_CTX, pageId) as unknown as {
     id: string;
     title: string;

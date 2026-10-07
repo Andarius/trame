@@ -7,12 +7,13 @@
 import {
   isFolderBlock,
   markdownToPageBlocks,
+  mergePageBlocks,
   type PageBlock,
-} from "../../../core/page-markdown.ts";
-import { mergePageBlocks } from "../../../core/page-merge.ts";
-import { stripMarks, writeMark } from "../../../core/todo-marks.ts";
+  stripMarks,
+  writeMark,
+} from "@trame/plugin-api";
+import { REF_MARK, refOfContent, usOfContent } from "./marks.ts";
 import type { Ticket, TicketStatus } from "./api.ts";
-import { REF_MARK, refOfContent, usOfContent } from "../../../core/content-marks.ts";
 
 /** Tickets filed from sessions carry this origin prefix, so the pull leaves them alone. */
 export const SESSION_ORIGIN = "session:";

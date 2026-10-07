@@ -566,6 +566,16 @@ function KindIcon({ glyph, className }: { glyph: string; className?: string }) {
 }
 
 // Row/database icon: an emoji glyph, or an image when it looks like a URL / data URI.
+/** One label/value row of the card view's field grid (plugins add theirs through `CardFields`). */
+export function FieldRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[96px_minmax(0,1fr)] items-center gap-3 py-1.5">
+      <span className="text-[11.5px] text-ink-muted">{label}</span>
+      <div className="min-w-0">{children}</div>
+    </div>
+  );
+}
+
 export function EntityIcon(
   { icon, fallback, className, size }: {
     icon: string | null | undefined;
@@ -671,9 +681,9 @@ export {
   sessionTagKeys,
   storyOf,
 } from "./tree.ts";
-// ◎ project; any other page shows the Cockpit object it mirrors (ticket / us) when it has one
-export const pageGlyph = (kind: string, cockpit?: string | null) =>
-  kind === "project" ? "◎" : cockpit ?? (kind === "story" ? "◇" : "□");
+// ◎ project; a page whose marks give it a role (a mirrored ticket, a linked story) shows that role
+export const pageGlyph = (kind: string, role?: string | null) =>
+  kind === "project" ? "◎" : role === "ticket" ? "ticket" : role === "linked-story" ? "us" : kind === "story" ? "◇" : "□";
 
 // Share one vocabulary fetch across chips, refreshing after local tag edits.
 // A label with a colon renders split, like the page-header editor: a dim `cockpit`

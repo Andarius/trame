@@ -1,6 +1,5 @@
-import { NODE_ID } from "../../config.ts";
-import { db } from "../../db.ts";
-import { tagKey } from "../../../core/sessions.ts";
+import { APP_CTX, NODE_ID, tagKey } from "@trame/plugin-api";
+import { US_MARK, usOfContent } from "./marks.ts";
 import {
   attachLegacyTicket,
   CockpitError,
@@ -10,7 +9,6 @@ import {
 } from "./api.ts";
 import { loadMirrorPages } from "./mirror-store.ts";
 import { stampMark, taggedMapping, userStoryFromPage } from "./mirror.ts";
-import { US_MARK, usOfContent } from "../../../core/content-marks.ts";
 import {
   type Mapping,
   mappingTagLabel,
@@ -57,7 +55,7 @@ export async function legacyParents(
     })),
   );
   const out: LegacyParent[] = [];
-  const pg = await db();
+  const pg = APP_CTX.q;
   for (const project of new Set(mapped)) {
     for (const mirror of await loadMirrorPages(project, mapped)) {
       const mapping = taggedMapping(tags, project, mirror.tags);
@@ -153,7 +151,7 @@ export async function migrateLegacyParent(
   }
 
   if (!parent.userStory) {
-    const updated = await (await db()).query(
+    const updated = await APP_CTX.q.query(
       `update pages set title=$2, brief=$3, content=$4, origin=$5, updated_at=now()
         where id=$1 and not deleted and updated_at=$6 returning id`,
       [
