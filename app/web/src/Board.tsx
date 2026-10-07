@@ -31,10 +31,11 @@ import { StaleChip } from "./md";
 import { FRONTEND_PLUGINS } from "./plugins";
 
 function TicketBody(
-  { s, board, overlay = false, showObjective = true, storyFilter, onFilterStory }: {
+  { s, board, overlay = false, dense = false, showObjective = true, storyFilter, onFilterStory }: {
     s: Session;
     board: BoardData;
     overlay?: boolean;
+    dense?: boolean;
     showObjective?: boolean;
     storyFilter?: string[] | null;
     onFilterStory?: (id: string) => void;
@@ -45,6 +46,33 @@ function TicketBody(
   // the chip shows the derived story; a story-less session shows its anchor page instead
   const chipPage = storyOf(s, byId) ?? sessionAnchor(s, byId);
   const done = statusStyle(s.status).terminal;
+  const badges = FRONTEND_PLUGINS.map((p) => p.CardBadge && <p.CardBadge key={p.id} sessionId={s.id} />);
+  // one line: story icon, title, badges — the rest is a click away in the drawer
+  if (dense) {
+    return (
+      <div
+        title={chipPage ? `${s.title}\n${chipPage.title}` : s.title}
+        className={`flex items-center gap-1.5 rounded-md border bg-card px-2 py-1 text-[12px] ${
+          overlay ? "border-copper/60 shadow-xl shadow-black/40" : "border-line"
+        } ${done && !overlay ? "opacity-60" : ""}`}
+      >
+        {showObjective && (chipPage
+          ? (
+            <EntityIcon
+              icon={chipPage.icon}
+              fallback={pageGlyph(chipPage.kind, chipPage.mark_role)}
+              className="shrink-0 text-[10px] text-ink-muted"
+            />
+          )
+          : <span className="w-[11.5px] shrink-0" />)}
+        <span className="min-w-0 flex-1 truncate">{s.title}</span>
+        <span className="flex shrink-0 items-center gap-1">
+          {badges}
+          {!done && !overlay && <StaleChip sessionId={s.id} prUrl={s.pr_url} short />}
+        </span>
+      </div>
+    );
+  }
   return (
     <div
       className={`flex flex-col gap-1.5 rounded-lg border bg-card px-2.5 py-2 ${
@@ -53,7 +81,7 @@ function TicketBody(
     >
       <div className="text-[12.5px] font-medium leading-snug">
         <span className="float-right ml-1.5 mt-px">
-          {FRONTEND_PLUGINS.map((p) => p.CardBadge && <p.CardBadge key={p.id} sessionId={s.id} />)}
+          {badges}
         </span>
         {s.title}
       </div>
@@ -91,9 +119,10 @@ function TicketBody(
 }
 
 function DraggableTicket(
-  { s, board, showObjective, onOpen, onOpenFull, storyFilter, onFilterStory, selected = false, onToggleSelect }: {
+  { s, board, dense, showObjective, onOpen, onOpenFull, storyFilter, onFilterStory, selected = false, onToggleSelect }: {
     s: Session;
     board: BoardData;
+    dense?: boolean;
     showObjective: boolean;
     onOpen: (id: string) => void;
     onOpenFull?: (id: string) => void;
@@ -121,6 +150,7 @@ function DraggableTicket(
       <TicketBody
         s={s}
         board={board}
+        dense={dense}
         showObjective={showObjective}
         storyFilter={storyFilter}
         onFilterStory={onFilterStory}
@@ -138,7 +168,7 @@ function DraggableTicket(
             e.stopPropagation();
             onToggleSelect(s.id, e.shiftKey);
           }}
-          className={`absolute right-2 top-2 h-3.5 w-3.5 accent-[#c98a63] ${
+          className={`absolute right-2 ${dense ? "top-1.5" : "top-2"} h-3.5 w-3.5 accent-[#c98a63] ${
             selected ? "" : "opacity-0 transition-opacity group-hover:opacity-100"
           }`}
         />
@@ -148,11 +178,12 @@ function DraggableTicket(
 }
 
 function Column(
-  { status, sessions, board, dropId, showObjective, onOpen, onOpenFull, compact = false, storyFilter, onFilterStory, selected, onToggleSelect, onSelectMany, anchorId, onAnchor }: {
+  { status, sessions, board, dropId, dense, showObjective, onOpen, onOpenFull, compact = false, storyFilter, onFilterStory, selected, onToggleSelect, onSelectMany, anchorId, onAnchor }: {
     status: Status;
     sessions: Session[];
     board: BoardData;
     dropId: string;
+    dense?: boolean;
     showObjective: boolean;
     onOpen: (id: string) => void;
     onOpenFull?: (id: string) => void;
@@ -177,7 +208,7 @@ function Column(
   return (
     <div
       ref={setNodeRef}
-      className={`flex min-w-0 max-w-[380px] flex-1 flex-col gap-2 rounded-[10px] border bg-panel p-2 transition-colors ${
+      className={`flex min-w-0 max-w-[380px] flex-1 flex-col ${dense ? "gap-1" : "gap-2"} rounded-[10px] border bg-panel p-2 transition-colors ${
         isOver ? "border-copper/50" : "border-line"
       } ${compact ? "min-h-[72px]" : "min-h-0 overflow-y-auto"}`}
     >
@@ -191,6 +222,7 @@ function Column(
           key={s.id}
           s={s}
           board={board}
+          dense={dense}
           showObjective={showObjective}
           onOpen={onOpen}
           onOpenFull={onOpenFull}
@@ -205,7 +237,7 @@ function Column(
 }
 
 export function Board(
-  { board, group, onMove, onOpen, onOpenFull, storyFilter, onFilterStory, noSpecs, hideEmpty, selected, onToggleSelect, onSelectMany }: {
+  { board, group, onMove, onOpen, onOpenFull, storyFilter, onFilterStory, noSpecs, hideEmpty, dense, selected, onToggleSelect, onSelectMany }: {
     board: BoardData;
     group: "none" | "story" | "project";
     onMove: (id: string, status: Status) => void;
@@ -215,6 +247,7 @@ export function Board(
     onFilterStory?: (id: string) => void;
     noSpecs?: boolean;
     hideEmpty?: boolean;
+    dense?: boolean;
     selected?: Set<string>;
     onToggleSelect?: (id: string) => void;
     onSelectMany?: (ids: string[], on: boolean) => void;
@@ -320,6 +353,7 @@ export function Board(
                   dropId={`${status}@${lane.key}`}
                   sessions={lane.sessions.filter((s) => s.status === status)}
                   board={board}
+                  dense={dense}
                   showObjective={group === "none"}
                   onOpen={openGuarded}
                   onOpenFull={openFullGuarded}

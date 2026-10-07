@@ -464,7 +464,9 @@ function MergeMark() {
 }
 
 // active card whose PR is already merged/closed: the agent likely ended without a final track
-export function StaleChip({ sessionId, prUrl }: { sessionId: string; prUrl: string | null }) {
+export function StaleChip(
+  { sessionId, prUrl, short = false }: { sessionId: string; prUrl: string | null; short?: boolean },
+) {
   const [state, setState] = useState(prUrl ? prInfoCache.get(prUrl)?.info.state : undefined);
   useEffect(() => {
     if (!prUrl) return;
@@ -482,14 +484,14 @@ export function StaleChip({ sessionId, prUrl }: { sessionId: string; prUrl: stri
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     >
-      stale · PR {state}
+      {short ? "stale" : `stale · PR ${state}`}
       <button
         type="button"
         title="mark done"
         className="rounded-full px-1 hover:bg-[#e3c567]/25"
         onClick={() => setStatus(sessionId, "done")}
       >
-        ✓ done
+        {short ? "✓" : "✓ done"}
       </button>
     </span>
   );

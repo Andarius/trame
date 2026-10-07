@@ -22,6 +22,18 @@ test("create a session via the modal", async ({ page }) => {
   await expect(page.getByText("→ verify it lands in Active")).toBeVisible();
 });
 
+test("compact mode shows one line per card and survives a reload", async ({ page }) => {
+  await page.goto("/");
+  const compact = page.getByRole("button", { name: "Compact" });
+  await compact.click();
+  await expect(page.getByText("e2e — first session")).toBeVisible();
+  await expect(page.getByText("→ verify it lands in Active")).toHaveCount(0);
+  await page.reload();
+  await expect(compact).toHaveAttribute("aria-pressed", "true");
+  await compact.click(); // back to full cards for the tests below
+  await expect(page.getByText("→ verify it lands in Active")).toBeVisible();
+});
+
 test("drawer opens on card click and moves the session", async ({ page }) => {
   await page.goto("/");
   await page.getByText("e2e — first session").click();
