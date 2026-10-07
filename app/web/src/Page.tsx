@@ -80,7 +80,7 @@ import {
   touchTodo,
   writeMark,
 } from "../../../core/todo-marks.ts";
-import { DueMenu, TodoDoneCtx } from "./due";
+import { DueMenu, TodoDueCtx } from "./due";
 import { PAGE_STATUSES } from "../../../core/page-status.ts";
 import { AgentIcon, LiveLine, LiveRail, liveRingCls, liveRowCls, LiveTrail, useAgents, worksOn } from "./agents";
 import { DatabaseView } from "./udb/DatabaseTable";
@@ -2005,7 +2005,9 @@ export function BlockEditor(
                   ) e.stopPropagation();
                 }}
               >
-                <TodoDoneCtx.Provider value={b.type === "todo" && !!b.done}>
+                <TodoDueCtx.Provider
+                  value={b.type === "todo" ? { done: !!b.done, onDue: () => setDueIdx(i) } : { done: false }}
+                >
                 <Markdown
                   text={b.text}
                   listVariant={listVariant}
@@ -2041,7 +2043,7 @@ export function BlockEditor(
                     ? (item) => onLinkItem(b.id as string, item)
                     : undefined}
                 />
-                </TodoDoneCtx.Provider>
+                </TodoDueCtx.Provider>
                 {lv && liveCfg && (
                   // reading the activity line shouldn't open the editor
                   <div onClick={(e) => e.stopPropagation()}>

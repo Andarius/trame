@@ -7,8 +7,9 @@ import { Popover } from "./ui";
 // Due dates on todos: the {{trame:due=YYYY-MM-DD}} mark rendered as a pill, the
 // picker that writes it, and the wording shared with the sidebar's DUE section.
 
-// a checked todo's due date is history, not a warning
-export const TodoDoneCtx = createContext(false);
+// the todo a pill sits on: a checked todo's due date is history, not a warning;
+// onDue opens the date picker when the pill is clicked
+export const TodoDueCtx = createContext<{ done: boolean; onDue?: () => void }>({ done: false });
 
 const WEEKDAY = new Intl.DateTimeFormat("en", { weekday: "short" });
 const LONG = new Intl.DateTimeFormat("en", { weekday: "short", day: "numeric", month: "short" });
@@ -36,17 +37,28 @@ export const DUE_TONE_CLS = {
 } as const;
 
 export function DuePill({ due }: { due: string }) {
-  const done = useContext(TodoDoneCtx);
+  const { done, onDue } = useContext(TodoDueCtx);
   const valid = /^\d{4}-\d{2}-\d{2}$/.test(due);
+  const cls = `ml-1.5 inline-block whitespace-nowrap rounded-full px-1.5 py-px align-[1px] text-[0.78em] tabular-nums ${
+    done || !valid ? DUE_TONE_CLS.later : DUE_TONE_CLS[dueTone(due)]
+  }`;
+  const title = valid ? `due ${LONG.format(local(due))}` : `due ${due}`;
+  const label = <>⚑ {valid ? (done ? LONG.format(local(due)) : dueLabel(due)) : due}</>;
+  if (!onDue) return <span title={title} className={cls}>{label}</span>;
   return (
-    <span
-      title={valid ? `due ${LONG.format(local(due))}` : `due ${due}`}
-      className={`ml-1.5 inline-block whitespace-nowrap rounded-full px-1.5 py-px align-[1px] text-[0.78em] tabular-nums ${
-        done || !valid ? DUE_TONE_CLS.later : DUE_TONE_CLS[dueTone(due)]
-      }`}
+    <button
+      type="button"
+      title={`${title} — change`}
+      className={`${cls} cursor-pointer hover:brightness-125`}
+      // the line itself opens the editor on click; the pill opens the picker instead
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={(e) => {
+        e.stopPropagation();
+        onDue();
+      }}
     >
-      ⚑ {valid ? (done ? LONG.format(local(due)) : dueLabel(due)) : due}
-    </span>
+      {label}
+    </button>
   );
 }
 
