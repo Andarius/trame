@@ -26,6 +26,7 @@ import {
   setStatus,
 } from "./api";
 import { Modal, Popover, statusStyle, timeAgo } from "./ui";
+import { DuePill } from "./due";
 import { EventMeta, PresencePill } from "./agents";
 import { CARD_COLORS, parseCards } from "./cards";
 import { type EdgeGeo, edgeGeometry, parseGraph } from "./graph";
@@ -493,6 +494,57 @@ export function StaleChip({ sessionId, prUrl }: { sessionId: string; prUrl: stri
   );
 }
 
+// the repo a PR lives in: https://host/owner/repo
+const repoOfPr = (url: string) => url.match(/^(https:\/\/[^/]+\/.+?)\/(?:pull|-\/merge_requests)\/\d+/)?.[1] ?? null;
+const repoUrlCache = new Map<string, Promise<string | null>>();
+const repoUrlOf = (path: string) => {
+  let p = repoUrlCache.get(path);
+  if (!p) {
+    p = fetch(`/api/repo-remote?path=${encodeURIComponent(path)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { url?: string | null } | null) => d?.url ?? null)
+      .catch(() => null);
+    repoUrlCache.set(path, p);
+  }
+  return p;
+};
+
+/** A card's repo as its forge link (logo + owner/repo); the local path stays in the tooltip. */
+export function RepoLink({ path, prUrl }: { path: string; prUrl?: string | null }) {
+  const fromPr = prUrl ? repoOfPr(prUrl) : null;
+  const [url, setUrl] = useState<string | null>(fromPr);
+  useEffect(() => {
+    if (fromPr) return setUrl(fromPr);
+    let alive = true;
+    repoUrlOf(path).then((u) => alive && setUrl(u));
+    return () => {
+      alive = false;
+    };
+  }, [path, fromPr]);
+  const folder = path.replace(/\/+$/, "").split("/").pop() ?? path;
+  if (!url) {
+    return <span className="font-mono text-[11.5px] text-ink-muted" title={path}>{folder}</span>;
+  }
+  const [owner, name] = [url.split("/").slice(3, -1).join("/"), url.split("/").pop()];
+  return (
+    <a
+      href={url}
+      title={`${url}\n${path}`}
+      onClick={(e) => {
+        e.preventDefault();
+        openInBrowser(url);
+      }}
+      className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-chipline bg-panel px-1.5 py-px font-mono text-[11.5px] text-ink no-underline transition-colors hover:border-copper/60"
+    >
+      {url.includes("gitlab") ? <MergeMark /> : <GitHubMark />}
+      <span className="min-w-0 truncate">
+        <span className="text-ink-muted">{owner}/</span>
+        {name}
+      </span>
+    </a>
+  );
+}
+
 export function PrChip({ url, label }: { url: string; label?: string }) {
   const [info, setInfo] = useState<PrInfo>(
     prInfoCache.get(url)?.info ?? { state: "unknown" },
@@ -624,6 +676,9 @@ const INLINE: [RegExp, (m: RegExpMatchArray, k: number) => ReactNode][] = [
   [
     /^\{\{trame:([a-z_][a-z0-9_]*)=([^{}\n]*)\}\}/,
     (m, k) => {
+      if (m[1] === "due") return <DuePill key={k} due={m[2].trim()} />;
+      // Cockpit metadata: the page header / the card's Cockpit field shows the link
+      if (m[1] === "cockpit_ref" || m[1] === "cockpit_us") return null;
       // updated_at is a capped day list: the chip shows the latest, the title the run
       const days = m[2].split(",").map((d) => d.trim()).filter(Boolean);
       const many = m[1] === "updated_at" && days.length > 1;

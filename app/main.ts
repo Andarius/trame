@@ -5,6 +5,8 @@ import { handleCoreApi } from "../core/api.ts";
 
 
 import { APP_CTX } from "./ctx.ts";
+import { startDueNotifier } from "./due_notify.ts";
+import { repoWebUrl } from "./repo_remote.ts";
 
 
 import {
@@ -1000,6 +1002,12 @@ async function handler(req: Request): Promise<Response> {
   const core = await handleCoreApi(APP_CTX, req, url);
   if (core) return core;
 
+  // laptop-only: the hub has no checkouts to read
+  if (pathname === "/api/repo-remote") {
+    const path = url.searchParams.get("path") ?? "";
+    if (!path.startsWith("/")) return json({ error: "absolute path expected" }, 400);
+    return json({ url: await repoWebUrl(path) });
+  }
   if (pathname === "/api/status") {
     return json({
       nodeId: NODE_ID,
@@ -1270,6 +1278,7 @@ setInterval(() => runSync().catch(logSyncFailure), SYNC_INTERVAL_MS);
 // the poll above stays as the fallback when the socket is down
 startRealtime(() => runSync().catch(logSyncFailure));
 startPlugins();
+startDueNotifier();
 
 // Every successful mutating /api call schedules a debounced push (excluding /api/sync
 // itself — it IS the sync — and /api/presence, which writes only ephemeral in-memory

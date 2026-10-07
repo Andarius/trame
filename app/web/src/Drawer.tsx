@@ -1,4 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { refOfContent } from "../../../core/content-marks.ts";
+import { CockpitLogo, cockpitHref, useCockpitBase } from "./plugins/cockpit/CockpitTicket";
 import {
   addLog,
   type BoardData,
@@ -22,7 +24,7 @@ import {
 import { appConfirm, clientColor, EntityIcon, ExpandIcon, pageOptions, Popover, Select, TagChips, timeAgo } from "./ui";
 import { AgentIcon, AgentsSummary, EventMeta, PresencePill, useAgents } from "./agents";
 import { summarizeAgents } from "./agent-summary";
-import { PrChip } from "./md";
+import { PrChip, RepoLink } from "./md";
 import { SpecsEditor } from "./SpecsEditor";
 import { TagEditor } from "./TagEditor";
 
@@ -410,9 +412,18 @@ export function Drawer(
   const storyTags = board.stories.find((x) => x.id === pageId)?.tags;
   // the hidden spec page's tags are the card's too; the first edit moves them onto the card
   const [specTags, setSpecTags] = useState<string[]>([]);
+  // the Cockpit ticket the card was filed as: its plugin stamps the ref on the spec page
+  const [cockpitRef, setCockpitRef] = useState<string | null>(null);
+  const cockpitBase = useCockpitBase();
   useEffect(() => {
-    if (!session.specs_page_id) return setSpecTags([]);
-    getPage(session.specs_page_id).then((p) => setSpecTags(p.tags ?? [])).catch(() => {});
+    if (!session.specs_page_id) {
+      setCockpitRef(null);
+      return setSpecTags([]);
+    }
+    getPage(session.specs_page_id).then((p) => {
+      setSpecTags(p.tags ?? []);
+      setCockpitRef(refOfContent(p.content ?? []));
+    }).catch(() => {});
   }, [session.specs_page_id]);
   const sessionTags = Array.isArray(session.tags) ? (
     <div role="group" aria-label="Session tags" className="min-w-0 py-1">
@@ -748,7 +759,7 @@ export function Drawer(
                         ["User story", storyPill],
                         ["Repo", (
                           session.repo_path
-                            ? <span className="block truncate font-mono text-[11.5px] text-ink-muted" title={session.repo_path}>{session.repo_path}</span>
+                            ? <RepoLink path={session.repo_path} prUrl={session.pr_url} />
                             : <span className="text-[12px] text-ink-faint">none</span>
                         )],
                         ["Agents", <AgentsSummary key="agents" agents={agentSummaries} />],
@@ -758,6 +769,18 @@ export function Drawer(
                           </span>
                         )],
                         ["Tags", sessionTags],
+                        ...(cockpitRef && cockpitBase
+                          ? [["Cockpit", (
+                            <a
+                              href={cockpitHref(cockpitBase, cockpitRef)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-0.5 text-[12px] text-ink-soft transition-colors hover:border-chipline"
+                            >
+                              <CockpitLogo /> <code className="text-ink-muted">{cockpitRef}</code> ↗
+                            </a>
+                          )]]
+                          : []),
                       ] as [string, ReactNode][]).map(([label, value]) => (
                         <div key={label} className="grid grid-cols-[96px_minmax(0,1fr)] items-center gap-3 py-1.5">
                           <span className="text-[11.5px] text-ink-muted">{label}</span>

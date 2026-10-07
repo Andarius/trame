@@ -11,6 +11,7 @@ import {
 } from "./api";
 import { BlockEditor, genId } from "./Page";
 import { useBlockDoc } from "./useBlockDoc";
+import { useFocusedBlock } from "./due";
 
 const sectionLbl = "text-[10px] font-medium tracking-[0.8px] text-ink-muted/70";
 
@@ -29,6 +30,7 @@ export function SpecsEditor(
     getIdentity().then((i) => setMeId(i.userId)).catch(() => {});
   }, []);
   const doc = useBlockDoc(pageId);
+  const focused = useFocusedBlock(doc.blocks);
 
   const addSpecs = () =>
     ensureSpecsPage(sessionId).then((r) => {
@@ -69,7 +71,7 @@ export function SpecsEditor(
             mode="inline"
             openThreads={doc.openThreads}
             focusThread={doc.focusThread}
-            flash={null}
+            flash={focused}
             meId={meId}
             onToggleThread={doc.toggleThread}
             // which sessions work on which todo: the same chips as on the page itself

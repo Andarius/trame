@@ -53,6 +53,7 @@ import {
 import { AgentIcon, AgentsContext, Elapsed, type Live, liveAgents, useAgents } from "./agents";
 import { AgentSessions } from "./AgentSessions";
 import { stripMarks } from "../../../core/todo-marks.ts";
+import { DUE_TONE_CLS, dueLabel, dueTone, focusBlock, useDue } from "./due";
 import { Board } from "./Board";
 import { Drawer } from "./Drawer";
 import { Explore } from "./Explore";
@@ -613,6 +614,9 @@ function Sidebar(
   const looseDbs = udbs.filter((d) => !d.page_id || !byId.has(d.page_id));
 
   const { live } = useAgents();
+  const treeCards = useContext(TreeCardsCtx);
+  const due = useDue();
+  const lateCount = due.filter((d) => dueTone(d.due) === "late").length;
   const liveCounts = useMemo(() => {
     const m = new Map<string, LiveCount>();
     for (const { a, state } of live) {
@@ -830,6 +834,46 @@ function Sidebar(
                   }`}
                 >
                   {state === "waiting" ? `needs you: ${a.question ?? "waiting for input"}` : link?.page_title ?? "no linked todo"}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+      )}
+      {due.length > 0 && (
+        <nav aria-label="Due todos" className="flex flex-col gap-0.5">
+          <div className="flex items-center px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+            DUE
+            <span
+              className={`ml-auto rounded-full px-1.5 text-[10.5px] tracking-normal tabular-nums ${
+                lateCount ? DUE_TONE_CLS.late : DUE_TONE_CLS.later
+              }`}
+            >
+              {lateCount ? `${lateCount} late · ${due.length}` : due.length}
+            </span>
+          </div>
+          {due.map((d) => {
+            const tone = dueTone(d.due);
+            return (
+              <button
+                type="button"
+                key={`${d.page_id}:${d.block_id ?? d.text}`}
+                onClick={() => {
+                  if (d.block_id) focusBlock(d.block_id);
+                  if (d.card_id) treeCards.open(d.card_id);
+                  else onOpenPage(d.page_id);
+                }}
+                title={`${d.text} — ${d.page_title}`}
+                className="grid grid-cols-[auto_1fr_auto] items-center gap-x-2 rounded-md px-2 py-[5px] text-left hover:bg-active-row"
+              >
+                <span className={tone === "late" ? "text-blocked" : tone === "soon" ? "text-wait" : "text-ink-faint"}>⚑</span>
+                <span className="truncate text-[13px] text-ink">{d.text}</span>
+                <span
+                  className={`whitespace-nowrap text-[11px] tabular-nums ${
+                    tone === "late" ? "text-blocked" : tone === "soon" ? "text-wait" : "text-ink-faint"
+                  }`}
+                >
+                  {dueLabel(d.due)}
                 </span>
               </button>
             );

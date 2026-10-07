@@ -13,8 +13,8 @@ const LIST_MARKS = new Set(["updated_at"]);
 // types into, so it has to stay bounded.
 export const UPDATED_CAP = 5;
 
-// the order marks are re-emitted in, oldest fact first
-const MARK_ORDER = ["created_at", "updated_at", "completed_at"];
+// the order marks are re-emitted in: the due date first (it is the chip that matters), then oldest fact first
+const MARK_ORDER = ["due", "created_at", "updated_at", "completed_at"];
 
 const MARK = "\\{\\{trame:([a-z_][a-z0-9_]*)=([^{}\\n]*)\\}\\}";
 const READ_RE = new RegExp(MARK, "g");
