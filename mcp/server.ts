@@ -217,7 +217,7 @@ server.tool(
 
 server.tool(
   "trame_set_status",
-  "Move a session card to another column.",
+  "Move a session card to another column. Closing one returns a note listing any spec todos still open.",
   { id: z.string(), status: z.enum(["active", "paused", "blocked", "done"]) },
   async ({ id, status }: { id: string; status: string }) =>
     text(await post(`/api/sessions/${id}/status`, { status })),
