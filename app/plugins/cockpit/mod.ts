@@ -49,7 +49,7 @@ import {
   userStoryFromPage,
 } from "./mirror.ts";
 import { refOfContent, usOfContent } from "../../../core/content-marks.ts";
-import { assignedMe, cardFields, planAssigned, storyOf } from "./assigned.ts";
+import { assignedCardId, assignedMe, assignerOf, cardFields, planAssigned, storyOf } from "./assigned.ts";
 import {
   adoptAsMirror,
   adoptAsUserStory,
@@ -324,6 +324,9 @@ const errText = (e: unknown) =>
  * the product mirror does not also make them story pages. Silent no-op on a
  * Cockpit without the `assigned_to_me` capability or the token owner id.
  */
+// card id → who assigned its ticket to me, from the last assigned feed
+let assigners: Record<string, { name: string; avatar: string | null }> = {};
+
 async function mirrorAssigned(
   baseUrl: string,
   token: string,
@@ -343,6 +346,12 @@ async function mirrorAssigned(
     errors.push({ scope: "assigned to me", error: errText(e) });
     return out;
   }
+  const by: typeof assigners = {};
+  for (const t of tickets) {
+    const a = assignerOf(t);
+    if (a) by[await assignedCardId(t.reference)] = a;
+  }
+  assigners = by;
   const { cards, held } = await loadAssignedCards(
     tickets.map((t) => t.reference),
   );
@@ -794,6 +803,7 @@ const cockpit: Plugin = {
 
   async routes(req, subPath) {
     if (subPath === "/state") return json(state);
+    if (subPath === "/assigners") return json(assigners);
     if (subPath === "/migration") {
       if (req.method !== "GET") {
         return json({

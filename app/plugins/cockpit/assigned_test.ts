@@ -3,6 +3,7 @@ import {
   type AssignedCard,
   assignedCardId,
   assignedMe,
+  assignerOf,
   cardFields,
   planAssigned,
   storyOf,
@@ -84,6 +85,19 @@ Deno.test("card fields: ref in title, objective as next step, assigner only when
       summary,
     });
   }
+});
+
+Deno.test("assigner: the creator with their avatar, unless unnamed or me", () => {
+  const cases: [Partial<Ticket>, ReturnType<typeof assignerOf>][] = [
+    [{ created_by: "bob", created_by_name: "Bob", created_by_avatar: "https://a/bob.png" }, {
+      name: "Bob",
+      avatar: "https://a/bob.png",
+    }],
+    [{ created_by: "bob", created_by_name: "Bob" }, { name: "Bob", avatar: null }],
+    [{ created_by: "bob", created_by_avatar: "https://a/bob.png" }, null],
+    [{ created_by: ME, created_by_name: "Me", created_by_avatar: "https://a/me.png" }, null],
+  ];
+  for (const [over, expected] of cases) assertEquals(assignerOf(ticket(over)), expected);
 });
 
 Deno.test("story: the page carrying the ticket's US, else null for the fallback", () => {
