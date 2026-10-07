@@ -1,12 +1,11 @@
 import type { Ctx } from "./ctx.ts";
-import { refOfContent, usOfContent } from "./content-marks.ts";
+import { hasRole } from "./mark-roles.ts";
 
 export function isUserStory(
   page: { kind?: string; content?: unknown[] },
 ): boolean {
   const content = page.content ?? [];
-  return /^US-\d+$/.test(usOfContent(content) ?? "") ||
-    (page.kind === "story" && !/^GEN-\d+$/.test(refOfContent(content) ?? ""));
+  return hasRole(content, "linked-story") || (page.kind === "story" && !hasRole(content, "ticket"));
 }
 
 /** Find the nearest linked US or outermost local story without crossing a project boundary. */
@@ -22,9 +21,7 @@ export async function storyAbove(ctx: Ctx, pageId: string): Promise<string | nul
      ) select id, kind, content from up order by cardinality(path)`,
     [pageId],
   )).rows as { id: string; kind: string; content: unknown[] }[];
-  const linked = rows.find((p) =>
-    /^US-\d+$/.test(usOfContent(p.content) ?? "")
-  );
+  const linked = rows.find((p) => hasRole(p.content, "linked-story"));
   return linked?.id ?? rows.filter(isUserStory).at(-1)?.id ??
     rows.filter((p) => p.kind === "story").at(-1)?.id ?? null;
 }

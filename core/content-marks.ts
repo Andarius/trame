@@ -5,7 +5,7 @@ export const REF_MARK = "cockpit_ref";
 /** A story filed as a user story carries this instead: it is a container, not a ticket mirror. */
 export const US_MARK = "cockpit_us";
 
-function markOfContent(content: unknown[], key: string): string | null {
+export function markOfContent(content: unknown[], key: string): string | null {
   for (const b of content) {
     if (typeof b !== "object" || b === null) continue;
     const text = (b as { text?: unknown }).text;
