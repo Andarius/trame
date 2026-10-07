@@ -8,6 +8,7 @@ import trackSkillOpenai from "../skills/trame-track/agents/openai.yaml" with {
 };
 import pageSkill from "../skills/trame-page/SKILL.md" with { type: "text" };
 import watchSkill from "../skills/trame-watch/SKILL.md" with { type: "text" };
+import trameSkill from "../skills/trame/SKILL.md" with { type: "text" };
 import prePush from "./pre-push.sh" with { type: "text" };
 import modManifest from "../claude-mod/.claude-plugin/plugin.json" with { type: "text" };
 import modHooks from "../claude-mod/hooks/hooks.json" with { type: "text" };
@@ -21,6 +22,7 @@ export const EMBEDS = {
   trackSkillOpenai,
   pageSkill,
   watchSkill,
+  trameSkill,
   prePush,
 };
 
@@ -46,6 +48,7 @@ const SKILL_FILES: Record<string, string> = {
   "trame-track/agents/openai.yaml": trackSkillOpenai,
   "trame-page/SKILL.md": pageSkill,
   "trame-watch/SKILL.md": watchSkill,
+  "trame/SKILL.md": trameSkill,
 };
 
 // Claude Code / Codex hook events that feed `tramecli presence --hook`
@@ -250,12 +253,12 @@ async function chooseInteractive(
       {
         value: "claude",
         label: "Claude Code",
-        hint: "the trame-track, trame-page and trame-watch skills in ~/.claude/skills",
+        hint: "the trame, trame-track, trame-page and trame-watch skills in ~/.claude/skills",
       },
       {
         value: "codex",
         label: "Codex",
-        hint: "the $trame-track and $trame-page skills in ~/.agents/skills",
+        hint: "the $trame, $trame-track and $trame-page skills in ~/.agents/skills",
       },
       {
         value: "other",

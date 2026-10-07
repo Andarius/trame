@@ -282,6 +282,7 @@ Deno.test("setup embeds call the bare binary and install everywhere", async () =
         `${home}/.claude/skills/trame-track/SKILL.md`,
         `${home}/.claude/skills/trame-page/SKILL.md`,
         `${home}/.claude/skills/trame-watch/SKILL.md`,
+        `${home}/.claude/skills/trame/SKILL.md`,
         `${home}/.agents/skills/trame-track/SKILL.md`,
         `${home}/.agents/skills/trame-track/agents/openai.yaml`,
         `${home}/.agents/skills/trame-page/SKILL.md`,
