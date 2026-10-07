@@ -24,7 +24,7 @@ import {
 import { appConfirm, clientColor, EntityIcon, ExpandIcon, pageOptions, Popover, Select, TagChips, timeAgo } from "./ui";
 import { AgentIcon, AgentsSummary, EventMeta, PresencePill, useAgents } from "./agents";
 import { summarizeAgents } from "./agent-summary";
-import { PrChip } from "./md";
+import { PrChip, RepoLink } from "./md";
 import { SpecsEditor } from "./SpecsEditor";
 import { TagEditor } from "./TagEditor";
 
@@ -759,7 +759,7 @@ export function Drawer(
                         ["User story", storyPill],
                         ["Repo", (
                           session.repo_path
-                            ? <span className="block truncate font-mono text-[11.5px] text-ink-muted" title={session.repo_path}>{session.repo_path}</span>
+                            ? <RepoLink path={session.repo_path} prUrl={session.pr_url} />
                             : <span className="text-[12px] text-ink-faint">none</span>
                         )],
                         ["Agents", <AgentsSummary key="agents" agents={agentSummaries} />],

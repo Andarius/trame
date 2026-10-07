@@ -6,6 +6,7 @@ import { handleCoreApi } from "../core/api.ts";
 
 import { APP_CTX } from "./ctx.ts";
 import { startDueNotifier } from "./due_notify.ts";
+import { repoWebUrl } from "./repo_remote.ts";
 
 
 import {
@@ -1001,6 +1002,12 @@ async function handler(req: Request): Promise<Response> {
   const core = await handleCoreApi(APP_CTX, req, url);
   if (core) return core;
 
+  // laptop-only: the hub has no checkouts to read
+  if (pathname === "/api/repo-remote") {
+    const path = url.searchParams.get("path") ?? "";
+    if (!path.startsWith("/")) return json({ error: "absolute path expected" }, 400);
+    return json({ url: await repoWebUrl(path) });
+  }
   if (pathname === "/api/status") {
     return json({
       nodeId: NODE_ID,
