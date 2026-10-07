@@ -89,6 +89,21 @@ const json = (data: unknown, status = 200) =>
     headers: { "content-type": "application/json" },
   });
 
+// closing a card with unticked spec todos is usually a forgotten tick
+async function openTodosNote(ctx: Ctx, id: string): Promise<string | undefined> {
+  const open = (await ctx.q.query(
+    `select b->>'text' as text from sessions s join pages p on p.id = s.specs_page_id,
+            jsonb_array_elements(case when jsonb_typeof(p.content) = 'array' then p.content else '[]' end) b
+      where s.id=$1 and s.status in (select key from statuses where terminal and not deleted)
+        and b->>'type' = 'todo' and coalesce((b->>'done')::boolean, false) = false`,
+    [id],
+  )).rows as { text: string }[];
+  if (!open.length) return undefined;
+  return `card closed with ${open.length} open todo(s) on its specs page: ${
+    open.map((t) => `'${stripMarks(t.text).trim()}'`).join(", ")
+  } — tick the done ones, or move the rest to a follow-up card`;
+}
+
 export async function handleCoreApi(
   ctx: Ctx,
   req: Request,
@@ -192,25 +207,11 @@ export async function handleCoreApi(
         [s.specs_page_id],
       )).rows[0]
       : undefined;
-    // closing a card with unticked spec todos is usually a forgotten tick
-    const open = spec
-      ? (await pg.query(
-        `select b->>'text' as text from sessions s join pages p on p.id = s.specs_page_id,
-                jsonb_array_elements(case when jsonb_typeof(p.content) = 'array' then p.content else '[]' end) b
-          where s.id=$1 and s.status in (select key from statuses where terminal and not deleted)
-            and b->>'type' = 'todo' and coalesce((b->>'done')::boolean, false) = false`,
-        [id],
-      )).rows as { text: string }[]
-      : [];
     const note = !spec
       ? (`card has no specs page. ${
         SPECS_WHEN.replaceAll("\n", " ")
       } Write it with the page writer/trame_update_page using {"session_id": "${id}"}`)
-      : open.length
-      ? `card closed with ${open.length} open todo(s) on its specs page: ${
-        open.map((t) => `'${stripMarks(t.text).trim()}'`).join(", ")
-      } — tick the done ones, or move the rest to a follow-up card`
-      : undefined;
+      : await openTodosNote(ctx, id);
     return json({
       id,
       specs_page_id: s?.specs_page_id ?? null,
@@ -334,7 +335,8 @@ export async function handleCoreApi(
   const m = pathname.match(/^\/api\/sessions\/([^/]+)\/status$/);
   if (m && req.method === "POST") {
     await setSessionStatus(ctx, m[1], (await req.json()).status);
-    return json({ ok: true });
+    const note = await openTodosNote(ctx, m[1]);
+    return json({ ok: true, ...(note ? { note } : {}) });
   }
 
   // statuses — the kanban columns (add/rename/recolor/reorder/delete)
