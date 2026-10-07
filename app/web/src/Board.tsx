@@ -27,6 +27,7 @@ import {
   TagChips,
 } from "./ui";
 import { StaleChip } from "./md";
+import { AssignedBy } from "./plugins/cockpit/AssignedBy";
 
 function TicketBody(
   { s, board, overlay = false, showObjective = true, storyFilter, onFilterStory }: {
@@ -49,7 +50,12 @@ function TicketBody(
         overlay ? "border-copper/60 shadow-xl shadow-black/40" : "border-line"
       } ${done && !overlay ? "opacity-60" : ""}`}
     >
-      <div className="text-[12.5px] font-medium leading-snug">{s.title}</div>
+      <div className="text-[12.5px] font-medium leading-snug">
+        <span className="float-right ml-1.5 mt-px">
+          <AssignedBy cardId={s.id} />
+        </span>
+        {s.title}
+      </div>
       {showObjective && chipPage && (
         <ObjectiveChip
           title={chipPage.title}

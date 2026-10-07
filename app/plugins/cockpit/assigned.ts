@@ -27,18 +27,24 @@ export function assignedMe(scopes: {
     : null;
 }
 
+/** Who handed me the ticket: its creator, unless that is me (or unnamed). */
+export function assignerOf(t: Ticket): { name: string; avatar: string | null } | null {
+  const name = t.created_by_name?.trim();
+  if (!name || !t.created_by || t.created_by === t.assignee_id) return null;
+  return { name, avatar: t.created_by_avatar?.trim() || null };
+}
+
 /** What a card shows for an assigned ticket. */
 export function cardFields(t: Ticket): {
   title: string;
   next_step: string | null;
   summary: string;
 } {
-  const name = t.created_by_name?.trim();
-  const byOther = t.created_by && t.created_by !== t.assignee_id;
+  const by = assignerOf(t);
   return {
     title: `${t.reference} — ${t.title}`,
     next_step: t.objective?.trim() || null,
-    summary: byOther && name ? `Assigned by ${name}` : "",
+    summary: by ? `Assigned by ${by.name}` : "",
   };
 }
 

@@ -87,6 +87,7 @@ import { DatabaseView } from "./udb/DatabaseTable";
 import { FolderBlock } from "./FolderBlock";
 import { TagEditor } from "./TagEditor";
 import { CockpitTicket } from "./plugins/cockpit/CockpitTicket";
+import { AssignedBy } from "./plugins/cockpit/AssignedBy";
 import { hasCockpitMark, refOfContent, usOfContent } from "../../../core/content-marks.ts";
 import { HtmlBlock } from "./HtmlBlock";
 
@@ -3402,6 +3403,7 @@ export function Page(
                     <span className={done ? "text-ink-muted line-through decoration-ink-faint" : "text-ink-soft"}>
                       {s.title}
                     </span>
+                    <AssignedBy cardId={s.id} />
                     {(() => {
                       // the session working this card, by its own name (live or recently seen)
                       const name = recentAgents.find((a) => a.session_id === s.id && a.name)?.name;

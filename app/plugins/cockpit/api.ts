@@ -33,6 +33,8 @@ export type Ticket = {
   created_by: string | null;
   /** display name of `created_by`, when the server sends one */
   created_by_name?: string | null;
+  /** avatar URL of `created_by`, when the server sends one */
+  created_by_avatar?: string | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;

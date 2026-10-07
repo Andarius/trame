@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { refOfContent } from "../../../core/content-marks.ts";
 import { CockpitLogo, cockpitHref, useCockpitBase } from "./plugins/cockpit/CockpitTicket";
+import { AssignerAvatar, useAssigner } from "./plugins/cockpit/AssignedBy";
 import {
   addLog,
   type BoardData,
@@ -415,6 +416,7 @@ export function Drawer(
   // the Cockpit ticket the card was filed as: its plugin stamps the ref on the spec page
   const [cockpitRef, setCockpitRef] = useState<string | null>(null);
   const cockpitBase = useCockpitBase();
+  const assigner = useAssigner(session.id);
   useEffect(() => {
     if (!session.specs_page_id) {
       setCockpitRef(null);
@@ -769,6 +771,13 @@ export function Drawer(
                           </span>
                         )],
                         ["Tags", sessionTags],
+                        ...(assigner
+                          ? [["Assigned by", (
+                            <span key="assigner" className="inline-flex items-center gap-1.5 text-[12.5px] text-ink-soft">
+                              <AssignerAvatar a={assigner} size={18} /> {assigner.name}
+                            </span>
+                          )]]
+                          : []),
                         ...(cockpitRef && cockpitBase
                           ? [["Cockpit", (
                             <a
