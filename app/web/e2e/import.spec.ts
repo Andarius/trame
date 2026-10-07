@@ -39,9 +39,9 @@ test("scan previews sessions, filters by window, hides subagents and tmp dirs", 
   await expect(page.getByPlaceholder("new story title (created on import)")).toBeVisible();
   // plain pages appear as promotable □ options
   await page.getByRole("button", { name: /new story…/ }).click(); // reopen the select
-  // .last(): the sidebar tree also shows "□ Import notes" — the modal renders after it
-  await page.getByRole("button", { name: "□ Import notes" }).last().click();
-  await page.getByRole("button", { name: "□ Import notes" }).last().click(); // reopen, restore default
+  // .last(): the sidebar tree also shows "Import notes" — the modal renders after it
+  await page.getByRole("button", { name: "Import notes", exact: true }).filter({ has: page.locator('[data-glyph="□"]') }).last().click();
+  await page.getByRole("button", { name: "Import notes ▾" }).click(); // reopen, restore default
   await page.getByRole("button", { name: /alpha \(create\)/ }).click();
   // and the client picker a "new client" one
   await page.getByRole("button", { name: "Side-projects" }).click();

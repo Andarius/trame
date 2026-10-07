@@ -76,15 +76,15 @@ test("story picker hides archived stories but keeps the attached one", async ({ 
   await page.goto("/");
   await page.getByText("status probe session").click();
   // the drawer Select still shows the archived story it's attached to
-  const trigger = page.getByRole("button", { name: "◇ Status arch S ▾" });
+  const trigger = page.getByRole("button", { name: "Status arch S ▾" });
   await expect(trigger).toBeVisible();
   await trigger.click();
   // scoped to the Select's wrapper — the sidebar lists the same stories
   const picker = trigger.locator("xpath=..");
   // live stories stay pickable; the other archived story is gone
-  await expect(picker.getByRole("button", { name: "◇ Status open S" }))
+  await expect(picker.getByRole("button", { name: "Status open S" }))
     .toBeVisible();
-  await expect(picker.getByRole("button", { name: "◇ Status arch2 S" }))
+  await expect(picker.getByRole("button", { name: "Status arch2 S" }))
     .toHaveCount(0);
   await page.keyboard.press("Escape");
 });

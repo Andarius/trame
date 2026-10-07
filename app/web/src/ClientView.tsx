@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { type BoardData, updatePage } from "./api";
-import { clientColor, inSubtree, pagesById, projectOf, statusStyle, StatusDot, storyOf, timeAgo } from "./ui";
+import { clientColor, EntityIcon, inSubtree, pagesById, projectOf, statusStyle, StatusDot, storyOf, timeAgo } from "./ui";
 import { IconPicker } from "./udb/cells";
 
 // Overview for one client: its projects (each openable) with progress, plus any
@@ -87,7 +87,7 @@ export function ClientView(
                 onClick={() => onOpenPage(p.id)}
                 className="flex items-center gap-2 text-left"
               >
-                <span className="text-[13px] text-copper">◎</span>
+                <EntityIcon icon={null} fallback="◎" className="text-[13px] text-copper" />
                 <span className="text-[13px] font-semibold text-ink hover:underline">{p.title}</span>
                 <span className="flex-1" />
                 {ss.length > 0 && (

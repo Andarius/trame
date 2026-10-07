@@ -122,7 +122,7 @@ export function NewSessionModal(
           value={story}
           className={pill}
           options={[
-            { value: "", label: "◇ no story" },
+            { value: "", label: "no story", icon: "◇" },
             ...pageOptions(
               board.stories.filter((s) => s.status !== "archived"),
               board.pages ?? [],
@@ -1125,9 +1125,9 @@ export function ImportClaudeModal(
                   value={projects[g.repoPath] ?? AUTO_PROJECT}
                   className={pill}
                   options={[
-                    { value: AUTO_PROJECT, label: `◇ ${g.repoName} (create)` },
-                    ...clientProjects.map((o) => ({ value: o.title, label: `◇ ${o.title}` })),
-                    ...clientPages.map((p) => ({ value: p.title, label: `□ ${p.title}` })),
+                    { value: AUTO_PROJECT, label: `${g.repoName} (create)`, icon: "◇" },
+                    ...clientProjects.map((o) => ({ value: o.title, label: o.title, icon: "◇" })),
+                    ...clientPages.map((p) => ({ value: p.title, label: p.title, icon: "□" })),
                     { value: NEW_PROJECT, label: "＋ new story…" },
                     { value: "", label: "no story" },
                   ]}
