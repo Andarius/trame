@@ -5,6 +5,7 @@ import { PGlite } from "@electric-sql/pglite";
 import type { DB, Q } from "./db.ts";
 import { ensureAuthSchema, mintToken } from "./auth.ts";
 import { createApp } from "./app.ts";
+import { addMarkRoles } from "../../core/mark-roles.ts";
 import { PROTOCOL_VERSION } from "../../protocol/entities.ts";
 
 const MEMBER = "00000000-0000-4000-8000-000000000101"; // the seeded user
@@ -334,16 +335,20 @@ for (
 
 // the page list says which role a page's marks give it
 Deno.test("hub /api page lists carry the role a page's marks give it", async () => {
+  addMarkRoles([
+    { mark: "tracker_us", value: /^US-\d+$/, role: "linked-story" },
+    { mark: "tracker_ref", value: /^GEN-\d+$/, role: "ticket" },
+  ]);
   const mark = (m: string) => [{ id: "b1", type: "text", text: `x {{trame:${m}}}` }];
   const ids: Record<string, string> = {};
-  for (const [key, content] of [["ticket", mark("cockpit_ref=GEN-1")], ["us", mark("cockpit_us=US-1")], ["none", []]]) {
-    const res = await call("/api/pages", { body: { title: `cockpit kind ${key}`, content, repo_path: "/srv/kind" } });
+  for (const [key, content] of [["ticket", mark("tracker_ref=GEN-1")], ["us", mark("tracker_us=US-1")], ["none", []]]) {
+    const res = await call("/api/pages", { body: { title: `marked kind ${key}`, content, repo_path: "/srv/kind" } });
     ids[key as string] = ((await res.json()) as { id: string }).id;
   }
   const pages = await (await call("/api/pages")).json() as { id: string; mark_role: string | null }[];
   const kindOf = (id: string) => pages.find((p) => p.id === id)?.mark_role;
   assertEquals([kindOf(ids.ticket), kindOf(ids.us), kindOf(ids.none)], ["ticket", "linked-story", null]);
   // Ctrl+P search hits carry it too
-  const hits = await (await call("/api/search?q=cockpit%20kind")).json() as { id: string; mark_role: string | null }[];
+  const hits = await (await call("/api/search?q=marked%20kind")).json() as { id: string; mark_role: string | null }[];
   assertEquals(hits.find((h) => h.id === ids.ticket)?.mark_role, "ticket");
 });

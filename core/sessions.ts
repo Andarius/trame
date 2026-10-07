@@ -2,7 +2,7 @@ import { v5 } from "@std/uuid";
 import type { Ctx, Q } from "./ctx.ts";
 import { checkStoryParent, projectAbove, storyAbove } from "./hierarchy.ts";
 import { pageBlocksToMarkdown } from "./page-markdown.ts";
-import { MARK_ROLE_COL } from "./mark-roles.ts";
+import { markRoleCol } from "./mark-roles.ts";
 import { midKey } from "./sort-key.ts";
 import { similarStories, STORY_REUSE } from "./story-match.ts";
 import { tagColor, tagKey } from "./tags.ts";
@@ -15,13 +15,13 @@ export async function getBoard(ctx: Ctx, { deleted = false }: { deleted?: boolea
   const projects = (await pg.query(
     `select id, title as name, color, icon from pages where kind='project' and not deleted order by title`,
   )).rows;
-  const stories = (await pg.query(`select *, ${MARK_ROLE_COL} from pages where kind='story' and not deleted order by title`)).rows;
+  const stories = (await pg.query(`select *, ${markRoleCol()} from pages where kind='story' and not deleted order by title`)).rows;
   const sessions = (await pg.query(
     `select * from sessions where deleted = $1 order by last_touched desc`,
     [deleted],
   )).rows;
   const pages = (await pg.query(
-    `select id, parent_id, kind, title, icon, client_id, color, tags, ${MARK_ROLE_COL} from pages where not deleted order by title`,
+    `select id, parent_id, kind, title, icon, client_id, color, tags, ${markRoleCol()} from pages where not deleted order by title`,
   )).rows;
   const statuses = (await pg.query(
     `select id, key, label, color, terminal, sort_key from statuses where not deleted order by sort_key`,
@@ -367,7 +367,7 @@ export async function upsertSession(ctx: Ctx, s: Record<string, unknown>, out?: 
     s.tags.some((tag) => typeof tag !== "string" || !tag.trim()))) {
     throw new SessionTagsError("tags must be an array of non-empty tag keys");
   }
-  // A label (`cockpit:devops`) slugs to the same key a page stores; storing it raw
+  // A label (`team:devops`) slugs to the same key a page stores; storing it raw
   // would make the session invisible to every key-based lookup.
   if (Array.isArray(s.tags)) s.tags = [...new Set((s.tags as string[]).map(tagKey))];
   const pg = ctx.q;
@@ -499,7 +499,7 @@ export async function searchAll(ctx: Ctx, q: string) {
         where not deleted and (title ilike $1 or summary ilike $1 or coalesce(next_step,'') ilike $1)
        union all
        select case when kind='project' then 'client' else 'page' end, id::text, title,
-              coalesce(brief,''), coalesce(icon,''), kind, coalesce(color,''), updated_at, ${MARK_ROLE_COL}
+              coalesce(brief,''), coalesce(icon,''), kind, coalesce(color,''), updated_at, ${markRoleCol()}
          from pages
         where not deleted and (title ilike $1 or brief ilike $1 or content::text ilike $1)
        union all

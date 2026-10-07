@@ -688,7 +688,7 @@ export const pageGlyph = (kind: string, role?: string | null) =>
   kind === "project" ? "◎" : role === "ticket" ? "ticket" : role === "linked-story" ? "us" : kind === "story" ? "◇" : "□";
 
 // Share one vocabulary fetch across chips, refreshing after local tag edits.
-// A label with a colon renders split, like the page-header editor: a dim `cockpit`
+// A label with a colon renders split, like the page-header editor: a dim `team`
 // half and a coloured `devops` half, the namespace hue read from the row of the
 // namespace itself. --tag-tint/--tag-shade follow the theme when defined.
 let tagVocab: Promise<Tag[]> | null = null;

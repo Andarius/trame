@@ -137,7 +137,7 @@ Deno.test("a nested story still shares one card across branches", async () => {
   const { getBoard } = await import("../core/sessions.ts");
   const outer = ((await getBoard(APP_CTX)).sessions as { title: string; page_id: string }[])
     .find((s) => s.title === "outer")!.page_id;
-  // the Cockpit mirror nests US stories under the user's story; createPage refuses it
+  // a tracker mirror nests US stories under the user's story; createPage refuses it
   const inner = await createPage(APP_CTX, { title: "GEN-1 — Prod cut-over", kind: "story", status: "open" });
   await APP_CTX.q.query(`update pages set parent_id=$2, client_id=(select client_id from pages where id=$2) where id=$1`, [
     inner,

@@ -34,7 +34,7 @@ export function tagColor(key: string): string {
 }
 
 /**
- * Split a label on its first ":" — `cockpit:devops` reads as a namespace and a
+ * Split a label on its first ":" — `team:devops` reads as a namespace and a
  * value, and the pill dims the half that repeats on every tag from that source.
  */
 export function splitTagLabel(

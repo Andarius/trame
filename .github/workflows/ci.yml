@@ -25,7 +25,7 @@ jobs:
         run: cd app/web && npm ci
 
       - name: Public build composes no private plugin
-        run: cd app && deno run -A ../scripts/gen-plugins.ts && git diff --exit-code -- plugins/local.gen.ts web/src/plugins/
+        run: cd app && deno run -A ../scripts/gen-plugins.ts && git diff --exit-code -- plugins/local.gen.ts web/src/plugins/ ../core/mark-roles.gen.ts
 
       - name: Build frontend (generates embed.ts)
         run: cd app && deno task web:build
