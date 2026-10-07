@@ -1334,6 +1334,8 @@ export function App() {
     );
   // column order + the status set itself now live in the synced DB (board.statuses);
   // only "hide empty" stays a per-device preference.
+  const [dense, setDense] = useState<boolean>(() => localStorage.getItem("trame:denseBoard") === "1");
+  useEffect(() => localStorage.setItem("trame:denseBoard", dense ? "1" : "0"), [dense]);
   const [hideEmpty, setHideEmpty] = useState<boolean>(() =>
     localStorage.getItem("trame:hideEmpty") === "1"
   );
@@ -2210,6 +2212,20 @@ export function App() {
               </div>
             )}
             {view === "board" && (
+              <button
+                type="button"
+                onClick={() => setDense((v) => !v)}
+                title="One line per card"
+                aria-pressed={dense}
+                className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] ${
+                  dense ? "border-copper/50 text-copper" : "border-line text-ink-muted hover:text-ink-soft"
+                }`}
+              >
+                <span className="text-[11px]">≡</span>
+                Compact
+              </button>
+            )}
+            {view === "board" && (
               <div className="relative">
                 <button
                   type="button"
@@ -2272,6 +2288,7 @@ export function App() {
               onFilterStory={toggleStoryFilter}
               noSpecs={noSpecs}
               hideEmpty={hideEmpty}
+              dense={dense}
               selected={selected}
               onToggleSelect={toggleSelected}
               onSelectMany={selectMany}
