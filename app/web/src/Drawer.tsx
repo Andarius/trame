@@ -619,11 +619,13 @@ export function Drawer(
     </div>
   );
 
-  const linkedRow = links.length > 0 && (
+  // a todo on the card's own spec page already shows under SPECS
+  const outside = links.filter((l) => l.page_id !== session.specs_page_id);
+  const linkedRow = outside.length > 0 && (
     <div className="flex flex-col gap-1.5">
       <span className="text-[11px] text-ink-muted">Linked</span>
       <div className="flex flex-wrap gap-1.5">
-        {links.map((l) => (
+        {outside.map((l) => (
           <span
             key={l.id}
             className="group flex max-w-full items-center gap-1.5 rounded-md border border-line bg-panel px-2 py-1 text-[11.5px]"
