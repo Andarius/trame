@@ -513,6 +513,58 @@ export function DateInput(
   );
 }
 
+// Lucide icons for the default page glyphs, keyed by what pageGlyph returns; ticket/us tint over the row colour
+const KIND_ICONS: Record<string, { tint?: string; paths: ReactNode }> = {
+  ticket: {
+    tint: "text-copper",
+    paths: (
+      <>
+        <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" />
+        <path d="M13 5v2" />
+        <path d="M13 17v2" />
+        <path d="M13 11v2" />
+      </>
+    ),
+  },
+  us: {
+    tint: "text-active",
+    paths: (
+      <path d="M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z" />
+    ),
+  },
+  "◇": {
+    paths: (
+      <>
+        <circle cx="12" cy="12" r="10" />
+        <circle cx="12" cy="12" r="1" />
+      </>
+    ),
+  },
+  "□": {
+    paths: (
+      <>
+        <path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" />
+        <path d="M14 2v5a1 1 0 0 0 1 1h5" />
+        <path d="M16 13H8" />
+        <path d="M16 17H8" />
+      </>
+    ),
+  },
+};
+
+function KindIcon({ glyph, className }: { glyph: string; className?: string }) {
+  const k = KIND_ICONS[glyph];
+  return (
+    <span data-glyph={glyph} className={`inline-flex items-center self-center align-middle ${className ?? ""}`}>
+      <svg width="1.15em" height="1.15em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
+        strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={k.tint}
+      >
+        {k.paths}
+      </svg>
+    </span>
+  );
+}
+
 // Row/database icon: an emoji glyph, or an image when it looks like a URL / data URI.
 export function EntityIcon(
   { icon, fallback, className, size }: {
@@ -523,6 +575,7 @@ export function EntityIcon(
   },
 ) {
   if (!icon) {
+    if (fallback && KIND_ICONS[fallback]) return <KindIcon glyph={fallback} className={className} />;
     return fallback ? <span className={className}>{fallback}</span> : null;
   }
   if (/^(https?:|data:)/.test(icon)) {
@@ -618,7 +671,9 @@ export {
   sessionTagKeys,
   storyOf,
 } from "./tree.ts";
-export const pageGlyph = (kind: string) => kind === "project" ? "◎" : kind === "story" ? "◇" : "□";
+// ◎ project; any other page shows the Cockpit object it mirrors (ticket / us) when it has one
+export const pageGlyph = (kind: string, cockpit?: string | null) =>
+  kind === "project" ? "◎" : cockpit ?? (kind === "story" ? "◇" : "□");
 
 // Share one vocabulary fetch across chips, refreshing after local tag edits.
 // A label with a colon renders split, like the page-header editor: a dim `cockpit`

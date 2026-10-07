@@ -85,7 +85,7 @@ test("attaching a session to a plain page promotes it to a project", async ({ pa
   // promoted page renders as a Story (◇ glyph) and lists its session
   const nav = page.locator("aside div.group").getByRole("button", { name: /Scratch notes/ }).first();
   await expect(nav).toBeVisible();
-  await expect(nav).toContainText("◇");
+  await expect(nav.locator('[data-glyph="◇"]')).toBeVisible();
   await nav.click();
   await expect(page.getByText("promo e2e session").first()).toBeVisible();
   // grouped board gains a lane for it
@@ -104,7 +104,7 @@ test("drawer picker offers plain pages and promotes on pick", async ({ page, req
   await page.keyboard.press("Escape");
   // picking promoted it: sidebar shows it as a Story (◇)
   const nav = page.locator("aside div.group").getByRole("button", { name: /Loose notes/ }).first();
-  await expect(nav).toContainText("◇");
+  await expect(nav.locator('[data-glyph="◇"]')).toBeVisible();
 });
 
 test("the Story picker lists each story once as ◇ (no ◎/□ duplicates)", async ({ page, request }) => {

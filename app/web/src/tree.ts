@@ -1,5 +1,12 @@
 // The session tree model, shared by the web app and tramecli (no React here).
-export type TreePage = { id: string; parent_id: string | null; kind: string; title: string; icon: string | null };
+export type TreePage = {
+  id: string;
+  parent_id: string | null;
+  kind: string;
+  title: string;
+  icon: string | null;
+  cockpit?: string | null;
+};
 
 // ancestor walk with a hop cap: parent_id has no FK, sync can deliver odd states
 export function* ancestry<P extends TreePage>(start: P | undefined, byId: Map<string, P>): Generator<P> {

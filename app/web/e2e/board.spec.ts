@@ -88,7 +88,7 @@ test("a Project page creates a Story child via New story", async ({ page }) => {
   // it nests under the project as a Story (◇), reachable in the sidebar tree
   const node = page.locator("aside div.group").getByRole("button", { name: /E2E Story/ }).first();
   await expect(node).toBeVisible();
-  await expect(node).toContainText("◇");
+  await expect(node.locator('[data-glyph="◇"]')).toBeVisible();
 });
 
 test("a Project's color swatch tints its sidebar glyph", async ({ page }) => {

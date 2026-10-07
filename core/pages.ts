@@ -14,8 +14,11 @@ import {
   resolveCommentBlock,
 } from "./agent-comments.ts";
 
+// which Cockpit object a page mirrors ('ticket' | 'us' | null), read from its marks — drives the list icon
+export const COCKPIT_COL = `case when content::text like '%trame:cockpit_ref=%' then 'ticket'
+  when content::text like '%trame:cockpit_us=%' then 'us' end as cockpit`;
 const LIST_COLS =
-  "id, parent_id, kind, title, icon, status, client_id, color, tags, sort_key, owner_id, updated_at";
+  `id, parent_id, kind, title, icon, status, client_id, color, tags, sort_key, owner_id, updated_at, ${COCKPIT_COL}`;
 const COMMENT_COLS =
   "id, page_id, block_id, anchor, body, author, author_avatar, author_id, resolved, meta, updated_at";
 
