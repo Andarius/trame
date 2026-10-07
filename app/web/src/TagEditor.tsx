@@ -10,12 +10,6 @@ const tint = (color: string): CSSProperties => ({
     `color-mix(in srgb, ${color} calc(100% - var(--tag-shade)), var(--color-ink))`,
 });
 
-/** The namespace half before anyone colours it: a wash of ink, not of hue. */
-const NEUTRAL_NS: CSSProperties = {
-  background: "color-mix(in srgb, var(--color-ink-muted) 10%, transparent)",
-  color: "var(--color-ink-muted)",
-};
-
 /**
  * Tag chips on a page, with a picker to add one.
  *
@@ -101,14 +95,15 @@ export function TagEditor(
         return (
           <span
             key={key}
-            className="group relative inline-flex items-stretch text-[11px] leading-[1.45]"
+            className="group relative inline-flex items-stretch rounded-full text-[11px] leading-[1.45]"
+            style={valStyle}
           >
             {ns && (
               <button
                 type="button"
                 title={`Colour every ${ns}: tag`}
-                className="cursor-pointer rounded-l-full py-px pl-[9px] pr-[7px]"
-                style={nsRow ? tint(nsRow.color) : NEUTRAL_NS}
+                className="cursor-pointer py-px pl-[9px] opacity-60 hover:opacity-100"
+                style={nsRow ? { color: tint(nsRow.color).color } : undefined}
                 onClick={() =>
                   setPicking(picked && picking.ns ? null : { key, ns: true })}
               >
@@ -119,10 +114,7 @@ export function TagEditor(
               type="button"
               title={t ? "Colour this tag" : `Unknown tag: ${key}`}
               disabled={!t}
-              className={`cursor-pointer py-px pl-[9px] pr-[7px] font-medium ${
-                ns ? "" : "rounded-l-full"
-              }`}
-              style={valStyle}
+              className={`cursor-pointer py-px pr-[7px] font-medium ${ns ? "pl-[5px]" : "pl-[9px]"}`}
               onClick={() =>
                 setPicking(picked && !picking.ns ? null : { key, ns: false })}
             >
@@ -131,8 +123,7 @@ export function TagEditor(
             <button
               type="button"
               title="Remove"
-              className="rounded-r-full py-px pr-[6px] text-[8px] opacity-0 transition-opacity hover:opacity-100 group-hover:opacity-55"
-              style={valStyle}
+              className="py-px pr-[6px] text-[8px] opacity-0 transition-opacity hover:opacity-100 group-hover:opacity-55"
               onClick={() => onChange(tags.filter((k) => k !== key))}
             >
               ✕

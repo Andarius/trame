@@ -698,10 +698,6 @@ const tagTint = (color: string): CSSProperties => ({
   background: `color-mix(in srgb, ${color} var(--tag-tint, 16%), transparent)`,
   color: `color-mix(in srgb, ${color} calc(100% - var(--tag-shade, 30%)), var(--color-ink, currentColor))`,
 });
-const NS_WASH: CSSProperties = {
-  background: "color-mix(in srgb, var(--color-ink-muted, #888) 10%, transparent)",
-  color: "var(--color-ink-muted, #888)",
-};
 export function TagChips({ keys, onClick }: { keys?: string[]; onClick?: (key: string) => void }) {
   const [vocab, setVocab] = useState<Map<string, Tag> | null>(null);
   useEffect(() => {
@@ -736,14 +732,11 @@ export function TagChips({ keys, onClick }: { keys?: string[]; onClick?: (key: s
             onPointerDown={onClick ? (e) => e.stopPropagation() : undefined}
             onDoubleClick={onClick ? (e) => e.stopPropagation() : undefined}
             onClick={onClick ? (e) => { e.stopPropagation(); onClick(k); } : undefined}
-            className="flex overflow-hidden rounded-full text-[9.5px] font-medium leading-[14px]"
+            className="flex gap-1 rounded-full px-1.5 py-px text-[9.5px] font-medium leading-[14px]"
+            style={tagTint(t?.color ?? nsRow?.color ?? "#6b7280")}
           >
-            {ns && (
-              <span className="px-1.5 py-px" style={nsRow?.color ? tagTint(nsRow.color) : NS_WASH}>
-                {ns}
-              </span>
-            )}
-            <span className="px-1.5 py-px" style={tagTint(t?.color ?? "#6b7280")}>{name}</span>
+            {ns && <span className="opacity-60">{ns}</span>}
+            <span>{name}</span>
           </Chip>
         );
       })}
