@@ -23,6 +23,7 @@ import {
   CockpitError,
   createTicket,
   createUserStory,
+  fetchAssignedTickets,
   fetchRefs,
   fetchScopes,
   fetchTickets,
@@ -40,6 +41,7 @@ import {
   planMirror,
   SESSION_ORIGIN,
   sessionStatusFor,
+  statusClassOf,
   statusSyncOf,
   storySyncOf,
   ticketFromSession,
@@ -47,11 +49,15 @@ import {
   userStoryFromPage,
 } from "./mirror.ts";
 import { refOfContent, usOfContent } from "../../../core/content-marks.ts";
+import { cardFields, meOf, planAssigned, storyOf } from "./assigned.ts";
 import {
   adoptAsMirror,
   adoptAsUserStory,
   adoptSessionAsFiled,
   applyMirror,
+  createAssignedCard,
+  ensureAssignedStory,
+  loadAssignedCards,
   loadCardStatuses,
   loadMirrorPages,
   loadPageRoutes,
@@ -86,6 +92,8 @@ export type CockpitState = {
   filed: { title: string; reference: string }[];
   // Tagged pages left alone because Cockpit would refuse them — not errors.
   skipped: { title: string; reason: string }[];
+  // Cards this pass made or closed for tickets assigned to me.
+  assigned: { created: number; closed: number };
 };
 
 let state: CockpitState = {
@@ -97,6 +105,7 @@ let state: CockpitState = {
   mirrored: [],
   filed: [],
   skipped: [],
+  assigned: { created: 0, closed: 0 },
 };
 let pollRunning: Promise<CockpitState> | null = null;
 
@@ -189,6 +198,16 @@ async function syncStatuses(
       .slice(SESSION_ORIGIN.length);
     if (UUID.test(id)) filed.set(id, t);
   }
+  await syncCards(baseUrl, token, filed, errors);
+}
+
+/** Two-way status sync for cards keyed by session id — see statusSyncOf. */
+async function syncCards(
+  baseUrl: string,
+  token: string,
+  filed: ReadonlyMap<string, Ticket>,
+  errors: CockpitState["errors"],
+): Promise<void> {
   if (!filed.size) return;
   const { cards, statuses } = await loadCardStatuses([...filed.keys()]);
   for (const [id, t] of filed) {
@@ -226,16 +245,16 @@ async function syncStatuses(
   }
 }
 
-/** Same sync for story pages filed as user stories (cockpit_us mark). */
+/** Same sync for story pages filed as user stories (cockpit_us mark); returns them by ref. */
 async function syncStoryStatuses(
   baseUrl: string,
   token: string,
   scopes: Scope[],
   errors: CockpitState["errors"],
-): Promise<void> {
-  const pages = await loadUserStoryPages();
-  if (!pages.size) return;
+): Promise<Map<string, UserStory>> {
   const stories = new Map<string, UserStory>();
+  const pages = await loadUserStoryPages();
+  if (!pages.size) return stories;
   for (const scope of scopes) {
     try {
       for (const us of await fetchUserStories(baseUrl, token, scope)) {
@@ -251,7 +270,7 @@ async function syncStoryStatuses(
           scope: "user stories",
           error: "Cockpit has no user-story sync yet — status not synced.",
         });
-        return;
+        return stories;
       }
       errors.push({
         scope: `user stories: ${scopeKey(scope)}`,
@@ -291,6 +310,83 @@ async function syncStoryStatuses(
       });
     }
   }
+  return stories;
+}
+
+const errText = (e: unknown) =>
+  e instanceof CockpitError
+    ? `${e.status} — ${e.message}`
+    : String((e as Error)?.message ?? e);
+
+/**
+ * Mirror tickets assigned to me — any product, or none — as planned cards,
+ * and keep their status in step. Returns the refs those cards stand for, so
+ * the product mirror does not also make them story pages. Silent no-op on a
+ * Cockpit without the `assigned_to_me` capability.
+ */
+async function mirrorAssigned(
+  baseUrl: string,
+  token: string,
+  targetId: string,
+  usRefById: ReadonlyMap<string, string>,
+  errors: CockpitState["errors"],
+): Promise<{ created: number; closed: number; refs: Set<string> }> {
+  const out = { created: 0, closed: 0, refs: new Set<string>() };
+  let tickets: Ticket[];
+  try {
+    const { capabilities } = await fetchScopes(baseUrl, token);
+    if (capabilities?.assigned_to_me !== true) return out;
+    tickets = await fetchAssignedTickets(baseUrl, token);
+  } catch (e) {
+    errors.push({ scope: "assigned to me", error: errText(e) });
+    return out;
+  }
+  const { cards, held } = await loadAssignedCards(
+    tickets.map((t) => t.reference),
+  );
+  for (const ref of cards.keys()) out.refs.add(ref);
+  const steps = planAssigned(tickets, meOf(tickets), cards, held);
+  const { statuses } = await loadCardStatuses([]);
+  const usPages = await loadUserStoryPages();
+  const sync = new Map<string, Ticket>();
+  let fallback: string | null = null;
+  for (const step of steps) {
+    try {
+      if (step.kind === "sync") sync.set(step.id, step.ticket);
+      else if (step.kind === "close") {
+        const done = sessionStatusFor("done", statuses);
+        if (!done) throw new Error('no board status for "done"');
+        await setSessionStatus(APP_CTX, step.id, done);
+        out.closed++;
+        // Record "done" as synced, so a later re-assign reopens the card
+        // instead of Trame winning and closing the ticket.
+        const t = step.ticket;
+        if (t && statusClassOf(t.status) !== "closed") {
+          await syncStatus(baseUrl, token, "tickets", t.reference, t.updated_at, "done", false)
+            .catch(() => {}); // best effort: the ticket may be out of reach now
+        }
+      } else {
+        const t = step.ticket;
+        const story = storyOf(t, usRefById, usPages) ??
+          (fallback ??= await ensureAssignedStory(targetId));
+        await createAssignedCard(
+          t.reference,
+          cardFields(t),
+          story,
+          sessionStatusFor(t.status, statuses),
+        );
+        out.refs.add(t.reference);
+        out.created++;
+      }
+    } catch (e) {
+      errors.push({
+        scope: `assigned: ${"ref" in step ? step.ref : step.ticket.reference}`,
+        error: errText(e),
+      });
+    }
+  }
+  await syncCards(baseUrl, token, sync, errors);
+  return out;
 }
 
 async function pollOnce(): Promise<CockpitState> {
@@ -305,6 +401,7 @@ async function pollOnce(): Promise<CockpitState> {
       mirrored: [],
       filed: [],
       skipped: [],
+      assigned: { created: 0, closed: 0 },
     });
   }
 
@@ -325,6 +422,7 @@ async function pollOnce(): Promise<CockpitState> {
       mirrored: [],
       filed: [],
       skipped: [],
+      assigned: { created: 0, closed: 0 },
     });
   }
 
@@ -472,6 +570,7 @@ async function pollOnce(): Promise<CockpitState> {
     }),
   );
 
+  let usRefById = new Map<string, string>();
   if (canFile) {
     try {
       await syncStatuses(
@@ -480,17 +579,37 @@ async function pollOnce(): Promise<CockpitState> {
         drained.flatMap((d) => d.tickets),
         errors,
       );
-      await syncStoryStatuses(
+      const stories = await syncStoryStatuses(
         baseUrl,
         token,
         drained.map((d) => d.scope),
         errors,
+      );
+      usRefById = new Map(
+        [...stories.values()].map((us) => [us.id, us.reference]),
       );
     } catch (e) {
       errors.push({
         scope: "status",
         error: String((e as Error)?.message ?? e),
       });
+    }
+  }
+
+  // On unless switched off; lands in the chosen project, else the first mapping's.
+  const assignedTarget = str(slice.assignedPageId) || mappings[0].pageId;
+  let assigned = { created: 0, closed: 0, refs: new Set<string>() };
+  if (slice.mirrorAssigned !== false && assignedTarget) {
+    try {
+      assigned = await mirrorAssigned(
+        baseUrl,
+        token,
+        assignedTarget,
+        usRefById,
+        errors,
+      );
+    } catch (e) {
+      errors.push({ scope: "assigned to me", error: errText(e) });
     }
   }
 
@@ -505,7 +624,8 @@ async function pollOnce(): Promise<CockpitState> {
         // under `cockpit:` — so a shared project says which product each
         // page came from, and says that Cockpit is where it came from.
         tag: tagKey(mappingTagLabel(d.m)),
-        tickets: d.tickets,
+        // one representation per ticket: an assigned card wins over a page
+        tickets: d.tickets.filter((t) => !assigned.refs.has(t.reference)),
         failed: "failed" in d,
       })),
     );
@@ -558,6 +678,7 @@ async function pollOnce(): Promise<CockpitState> {
     mirrored,
     filed,
     skipped,
+    assigned: { created: assigned.created, closed: assigned.closed },
   });
 }
 
@@ -799,6 +920,11 @@ const cockpit: Plugin = {
     // Filing is opt-OUT: a tag on a mapped page means "this belongs in
     // Cockpit", and making that wait for a second gesture was the wrong call.
     if ("autoFile" in raw) patch.autoFile = raw.autoFile !== false;
+    // Opt-out, like filing: it only ever reads tickets already addressed to me.
+    if ("mirrorAssigned" in raw) {
+      patch.mirrorAssigned = raw.mirrorAssigned !== false;
+    }
+    if ("assignedPageId" in raw) patch.assignedPageId = str(raw.assignedPageId);
     if ("pollIdleSeconds" in raw) {
       const n = Number(raw.pollIdleSeconds);
       if (Number.isFinite(n) && n > 0) patch.pollIdleSeconds = clampIdle(n);
@@ -833,6 +959,8 @@ const cockpit: Plugin = {
       hasToken: Boolean(str(slice.token)),
       mirror: slice.mirror === true,
       autoFile: slice.autoFile !== false,
+      mirrorAssigned: slice.mirrorAssigned !== false,
+      assignedPageId: str(slice.assignedPageId),
       pollIdleSeconds: typeof slice.pollIdleSeconds === "number"
         ? slice.pollIdleSeconds
         : DEFAULT_IDLE_SECONDS,
