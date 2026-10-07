@@ -26,6 +26,7 @@ import {
   setStatus,
 } from "./api";
 import { Modal, Popover, statusStyle, timeAgo } from "./ui";
+import { DuePill } from "./due";
 import { EventMeta, PresencePill } from "./agents";
 import { CARD_COLORS, parseCards } from "./cards";
 import { type EdgeGeo, edgeGeometry, parseGraph } from "./graph";
@@ -624,6 +625,9 @@ const INLINE: [RegExp, (m: RegExpMatchArray, k: number) => ReactNode][] = [
   [
     /^\{\{trame:([a-z_][a-z0-9_]*)=([^{}\n]*)\}\}/,
     (m, k) => {
+      if (m[1] === "due") return <DuePill key={k} due={m[2].trim()} />;
+      // Cockpit metadata: the page header / the card's Cockpit field shows the link
+      if (m[1] === "cockpit_ref" || m[1] === "cockpit_us") return null;
       // updated_at is a capped day list: the chip shows the latest, the title the run
       const days = m[2].split(",").map((d) => d.trim()).filter(Boolean);
       const many = m[1] === "updated_at" && days.length > 1;

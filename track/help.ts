@@ -82,9 +82,15 @@ of the line:
   - [x] Ship the writers {{trame:created_at=2026-08-19}} {{trame:completed_at=2026-08-28}}
 
 Keys, all plain \`YYYY-MM-DD\`:
+  due           when it must be done, or rechecked   → pill "⚑ in 2 days" / "⚑ 3 days late"
   created_at    the day the item was raised          → chip "added 2026-08-20"
   completed_at  the day it was finished              → chip "done 2026-08-28"
   updated_at    comma-separated days the line changed → chip "edited 2026-08-30 ×3"
+
+\`due\` is the one date Trame never stamps: write it when an open item waits on a date
+(an expiry, a cooldown) or on someone else (a release, a review) — then it is the day to
+check again. Open todos late or due within 7 days show in the sidebar's DUE section,
+in a 9:00 desktop digest and in the Claude Code band.
 
 \`updated_at\` is the one list: days are deduped and sorted, only the 5 most recent are
 kept, and a day equal to created_at is dropped. The editor appends to it when the text

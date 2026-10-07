@@ -1,9 +1,22 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Link } from '../types'
+import type { Due, Link } from '../types'
 
 const link = atom({ plugin: 'trame', key: 'link' } as const, null)
+const dueAtom = atom({ plugin: 'trame', key: 'due' } as const, { late: 0, soon: 0 })
+const DAY_MS = 86_400_000
+
+// late = before today, soon = today .. +7 days (the sidebar's DUE window)
+export function countDue(dates: string[], today: string): Due {
+  const t = Date.parse(today)
+  const late = dates.filter(d => Date.parse(d) < t).length
+  const soon = dates.filter(d => Date.parse(d) >= t && Date.parse(d) - t <= 7 * DAY_MS).length
+  return { late, soon }
+}
+
+const localDay = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 const POLL_MS = 15_000
 
 // the app writes its port here on start
@@ -28,6 +41,12 @@ async function refresh($: EngineInterface): Promise<void> {
         next = { kind: 'tracked', url: `${base}/?view=card&card=${card.id}`, title: card.title }
       }
       else if (r.status === 404) next = { kind: 'untracked' }
+      const d = await $.http.fetch(`${base}/api/due`)
+      if (d.ok) {
+        const dates = (JSON.parse(d.text) as { due: string }[]).map(x => x.due)
+        const due = countDue(dates, localDay(new Date(await $.clock.now())))
+        await update($, dueAtom, () => due)
+      }
     } catch {
       // app gone: stays offline
     }
@@ -66,10 +85,19 @@ export const register: Register = on => {
     // during a turn the spinner sits above this slot: give it the room
     if (e.props.hasSurvey || e.props.isWorking || !l) return next(e)
     const { Box, Button, Text } = $.ui.resolve(e)
+    const due = await read($, dueAtom)
+    const dueText = l.kind === 'offline' || !(due.late + due.soon) ? null : (
+      <Text>
+        {'  '}
+        {due.late ? <Text color="red">⚑ {due.late} late</Text> : <Text color="yellow">⚑</Text>}
+        <Text dimColor>{due.late ? ' · ' : ' '}{due.soon} due</Text>
+      </Text>
+    )
     if (l.kind !== 'tracked') {
       return (
         <Box marginBottom={1} paddingLeft={1}>
           <Text dimColor>○ trame · {l.kind === 'offline' ? 'offline' : 'no card'}</Text>
+          {dueText}
         </Box>
       )
     }
@@ -79,6 +107,7 @@ export const register: Register = on => {
         <Text>{l.title.length > 48 ? `${l.title.slice(0, 47)}…` : l.title}</Text>
         <Text> </Text>
         <Button key="open" label="open" onPress={press => openCard($, l.url, press.surface)} />
+        {dueText}
       </Box>
     )
   })

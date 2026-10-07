@@ -1,4 +1,9 @@
 import { useEffect, useState } from "react";
+import { COCKPIT_LOGO } from "./logo";
+
+export function CockpitLogo({ size = 14 }: { size?: number }) {
+  return <img src={COCKPIT_LOGO} alt="" width={size} height={size} className="shrink-0 rounded-[3px]" />;
+}
 
 type State =
   | { kind: "idle" }
@@ -25,6 +30,22 @@ type Mapping = {
  * should not be a side effect of a gesture you might be using for your own
  * filing.
  */
+/** Where a reference opens in Cockpit: a user story in the board, anything else as a ticket. */
+export const cockpitHref = (baseUrl: string, ref: string) =>
+  ref.startsWith("US-") ? `${baseUrl}/cockpit?u=${encodeURIComponent(ref)}` : `${baseUrl}/ticket/${encodeURIComponent(ref)}`;
+
+/** The Cockpit base URL from the plugin settings, or "" when it is not configured. */
+export function useCockpitBase(): string {
+  const [base, setBase] = useState("");
+  useEffect(() => {
+    fetch("/api/plugins/cockpit/settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s: { baseUrl?: string } | null) => setBase(s?.baseUrl?.replace(/\/+$/, "") ?? ""))
+      .catch(() => {});
+  }, []);
+  return base;
+}
+
 export function CockpitTicket(
   { pageId, parentId, tags, reference, onDone }: {
     pageId: string;
@@ -60,12 +81,12 @@ export function CockpitTicket(
     return (
       <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-ink-muted">
         <a
-          href={ref.startsWith("US-") ? `${baseUrl}/cockpit?u=${encodeURIComponent(ref)}` : `${baseUrl}/ticket/${encodeURIComponent(ref)}`}
+          href={cockpitHref(baseUrl, ref)}
           target="_blank"
           rel="noreferrer"
           className="inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-0.5 text-ink-soft transition-colors hover:border-chipline"
         >
-          ⌗ Open in Cockpit <code className="text-ink-muted">{ref}</code> ↗
+          <CockpitLogo /> Open in Cockpit <code className="text-ink-muted">{ref}</code> ↗
         </a>
         {
           /* `created: false` means the server recognised this page and returned

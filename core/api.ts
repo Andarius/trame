@@ -5,6 +5,7 @@ import { SPECS_WHEN } from "./agent-texts.ts";
 import type { Ctx } from "./ctx.ts";
 import { identityOf } from "./identity.ts";
 import { AGENT_ID_RE, listPresence, touchPresence } from "./presence.ts";
+import { listDue } from "./due.ts";
 import { AgentPresenceError, journalPresence, listLiveAgents, touchAgentPresence } from "./agent-presence.ts";
 import {
   createProperty,
@@ -494,6 +495,7 @@ export async function handleCoreApi(
     return json({ ok: true });
   }
   if (pathname === "/api/agent-presence") return json(await listLiveAgents(ctx));
+  if (pathname === "/api/due") return json(await listDue(ctx));
   if (pathname === "/api/presence") {
     return json(listPresence(url.searchParams.get("page") ?? ""));
   }

@@ -182,6 +182,14 @@ export const getAgentPresence = async (): Promise<LiveAgent[]> => {
   if (!Array.isArray(data)) throw new Error("agent-presence: not a list");
   return data as LiveAgent[];
 };
+export type { DueTodo } from "../../../core/due.ts";
+export const getDue = async (): Promise<import("../../../core/due.ts").DueTodo[]> => {
+  const r = await fetch("/api/due");
+  if (!r.ok) throw new Error(`due: ${r.status}`);
+  const data = await r.json();
+  if (!Array.isArray(data)) throw new Error("due: not a list");
+  return data;
+};
 export const getSettings = () =>
   fetch("/api/settings").then((r) => r.json() as Promise<Settings>);
 export const patchSettings = (

@@ -23,3 +23,9 @@ export const refOfContent = (content: unknown[]): string | null =>
 /** The user story a story page was filed as, or null. */
 export const usOfContent = (content: unknown[]): string | null =>
   markOfContent(content, US_MARK);
+
+/** A line whose marks are Cockpit metadata: it is not empty, it just has nothing to show. */
+export const hasCockpitMark = (text: string): boolean => {
+  const m = readMarks(text);
+  return REF_MARK in m || US_MARK in m;
+};

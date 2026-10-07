@@ -72,19 +72,22 @@ export function ensureIds(blocks: Block[]): { blocks: Block[]; changed: boolean 
 import { IconPicker } from "./udb/cells";
 import {
   normalizeMarks,
+  readMarks,
   removeMark,
   setMark,
   stripMarks,
   todayMark,
   touchTodo,
+  writeMark,
 } from "../../../core/todo-marks.ts";
+import { DueMenu, TodoDoneCtx } from "./due";
 import { PAGE_STATUSES } from "../../../core/page-status.ts";
 import { AgentIcon, LiveLine, LiveRail, liveRingCls, liveRowCls, LiveTrail, useAgents, worksOn } from "./agents";
 import { DatabaseView } from "./udb/DatabaseTable";
 import { FolderBlock } from "./FolderBlock";
 import { TagEditor } from "./TagEditor";
 import { CockpitTicket } from "./plugins/cockpit/CockpitTicket";
-import { refOfContent, usOfContent } from "../../../core/content-marks.ts";
+import { hasCockpitMark, refOfContent, usOfContent } from "../../../core/content-marks.ts";
 import { HtmlBlock } from "./HtmlBlock";
 
 // project chip palette (matches the client palette + a few extras)
@@ -710,6 +713,12 @@ const TOOL_PATHS = {
       <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
     </>
   ),
+  flag: (
+    <>
+      <path d="M4 22V4" />
+      <path d="M4 4h13l-2 4 2 4H4" />
+    </>
+  ),
   replace: (
     <>
       <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
@@ -997,6 +1006,7 @@ export function BlockEditor(
   const { live, cfg: liveCfg } = useAgents();
   const [focusIdx, setFocusIdx] = useState<number | null>(null);
   const [menuIdx, setMenuIdx] = useState<number | null>(null); // block showing the slash menu
+  const [dueIdx, setDueIdx] = useState<number | null>(null); // todo showing the due-date picker
   const [menuSel, setMenuSel] = useState(0); // highlighted item in the slash menu
   // open "{{" pill autocomplete: block index, offset of the partial color, its
   // text, and the popup anchor under the "{{" (px, relative to the block row)
@@ -1845,7 +1855,7 @@ export function BlockEditor(
           openThreads.has(b.id as string);
         const bid = b.id ?? String(i);
         // empty/new/mid-navigation blocks always stay in raw-text edit mode
-        const editing = activeId === bid || !stripMarks(b.text).trim() ||
+        const editing = activeId === bid || (!stripMarks(b.text).trim() && !hasCockpitMark(b.text)) ||
           focusIdx === i;
         // session-report lists: the nearest heading above decides how bullets render
         // (Completed → green checks, Open/Next → copper rings; see md.tsx ListVariant)
@@ -1995,6 +2005,7 @@ export function BlockEditor(
                   ) e.stopPropagation();
                 }}
               >
+                <TodoDoneCtx.Provider value={b.type === "todo" && !!b.done}>
                 <Markdown
                   text={b.text}
                   listVariant={listVariant}
@@ -2030,6 +2041,7 @@ export function BlockEditor(
                     ? (item) => onLinkItem(b.id as string, item)
                     : undefined}
                 />
+                </TodoDoneCtx.Provider>
                 {lv && liveCfg && (
                   // reading the activity line shouldn't open the editor
                   <div onClick={(e) => e.stopPropagation()}>
@@ -2448,10 +2460,11 @@ export function BlockEditor(
               {b.type === "todo" && (
                 <CornerToolbar
                   actions={[
+                    // clicking the text edits, so the second slot is the due date
                     {
-                      icon: "edit",
-                      title: "Edit",
-                      onClick: () => setFocusIdx(i),
+                      icon: "flag",
+                      title: "Due date",
+                      onClick: () => setDueIdx(i),
                     },
                     {
                       icon: "delete",
@@ -2460,6 +2473,13 @@ export function BlockEditor(
                       onClick: () => remove(i),
                     },
                   ]}
+                />
+              )}
+              {dueIdx === i && b.type === "todo" && (
+                <DueMenu
+                  current={readMarks(b.text).due ?? null}
+                  onPick={(due) => set(i, { text: due ? writeMark(b.text, "due", due) : removeMark(b.text, "due") })}
+                  onClose={() => setDueIdx(null)}
                 />
               )}
               <div className="absolute -right-7 top-[3px]">

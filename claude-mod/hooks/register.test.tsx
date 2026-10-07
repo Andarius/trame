@@ -1,5 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
+import { countDue } from './register'
+
 const CARD = 'cc31da19-4411-4da3-899e-e51d8169e971'
 const json = (status: number, body: unknown) => ({ status, ok: status < 300, headers: {}, text: JSON.stringify(body) })
 
@@ -19,7 +21,7 @@ for (
       if (port === null) throw new Error('ENOENT')
       return { value: JSON.stringify({ port }) }
     })
-    on('http.fetch', async () => ({ value: response }))
+    on('http.fetch', async (_$, e) => ({ value: e.url.endsWith('/api/due') ? json(200, []) : response }))
     await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
     const ui = await $.ui.mount({ plugin: 'trame', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false } as never })
     expect(await ui.find(shown)).toBeDefined()
@@ -43,7 +45,7 @@ for (
     on('session.start', async (_$, e) => ({ cwd: e.cwd }))
     on('session.id', async () => ({ value: 'a-claude-session' }))
     on('fs.read', async () => ({ value: JSON.stringify({ port: 8787 }) }))
-    on('http.fetch', async () => ({ value: json(200, { id: CARD, title: 'x' }) }))
+    on('http.fetch', async (_$, e) => ({ value: e.url.endsWith('/api/due') ? json(200, []) : json(200, { id: CARD, title: 'x' }) }))
     on('process.run', async (_$, e) => {
       const cmd = e.argv[0] as keyof typeof exits
       ran.push(cmd)
@@ -64,3 +66,25 @@ for (
     await ui.unmount()
   })
 }
+
+test('the band shows late and due todos next to the card', async ($, on) => {
+  mock.clock(on, { now: Date.parse('2026-10-09T10:00:00') })
+  mock.env(on, { HOME: '/home/me' })
+  on('session.start', async (_$, e) => ({ cwd: e.cwd }))
+  on('session.id', async () => ({ value: 'a-claude-session' }))
+  on('fs.read', async () => ({ value: JSON.stringify({ port: 8787 }) }))
+  on('http.fetch', async (_$, e) => ({
+    value: e.url.endsWith('/api/due')
+      ? json(200, [{ due: '2026-10-06' }, { due: '2026-10-11' }, { due: '2026-10-13' }, { due: '2026-12-01' }])
+      : json(200, { id: CARD, title: 'x' }),
+  }))
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'trame', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false } as never })
+  expect(await ui.find({ type: 'Text', text: /1 late/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /2 due/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('countDue: late is before today, due is today up to a week out', () => {
+  expect(countDue(['2026-10-08', '2026-10-09', '2026-10-16', '2026-10-17'], '2026-10-09')).toEqual({ late: 1, soon: 2 })
+})
