@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -8,6 +9,11 @@ import tailwindcss from "@tailwindcss/vite";
 // dist-link and are embedded into hub/api/link-embed.ts by scripts/gen-link-embed.ts.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // md.tsx reaches the plugin registry: same resolution as vite.config.ts
+  resolve: {
+    alias: { "@trame/web-api": resolve("src/plugin-api.ts") },
+    dedupe: ["react", "react-dom"],
+  },
   base: "/l/assets/",
   build: {
     outDir: "dist-link",

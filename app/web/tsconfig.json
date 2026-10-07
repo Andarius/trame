@@ -12,7 +12,8 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "allowImportingTsExtensions": true,
-    "types": []
+    "types": [],
+    "paths": { "@trame/web-api": ["./src/plugin-api.ts"] }
   },
   "include": ["src", "../todo-marks.ts"],
   "exclude": ["src/**/*_test.ts"]

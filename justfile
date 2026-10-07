@@ -45,6 +45,11 @@ infra *args:
 psql host=env_var_or_default('TRACKER_HUB_HOST', 'hub'):
     ssh -t {{ host }} docker exec -it trame-db psql -U tracker -d tracker
 
+# Compose the out-of-tree plugins listed in plugins.local.json (then rebuild)
+[group('dev')]
+plugins:
+    cd app && deno run -A ../scripts/gen-plugins.ts
+
 # Run the desktop app (Deno 2.9+)
 [group('dev')]
 dev:

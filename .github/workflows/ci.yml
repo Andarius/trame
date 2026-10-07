@@ -24,6 +24,9 @@ jobs:
       - name: Install frontend deps (pinned, from lockfile)
         run: cd app/web && npm ci
 
+      - name: Public build composes no private plugin
+        run: cd app && deno run -A ../scripts/gen-plugins.ts && git diff --exit-code -- plugins/local.gen.ts web/src/plugins/
+
       - name: Build frontend (generates embed.ts)
         run: cd app && deno task web:build
 

@@ -257,6 +257,11 @@ that spawns a terminal).
 > Tokens live only in this machine's `settings.json` (mode 0600). They are never synced to the
 > hub and never sent back to the UI, and each is bound to the forge host you configured.
 
+**Out-of-tree plugins** are composed at build time: list their checkouts in a gitignored
+`plugins.local.json` (`{ "plugins": ["../my-plugin"] }`) and run `just plugins`. A plugin holds
+`mod.ts` (backend, imports Trame only via `@trame/plugin-api`), `web/index.ts` (a `FrontendPlugin`,
+via `@trame/web-api`) and optional `e2e/` specs.
+
 ## How sync works
 
 Hub and clients must use the same protocol version. Deploy the hub schema and API

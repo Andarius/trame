@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./plugins/local.gen.css";
 
 /* Trame design tokens — from the Figma file ("Trame" variable collection,
    Dark/Light modes). Values below are the Dark mode; light overrides follow. */
