@@ -619,11 +619,13 @@ export function Drawer(
     </div>
   );
 
-  const linkedRow = links.length > 0 && (
+  // a todo on the card's own spec page already shows under SPECS
+  const outside = links.filter((l) => l.page_id !== session.specs_page_id);
+  const linkedRow = outside.length > 0 && (
     <div className="flex flex-col gap-1.5">
       <span className="text-[11px] text-ink-muted">Linked</span>
       <div className="flex flex-wrap gap-1.5">
-        {links.map((l) => (
+        {outside.map((l) => (
           <span
             key={l.id}
             className="group flex max-w-full items-center gap-1.5 rounded-md border border-line bg-panel px-2 py-1 text-[11.5px]"
@@ -764,7 +766,6 @@ export function Drawer(
                             ? <RepoLink path={session.repo_path} prUrl={session.pr_url} />
                             : <span className="text-[12px] text-ink-faint">none</span>
                         )],
-                        ["Agents", <AgentsSummary key="agents" agents={agentSummaries} />],
                         ["Last touched", (
                           <span className="text-[12px] text-ink-muted" title={new Date(session.last_touched).toLocaleString()}>
                             {timeAgo(session.last_touched)}
@@ -796,6 +797,11 @@ export function Drawer(
                           <div className="min-w-0">{value}</div>
                         </div>
                       ))}
+                      {/* full width: the expanded per-agent lines need more than half the grid */}
+                      <div className="col-span-full grid grid-cols-[96px_minmax(0,1fr)] items-start gap-3 py-1.5">
+                        <span className="pt-1 text-[11.5px] text-ink-muted">Agents</span>
+                        <div className="min-w-0"><AgentsSummary agents={agentSummaries} /></div>
+                      </div>
                     </div>
                   </div>
                 )

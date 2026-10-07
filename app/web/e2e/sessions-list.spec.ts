@@ -177,3 +177,19 @@ test("item ⋯ menu links a session; chips render on both sides", async ({ page,
   await expect(page.getByText("Linked", { exact: true })).toBeVisible();
   await expect(page.getByTitle(/migrate the widget/)).toBeVisible();
 });
+
+test("a link to a todo on the card's own spec page shows no Linked row", async ({ page, request }) => {
+  const id = crypto.randomUUID();
+  await request.post("/api/sessions", { data: { id, title: `Own link ${id}`, no_event: true } });
+  const { page_id } = await (await request.post(`/api/sessions/${id}/specs-page`)).json() as { page_id: string };
+  const block = crypto.randomUUID();
+  await request.post(`/api/pages/${page_id}`, {
+    data: { content: [{ id: block, type: "todo", text: "split the 1Password item", done: false }] },
+  });
+  expect((await request.post(`/api/sessions/${id}/links`, { data: { page_id, block_id: block, anchor: "split the 1Password item" } })).ok())
+    .toBeTruthy();
+
+  await page.goto(`/?view=card&card=${id}`);
+  await expect(page.getByText("split the 1Password item").first()).toBeVisible();
+  await expect(page.getByText("Linked", { exact: true })).toHaveCount(0);
+});
