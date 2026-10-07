@@ -31,6 +31,8 @@ export type Ticket = {
   flow_id: string | null;
   assignee_id: string | null;
   created_by: string | null;
+  /** display name of `created_by`, when the server sends one */
+  created_by_name?: string | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
@@ -158,10 +160,13 @@ export function fetchScopes(
   token: string,
 ): Promise<{
   scopes: GrantedScope[];
+  /** the token owner, on servers that report it */
+  user?: { id: string; name: string } | null;
   capabilities?: {
     initial_ticket_status?: boolean;
     user_story_ids?: boolean;
     tags?: boolean;
+    assigned_to_me?: boolean;
   };
 }> {
   return call(baseUrl, token, "/scopes");
@@ -235,7 +240,15 @@ export function fetchTickets(
   token: string,
   scope: Scope,
 ): Promise<Ticket[]> {
-  return drain<Ticket>(baseUrl, token, scope, "tickets", "tickets");
+  return drain<Ticket>(baseUrl, token, scopeQuery(scope), "tickets", "tickets");
+}
+
+/** Every ticket assigned to the token's user, any product or none. */
+export function fetchAssignedTickets(
+  baseUrl: string,
+  token: string,
+): Promise<Ticket[]> {
+  return drain<Ticket>(baseUrl, token, "assignee=me", "tickets", "tickets");
 }
 
 /** A user story as the status sync needs it; archived ones read `archived`. */
@@ -258,7 +271,7 @@ export function fetchUserStories(
   return drain<UserStory>(
     baseUrl,
     token,
-    scope,
+    scopeQuery(scope),
     "user-stories",
     "user_stories",
   );
@@ -268,14 +281,14 @@ export function fetchUserStories(
 async function drain<T>(
   baseUrl: string,
   token: string,
-  scope: Scope,
+  query: string,
   path: string,
   key: string,
 ): Promise<T[]> {
   const items: T[] = [];
   let since: string | null = null;
   for (let page = 0; page < 20; page++) {
-    const q = [scopeQuery(scope), "limit=100"];
+    const q = [query, "limit=100"];
     if (since) q.push(`since=${encodeURIComponent(since)}`);
     const delta = await call<
       Omit<Delta, "tickets"> & Record<string, T[] | undefined>

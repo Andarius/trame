@@ -20,6 +20,9 @@ type Slice = {
   hasToken: boolean;
   mirror: boolean;
   autoFile: boolean;
+  mirrorAssigned: boolean;
+  /** empty = the first mapping's project */
+  assignedPageId: string;
   pollIdleSeconds: number;
 };
 type Test =
@@ -353,6 +356,35 @@ export function CockpitSettings() {
             </span>
           </span>
         </label>
+
+        <label className="mt-2 flex items-start gap-2">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={slice.mirrorAssigned}
+            onChange={(e) => save({ mirrorAssigned: e.target.checked })}
+          />
+          <span>
+            <span className="text-[12px]">Mirror tickets assigned to me</span>
+            <span className="mt-0.5 block text-[11px] text-ink-muted">
+              Any product, or none, as a card on the board — under its US story
+              when Trame has it. Status syncs both ways; un-assigned or archived
+              tickets close the card. Needs a Cockpit that supports it.
+            </span>
+          </span>
+        </label>
+        {slice.mirrorAssigned && (
+          <div className="ml-6 mt-1.5">
+            <Select
+              value={slice.assignedPageId}
+              options={[
+                { value: "", label: "First mapping's project" },
+                ...projects.map((p) => ({ value: p.id, label: p.title })),
+              ]}
+              onChange={(assignedPageId) => save({ assignedPageId })}
+            />
+          </div>
+        )}
       </section>
 
       {/* ---- Cadence ---- */}
