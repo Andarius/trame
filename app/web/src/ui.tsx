@@ -584,8 +584,9 @@ export function EntityIcon(
     size?: number; // px override for image icons (default 15)
   },
 ) {
-  if (!icon) {
-    if (fallback && KIND_ICONS[fallback]) return <KindIcon glyph={fallback} className={className} />;
+  if (!icon || KIND_ICONS[icon]) {
+    const k = icon || fallback;
+    if (k && KIND_ICONS[k]) return <KindIcon glyph={k} className={className} />;
     return fallback ? <span className={className}>{fallback}</span> : null;
   }
   if (/^(https?:|data:)/.test(icon)) {
@@ -646,7 +647,7 @@ export function pageOptions(
     icon: string | null;
     color: string | null;
   }[],
-): { value: string; label: string; chip?: { name: string; color: string | null } }[] {
+): { value: string; label: string; icon: string; chip?: { name: string; color: string | null } }[] {
   const titleCount = new Map<string, number>();
   for (const p of pages) titleCount.set(p.title, (titleCount.get(p.title) ?? 0) + 1);
   const byId = new Map(pages.map((p) => [p.id, p]));
@@ -661,10 +662,11 @@ export function pageOptions(
     }
   };
   return [
-    ...stories.map((o) => ({ value: o.id, label: `◇ ${o.title}`, chip: chipOf(o.id) })),
+    ...stories.map((o) => ({ value: o.id, label: o.title, icon: "◇", chip: chipOf(o.id) })),
     ...pages.filter((p) => p.kind === "page").map((p) => ({
       value: p.id,
-      label: `□ ${disambig(p)}`,
+      label: disambig(p),
+      icon: "□",
       chip: chipOf(p.id),
     })),
   ];

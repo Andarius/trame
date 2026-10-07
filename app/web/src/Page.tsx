@@ -3357,7 +3357,7 @@ export function Page(
                               .catch((e: Error) => appConfirm(e.message, "OK"));
                           }}
                         >
-                          ◇ Convert to user story
+                          <EntityIcon icon={null} fallback="◇" /> Convert to user story
                         </button>
                       )}
                     </Popover>

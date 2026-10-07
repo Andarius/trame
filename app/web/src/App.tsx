@@ -2184,10 +2184,9 @@ export function App() {
                     <div className="px-2 pb-1 pt-1 text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70">
                       GROUP BY
                     </div>
-                    {([["none", "None"], ["story", "◇ Story"], [
-                      "project",
-                      "◎ Project",
-                    ]] as const).map(([v, label]) => (
+                    {([["none", "None", null], ["story", "Story", "◇"], ["project", "Project", "◎"]] as const).map((
+                      [v, label, glyph],
+                    ) => (
                       <button
                         type="button"
                         key={v}
@@ -2199,6 +2198,7 @@ export function App() {
                           group === v ? "text-ink" : "text-ink-soft"
                         }`}
                       >
+                        {glyph && <EntityIcon icon={null} fallback={glyph} className="text-ink-muted" />}
                         <span className="flex-1">{label}</span>
                         {group === v && (
                           <span className="text-[11px] text-copper">✓</span>

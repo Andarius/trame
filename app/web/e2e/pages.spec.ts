@@ -100,7 +100,7 @@ test("drawer picker offers plain pages and promotes on pick", async ({ page, req
   await page.getByText("drawer promo session").click();
   // the project row Select lists the plain page with the □ glyph
   await page.getByRole("button", { name: /^none/ }).last().click(); // Project trigger (Client is the first "none ▾")
-  await page.getByRole("button", { name: "□ Loose notes" }).last().click(); // sidebar shows the page too
+  await page.getByRole("button", { name: "Loose notes", exact: true }).filter({ has: page.locator('[data-glyph="□"]') }).last().click(); // sidebar shows the page too
   await page.keyboard.press("Escape");
   // picking promoted it: sidebar shows it as a Story (◇)
   const nav = page.locator("aside div.group").getByRole("button", { name: /Loose notes/ }).first();
@@ -112,11 +112,11 @@ test("the Story picker lists each story once as ◇ (no ◎/□ duplicates)", as
   await request.post("/api/sessions", { data: { title: "picker probe session", story: "Picker Story", no_event: true } });
   await page.goto("/");
   await page.getByText("picker probe session").click();
-  await page.getByRole("button", { name: /^◇ Picker Story|^none/ }).last().click(); // open the Story select
+  await page.getByRole("button", { name: /^Picker Story|^none/ }).last().click(); // open the Story select
   // stories are ◇ only — regression guard for the old bug where each showed twice (◎ and □)
-  await expect(page.getByRole("button", { name: "◇ Picker Story" }).first()).toBeVisible();
-  await expect(page.getByRole("button", { name: "◎ Picker Story" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "□ Picker Story" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Picker Story", exact: true }).filter({ has: page.locator('[data-glyph="◇"]') }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Picker Story", exact: true }).filter({ has: page.locator('[data-glyph="◎"]') })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Picker Story", exact: true }).filter({ has: page.locator('[data-glyph="□"]') })).toHaveCount(0);
   await page.keyboard.press("Escape");
 });
 
