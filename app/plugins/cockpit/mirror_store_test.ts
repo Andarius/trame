@@ -289,6 +289,13 @@ const { upsertSession } = await import("../../../core/sessions.ts");
   const cases = [
     { title: "tagged", client_id: project, tags: [TAG], expected: true },
     { title: "untagged", client_id: project, tags: [], expected: false },
+    {
+      title: "done",
+      client_id: project,
+      tags: [TAG],
+      status: "done",
+      expected: false,
+    },
     { title: "unmapped", client_id: elsewhere, tags: [TAG], expected: false },
     {
       title: "unfiled parent",

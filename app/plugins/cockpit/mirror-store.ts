@@ -315,6 +315,8 @@ export async function loadPendingSessions(
   for (const r of rows) {
     const specs = Array.isArray(r.specs) ? r.specs : [];
     if (refOfContent(specs)) continue;
+    // Only live work is filed: a card already done stays in Trame.
+    if (r.terminal) continue;
     const route = r.page_id ? routes.get(r.page_id) : undefined;
     if (route && "error" in route) {
       skipped.push({ title: r.title, reason: route.error });
