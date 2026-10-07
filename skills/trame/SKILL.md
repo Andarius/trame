@@ -18,6 +18,7 @@ same args, and let it drive — don't redo its work here (if it isn't installed,
 | address the feedback on the current plan | `trame-plan-review` (if installed) |
 | mark the current plan done | `trame-plan-done` (if installed) |
 | a page link (`?page=` only), or create / publish / update / comment on a page, note, plan, write-up | `trame-page` |
+| any other task or external link (Sentry issue, ticket, error, request) | do the work, track it with `trame-track` (full URLs in `summary` and specs render as chips), and write the spec page: goal, cause, what was ruled out, open todos. If the project files to Cockpit (`GET /api/plugins/cockpit/settings` → `projects[].tagLabel`), give the story a brief and its `cockpit:<product>` tag; ask which product if unclear |
 | anything else (board questions, cross-referencing, user databases, reports) | stay here — data access below |
 
 No args: show the open sessions (Recipes) and stop.
