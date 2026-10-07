@@ -396,7 +396,7 @@ const PR_STATE_COLOR: Record<string, string> = {
 const PR_INFO_TTL_MS = 60_000;
 const prInfoCache = new Map<string, { info: PrInfo; at: number }>();
 const prInfoPending = new Map<string, Promise<PrInfo>>();
-const getPrInfo = (url: string): Promise<PrInfo> => {
+export const getPrInfo = (url: string): Promise<PrInfo> => {
   const hit = prInfoCache.get(url);
   if (hit && Date.now() - hit.at < PR_INFO_TTL_MS) {
     return Promise.resolve(hit.info);

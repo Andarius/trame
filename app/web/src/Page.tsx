@@ -21,6 +21,7 @@ import {
   getPresence,
   listComments,
   openInBrowser,
+  type PageChild,
   type PageComment,
   type PageDetail,
   pageToSession,
@@ -91,6 +92,7 @@ import { CockpitTicket } from "./plugins/cockpit/CockpitTicket";
 import { AssignedBy } from "./plugins/cockpit/AssignedBy";
 import { hasCockpitMark, refOfContent, usOfContent } from "../../../core/content-marks.ts";
 import { HtmlBlock } from "./HtmlBlock";
+import { FinishedStrip, ProjectChildren, RepoChip, repoTitle, useFinishedCards } from "./project-page";
 
 // project chip palette (matches the client palette + a few extras)
 const PROJECT_COLORS = [
@@ -2854,6 +2856,9 @@ export function Page(
     }
   };
 
+  const finished = useFinishedCards(
+    board.sessions.filter((s) => !statusStyle(s.status).terminal && inSubtree(s, pageId, pagesById(board.pages))),
+  );
   if (!page) return <p className="p-6 text-ink-muted">Loading…</p>;
   const client = board.projects.find((c) => c.id === page.client_id);
   const isProject = page.kind === "project";
@@ -2911,12 +2916,13 @@ export function Page(
       className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-hover"
     >
       <StatusDot status={s.status} size={7} />
+      {repoTitle(s).repo && <RepoChip repo={repoTitle(s).repo as string} />}
       <span
         className={`text-xs font-medium ${
           statusStyle(s.status).terminal ? "text-ink-muted" : ""
         }`}
       >
-        {s.title}
+        {repoTitle(s).title}
       </span>
       {s.branch && (
         <span className="text-[10.5px] text-ink-muted">{s.branch}</span>
@@ -2928,8 +2934,9 @@ export function Page(
       </span>
     </div>
   );
+  const finishedCards = sessions.filter((s) => !statusStyle(s.status).terminal && finished.has(s.id));
   const shownSession = (s: Session) =>
-    statusStyle(s.status).terminal === (sessionFilter === "done");
+    statusStyle(s.status).terminal === (sessionFilter === "done") && !(sessionFilter === "active" && finished.has(s.id));
   const sessionPill = (value: "active" | "done", label: string, count: number) => (
     <button
       type="button"
@@ -2956,10 +2963,34 @@ export function Page(
         {sessionPill("active", "Active", sessions.length - done)}
         {sessionPill("done", "Done", done)}
       </div>
+      {sessionFilter === "active" && <FinishedStrip cards={finishedCards} onOpen={onOpenSession} />}
       {sessionsByStory.filter(({ list }) => list.some(shownSession)).map(({ story, list }) => {
         const doneInStory = list.filter((s) =>
           statusStyle(s.status).terminal
         ).length;
+        const shown = list.filter(shownSession);
+        // a story with one card is one row: the story, then that card's repo/branch/status
+        if (shown.length === 1) {
+          const s = shown[0];
+          const rt = repoTitle(s);
+          return (
+            <div
+              key={story.id}
+              onClick={() => onOpenSession(s.id)}
+              title={s.title}
+              className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-hover"
+            >
+              <EntityIcon icon={story.icon} fallback={pageGlyph("story", story.cockpit)} className="text-[11px] text-ink-muted" />
+              <span className="shrink-0 text-[12px] font-semibold text-ink-soft">{story.title || "Untitled"}</span>
+              <span className="min-w-0 truncate text-[11px] text-ink-muted">{rt.title}</span>
+              <span className="flex-1" />
+              {rt.repo && <RepoChip repo={rt.repo} />}
+              {list.length > 1 && <span className="shrink-0 whitespace-nowrap text-[10px] text-ink-muted">{doneInStory} / {list.length}</span>}
+              <StatusDot status={s.status} size={7} />
+              <span className="w-[42px] text-right text-[10px] text-ink-muted/70">{statusStyle(s.status).label}</span>
+            </div>
+          );
+        }
         return (
           <div
             key={story.id}
@@ -2987,7 +3018,7 @@ export function Page(
               </span>
             </div>
             <div className="flex flex-col pl-1">
-              {list.filter(shownSession).map(sessionRow)}
+              {shown.map(sessionRow)}
             </div>
           </div>
         );
@@ -2999,6 +3030,68 @@ export function Page(
         </span>
       )}
     </div>
+  );
+  // stories with open cards sit in the Sessions panel; the children list skips them
+  const storiesInSessions = new Set(
+    sessionsByStory
+      .filter(({ list }) => list.some((s) => !statusStyle(s.status).terminal && !finished.has(s.id)))
+      .map(({ story }) => story.id),
+  );
+  const childRow = (c: PageChild, hideTag: string | null = null) => (
+    <button
+      type="button"
+      key={c.id}
+      className={`flex items-center gap-2 rounded-md px-1.5 py-1 text-left text-[13px] text-ink-soft hover:bg-panel${
+        c.status === "archived" ? " opacity-40" : ""
+      }`}
+      onClick={() => onOpenPage(c.id)}
+    >
+      <EntityIcon
+        icon={c.icon}
+        fallback={pageGlyph(c.kind, c.cockpit)}
+        className="text-ink-muted"
+      />
+      <span className={c.title ? "" : "text-ink-muted/60 italic"}>
+        {c.title || "Untitled"}
+      </span>
+      {c.status === "archived" && (
+        <span className="text-[10.5px] text-ink-muted/60">
+          archived
+        </span>
+      )}
+      {c.tags.some((t) => t !== hideTag) && <TagChips keys={c.tags.filter((t) => t !== hideTag)} />}
+      {/* agents live on that sub-page right now, then its progress and age */}
+      <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+        {liveAgentsAll
+          .filter(({ a }) => a.page_id ? a.page_id === c.id : a.links.some((l) => l.page_id === c.id))
+          .map(({ a, state }) => (
+            <span
+              key={a.session_id}
+              title={`${a.session_title} — ${state === "working" ? "working" : "needs you"}`}
+              className="inline-flex items-center gap-1.5 rounded-md border border-chipline/60 px-1.5 py-0.5 text-[11px] text-ink-muted"
+            >
+              <AgentIcon a={a} />
+              {a.name ?? a.harness}
+              <span className={`h-1.5 w-1.5 rounded-full ${state === "working" ? "bg-live" : "bg-wait"}`} />
+            </span>
+          ))}
+        {!!c.todos && (
+          <span
+            className="inline-flex items-center gap-1.5 pl-1 font-mono text-[11px] tabular-nums text-ink-faint"
+            title={`${c.todos_done ?? 0} of ${c.todos} todos done`}
+          >
+            <span className="inline-block h-1 w-10 overflow-hidden rounded bg-line">
+              <span
+                className="block h-full rounded bg-live"
+                style={{ width: `${((c.todos_done ?? 0) / c.todos) * 100}%` }}
+              />
+            </span>
+            {c.todos_done ?? 0}/{c.todos}
+          </span>
+        )}
+        <span className="w-[52px] text-right text-[11px] text-ink-faint">{timeAgo(c.updated_at)}</span>
+      </span>
+    </button>
   );
   const blockIds = new Set(
     blocks.filter(isText).map((b) => b.id).filter(Boolean) as string[],
@@ -3649,62 +3742,9 @@ export function Page(
             {isStory && page.children.some((c) => !specIds.has(c.id)) && (
               <span className="mb-1 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">DOCUMENTS</span>
             )}
-            {page.children.filter((c) => !specIds.has(c.id)).map((c) => (
-              <button
-                type="button"
-                key={c.id}
-                className={`flex items-center gap-2 rounded-md px-1.5 py-1 text-left text-[13px] text-ink-soft hover:bg-panel${
-                  c.status === "archived" ? " opacity-40" : ""
-                }`}
-                onClick={() => onOpenPage(c.id)}
-              >
-                <EntityIcon
-                  icon={c.icon}
-                  fallback={pageGlyph(c.kind, c.cockpit)}
-                  className="text-ink-muted"
-                />
-                <span className={c.title ? "" : "text-ink-muted/60 italic"}>
-                  {c.title || "Untitled"}
-                </span>
-                {c.status === "archived" && (
-                  <span className="text-[10.5px] text-ink-muted/60">
-                    archived
-                  </span>
-                )}
-                {c.tags.length > 0 && <TagChips keys={c.tags} />}
-                {/* agents live on that sub-page right now, then its progress and age */}
-                <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
-                  {liveAgentsAll
-                    .filter(({ a }) => a.page_id ? a.page_id === c.id : a.links.some((l) => l.page_id === c.id))
-                    .map(({ a, state }) => (
-                      <span
-                        key={a.session_id}
-                        title={`${a.session_title} — ${state === "working" ? "working" : "needs you"}`}
-                        className="inline-flex items-center gap-1.5 rounded-md border border-chipline/60 px-1.5 py-0.5 text-[11px] text-ink-muted"
-                      >
-                        <AgentIcon a={a} />
-                        {a.name ?? a.harness}
-                        <span className={`h-1.5 w-1.5 rounded-full ${state === "working" ? "bg-live" : "bg-wait"}`} />
-                      </span>
-                    ))}
-                  {!!c.todos && (
-                    <span
-                      className="inline-flex items-center gap-1.5 pl-1 font-mono text-[11px] tabular-nums text-ink-faint"
-                      title={`${c.todos_done ?? 0} of ${c.todos} todos done`}
-                    >
-                      <span className="inline-block h-1 w-10 overflow-hidden rounded bg-line">
-                        <span
-                          className="block h-full rounded bg-live"
-                          style={{ width: `${((c.todos_done ?? 0) / c.todos) * 100}%` }}
-                        />
-                      </span>
-                      {c.todos_done ?? 0}/{c.todos}
-                    </span>
-                  )}
-                  <span className="w-[52px] text-right text-[11px] text-ink-faint">{timeAgo(c.updated_at)}</span>
-                </span>
-              </button>
-            ))}
+            {isProject
+              ? <ProjectChildren pages={page.children} shown={storiesInSessions} row={childRow} />
+              : page.children.filter((c) => !specIds.has(c.id)).map((c) => childRow(c))}
             <button
               type="button"
               className="flex items-center gap-2 rounded-md px-1.5 py-1 text-left text-[12px] text-ink-muted/70 hover:text-ink-soft"
