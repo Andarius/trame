@@ -88,3 +88,34 @@ test('the band shows late and due todos next to the card', async ($, on) => {
 test('countDue: late is before today, due is today up to a week out', () => {
   expect(countDue(['2026-10-08', '2026-10-09', '2026-10-16', '2026-10-17'], '2026-10-09')).toEqual({ late: 1, soon: 2 })
 })
+
+const DONE_OUT = `ok: session s1 tracked in Trame (done — repo — x) — http://127.0.0.1:8787/?view=card&card=${CARD}`
+for (
+  const [id, out, choice, commands] of [
+    ['card done, Exit runs /exit', DONE_OUT, 'Exit', ['exit']],
+    ['card done, Stay keeps the session', DONE_OUT, 'Stay', []],
+    ['card still active: no prompt', DONE_OUT.replace('(done', '(active'), 'Exit', []],
+  ] as const
+) {
+  test(`exit prompt: ${id}`, async ($, on) => {
+    const ran: string[] = []
+    mock.env(on, { HOME: '/home/me' })
+    on('fs.read', async () => {
+      throw new Error('ENOENT') // app offline: refresh is a no-op
+    })
+    on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: out, stderr: '', interrupted: false }, text: out }))
+    on('tool.call', { tool: 'AskUserQuestion' }, (_$, e) => ({
+      result: { questions: e.questions, answers: { [e.questions[0]?.question ?? '']: choice } },
+      text: choice,
+    }))
+    on('turn.complete', (_$, e) => ({ text: e.answer }))
+    on('command.run', (_$, e) => {
+      ran.push(e.command)
+      return { text: '' }
+    })
+    await $.tool.call({ tool: 'Bash', command: 'tramecli track' })
+    await $.turn.complete({ answer: '', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' })
+    for (let i = 0; i < 200; i++) await Promise.resolve()
+    expect(ran).toEqual([...commands])
+  })
+}
