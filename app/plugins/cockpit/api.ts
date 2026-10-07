@@ -160,6 +160,8 @@ export function fetchScopes(
   token: string,
 ): Promise<{
   scopes: GrantedScope[];
+  /** the token owner, on servers that report it */
+  user?: { id: string; name: string } | null;
   capabilities?: {
     initial_ticket_status?: boolean;
     user_story_ids?: boolean;

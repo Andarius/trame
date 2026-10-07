@@ -2,8 +2,8 @@ import { assertEquals, assertNotEquals } from "@std/assert";
 import {
   type AssignedCard,
   assignedCardId,
+  assignedMe,
   cardFields,
-  meOf,
   planAssigned,
   storyOf,
 } from "./assigned.ts";
@@ -50,25 +50,25 @@ const kinds = (
   cards: [string, AssignedCard][] = [],
   held: string[] = [],
 ) =>
-  planAssigned(tickets, meOf(tickets), new Map(cards), new Set(held)).map((s) =>
-    s.kind
-  );
+  planAssigned(tickets, ME, new Map(cards), new Set(held)).map((s) => s.kind);
 
 Deno.test("the card id is stable per ref and differs between refs", async () => {
   assertEquals(await assignedCardId("GEN-1"), await assignedCardId("GEN-1"));
   assertNotEquals(await assignedCardId("GEN-1"), await assignedCardId("GEN-2"));
 });
 
-Deno.test("me is the feed's dominant assignee, null when empty or tied", () => {
-  const bob = ticket({ reference: "GEN-3", assignee_id: "bob" });
-  assertEquals(meOf([]), null);
-  assertEquals(meOf([ticket(), ticket({ reference: "GEN-2" }), bob]), ME);
-  assertEquals(meOf([ticket(), bob]), null);
-});
-
-Deno.test("plan: an ambiguous me closes nothing", () => {
-  const bob = ticket({ reference: "GEN-3", assignee_id: "bob" });
-  assertEquals(kinds([ticket(), bob], [["GEN-1", card()]]), []);
+Deno.test("me is the token owner, only with the capability; else the mirror skips", () => {
+  const cap = { assigned_to_me: true };
+  const cases: [Parameters<typeof assignedMe>[0], string | null][] = [
+    [{ capabilities: cap, user: { id: ME } }, ME],
+    [{ capabilities: cap, user: null }, null],
+    [{ capabilities: cap }, null],
+    [{ capabilities: cap, user: { id: "" } }, null],
+    [{ capabilities: {}, user: { id: ME } }, null],
+  ];
+  for (const [scopes, expected] of cases) {
+    assertEquals(assignedMe(scopes), expected);
+  }
 });
 
 Deno.test("card fields: ref in title, objective as next step, assigner only when named and not me", () => {
@@ -119,10 +119,9 @@ Deno.test("plan: create only open, unrepresented tickets assigned to me", () => 
     ["mirrored as a page already", {}, ["GEN-1"], []],
   ];
   for (const [name, over, held, expected] of cases) {
-    // a second ticket keeps "me" known when the first one is not mine
     assertEquals(
       kinds(
-        [ticket(over), ticket({ reference: "GEN-9", status: "done" })],
+        [ticket(over)],
         [],
         held,
       ),
@@ -134,7 +133,6 @@ Deno.test("plan: create only open, unrepresented tickets assigned to me", () => 
 
 Deno.test("plan: an existing card syncs while mine and closes once gone, never twice", () => {
   const other = ticket({ reference: "GEN-9", status: "done" });
-  const other2 = ticket({ reference: "GEN-8", status: "done" });
   const cases: [string, Ticket[], Partial<AssignedCard>, string[]][] = [
     ["still mine", [ticket({ status: "in_progress" }), other], {}, ["sync"]],
     ["done in Cockpit is a pull", [ticket({ status: "done" }), other], {}, [
@@ -142,7 +140,7 @@ Deno.test("plan: an existing card syncs while mine and closes once gone, never t
     ]],
     [
       "re-assigned to bob",
-      [ticket({ assignee_id: "bob" }), other, other2],
+      [ticket({ assignee_id: "bob" }), other],
       {},
       ["close"],
     ],

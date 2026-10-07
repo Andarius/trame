@@ -49,7 +49,7 @@ import {
   userStoryFromPage,
 } from "./mirror.ts";
 import { refOfContent, usOfContent } from "../../../core/content-marks.ts";
-import { cardFields, meOf, planAssigned, storyOf } from "./assigned.ts";
+import { assignedMe, cardFields, planAssigned, storyOf } from "./assigned.ts";
 import {
   adoptAsMirror,
   adoptAsUserStory,
@@ -322,7 +322,7 @@ const errText = (e: unknown) =>
  * Mirror tickets assigned to me — any product, or none — as planned cards,
  * and keep their status in step. Returns the refs those cards stand for, so
  * the product mirror does not also make them story pages. Silent no-op on a
- * Cockpit without the `assigned_to_me` capability.
+ * Cockpit without the `assigned_to_me` capability or the token owner id.
  */
 async function mirrorAssigned(
   baseUrl: string,
@@ -333,9 +333,11 @@ async function mirrorAssigned(
 ): Promise<{ created: number; closed: number; refs: Set<string> }> {
   const out = { created: 0, closed: 0, refs: new Set<string>() };
   let tickets: Ticket[];
+  let me: string | null;
   try {
-    const { capabilities } = await fetchScopes(baseUrl, token);
-    if (capabilities?.assigned_to_me !== true) return out;
+    // no owner id → no feed: closing cards on a guessed "me" could close real work
+    me = assignedMe(await fetchScopes(baseUrl, token));
+    if (!me) return out;
     tickets = await fetchAssignedTickets(baseUrl, token);
   } catch (e) {
     errors.push({ scope: "assigned to me", error: errText(e) });
@@ -345,7 +347,7 @@ async function mirrorAssigned(
     tickets.map((t) => t.reference),
   );
   for (const ref of cards.keys()) out.refs.add(ref);
-  const steps = planAssigned(tickets, meOf(tickets), cards, held);
+  const steps = planAssigned(tickets, me, cards, held);
   const { statuses } = await loadCardStatuses([]);
   const usPages = await loadUserStoryPages();
   const sync = new Map<string, Ticket>();

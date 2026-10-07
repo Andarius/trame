@@ -15,15 +15,16 @@ export const ASSIGNED_STORY = "Cockpit — assigned to me";
 export const assignedCardId = (ref: string): Promise<string> =>
   v5.generate(ASSIGNED_NS, new TextEncoder().encode(ref));
 
-/** The user the feed is assigned to: its most common assignee, null on a tie. */
-// ponytail: modal guess, use a server-sent user id if /scopes ever returns one
-export function meOf(tickets: readonly Ticket[]): string | null {
-  const n = new Map<string, number>();
-  for (const t of tickets) {
-    if (t.assignee_id) n.set(t.assignee_id, (n.get(t.assignee_id) ?? 0) + 1);
-  }
-  const [first, second] = [...n].sort((a, b) => b[1] - a[1]);
-  return first && first[1] !== second?.[1] ? first[0] : null;
+/** The token owner's id when Cockpit can feed assigned tickets, else null (skip). */
+export function assignedMe(scopes: {
+  user?: { id?: unknown } | null;
+  capabilities?: { assigned_to_me?: boolean };
+}): string | null {
+  const id = scopes.user?.id;
+  return scopes.capabilities?.assigned_to_me === true &&
+      typeof id === "string" && id
+    ? id
+    : null;
 }
 
 /** What a card shows for an assigned ticket. */
@@ -70,12 +71,10 @@ export type AssignedStep =
  */
 export function planAssigned(
   tickets: readonly Ticket[],
-  me: string | null,
+  me: string,
   cards: ReadonlyMap<string, AssignedCard>,
   held: ReadonlySet<string>,
 ): AssignedStep[] {
-  // unknown "me" on a non-empty feed: closing on a guess could close real work
-  if (!me && tickets.length) return [];
   const steps: AssignedStep[] = [];
   const seen = new Set<string>();
   for (const t of tickets) {
