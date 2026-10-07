@@ -2588,6 +2588,8 @@ export function Page(
   const [comments, setComments] = useState<PageComment[]>([]);
   const [showResolved, setShowResolved] = useState(false);
   const [sessionFilter, setSessionFilter] = useState<"active" | "done">("active");
+  const [showDoneCards, setShowDoneCards] = useState(false);
+  const [showArchivedDocs, setShowArchivedDocs] = useState(false);
   const [commentMode, setCommentMode] = useState<CommentMode>(
     () => (localStorage.getItem(COMMENT_MODE_KEY) === "panel"
       ? "panel"
@@ -3474,7 +3476,11 @@ export function Page(
           {isStory && subtreeSessions.length > 0 && (
             <div className="flex flex-col gap-0.5 border-b border-line-soft pb-3">
               <span className="mb-1 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">CARDS</span>
-              {subtreeSessions.map((s) => {
+              {/* open cards first; done ones fold behind a toggle so a long-lived story stays readable */}
+              {[
+                ...subtreeSessions.filter((s) => !statusStyle(s.status).terminal),
+                ...(showDoneCards ? subtreeSessions.filter((s) => statusStyle(s.status).terminal) : []),
+              ].map((s) => {
                 const spec = page.children.find((c) => c.id === s.specs_page_id);
                 const agents = liveAgentsAll.filter(({ a }) =>
                   a.session_id === s.id || (!!s.specs_page_id && a.page_id === s.specs_page_id)
@@ -3537,6 +3543,15 @@ export function Page(
                   </div>
                 );
               })}
+              {subtreeSessions.some((s) => statusStyle(s.status).terminal) && (
+                <button
+                  type="button"
+                  onClick={() => setShowDoneCards((v) => !v)}
+                  className="self-start rounded-md px-1.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
+                >
+                  {showDoneCards ? "▾ Hide" : "▸"} {subtreeSessions.filter((s) => statusStyle(s.status).terminal).length} done
+                </button>
+              )}
             </div>
           )}
 
@@ -3740,7 +3755,25 @@ export function Page(
             )}
             {isProject
               ? <ProjectChildren pages={page.children} shown={storiesInSessions} row={childRow} />
-              : page.children.filter((c) => !specIds.has(c.id)).map((c) => childRow(c))}
+              : (() => {
+                const docs = page.children.filter((c) => !specIds.has(c.id));
+                const archived = docs.filter((c) => c.status === "archived");
+                return (
+                  <>
+                    {docs.filter((c) => c.status !== "archived").map((c) => childRow(c))}
+                    {showArchivedDocs && archived.map((c) => childRow(c))}
+                    {archived.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowArchivedDocs((v) => !v)}
+                        className="self-start rounded-md px-1.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
+                      >
+                        {showArchivedDocs ? "▾ Hide" : "▸"} {archived.length} archived
+                      </button>
+                    )}
+                  </>
+                );
+              })()}
             <button
               type="button"
               className="flex items-center gap-2 rounded-md px-1.5 py-1 text-left text-[12px] text-ink-muted/70 hover:text-ink-soft"
