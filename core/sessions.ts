@@ -2,6 +2,7 @@ import { v5 } from "@std/uuid";
 import type { Ctx, Q } from "./ctx.ts";
 import { checkStoryParent, projectAbove, storyAbove } from "./hierarchy.ts";
 import { pageBlocksToMarkdown } from "./page-markdown.ts";
+import { COCKPIT_COL } from "./pages.ts";
 import { midKey } from "./sort-key.ts";
 import { similarStories, STORY_REUSE } from "./story-match.ts";
 import { tagColor, tagKey } from "./tags.ts";
@@ -14,13 +15,13 @@ export async function getBoard(ctx: Ctx, { deleted = false }: { deleted?: boolea
   const projects = (await pg.query(
     `select id, title as name, color, icon from pages where kind='project' and not deleted order by title`,
   )).rows;
-  const stories = (await pg.query(`select * from pages where kind='story' and not deleted order by title`)).rows;
+  const stories = (await pg.query(`select *, ${COCKPIT_COL} from pages where kind='story' and not deleted order by title`)).rows;
   const sessions = (await pg.query(
     `select * from sessions where deleted = $1 order by last_touched desc`,
     [deleted],
   )).rows;
   const pages = (await pg.query(
-    `select id, parent_id, kind, title, icon, client_id, color, tags from pages where not deleted order by title`,
+    `select id, parent_id, kind, title, icon, client_id, color, tags, ${COCKPIT_COL} from pages where not deleted order by title`,
   )).rows;
   const statuses = (await pg.query(
     `select id, key, label, color, terminal, sort_key from statuses where not deleted order by sort_key`,

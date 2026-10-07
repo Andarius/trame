@@ -340,7 +340,7 @@ function PageNode(
               ? { color: p.color }
               : undefined}
           >
-            <EntityIcon icon={p.icon} fallback={pageGlyph(p.kind)} />
+            <EntityIcon icon={p.icon} fallback={pageGlyph(p.kind, p.cockpit)} />
           </span>
           <span
             className={`truncate ${p.title ? "" : "italic text-ink-muted/60"}`}
@@ -907,7 +907,7 @@ function Sidebar(
                 }`}
               >
                 <span className={`text-[12px] ${active ? "text-copper" : ""}`}>
-                  <EntityIcon icon={p.icon} fallback={pageGlyph(p.kind)} />
+                  <EntityIcon icon={p.icon} fallback={pageGlyph(p.kind, p.cockpit)} />
                 </span>
                 <span className="flex-1 truncate">{p.title || "Untitled"}</span>
                 <LiveMarker id={p.id} />
@@ -955,7 +955,7 @@ function Sidebar(
                 }`}
               >
                 <span className={`text-[12px] ${active ? "text-copper" : ""}`}>
-                  <EntityIcon icon={p.icon} fallback={pageGlyph(p.kind)} />
+                  <EntityIcon icon={p.icon} fallback={pageGlyph(p.kind, p.cockpit)} />
                 </span>
                 <span className="flex-1 truncate">{p.title || "Untitled"}</span>
                 <span
@@ -1142,7 +1142,7 @@ function Sidebar(
     <DragOverlay>
       {dragged && (
         <div className="flex w-fit items-center gap-1.5 rounded-md border border-line bg-sidebar px-2 py-1 text-[13px] shadow-lg">
-          <EntityIcon icon={dragged.icon} fallback={pageGlyph(dragged.kind)} />
+          <EntityIcon icon={dragged.icon} fallback={pageGlyph(dragged.kind, dragged.cockpit)} />
           <span className="max-w-[200px] truncate">
             {dragged.title || "Untitled"}
           </span>

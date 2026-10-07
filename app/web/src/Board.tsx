@@ -59,7 +59,7 @@ function TicketBody(
       {showObjective && chipPage && (
         <ObjectiveChip
           title={chipPage.title}
-          glyph={pageGlyph(chipPage.kind)}
+          glyph={pageGlyph(chipPage.kind, chipPage.cockpit)}
           icon={chipPage.icon}
           active={storyFilter?.includes(chipPage.id) ?? false}
           onClick={onFilterStory ? () => onFilterStory(chipPage.id) : undefined}

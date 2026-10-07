@@ -162,13 +162,13 @@ export function List(
                           storyFilter?.includes(target.id) ? "text-copper" : "text-ink-muted"
                         }`}
                       >
-                        <EntityIcon icon={target.icon} fallback={pageGlyph(target.kind)} className="shrink-0 text-[9px]" />
+                        <EntityIcon icon={target.icon} fallback={pageGlyph(target.kind, target.cockpit)} className="shrink-0 text-[9px]" />
                         <span className="truncate">{target.title}</span>
                       </button>
                     )
                     : (
                       <span className="flex min-w-0 items-center gap-1 truncate text-[11.5px] text-ink-muted">
-                        <EntityIcon icon={target.icon} fallback={pageGlyph(target.kind)} className="shrink-0 text-[9px]" />
+                        <EntityIcon icon={target.icon} fallback={pageGlyph(target.kind, target.cockpit)} className="shrink-0 text-[9px]" />
                         <span className="truncate">{target.title}</span>
                       </span>
                     )}

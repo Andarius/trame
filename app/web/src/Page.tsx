@@ -40,6 +40,7 @@ import {
   ClientChip,
   EntityIcon,
   inSubtree,
+  pageGlyph,
   pagesById,
   Popover,
   Select,
@@ -2967,7 +2968,7 @@ export function Page(
             <div className="flex items-center gap-2 px-1">
               <EntityIcon
                 icon={story.icon}
-                fallback="◇"
+                fallback={pageGlyph("story", story.cockpit)}
                 className="text-[11px] text-ink-muted"
               />
               <span className="text-[12px] font-semibold text-ink-soft">
@@ -3659,11 +3660,7 @@ export function Page(
               >
                 <EntityIcon
                   icon={c.icon}
-                  fallback={c.kind === "project"
-                    ? "◎"
-                    : c.kind === "story"
-                    ? "◇"
-                    : "□"}
+                  fallback={pageGlyph(c.kind, c.cockpit)}
                   className="text-ink-muted"
                 />
                 <span className={c.title ? "" : "text-ink-muted/60 italic"}>

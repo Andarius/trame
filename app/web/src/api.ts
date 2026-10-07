@@ -33,6 +33,7 @@ export type Story = {
   client_id: string | null;
   status: string;
   tags: string[];
+  cockpit?: "ticket" | "us" | null;
 };
 export type Project = {
   id: string;
@@ -48,6 +49,7 @@ export type BoardPage = {
   icon: string | null;
   client_id: string | null;
   color: string | null;
+  cockpit?: "ticket" | "us" | null;
 };
 export type BoardData = {
   projects: Project[];
@@ -633,6 +635,7 @@ export type PageMeta = {
   color: string | null;
   /** tag keys, not ids — a page stays readable before the vocabulary arrives */
   tags: string[];
+  cockpit?: "ticket" | "us" | null;
   sort_key: string;
   owner_id: string | null;
   updated_at: string;
