@@ -3150,7 +3150,10 @@ export function Page(
               >
                 <EntityIcon
                   icon={page.icon}
-                  fallback={isProject ? "◎" : isStory ? "◇" : "□"}
+                  fallback={pageGlyph(
+                    page.kind,
+                    refOfContent(page.content ?? []) ? "ticket" : usOfContent(page.content ?? []) ? "us" : null,
+                  )}
                   className={page.icon ? "" : "text-ink-muted"}
                   size={isProject ? 32 : 22}
                 />

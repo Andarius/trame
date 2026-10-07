@@ -494,16 +494,16 @@ export async function searchAll(ctx: Ctx, q: string) {
   return (await pg.query(
     `select * from (
        select 'session' as kind, id::text as id, title, coalesce(summary,'') as sub,
-              '' as icon, status as meta, '' as color, last_touched as at
+              '' as icon, status as meta, '' as color, last_touched as at, null as cockpit
          from sessions
         where not deleted and (title ilike $1 or summary ilike $1 or coalesce(next_step,'') ilike $1)
        union all
        select case when kind='project' then 'client' else 'page' end, id::text, title,
-              coalesce(brief,''), coalesce(icon,''), kind, coalesce(color,''), updated_at
+              coalesce(brief,''), coalesce(icon,''), kind, coalesce(color,''), updated_at, ${COCKPIT_COL}
          from pages
         where not deleted and (title ilike $1 or brief ilike $1 or content::text ilike $1)
        union all
-       select 'database', id::text, name, '', coalesce(icon,''), 'database', '', updated_at
+       select 'database', id::text, name, '', coalesce(icon,''), 'database', '', updated_at, null
          from udb_databases
         where not deleted and name ilike $1
      ) hits
