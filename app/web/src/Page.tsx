@@ -2589,6 +2589,7 @@ export function Page(
   const [showResolved, setShowResolved] = useState(false);
   const [sessionFilter, setSessionFilter] = useState<"active" | "done">("active");
   const [showDoneCards, setShowDoneCards] = useState(false);
+  const [unfoldedStories, setUnfoldedStories] = useState<Set<string>>(new Set());
   const [showArchivedDocs, setShowArchivedDocs] = useState(false);
   const [commentMode, setCommentMode] = useState<CommentMode>(
     () => (localStorage.getItem(COMMENT_MODE_KEY) === "panel"
@@ -3032,11 +3033,72 @@ export function Page(
       )}
     </div>
   );
-  // stories with open cards sit in the Sessions panel; the children list skips them
-  const storiesInSessions = new Set(
-    sessionsByStory
-      .filter(({ list }) => list.some((s) => !statusStyle(s.status).terminal && !finished.has(s.id)))
-      .map(({ story }) => story.id),
+  // a project lists its user stories with open cards first, those cards nested under them
+  const openOf = (list: Session[]) => list.filter((s) => !statusStyle(s.status).terminal && !finished.has(s.id));
+  const lastTouch = (list: Session[]) => list.reduce((m, s) => (s.last_touched > m ? s.last_touched : m), "");
+  const inProgress = sessionsByStory
+    .map((g) => ({ ...g, open: openOf(g.list) }))
+    .filter((g) => g.open.length > 0)
+    .sort((a, b) => lastTouch(b.open).localeCompare(lastTouch(a.open)));
+  const looseOpen = openOf(ungroupedSessions);
+  const storiesInSessions = new Set(inProgress.map(({ story }) => story.id));
+  const FOLD = 3;
+  const inProgressBlock = isProject && (
+    <>
+      <FinishedStrip cards={finishedCards} onOpen={onOpenSession} />
+      {inProgress.length > 0 && (
+        <span className="px-1.5 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+          IN PROGRESS <span className="font-normal text-ink-faint">· {inProgress.length}</span>
+        </span>
+      )}
+      {inProgress.map(({ story, list, open }) => {
+        const doneN = list.filter((s) => statusStyle(s.status).terminal).length;
+        const unfolded = unfoldedStories.has(story.id);
+        return (
+          <div key={story.id} className="flex flex-col">
+            <button
+              type="button"
+              onClick={() => onOpenPage(story.id)}
+              className="flex items-center gap-2 rounded-md px-1.5 py-1 text-left text-[13px] font-medium text-ink hover:bg-panel"
+            >
+              <EntityIcon icon={story.icon} fallback={pageGlyph("story", story.mark_role)} className="text-ink-muted" />
+              <span className="min-w-0 flex-1 truncate">{story.title || "Untitled"}</span>
+              <div className="h-1 w-[60px] shrink-0 overflow-hidden rounded-full bg-line">
+                <div className="h-full rounded-full bg-active" style={{ width: `${(doneN / list.length) * 100}%` }} />
+              </div>
+              <span className="w-[56px] shrink-0 text-right text-[10.5px] font-normal text-ink-muted">
+                {doneN} / {list.length}
+              </span>
+            </button>
+            <div className="ml-[22px] flex flex-col border-l border-line-soft pl-2">
+              {(unfolded ? open : open.slice(0, FOLD)).map(sessionRow)}
+              {open.length > FOLD && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setUnfoldedStories((prev) => {
+                      const next = new Set(prev);
+                      if (!next.delete(story.id)) next.add(story.id);
+                      return next;
+                    })}
+                  className="self-start px-1 py-0.5 text-[11px] text-ink-muted hover:text-ink-soft"
+                >
+                  {unfolded ? "▾ fewer" : `▸ ${open.length - FOLD} more`}
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+      {looseOpen.length > 0 && (
+        <div className="flex flex-col">
+          <span className="mt-2 px-1.5 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+            NO USER STORY <span className="font-normal text-ink-faint">· {looseOpen.length}</span>
+          </span>
+          <div className="ml-[22px] flex flex-col pl-2">{looseOpen.map(sessionRow)}</div>
+        </div>
+      )}
+    </>
   );
   const childRow = (c: PageChild, hideTag: string | null = null) => (
     <button
@@ -3472,7 +3534,7 @@ export function Page(
           {FRONTEND_PLUGINS.map((p) => p.PageHeader && <p.PageHeader key={p.id} page={page} onDone={() => reload()} />)}
 
           {/* a story's cards show as agents on its sub-pages and chips on todos */}
-          {!isStory && sessions.length > 0 && sessionsPanel(true)}
+          {!isStory && !isProject && sessions.length > 0 && sessionsPanel(true)}
           {isStory && subtreeSessions.length > 0 && (
             <div className="flex flex-col gap-0.5 border-b border-line-soft pb-3">
               <span className="mb-1 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">CARDS</span>
@@ -3754,7 +3816,7 @@ export function Page(
               <span className="mb-1 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">DOCUMENTS</span>
             )}
             {isProject
-              ? <ProjectChildren pages={page.children} shown={storiesInSessions} row={childRow} />
+              ? <ProjectChildren pages={page.children} shown={storiesInSessions} row={childRow} top={inProgressBlock} />
               : (() => {
                 const docs = page.children.filter((c) => !specIds.has(c.id));
                 const archived = docs.filter((c) => c.status === "archived");

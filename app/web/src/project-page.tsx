@@ -68,11 +68,12 @@ function sharedTag(rows: PageChild[]): string | null {
 const byRecent = (a: PageChild, b: PageChild) => b.updated_at.localeCompare(a.updated_at);
 
 // A project's children: stories bucketed by recency, then docs, archived folded last.
-// `shown` stories already appear in the Sessions panel and are skipped here.
+// `shown` stories already appear in `top` (in progress) and are skipped here.
 export function ProjectChildren(
-  { pages, shown, row }: {
+  { pages, shown, row, top }: {
     pages: PageChild[];
     shown: Set<string>;
+    top?: ReactNode;
     row: (c: PageChild, hideTag: string | null) => ReactNode;
   },
 ) {
@@ -112,11 +113,7 @@ export function ProjectChildren(
   );
   return (
     <>
-      {shown.size > 0 && (
-        <span className="px-1.5 text-[11px] text-ink-faint">
-          {shown.size} stor{shown.size > 1 ? "ies" : "y"} with open cards are listed under Sessions
-        </span>
-      )}
+      {top}
       {buckets.map(([label, rows]) => {
         if (!rows.length) return null;
         const fold = label === "Older";
