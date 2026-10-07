@@ -1,4 +1,4 @@
-import { testTempDir } from "../../test_tmp.ts";
+import { testTempDir } from "@trame/plugin-test";
 const tmp = testTempDir("trame-cockpit-store-test-");
 Deno.env.set("TRACKER_DATA_DIR", `${tmp}/pglite`);
 Deno.env.set("TRACKER_NODE_ID", "cockpit-store-test");
@@ -6,7 +6,7 @@ Deno.env.set("TRACKER_OUTBOX", `${tmp}/outbox.jsonl`);
 Deno.env.set("TRACKER_SETTINGS_FILE", `${tmp}/settings.json`);
 Deno.env.set("TRACKER_PORT_FILE", `${tmp}/port.json`);
 Deno.env.set("TRACKER_APP_ROOT", new URL("../..", import.meta.url).pathname);
-const { APP_CTX } = await import("../../ctx.ts");
+const { APP_CTX } = await import("@trame/plugin-api");
 
 import { assertEquals } from "@std/assert";
 
@@ -22,7 +22,7 @@ const mapping = (pageId: string) => ({
 // project's mapping, and the next mirror pass must find it again instead of
 // creating a second page for the same ticket.
 Deno.test("a story nested under a story is owned by the project above both", async () => {
-  const { createPage } = await import("../../../core/pages.ts");
+  const { createPage } = await import("@trame/plugin-api");
   const { adoptAsMirror, loadMirrorPages, loadPendingPages, mappedProjectOf } =
     await import(
       "./mirror-store.ts"
@@ -40,7 +40,7 @@ Deno.test("a story nested under a story is owned by the project above both", asy
     parent_id: ticket,
     tags: [TAG],
   });
-  await (await import("../../db.ts")).db().then((pg) =>
+  await Promise.resolve(APP_CTX.q).then((pg) =>
     pg.query(`update pages set kind='story' where id=$1`, [nested])
   );
   const loose = await createPage(APP_CTX, {
@@ -66,7 +66,7 @@ Deno.test("a story nested under a story is owned by the project above both", asy
 });
 
 Deno.test("a blank mapping id is skipped, not sent to the uuid cast", async () => {
-  const { createPage } = await import("../../../core/pages.ts");
+  const { createPage } = await import("@trame/plugin-api");
   const { loadPendingPages, mappedProjectOf } = await import(
     "./mirror-store.ts"
   );
@@ -91,7 +91,7 @@ Deno.test("a blank mapping id is skipped, not sent to the uuid cast", async () =
 });
 
 Deno.test("a mapped project mapped inside another owns its own subtree", async () => {
-  const { createPage } = await import("../../../core/pages.ts");
+  const { createPage } = await import("@trame/plugin-api");
   const { adoptAsMirror, loadMirrorPages, loadPendingPages, mappedProjectOf } =
     await import(
       "./mirror-store.ts"
@@ -122,8 +122,7 @@ Deno.test("a mapped project mapped inside another owns its own subtree", async (
 });
 
 Deno.test("a deleted or missing mapped ancestor owns nothing", async () => {
-  const { createPage, deletePage } = await import("../../../core/pages.ts");
-  const { db } = await import("../../db.ts");
+  const { createPage, deletePage } = await import("@trame/plugin-api");
   const { loadPendingPages, mappedProjectOf } = await import(
     "./mirror-store.ts"
   );
@@ -140,13 +139,13 @@ Deno.test("a deleted or missing mapped ancestor owns nothing", async () => {
     tags: [TAG],
   });
   // delete only the project row: parent_id has no FK, so the subtree can outlive it
-  await (await db()).query(`update pages set deleted = true where id = $1`, [
+  await APP_CTX.q.query(`update pages set deleted = true where id = $1`, [
     project,
   ]);
   assertEquals(await loadPendingPages([mapping(project)]), []);
   assertEquals(await mappedProjectOf(story, [project]), null);
   const ghost = crypto.randomUUID();
-  await (await db()).query(`update pages set parent_id = $2 where id = $1`, [
+  await APP_CTX.q.query(`update pages set parent_id = $2 where id = $1`, [
     mid,
     ghost,
   ]);
@@ -156,8 +155,7 @@ Deno.test("a deleted or missing mapped ancestor owns nothing", async () => {
 });
 
 Deno.test("a parent cycle terminates and owns nothing", async () => {
-  const { createPage } = await import("../../../core/pages.ts");
-  const { db } = await import("../../db.ts");
+  const { createPage } = await import("@trame/plugin-api");
   const { loadPendingPages, mappedProjectOf } = await import(
     "./mirror-store.ts"
   );
@@ -169,11 +167,11 @@ Deno.test("a parent cycle terminates and owns nothing", async () => {
     parent_id: project,
     tags: [TAG],
   });
-  await (await db()).query(`update pages set parent_id = $2 where id = $1`, [
+  await APP_CTX.q.query(`update pages set parent_id = $2 where id = $1`, [
     b,
     a,
   ]);
-  await (await db()).query(`update pages set parent_id = $2 where id = $1`, [
+  await APP_CTX.q.query(`update pages set parent_id = $2 where id = $1`, [
     a,
     b,
   ]);
@@ -182,8 +180,8 @@ Deno.test("a parent cycle terminates and owns nothing", async () => {
 });
 
 Deno.test("all sessions under a tagged filed user story are pending, once", async () => {
-  const { createPage, getPage } = await import("../../../core/pages.ts");
-  const { upsertSession } = await import("../../../core/sessions.ts");
+  const { createPage, getPage } = await import("@trame/plugin-api");
+  const { upsertSession } = await import("@trame/plugin-api");
   const { adoptAsUserStory, adoptSessionAsFiled, loadPendingSessions } =
     await import(
       "./mirror-store.ts"
@@ -225,7 +223,7 @@ Deno.test("all sessions under a tagged filed user story are pending, once", asyn
   await adoptSessionAsFiled(tagged, "GEN-42");
   await adoptSessionAsFiled(untagged, "GEN-43");
   assertEquals(await loadPendingSessions([mapping(project)]), []);
-  const { getSession } = await import("../../../core/sessions.ts");
+  const { getSession } = await import("@trame/plugin-api");
   const specsId = (await getSession(APP_CTX, tagged))!.specs_page_id as string;
   const specs = await getPage(APP_CTX, specsId) as unknown as { content: unknown[] };
   assertEquals(
@@ -235,8 +233,8 @@ Deno.test("all sessions under a tagged filed user story are pending, once", asyn
 });
 
 Deno.test("two mappings on one project: the story's tag decides which scope its sessions file into", async () => {
-  const { createPage } = await import("../../../core/pages.ts");
-  const { upsertSession } = await import("../../../core/sessions.ts");
+  const { createPage } = await import("@trame/plugin-api");
+  const { upsertSession } = await import("@trame/plugin-api");
   const { adoptAsUserStory, loadPendingSessions } = await import(
     "./mirror-store.ts"
   );
@@ -274,9 +272,8 @@ Deno.test("two mappings on one project: the story's tag decides which scope its 
 });
 
 Deno.test("standalone selection requires an explicit tag and a live mapped project", async () => {
-  const { createPage } = await import("../../../core/pages.ts");
-  const { db } = await import("../../db.ts");
-const { upsertSession } = await import("../../../core/sessions.ts");
+  const { createPage } = await import("@trame/plugin-api");
+const { upsertSession } = await import("@trame/plugin-api");
   const { loadPendingSessions } = await import("./mirror-store.ts");
   const project = await createPage(APP_CTX, { title: "Standalone", kind: "project" });
   const elsewhere = await createPage(APP_CTX, { title: "Elsewhere", kind: "project" });
@@ -324,16 +321,15 @@ const { upsertSession } = await import("../../../core/sessions.ts");
   assertEquals(pending.map((p) => p.sessionId), expected);
   assertEquals(pending.map((p) => [p.userStory, p.mappingIndex]), [[null, 1]]);
   assertEquals(skipped.map((p) => p.title), ["conflicting tags"]);
-  await (await db()).query("update pages set deleted = true where id = $1", [
+  await APP_CTX.q.query("update pages set deleted = true where id = $1", [
     project,
   ]);
   assertEquals(await loadPendingSessions([mapping(project)]), []);
 });
 
 Deno.test("session routing keeps nested ownership and mapping identity despite stale client ids", async () => {
-  const { createPage } = await import("../../../core/pages.ts");
-  const { db } = await import("../../db.ts");
-const { upsertSession } = await import("../../../core/sessions.ts");
+  const { createPage } = await import("@trame/plugin-api");
+const { upsertSession } = await import("@trame/plugin-api");
   const { adoptAsUserStory, loadPendingSessions } = await import(
     "./mirror-store.ts"
   );
@@ -367,18 +363,18 @@ const { upsertSession } = await import("../../../core/sessions.ts");
     }]),
     [],
   );
-  await (await db()).query("update pages set deleted = true where id = $1", [
+  await APP_CTX.q.query("update pages set deleted = true where id = $1", [
     story,
   ]);
   assertEquals(await loadPendingSessions(maps), []);
 });
 
 Deno.test("legacy migration verifies origin, preserves page identity, and resumes after a remote conflict", async () => {
-  const { createPage, getPage, updatePage } = await import("../../../core/pages.ts");
-  const { upsertSession, getSession } = await import("../../../core/sessions.ts");
+  const { createPage, getPage, updatePage } = await import("@trame/plugin-api");
+  const { upsertSession, getSession } = await import("@trame/plugin-api");
   const { legacyParents, migrateLegacyParent } = await import("./migration.ts");
   const { adoptAsMirror } = await import("./mirror-store.ts");
-  const { refOfContent, usOfContent } = await import("../../../core/content-marks.ts");
+  const { refOfContent, usOfContent } = await import("@trame/plugin-api");
   const fixture = JSON.parse(
     await Deno.readTextFile(new URL("fixture.sample.json", import.meta.url)),
   );
@@ -530,9 +526,8 @@ Deno.test("legacy migration verifies origin, preserves page identity, and resume
 });
 
 Deno.test("tag sync resolves labels, excludes routing tags, and follows session ownership after filing", async () => {
-  const { db } = await import("../../db.ts");
-const { upsertSession, ensureTag, updateTag, deleteTag } = await import("../../../core/sessions.ts");
-  const { createPage, updatePage } = await import("../../../core/pages.ts");
+const { upsertSession, ensureTag, updateTag, deleteTag } = await import("@trame/plugin-api");
+  const { createPage, updatePage } = await import("@trame/plugin-api");
   const { adoptAsUserStory, adoptSessionAsFiled, loadTagSyncItems } =
     await import("./mirror-store.ts");
   const project = await createPage(APP_CTX, {
@@ -570,7 +565,7 @@ const { upsertSession, ensureTag, updateTag, deleteTag } = await import("../../.
     "GEN-811",
     ["Customer label", "trame"],
   ], ["US-810", ["priority:P1", "trame"]]]);
-  const pg = await db();
+  const pg = APP_CTX.q;
   const tag = (await pg.query(`select id from tags where key='customer-label'`))
     .rows[0] as { id: string };
   await updateTag(APP_CTX, tag.id, { label: "Renamed label" });
@@ -597,8 +592,8 @@ const { upsertSession, ensureTag, updateTag, deleteTag } = await import("../../.
 });
 
 Deno.test("tag sync rejects ambiguous scopes and respects the nearest mapped project", async () => {
-  const { upsertSession, ensureTag } = await import("../../../core/sessions.ts");
-  const { createPage } = await import("../../../core/pages.ts");
+  const { upsertSession, ensureTag } = await import("@trame/plugin-api");
+  const { createPage } = await import("@trame/plugin-api");
   const { adoptAsUserStory, adoptSessionAsFiled, loadTagSyncItems } =
     await import("./mirror-store.ts");
   const outer = await createPage(APP_CTX, {
@@ -641,11 +636,10 @@ Deno.test("tag sync rejects ambiguous scopes and respects the nearest mapped pro
 });
 
 Deno.test("an assigned card is keyed on its ref: re-creating it adds nothing, other holders are held", async () => {
-  const { createPage } = await import("../../../core/pages.ts");
+  const { createPage } = await import("@trame/plugin-api");
   const { adoptAsMirror, createAssignedCard, ensureAssignedStory, loadAssignedCards } = await import(
     "./mirror-store.ts"
   );
-  const { db } = await import("../../db.ts");
   const project = await createPage(APP_CTX, { title: "Assigned-land", kind: "project" });
   const story = await ensureAssignedStory(project);
   assertEquals(await ensureAssignedStory(project), story);
@@ -653,7 +647,7 @@ Deno.test("an assigned card is keyed on its ref: re-creating it adds nothing, ot
   const fields = { title: "GEN-50 — Fix", next_step: "Fix it.", summary: "" };
   const id = await createAssignedCard("GEN-50", fields, story, null);
   assertEquals(await createAssignedCard("GEN-50", fields, story, null), id);
-  const pg = await db();
+  const pg = APP_CTX.q;
   const n = (await pg.query(
     `select count(*)::int as n from sessions where id=$1`,
     [id],
