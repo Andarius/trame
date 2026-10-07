@@ -2,7 +2,9 @@
 // stays pure and testable without a PGlite instance.
 import { APP_CTX } from "../../ctx.ts";
 import { db } from "../../db.ts";
-import { ensureSpecsPage, listTags } from "../../../core/sessions.ts";
+import { ensureSpecsPage, listTags, specsPageId, upsertSession } from "../../../core/sessions.ts";
+import { projectAbove } from "../../../core/hierarchy.ts";
+import { type AssignedCard, assignedCardId, ASSIGNED_STORY } from "./assigned.ts";
 import { createPage, deletePage, updatePage } from "../../../core/pages.ts";
 import { type FilingSkip, type MirrorPage, type MirrorPlan, stampMark, stampRef, taggedMapping, type TagMapping } from "./mirror.ts";
 import { refOfContent, US_MARK, usOfContent } from "../../../core/content-marks.ts";
@@ -632,4 +634,84 @@ export async function loadUserStoryPages(): Promise<
     if (ref) out.set(ref, { id: r.id, status: r.status });
   }
   return out;
+}
+
+/**
+ * Assigned cards by ticket ref — for the feed's refs and any ref stamped on a
+ * page — plus `held`: refs some other page or card already stands for.
+ */
+export async function loadAssignedCards(refs: readonly string[]): Promise<{
+  cards: Map<string, AssignedCard>;
+  held: Set<string>;
+}> {
+  const pg = await db();
+  const pages = (await pg.query(
+    `select id, content from pages
+      where not deleted and content::text like '%trame:cockpit_ref=%'`,
+  )).rows as { id: string; content: unknown }[];
+  const ids = new Map<string, string>();
+  for (const ref of refs) ids.set(ref, await assignedCardId(ref));
+  const stamped: [string, string][] = [];
+  for (const p of pages) {
+    const ref = refOfContent(Array.isArray(p.content) ? p.content : []);
+    if (!ref) continue;
+    if (!ids.has(ref)) ids.set(ref, await assignedCardId(ref));
+    stamped.push([ref, p.id]);
+  }
+  const held = new Set<string>();
+  for (const [ref, pageId] of stamped) {
+    if (pageId !== await specsPageId(ids.get(ref)!)) held.add(ref);
+  }
+  const byId = new Map([...ids].map(([ref, id]) => [id, ref]));
+  const rows = (await pg.query(
+    `select s.id, s.deleted, coalesce(st.terminal, false) as terminal
+       from sessions s
+       left join statuses st on st.key = s.status and not st.deleted
+      where s.id = any($1::uuid[])`,
+    [[...byId.keys()]],
+  )).rows as { id: string; deleted: boolean; terminal: boolean }[];
+  const cards = new Map<string, AssignedCard>();
+  for (const r of rows) {
+    cards.set(byId.get(r.id)!, {
+      id: r.id,
+      deleted: r.deleted,
+      terminal: r.terminal,
+    });
+  }
+  return { cards, held };
+}
+
+/** Find-or-create the fallback story for assigned tickets under `projectId`. */
+// ponytail: find-by-title, two devices racing on the very first poll can mint two
+export async function ensureAssignedStory(projectId: string): Promise<string> {
+  const pg = await db();
+  const hit = (await pg.query(
+    `select id from pages where kind='story' and parent_id=$1 and title=$2 and not deleted
+      order by id limit 1`,
+    [projectId, ASSIGNED_STORY],
+  )).rows[0] as { id: string } | undefined;
+  return hit?.id ?? await createPage(APP_CTX, {
+    title: ASSIGNED_STORY,
+    kind: "story",
+    parent_id: projectId,
+    client_id: projectId,
+  });
+}
+
+/** Create the planned card for an assigned ticket, stamped with its ref. */
+export async function createAssignedCard(
+  reference: string,
+  fields: { title: string; next_step: string | null; summary: string },
+  storyId: string,
+  status: string | null,
+): Promise<string> {
+  const id = await upsertSession(APP_CTX, {
+    id: await assignedCardId(reference),
+    ...fields,
+    status: status ?? undefined,
+    client_id: await projectAbove(APP_CTX, storyId),
+    page_id: storyId,
+  });
+  await adoptSessionAsFiled(id, reference);
+  return id;
 }

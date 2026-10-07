@@ -632,3 +632,31 @@ Deno.test("tag sync rejects ambiguous scopes and respects the nearest mapped pro
   ]]);
   assertEquals(await loadTagSyncItems([]), []);
 });
+
+Deno.test("an assigned card is keyed on its ref: re-creating it adds nothing, other holders are held", async () => {
+  const { createPage } = await import("../../../core/pages.ts");
+  const { adoptAsMirror, createAssignedCard, ensureAssignedStory, loadAssignedCards } = await import(
+    "./mirror-store.ts"
+  );
+  const { db } = await import("../../db.ts");
+  const project = await createPage(APP_CTX, { title: "Assigned-land", kind: "project" });
+  const story = await ensureAssignedStory(project);
+  assertEquals(await ensureAssignedStory(project), story);
+
+  const fields = { title: "GEN-50 — Fix", next_step: "Fix it.", summary: "" };
+  const id = await createAssignedCard("GEN-50", fields, story, null);
+  assertEquals(await createAssignedCard("GEN-50", fields, story, null), id);
+  const pg = await db();
+  const n = (await pg.query(
+    `select count(*)::int as n from sessions where id=$1`,
+    [id],
+  )).rows[0] as { n: number };
+  assertEquals(n.n, 1);
+
+  const mirrored = await createPage(APP_CTX, { title: "GEN-51", kind: "story", parent_id: project });
+  await adoptAsMirror(mirrored, "GEN-51");
+  const { cards, held } = await loadAssignedCards(["GEN-51"]);
+  assertEquals(cards.get("GEN-50"), { id, deleted: false, terminal: false });
+  assertEquals(cards.has("GEN-51"), false);
+  assertEquals(held.has("GEN-51") && !held.has("GEN-50"), true);
+});
