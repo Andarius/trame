@@ -49,27 +49,36 @@ function TicketBody(
   const badges = FRONTEND_PLUGINS.map((p) => p.CardBadge && <p.CardBadge key={p.id} sessionId={s.id} />);
   // one line: story icon, title, badges — the rest is a click away in the drawer
   if (dense) {
+    const tags = sessionTagKeys(s, byId);
     return (
       <div
-        title={chipPage ? `${s.title}\n${chipPage.title}` : s.title}
-        className={`flex items-center gap-1.5 rounded-md border bg-card px-2 py-1 text-[12px] ${
+        className={`flex flex-col gap-1 rounded-md border bg-card px-2 py-1 ${
           overlay ? "border-copper/60 shadow-xl shadow-black/40" : "border-line"
         } ${done && !overlay ? "opacity-60" : ""}`}
       >
-        {showObjective && (chipPage
-          ? (
-            <EntityIcon
-              icon={chipPage.icon}
-              fallback={pageGlyph(chipPage.kind, chipPage.mark_role)}
-              className="shrink-0 text-[10px] text-ink-muted"
-            />
-          )
-          : <span className="w-[11.5px] shrink-0" />)}
-        <span className="min-w-0 flex-1 truncate">{s.title}</span>
-        <span className="flex shrink-0 items-center gap-1">
-          {badges}
-          {!done && !overlay && <StaleChip sessionId={s.id} prUrl={s.pr_url} short />}
-        </span>
+        <div className="flex items-center gap-1.5 text-[12px]">
+          <span className="min-w-0 flex-1 truncate" title={s.title}>{s.title}</span>
+          <span className="flex shrink-0 items-center gap-1">
+            {badges}
+            {!done && !overlay && <StaleChip sessionId={s.id} prUrl={s.pr_url} short />}
+          </span>
+        </div>
+        {((showObjective && chipPage) || tags.length > 0 || s.branch) && (
+          // one row, cut at the card edge
+          <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap [&>div]:flex-nowrap">
+            {showObjective && chipPage && (
+              <ObjectiveChip
+                title={chipPage.title}
+                glyph={pageGlyph(chipPage.kind, chipPage.mark_role)}
+                icon={chipPage.icon}
+                active={storyFilter?.includes(chipPage.id) ?? false}
+                onClick={onFilterStory ? () => onFilterStory(chipPage.id) : undefined}
+              />
+            )}
+            <TagChips keys={tags} onClick={onFilterStory ? (key) => onFilterStory(`tag:${key}`) : undefined} />
+            {s.branch && <span className="text-[10.5px] text-ink-muted">{s.branch}</span>}
+          </div>
+        )}
       </div>
     );
   }
