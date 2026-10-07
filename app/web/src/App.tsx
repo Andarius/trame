@@ -1358,7 +1358,27 @@ export function App() {
   // the full ticket (a direct link means "show me this session") — only an
   // explicit full=0 (written when collapsing in-app) keeps the side panel.
   const [drawerFull, setDrawerFull] = useState(false);
+  // ctrl/⌘ held on the click that navigates: open that location in a new tab instead
+  const modClick = useRef(false);
+  useEffect(() => {
+    const mark = (e: MouseEvent) => {
+      modClick.current = e.ctrlKey || e.metaKey;
+      setTimeout(() => (modClick.current = false)); // only the handlers of this very click
+    };
+    addEventListener("click", mark, true);
+    return () => removeEventListener("click", mark, true);
+  }, []);
+  const inNewTab = (params: Record<string, string>) => {
+    if (!modClick.current) return false;
+    modClick.current = false;
+    const u = new URL(location.pathname, location.origin);
+    for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+    // the desktop webview has no window.open: the system browser gets it
+    if (!globalThis.open?.(u, "_blank")) openInBrowser(u.href);
+    return true;
+  };
   const openSession = (id: string, full = false) => {
+    if (inNewTab({ view: "card", card: id })) return;
     setDrawerFull(false);
     if (full) {
       // a session opens as its own view, inside the app chrome like a page
@@ -1661,16 +1681,19 @@ export function App() {
     });
 
   const openDb = (id: string) => {
+    if (inNewTab({ view: "database", db: id })) return;
     setExploreReturn(null);
     setDbId(id);
     setView("database");
   };
   const openPage = (id: string) => {
+    if (inNewTab({ view: "page", page: id })) return;
     setExploreReturn(null);
     setPageId(id);
     setView("page");
   };
   const openClient = (id: string) => {
+    if (inNewTab({ view: "client", client: id })) return;
     setExploreReturn(null);
     setClientId(id);
     setView("client");
