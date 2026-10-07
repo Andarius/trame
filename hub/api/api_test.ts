@@ -304,3 +304,26 @@ Deno.test("hub /api udb rejects a rollup whose config smuggles SQL", async () =>
     error: "rollup: invalid property id",
   });
 });
+
+// agents forget to tick spec todos before closing a card
+for (
+  const [id, status, done, note] of [
+    ["done with an open todo", "done", false, "card closed with 1 open todo(s) on its specs page: 'ship it'"],
+    ["done with every todo ticked", "done", true, undefined],
+    ["active with an open todo", "active", false, undefined],
+  ] as const
+) {
+  Deno.test(`hub /api track warns on open todos: ${id}`, async () => {
+    const res = await call("/api/sessions", { body: { title: `todos ${id}`, repo_path: `/srv/todos/${id}` } });
+    const { id: card } = await res.json() as { id: string };
+    const { page_id } = await (await call(`/api/sessions/${card}/specs-page`, { body: {} })).json() as {
+      page_id: string;
+    };
+    await pg.query(`update pages set content=$2::jsonb where id=$1`, [
+      page_id,
+      JSON.stringify([{ id: "t1", type: "todo", text: "ship it {{trame:created_at=2026-10-07}}", done }]),
+    ]);
+    const closed = await call("/api/sessions", { body: { card, title: `todos ${id}`, status } });
+    assertEquals(((await closed.json()) as { note?: string }).note?.split(" — ")[0], note);
+  });
+}
