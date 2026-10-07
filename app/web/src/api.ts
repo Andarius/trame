@@ -33,7 +33,7 @@ export type Story = {
   client_id: string | null;
   status: string;
   tags: string[];
-  cockpit?: "ticket" | "us" | null;
+  mark_role?: "ticket" | "linked-story" | null;
 };
 export type Project = {
   id: string;
@@ -49,7 +49,7 @@ export type BoardPage = {
   icon: string | null;
   client_id: string | null;
   color: string | null;
-  cockpit?: "ticket" | "us" | null;
+  mark_role?: "ticket" | "linked-story" | null;
 };
 export type BoardData = {
   projects: Project[];
@@ -97,7 +97,7 @@ export type SearchHit = {
   meta: string; // session status, or page kind (story|page), or "database"
   color: string; // project (client) chip color, "" elsewhere
   at: string;
-  cockpit?: "ticket" | "us" | null;
+  mark_role?: "ticket" | "linked-story" | null;
 };
 export const search = (q: string) =>
   fetch(`/api/search?q=${encodeURIComponent(q)}`).then((r) =>
@@ -636,7 +636,7 @@ export type PageMeta = {
   color: string | null;
   /** tag keys, not ids — a page stays readable before the vocabulary arrives */
   tags: string[];
-  cockpit?: "ticket" | "us" | null;
+  mark_role?: "ticket" | "linked-story" | null;
   sort_key: string;
   owner_id: string | null;
   updated_at: string;

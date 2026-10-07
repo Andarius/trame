@@ -7,13 +7,11 @@ import {
   ensureSpecsPage,
   listTags,
   projectAbove,
-  refOfContent,
   specsPageId,
   updatePage,
   upsertSession,
-  US_MARK,
-  usOfContent,
 } from "@trame/plugin-api";
+import { refOfContent, US_MARK, usOfContent } from "./marks.ts";
 import { type AssignedCard, assignedCardId, ASSIGNED_STORY } from "./assigned.ts";
 import { type FilingSkip, type MirrorPage, type MirrorPlan, stampMark, stampRef, taggedMapping, type TagMapping } from "./mirror.ts";
 

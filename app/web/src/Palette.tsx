@@ -68,7 +68,7 @@ export function Palette(
       <span className="w-4 shrink-0 text-center text-[12px] leading-none">
         <EntityIcon
           icon={h.icon || null}
-          fallback={h.kind === "database" ? "▦" : pageGlyph(h.meta === "story" ? "story" : "page", h.cockpit)}
+          fallback={h.kind === "database" ? "▦" : pageGlyph(h.meta === "story" ? "story" : "page", h.mark_role)}
         />
       </span>
     );

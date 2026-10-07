@@ -82,7 +82,7 @@ function StoryPicker({ pages, filter, onToggle }: { pages: Pages; filter: string
           onClick={() => pick(p.id)}
           className={`${menuRow} ${i === sel ? "bg-panel text-ink" : ""}`}
         >
-          <EntityIcon icon={p.icon} fallback={pageGlyph(p.kind, p.cockpit)} className="shrink-0 text-[10px]" />
+          <EntityIcon icon={p.icon} fallback={pageGlyph(p.kind, p.mark_role)} className="shrink-0 text-[10px]" />
           <span className="truncate">{p.title}</span>
         </button>
       ))}
@@ -200,7 +200,7 @@ function QueryBox(
           <button key={id} type="button" title="Remove filter" onClick={() => onToggle(id)} className={chip}>
             {id.startsWith("tag:") ? <TagChips keys={[id.slice(4)]} /> : (
               <>
-                <EntityIcon icon={fp?.icon} fallback={pageGlyph(fp?.kind ?? "story", fp?.cockpit)} className="shrink-0 text-[9px]" />
+                <EntityIcon icon={fp?.icon} fallback={pageGlyph(fp?.kind ?? "story", fp?.mark_role)} className="shrink-0 text-[9px]" />
                 <span className="truncate">{fp?.title ?? "story"}</span>
               </>
             )}

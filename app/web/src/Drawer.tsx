@@ -1,8 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { refOfContent } from "../../../core/content-marks.ts";
-import { CockpitLogo, cockpitHref, useCockpitBase } from "./plugins/cockpit/CockpitTicket";
-import { AssignerAvatar, useAssigner } from "./plugins/cockpit/AssignedBy";
+import { FRONTEND_PLUGINS } from "./plugins";
 import {
   addLog,
   type BoardData,
@@ -23,7 +21,7 @@ import {
   getPage,
   updatePage,
 } from "./api";
-import { appConfirm, clientColor, EntityIcon, ExpandIcon, pageOptions, Popover, Select, TagChips, timeAgo } from "./ui";
+import { appConfirm, clientColor, EntityIcon, ExpandIcon, FieldRow, pageOptions, Popover, Select, TagChips, timeAgo } from "./ui";
 import { AgentIcon, AgentsSummary, EventMeta, PresencePill, useAgents } from "./agents";
 import { summarizeAgents } from "./agent-summary";
 import { PrChip, RepoLink } from "./md";
@@ -428,18 +426,16 @@ export function Drawer(
   const storyTags = board.stories.find((x) => x.id === pageId)?.tags;
   // the hidden spec page's tags are the card's too; the first edit moves them onto the card
   const [specTags, setSpecTags] = useState<string[]>([]);
-  // the Cockpit ticket the card was filed as: its plugin stamps the ref on the spec page
-  const [cockpitRef, setCockpitRef] = useState<string | null>(null);
-  const cockpitBase = useCockpitBase();
-  const assigner = useAssigner(session.id);
+  // the spec page's content, for plugins' card fields (a ticket ref stamped on it, …)
+  const [specContent, setSpecContent] = useState<unknown[]>([]);
   useEffect(() => {
     if (!session.specs_page_id) {
-      setCockpitRef(null);
+      setSpecContent([]);
       return setSpecTags([]);
     }
     getPage(session.specs_page_id).then((p) => {
       setSpecTags(p.tags ?? []);
-      setCockpitRef(refOfContent(p.content ?? []));
+      setSpecContent(p.content ?? []);
     }).catch(() => {});
   }, [session.specs_page_id]);
   const sessionTags = Array.isArray(session.tags) ? (
@@ -770,31 +766,10 @@ export function Drawer(
                           </span>
                         )],
                         ["Tags", sessionTags],
-                        ...(assigner
-                          ? [["Assigned by", (
-                            <span key="assigner" className="inline-flex items-center gap-1.5 text-[12.5px] text-ink-soft">
-                              <AssignerAvatar a={assigner} size={18} /> {assigner.name}
-                            </span>
-                          )]]
-                          : []),
-                        ...(cockpitRef && cockpitBase
-                          ? [["Cockpit", (
-                            <a
-                              href={cockpitHref(cockpitBase, cockpitRef)}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-0.5 text-[12px] text-ink-soft transition-colors hover:border-chipline"
-                            >
-                              <CockpitLogo /> <code className="text-ink-muted">{cockpitRef}</code> ↗
-                            </a>
-                          )]]
-                          : []),
                       ] as [string, ReactNode][]).map(([label, value]) => (
-                        <div key={label} className="grid grid-cols-[96px_minmax(0,1fr)] items-center gap-3 py-1.5">
-                          <span className="text-[11.5px] text-ink-muted">{label}</span>
-                          <div className="min-w-0">{value}</div>
-                        </div>
+                        <FieldRow key={label} label={label}>{value}</FieldRow>
                       ))}
+                      {FRONTEND_PLUGINS.map((p) => p.CardFields && <p.CardFields key={p.id} session={session} specs={specContent} />)}
                       {/* full width: the expanded per-agent lines need more than half the grid */}
                       <div className="col-span-full grid grid-cols-[96px_minmax(0,1fr)] items-start gap-3 py-1.5">
                         <span className="pt-1 text-[11.5px] text-ink-muted">Agents</span>

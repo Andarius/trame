@@ -1,4 +1,5 @@
-import { APP_CTX, NODE_ID, tagKey, US_MARK, usOfContent } from "@trame/plugin-api";
+import { APP_CTX, NODE_ID, tagKey } from "@trame/plugin-api";
+import { US_MARK, usOfContent } from "./marks.ts";
 import {
   attachLegacyTicket,
   CockpitError,

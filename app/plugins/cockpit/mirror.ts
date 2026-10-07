@@ -9,12 +9,10 @@ import {
   markdownToPageBlocks,
   mergePageBlocks,
   type PageBlock,
-  REF_MARK,
-  refOfContent,
   stripMarks,
-  usOfContent,
   writeMark,
 } from "@trame/plugin-api";
+import { REF_MARK, refOfContent, usOfContent } from "./marks.ts";
 import type { Ticket, TicketStatus } from "./api.ts";
 
 /** Tickets filed from sessions carry this origin prefix, so the pull leaves them alone. */

@@ -374,7 +374,7 @@ Deno.test("legacy migration verifies origin, preserves page identity, and resume
   const { upsertSession, getSession } = await import("@trame/plugin-api");
   const { legacyParents, migrateLegacyParent } = await import("./migration.ts");
   const { adoptAsMirror } = await import("./mirror-store.ts");
-  const { refOfContent, usOfContent } = await import("@trame/plugin-api");
+  const { refOfContent, usOfContent } = await import("./marks.ts");
   const fixture = JSON.parse(
     await Deno.readTextFile(new URL("fixture.sample.json", import.meta.url)),
   );

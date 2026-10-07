@@ -28,7 +28,7 @@ import {
   TagChips,
 } from "./ui";
 import { StaleChip } from "./md";
-import { AssignedBy } from "./plugins/cockpit/AssignedBy";
+import { FRONTEND_PLUGINS } from "./plugins";
 
 function TicketBody(
   { s, board, overlay = false, showObjective = true, storyFilter, onFilterStory }: {
@@ -53,14 +53,14 @@ function TicketBody(
     >
       <div className="text-[12.5px] font-medium leading-snug">
         <span className="float-right ml-1.5 mt-px">
-          <AssignedBy cardId={s.id} />
+          {FRONTEND_PLUGINS.map((p) => p.CardBadge && <p.CardBadge key={p.id} sessionId={s.id} />)}
         </span>
         {s.title}
       </div>
       {showObjective && chipPage && (
         <ObjectiveChip
           title={chipPage.title}
-          glyph={pageGlyph(chipPage.kind, chipPage.cockpit)}
+          glyph={pageGlyph(chipPage.kind, chipPage.mark_role)}
           icon={chipPage.icon}
           active={storyFilter?.includes(chipPage.id) ?? false}
           onClick={onFilterStory ? () => onFilterStory(chipPage.id) : undefined}
@@ -284,7 +284,7 @@ export function Board(
         key: o.id,
         // archived stories keep their lane while sessions remain visible
         title: o.status === "archived" ? `${o.title} (archived)` : o.title,
-        glyph: pageGlyph("story", o.cockpit),
+        glyph: pageGlyph("story", o.mark_role),
         // subtree: sessions anchored to the story or any page nested under it
         sessions: visible.filter((s) => storyOf(s, byId)?.id === o.id),
       })),

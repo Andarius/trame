@@ -12,11 +12,10 @@ import {
   isPluginEnabled,
   type Plugin,
   type PluginSettings,
-  refOfContent,
   setSessionStatus,
   tagKey,
-  usOfContent,
 } from "@trame/plugin-api";
+import { refOfContent, usOfContent } from "./marks.ts";
 // One cadence only: tickets move on human timescales. The fixture (JSON file) is the offline escape hatch.
 const COCKPIT_POLL_IDLE_MS = Number(Deno.env.get("TRACKER_COCKPIT_POLL_IDLE_MS") ?? "300000");
 const COCKPIT_FIXTURE = Deno.env.get("TRACKER_COCKPIT_FIXTURE") ?? "";
