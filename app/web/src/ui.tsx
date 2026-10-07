@@ -526,18 +526,10 @@ const KIND_ICONS: Record<string, { tint?: string; paths: ReactNode }> = {
       </>
     ),
   },
-  us: {
+  "◇": {
     tint: "text-active",
     paths: (
       <path d="M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z" />
-    ),
-  },
-  "◇": {
-    paths: (
-      <>
-        <circle cx="12" cy="12" r="10" />
-        <circle cx="12" cy="12" r="1" />
-      </>
     ),
   },
   "□": {
@@ -685,7 +677,7 @@ export {
 } from "./tree.ts";
 // ◎ project; a page whose marks give it a role (a mirrored ticket, a linked story) shows that role
 export const pageGlyph = (kind: string, role?: string | null) =>
-  kind === "project" ? "◎" : role === "ticket" ? "ticket" : role === "linked-story" ? "us" : kind === "story" ? "◇" : "□";
+  kind === "project" ? "◎" : role === "ticket" ? "ticket" : kind === "story" || role === "linked-story" ? "◇" : "□";
 
 // Share one vocabulary fetch across chips, refreshing after local tag edits.
 // A label with a colon renders split, like the page-header editor: a dim `team`
