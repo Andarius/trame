@@ -3136,7 +3136,9 @@ export function Page(
         >
           {isStory && (
             <span className="-mb-3 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
-              USER STORY
+              {({ ticket: "COCKPIT TICKET", "linked-story": "USER STORY" } as Record<string, string>)[
+                markRoleOf(page.content ?? []) ?? ""
+              ] ?? "STORY"}
             </span>
           )}
           <div className="flex items-center gap-2">
