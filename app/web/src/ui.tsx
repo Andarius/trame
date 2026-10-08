@@ -800,3 +800,6 @@ export function MenuRow(
     />
   );
 }
+
+// the green "live" / "data" pill shared by the html and folder blocks
+export const LIVE_PILL = "rounded-full border border-chip-active-border bg-chip-active-bg px-2 py-[1px] text-[10px] font-semibold text-active";

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Block } from "./api";
-import { ExpandIcon, IconButton } from "./ui";
+import { ExpandIcon, IconButton, LIVE_PILL } from "./ui";
 
 type HtmlB = Extract<Block, { type: "html" }>;
 
@@ -143,7 +143,7 @@ export function HtmlBlock(
               setCopied(true);
               setTimeout(() => setCopied(false), 1200);
             }}
-            className="shrink-0 rounded-full border border-chip-active-border bg-chip-active-bg px-2 py-[1px] text-[10px] font-semibold text-active"
+            className={`shrink-0 ${LIVE_PILL}`}
           >
             {copied ? "copied ✓" : "data"}
           </button>

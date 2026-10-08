@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { type Block, type FolderEntry, getReportFileContent, listFolder, openPath } from "./api";
-import { IconButton } from "./ui";
+import { IconButton, LIVE_PILL } from "./ui";
 
 type FolderB = Extract<Block, { type: "folder" }>;
 
@@ -122,7 +122,7 @@ export function FolderBlock(
           )}
         {entries && (
           <span className="flex shrink-0 items-center gap-2 text-[11px] text-ink-muted">
-            <span className="rounded-full border border-chip-active-border bg-chip-active-bg px-2 py-[1px] text-[10px] font-semibold text-active">
+            <span className={LIVE_PILL}>
               live
             </span>
             {entries.length} fichier{entries.length > 1 ? "s" : ""}
