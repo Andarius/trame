@@ -12,7 +12,7 @@ import {
   updateComment,
   updatePage,
 } from "./api";
-import type { CommentOps } from "./Page";
+import type { CommentOps } from "./comments";
 import { ensureIds, genId } from "./page-ids";
 
 export function useBlockDoc(pageId: string | null) {
