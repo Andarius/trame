@@ -21,12 +21,14 @@ import {
   getPage,
   updatePage,
 } from "./api";
-import { appConfirm, clientColor, EntityIcon, ExpandIcon, FIELD_LABEL, FieldRow, pageOptions, Popover, Select, TagChips, timeAgo, IconButton } from "./ui";
+import { enumCodec, useLocalStorage, appConfirm, clientColor, EntityIcon, ExpandIcon, FIELD_LABEL, FieldRow, pageOptions, Popover, Select, TagChips, timeAgo, IconButton } from "./ui";
 import { AgentIcon, AgentsSummary, EventMeta, PresencePill, useAgents } from "./agents";
 import { summarizeAgents } from "./agent-summary";
 import { PrChip, RepoLink } from "./chips";
 import { SpecsEditor } from "./SpecsEditor";
 import { TagEditor } from "./TagEditor";
+
+const RESUME_MODE_CODEC = enumCodec<ResumeMode>(["window", "tab", "existing"]);
 
 // How the Resume button places the session; the last pick is the default, persisted.
 const RESUME_MODES: { mode: ResumeMode; label: string; hint: string }[] = [
@@ -136,9 +138,7 @@ export function Drawer(
   const [resumeMsg, setResumeMsg] = useState<string | null>(null);
   const [resumeInfo, setResumeInfo] = useState<ResumeInfo | null>(null);
   const [resumeMenu, setResumeMenu] = useState(false);
-  const [resumeMode, setResumeMode] = useState<ResumeMode>(
-    () => (localStorage.getItem("trame:resumeMode") as ResumeMode | null) ?? "window",
-  );
+  const [resumeMode, setResumeMode] = useLocalStorage<ResumeMode>("trame:resumeMode", "window", RESUME_MODE_CODEC);
   const resumeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // probe on open so the button shows whether this session is resumable HERE vs on another device
@@ -156,7 +156,6 @@ export function Drawer(
   const doResume = async (mode: ResumeMode = resumeMode) => {
     setResumeMenu(false);
     setResumeMode(mode);
-    localStorage.setItem("trame:resumeMode", mode);
     let msg: string;
     try {
       const r = await resumeSession(session.id, mode);

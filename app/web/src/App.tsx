@@ -71,7 +71,7 @@ import { Palette } from "./Palette";
 import { ShareModal } from "./ShareModal";
 import { confirmDeletePage, Page } from "./Page";
 import { ClientView } from "./ClientView";
-import { appConfirm, ConfirmHost, EntityIcon, ExpandIcon, pageGlyph, Popover, SECTION_LABEL, setStatuses, StatusDot, statusStyle, timeAgo, IconButton } from "./ui";
+import { BOOL_CODEC, SET_CODEC, useLocalStorage, appConfirm, ConfirmHost, EntityIcon, ExpandIcon, pageGlyph, Popover, SECTION_LABEL, setStatuses, StatusDot, statusStyle, timeAgo, IconButton } from "./ui";
 import { FRONTEND_PLUGINS } from "./plugins";
 import { PluginsModal } from "./plugins/PluginsModal";
 import { PluginSettingsModal } from "./plugins/PluginSettingsModal";
@@ -568,18 +568,7 @@ function Sidebar(
   useEffect(() => {
     getIdentity().then((i) => setMeId(i.userId)).catch(() => {});
   }, []);
-  const [expanded, setExpanded] = useState<Set<string>>(() => {
-    try {
-      return new Set<string>(
-        JSON.parse(localStorage.getItem("trame:expanded") ?? "[]"),
-      );
-    } catch {
-      return new Set<string>();
-    }
-  });
-  useEffect(() => {
-    localStorage.setItem("trame:expanded", JSON.stringify([...expanded]));
-  }, [expanded]);
+  const [expanded, setExpanded] = useLocalStorage("trame:expanded", new Set<string>(), SET_CODEC);
 
   const byId = useMemo(() => new Map(pages.map((p) => [p.id, p])), [pages]);
   const childrenOf = useMemo(() => {
@@ -1321,15 +1310,8 @@ export function App() {
     );
   // column order + the status set itself now live in the synced DB (board.statuses);
   // only "hide empty" stays a per-device preference.
-  const [dense, setDense] = useState<boolean>(() => localStorage.getItem("trame:denseBoard") === "1");
-  useEffect(() => localStorage.setItem("trame:denseBoard", dense ? "1" : "0"), [dense]);
-  const [hideEmpty, setHideEmpty] = useState<boolean>(() =>
-    localStorage.getItem("trame:hideEmpty") === "1"
-  );
-  useEffect(
-    () => localStorage.setItem("trame:hideEmpty", hideEmpty ? "1" : "0"),
-    [hideEmpty],
-  );
+  const [dense, setDense] = useLocalStorage("trame:denseBoard", false, BOOL_CODEC);
+  const [hideEmpty, setHideEmpty] = useLocalStorage("trame:hideEmpty", false, BOOL_CODEC);
   const [modal, setModal] = useState<
     | "session"
     | "settings"
@@ -1828,16 +1810,7 @@ export function App() {
     : "Explore";
 
   // starred pages: per-browser shortcuts to deep pages (Soren → Weekly → …)
-  const [starred, setStarred] = useState<Set<string>>(() => {
-    try {
-      return new Set<string>(JSON.parse(localStorage.getItem("trame:starred") ?? "[]"));
-    } catch {
-      return new Set<string>();
-    }
-  });
-  useEffect(() => {
-    localStorage.setItem("trame:starred", JSON.stringify([...starred]));
-  }, [starred]);
+  const [starred, setStarred] = useLocalStorage("trame:starred", new Set<string>(), SET_CODEC);
   const toggleStar = (id: string) =>
     setStarred((prev) => {
       const next = new Set(prev);

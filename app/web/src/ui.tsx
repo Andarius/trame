@@ -755,3 +755,34 @@ export function IconButton(
   const color = tone === "danger" ? "text-ink-muted hover:text-blocked" : tone === "close" ? "text-ink-muted hover:text-ink" : "";
   return <button type="button" {...props} className={`${color} ${className}`.trim()} />;
 }
+
+type Codec<T> = { parse: (raw: string) => T; stringify: (v: T) => string };
+export const STRING_CODEC: Codec<string> = { parse: (r) => r, stringify: (v) => v };
+export const BOOL_CODEC: Codec<boolean> = { parse: (r) => r === "1", stringify: (v) => (v ? "1" : "0") };
+export const SET_CODEC: Codec<Set<string>> = {
+  parse: (r) => new Set<string>(JSON.parse(r)),
+  stringify: (v) => JSON.stringify([...v]),
+};
+// string enum: anything outside `opts` reads as the first option
+export const enumCodec = <T extends string>(opts: readonly T[]): Codec<T> => ({
+  parse: (r) => (opts as readonly string[]).includes(r) ? r as T : opts[0],
+  stringify: (v) => v,
+});
+
+// useState persisted in localStorage; blocked storage or a bad value falls back to `init`
+export function useLocalStorage<T>(key: string, init: T, codec: Codec<T>) {
+  const [value, setValue] = useState<T>(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw === null ? init : codec.parse(raw);
+    } catch {
+      return init;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(key, codec.stringify(value));
+    } catch { /* storage blocked */ }
+  }, [key, value]);
+  return [value, setValue] as const;
+}

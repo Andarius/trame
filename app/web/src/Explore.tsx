@@ -13,7 +13,7 @@ import {
   patchSettings,
   type ReportMeta,
 } from "./api";
-import { appConfirm, ClientChip, Popover, timeAgo } from "./ui";
+import { SET_CODEC, useLocalStorage, appConfirm, ClientChip, Popover, timeAgo } from "./ui";
 import { excalidrawToHtml } from "./excalidraw";
 
 type Selected = {
@@ -59,22 +59,12 @@ export function Explore(
   const [starred, setStarred] = useState<string[]>([]);
   const [roots, setRoots] = useState<string[]>([]);
   // folder tree: collapsed dirs persist like a file explorer
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
-    try {
-      return new Set(JSON.parse(localStorage.getItem("trame:explore-collapsed") ?? "[]"));
-    } catch {
-      return new Set();
-    }
-  });
-  const persistCollapsed = (next: Set<string>) => {
-    localStorage.setItem("trame:explore-collapsed", JSON.stringify([...next]));
-    return next;
-  };
+  const [collapsed, setCollapsed] = useLocalStorage("trame:explore-collapsed", new Set<string>(), SET_CODEC);
   const toggleFolder = (full: string) =>
     setCollapsed((prev) => {
       const next = new Set(prev);
       next.has(full) ? next.delete(full) : next.add(full);
-      return persistCollapsed(next);
+      return next;
     });
   const [htmlFilter, setHtmlFilter] = useState<"smart" | "all">("smart");
   const [kindFilter, setKindFilter] = useState<"both" | "html" | "excalidraw">("both");
@@ -256,7 +246,7 @@ export function Explore(
     setCollapsed((prev) => {
       const next = new Set(prev);
       for (const f of allFolders) open ? next.delete(f) : next.add(f);
-      return persistCollapsed(next);
+      return next;
     });
 
   // search forces every section and folder open

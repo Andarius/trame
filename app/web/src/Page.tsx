@@ -36,7 +36,7 @@ import {
   updatePage,
   uploadAsset,
 } from "./api";
-import { appConfirm, ClientChip, dblOpen, EntityIcon, inSubtree, pageGlyph, pagesById, Popover, SECTION_LABEL, Select, sessionTagKeys, StatusDot, statusStyle, storyOf, TagChips, timeAgo, uuid7Time, IconButton } from "./ui";
+import { BOOL_CODEC, enumCodec, useLocalStorage, appConfirm, ClientChip, dblOpen, EntityIcon, inSubtree, pageGlyph, pagesById, Popover, SECTION_LABEL, Select, sessionTagKeys, StatusDot, statusStyle, storyOf, TagChips, timeAgo, uuid7Time, IconButton } from "./ui";
 import { type ItemLink, LinkChip, Markdown, PageActivityChip } from "./md";
 import { blocksToMarkdown } from "./page-serialize";
 
@@ -2587,28 +2587,14 @@ export function Page(
   const [showDoneCards, setShowDoneCards] = useState(false);
   const [unfoldedStories, setUnfoldedStories] = useState<Set<string>>(new Set());
   const [cardQuery, setCardQuery] = useState("");
-  const [storyOrder, setStoryOrder] = useState<"touched" | "priority">(
-    () => (localStorage.getItem(STORY_ORDER_KEY) === "priority" ? "priority" : "touched"),
-  );
+  const [storyOrder, setStoryOrder] = useLocalStorage<"touched" | "priority">(STORY_ORDER_KEY, "touched", enumCodec(["touched", "priority"]));
   const [showArchivedDocs, setShowArchivedDocs] = useState(false);
-  const [commentMode, setCommentMode] = useState<CommentMode>(
-    () => (localStorage.getItem(COMMENT_MODE_KEY) === "panel"
-      ? "panel"
-      : "inline"),
-  );
+  const [commentMode, setCommentMode] = useLocalStorage<CommentMode>(COMMENT_MODE_KEY, "inline", enumCodec(["inline", "panel"]));
   const [openThreads, setOpenThreads] = useState<Set<string>>(() =>
     loadOpenThreads(pageId)
   );
   const [focusThread, setFocusThread] = useState<string | null>(null);
-  const [panelOpen, setPanelOpenState] = useState(() =>
-    localStorage.getItem(PANEL_OPEN_KEY) === "1"
-  );
-  const setPanelOpen = (v: boolean | ((p: boolean) => boolean)) =>
-    setPanelOpenState((p) => {
-      const next = typeof v === "function" ? v(p) : v;
-      localStorage.setItem(PANEL_OPEN_KEY, next ? "1" : "0");
-      return next;
-    });
+  const [panelOpen, setPanelOpen] = useLocalStorage(PANEL_OPEN_KEY, false, BOOL_CODEC);
   // set + persist open threads together, keyed by the current page (no cross-page race)
   const putOpenThreads = (v: Set<string> | ((p: Set<string>) => Set<string>)) =>
     setOpenThreads((p) => {
@@ -2747,7 +2733,6 @@ export function Page(
   const setMode = (m: CommentMode) => {
     if (m === commentMode) return;
     setCommentMode(m);
-    localStorage.setItem(COMMENT_MODE_KEY, m);
     setFocusThread(null);
     // carry the open state across so switching doesn't hide what you were reading
     if (m === "panel") {
@@ -3040,7 +3025,6 @@ export function Page(
               title="order stories by last activity or by priority tag (p1, p2…)"
               onClick={() => {
                 const next = storyOrder === "priority" ? "touched" : "priority";
-                localStorage.setItem(STORY_ORDER_KEY, next);
                 setStoryOrder(next);
               }}
               className="ml-2 font-normal tracking-normal text-ink-faint hover:text-ink-soft"

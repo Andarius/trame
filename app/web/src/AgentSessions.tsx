@@ -6,7 +6,7 @@ import {
   scanClaudeImport,
 } from "./api";
 import { matchQuery, parseQuery } from "./query";
-import { clientColor, Select, timeAgo } from "./ui";
+import { clientColor, STRING_CODEC, useLocalStorage, Select, timeAgo } from "./ui";
 
 // This view never launches terminals (unlike Drawer.tsx's tracked-card resume) —
 // it just hands you the command to paste. Same shape as main.ts's resume cmd.
@@ -188,18 +188,7 @@ export function AgentSessions(
   const [sourceFilter, setSourceFilter] = useState("all");
   const [sortBy, setSortBy] = useState<"date" | "repo">("date");
   // persisted so a `-term` hide sticks across visits
-  const [q, setQ] = useState(() => {
-    try {
-      return localStorage.getItem("trame:agentsQuery") ?? "";
-    } catch {
-      return "";
-    }
-  });
-  useEffect(() => {
-    try {
-      localStorage.setItem("trame:agentsQuery", q);
-    } catch { /* storage blocked */ }
-  }, [q]);
+  const [q, setQ] = useLocalStorage("trame:agentsQuery", "", STRING_CODEC);
   const [allMsg, setAllMsg] = useState<string | null>(null);
   const allTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(allTimer.current), []);
