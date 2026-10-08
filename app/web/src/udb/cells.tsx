@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import { DateInput, EntityIcon, Popover, IconButton } from "../ui";
+import { DateInput, EntityIcon, Popover, IconButton, EmptyState } from "../ui";
 import { Markdown } from "../md";
 import {
   type Derived,
@@ -480,9 +480,9 @@ export function IconPicker(
             />
             {lib === null
               ? (
-                <span className="py-2 text-[11px] text-ink-muted/60">
+                <EmptyState className="py-2">
                   loading…
-                </span>
+                </EmptyState>
               )
               : (() => {
                 const needle = q.toLowerCase().replace(/\s+/g, "");
@@ -515,15 +515,15 @@ export function IconPicker(
         {tab === "icons" && (
           used === null
             ? (
-              <span className="py-2 text-[11px] text-ink-muted/60">
+              <EmptyState className="py-2">
                 loading…
-              </span>
+              </EmptyState>
             )
             : used.length === 0
             ? (
-              <span className="py-2 text-[11px] text-ink-muted/60">
+              <EmptyState className="py-2">
                 No uploaded icons yet — add one via Upload.
-              </span>
+              </EmptyState>
             )
             : (
               <div className="grid max-h-44 grid-cols-7 gap-1 overflow-y-auto">
@@ -949,9 +949,9 @@ function SelectCell(
               </button>
             )}
             {!shown.length && !filter.trim() && (
-              <span className="px-2 py-1 text-[11px] text-ink-muted/60">
+              <EmptyState className="px-2 py-1">
                 no options yet — type to create
-              </span>
+              </EmptyState>
             )}
           </div>
         </Popover>
@@ -1030,9 +1030,9 @@ function RelationCell(
               </button>
             ))}
             {!candidates.length && (
-              <span className="px-2 py-1 text-[11px] text-ink-muted/60">
+              <EmptyState className="px-2 py-1">
                 {target ? "no matches" : "loading…"}
-              </span>
+              </EmptyState>
             )}
           </div>
         </Popover>

@@ -3,7 +3,7 @@ import { type PageChild, type Session, setStatus } from "./api";
 import { type Live, LiveAgentChip } from "./agents";
 import { getPrInfo, StaleChip } from "./chips";
 import { repoTitle } from "./repo-title.ts";
-import { dblOpen, EntityIcon, pageGlyph, SECTION_LABEL, StatusDot, statusStyle, TagChips, timeAgo } from "./ui";
+import { ProgressBar, dblOpen, EntityIcon, pageGlyph, SECTION_LABEL, StatusDot, statusStyle, TagChips, timeAgo } from "./ui";
 
 export { repoTitle } from "./repo-title.ts";
 
@@ -17,9 +17,7 @@ export const TodoBar = ({ done, total }: { done: number; total: number }) => (
     className="inline-flex items-center gap-1.5 pl-1 font-mono text-[11px] tabular-nums text-ink-faint"
     title={`${done} of ${total} todos done`}
   >
-    <span className="inline-block h-1 w-10 overflow-hidden rounded bg-line">
-      <span className="block h-full rounded bg-live" style={{ width: `${(done / total) * 100}%` }} />
-    </span>
+    <ProgressBar value={done / total} color="bg-live" className="w-10" />
     {done}/{total}
   </span>
 );

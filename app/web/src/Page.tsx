@@ -36,7 +36,7 @@ import {
   updatePage,
   uploadAsset,
 } from "./api";
-import { BOOL_CODEC, enumCodec, useLocalStorage, appConfirm, ClientChip, dblOpen, EntityIcon, inSubtree, pageGlyph, pagesById, Popover, SECTION_LABEL, Select, sessionTagKeys, StatusDot, statusStyle, storyOf, TagChips, timeAgo, uuid7Time, IconButton } from "./ui";
+import { BOOL_CODEC, enumCodec, useLocalStorage, appConfirm, ClientChip, dblOpen, EntityIcon, inSubtree, pageGlyph, pagesById, Popover, SECTION_LABEL, Select, sessionTagKeys, StatusDot, statusStyle, storyOf, TagChips, timeAgo, uuid7Time, IconButton, ProgressBar } from "./ui";
 import { type ItemLink, LinkChip, Markdown, PageActivityChip } from "./md";
 import { blocksToMarkdown } from "./page-serialize";
 
@@ -2969,14 +2969,7 @@ export function Page(
               <span className="text-[12px] font-semibold text-ink-soft">
                 {story.title || "Untitled"}
               </span>
-              <div className="h-1 w-[60px] overflow-hidden rounded-full bg-line">
-                <div
-                  className="h-full rounded-full bg-copper"
-                  style={{
-                    width: `${(doneInStory / list.length) * 100}%`,
-                  }}
-                />
-              </div>
+              <ProgressBar value={doneInStory / list.length} color="bg-copper" className="w-[60px]" />
               <span className="text-[10px] text-ink-muted">
                 {doneInStory} / {list.length}
               </span>
@@ -3049,9 +3042,7 @@ export function Page(
               <span className="min-w-0 truncate">{story.title || "Untitled"}</span>
               <TagChips keys={story.tags} />
               <span className="flex-1" />
-              <div className="h-1 w-[60px] shrink-0 overflow-hidden rounded-full bg-line">
-                <div className="h-full rounded-full bg-active" style={{ width: `${(doneN / list.length) * 100}%` }} />
-              </div>
+              <ProgressBar value={doneN / list.length} color="bg-active" className="w-[60px] shrink-0" />
               <span className="w-[56px] shrink-0 text-right text-[10.5px] font-normal text-ink-muted">
                 {doneN} / {list.length}
               </span>

@@ -21,7 +21,7 @@ import {
   getPage,
   updatePage,
 } from "./api";
-import { enumCodec, useLocalStorage, appConfirm, clientColor, EntityIcon, ExpandIcon, FIELD_LABEL, FieldRow, pageOptions, Popover, Select, TagChips, timeAgo, IconButton } from "./ui";
+import { enumCodec, useLocalStorage, appConfirm, clientColor, EntityIcon, ExpandIcon, FIELD_LABEL, FieldRow, pageOptions, Popover, Select, TagChips, timeAgo, IconButton, PresenceDot, EmptyState } from "./ui";
 import { AgentIcon, AgentsSummary, EventMeta, PresencePill, useAgents } from "./agents";
 import { summarizeAgents } from "./agent-summary";
 import { PrChip, RepoLink } from "./chips";
@@ -315,7 +315,7 @@ export function Drawer(
         >
           <AgentIcon a={a} />
           {a.name ?? a.harness}
-          <span className={`h-1.5 w-1.5 rounded-full ${state === "working" ? "bg-live" : "bg-wait"}`} />
+          <PresenceDot state={state} />
         </span>
       ))}
     </div>
@@ -629,7 +629,7 @@ export function Drawer(
             )}
         </div>
       ))}
-      {events.length === 0 && <span className="py-1 text-[11px] text-ink-muted/60">No entries yet</span>}
+      {events.length === 0 && <EmptyState>No entries yet</EmptyState>}
     </div>
   );
 

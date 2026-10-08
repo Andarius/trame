@@ -1,6 +1,7 @@
 import { createContext, Fragment, type ReactNode, useContext, useEffect, useState } from "react";
 import type { AgentPresenceSettings, LiveAgent } from "./api";
 import { type AgentSummary, fmtDuration } from "./agent-summary";
+import { PresenceDot } from "./ui";
 
 // brand marks for the harnesses/providers Trame knows; others send their own icon
 const ICONS: Record<string, { viewBox: string; d: string }> = {
@@ -59,7 +60,7 @@ export function LiveAgentChip({ a, state }: Live) {
     >
       <AgentIcon a={a} />
       {a.name ?? a.harness}
-      <span className={`h-1.5 w-1.5 rounded-full ${state === "working" ? "bg-live" : "bg-wait"}`} />
+      <PresenceDot state={state} />
     </span>
   );
 }
@@ -171,13 +172,13 @@ export function LiveTrail({ a, state, cfg }: Live & { cfg: AgentPresenceSettings
             state === "working" ? "border-live/60" : "border-wait/70"
           }`}
         >
-          <span className={`h-1.5 w-1.5 rounded-full ${dotCls(state)} ${cfg.motion ? "motion-safe:animate-pulse" : ""}`} />
+          <PresenceDot state={state} className={cfg.motion ? "motion-safe:animate-pulse" : ""} />
           <b className="font-semibold text-ink">{state === "working" ? "working" : "needs you"}</b>
         </span>
       )}
       {cfg.timer && (
         <span className="inline-flex items-center gap-1 rounded-full border border-chipline/60 px-1.5 py-0.5 font-mono text-[11px] font-semibold tabular-nums text-ink-soft">
-          <span className={`h-1.5 w-1.5 rounded-full ${dotCls(state)}`} />
+          <PresenceDot state={state} />
           <Elapsed since={a.since} state={state} />
         </span>
       )}
@@ -285,7 +286,7 @@ export function PresencePill({ e, when }: {
   return (
     <div className="flex flex-col gap-0.5">
       <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-chipline/70 px-2 py-0.5 text-[11px] text-ink-muted">
-        <span className={`h-1.5 w-1.5 rounded-full ${joined ? "bg-live" : "bg-ink-faint"}`} />
+        <PresenceDot state={joined ? "working" : "off"} />
         <span className="font-medium text-ink-soft">{e.agent_name ?? e.agent ?? "agent"}</span>
         {e.summary}
       </span>
@@ -303,7 +304,7 @@ export function AgentsSummary({ agents }: { agents: AgentSummary[] }) {
   const ms = agents.reduce((n, a) => n + a.ms, 0);
   const sep = <span className="text-ink-faint/60">·</span>;
   const dot = (s: AgentSummary["state"]) => (
-    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${s === "working" ? "bg-live" : s === "waiting" ? "bg-wait" : "bg-ink-faint"}`} />
+    <PresenceDot state={s ?? "off"} className="shrink-0" />
   );
   return (
     <div className="flex flex-col gap-1">

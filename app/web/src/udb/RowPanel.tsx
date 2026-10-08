@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { deleteUdbRow, patchUdbRow, type UdbProp, type UdbRow } from "../api";
-import { appConfirm, EntityIcon, FIELD_LABEL, IconButton } from "../ui";
+import { appConfirm, EntityIcon, FIELD_LABEL, IconButton, EmptyState } from "../ui";
 import { Cell, IconPicker } from "./cells";
 import { TYPE_GLYPH } from "./PropertyEditor";
 
@@ -124,7 +124,7 @@ export function RowPanel(
             </div>
           </div>
         ))}
-        {properties.length <= 1 && <span className="py-1 text-[11px] text-ink-muted/60">No columns yet.</span>}
+        {properties.length <= 1 && <EmptyState>No columns yet.</EmptyState>}
       </div>
 
       <div className="sticky bottom-0 mt-auto flex items-center gap-2 border-t border-line bg-sidebar px-4 py-2.5">

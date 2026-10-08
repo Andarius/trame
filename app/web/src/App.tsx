@@ -71,7 +71,7 @@ import { Palette } from "./Palette";
 import { ShareModal } from "./ShareModal";
 import { confirmDeletePage, Page } from "./Page";
 import { ClientView } from "./ClientView";
-import { MenuRow, BOOL_CODEC, SET_CODEC, useLocalStorage, appConfirm, ConfirmHost, EntityIcon, ExpandIcon, pageGlyph, Popover, SECTION_LABEL, setStatuses, StatusDot, statusStyle, timeAgo, IconButton } from "./ui";
+import { MenuRow, BOOL_CODEC, SET_CODEC, useLocalStorage, appConfirm, ConfirmHost, EntityIcon, ExpandIcon, pageGlyph, Popover, SECTION_LABEL, setStatuses, StatusDot, statusStyle, timeAgo, IconButton, PresenceDot } from "./ui";
 import { FRONTEND_PLUGINS } from "./plugins";
 import { PluginsModal } from "./plugins/PluginsModal";
 import { PluginSettingsModal } from "./plugins/PluginSettingsModal";
@@ -222,13 +222,13 @@ function LiveMarker({ id }: { id: string }) {
         <span className="inline-flex items-center gap-1">
           {c.own
             ? <span className={`h-2.5 w-2.5 rounded-full border-[1.5px] border-live/40 border-t-live ${spin}`} />
-            : <span className="h-1.5 w-1.5 rounded-full bg-live" />}
+            : <PresenceDot state="working" />}
           {(c.working > 1 || !c.own) && c.working}
         </span>
       )}
       {c.waiting > 0 && (
         <span className="inline-flex items-center gap-1">
-          <span className="h-1.5 w-1.5 rounded-full bg-wait" />
+          <PresenceDot state="waiting" />
           {(c.waiting > 1 || !c.own) && c.waiting}
         </span>
       )}
@@ -374,7 +374,7 @@ function PageNode(
           >
             <span className="text-[11px]">▦</span>
             <span className="flex-1 truncate">{c.title}</span>
-            {on && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${on.state === "working" ? "bg-live" : "bg-wait"}`} />}
+            {on && <PresenceDot state={on.state} className="shrink-0" />}
             <StatusDot status={c.status} size={6} />
           </button>
         );
@@ -750,7 +750,7 @@ function Sidebar(
             {item.label}
             {item.key === "agents" && live.length > 0 && (
               <span className="ml-auto inline-flex items-center gap-1 rounded-full border border-chipline px-1.5 text-[10.5px] font-medium text-ink-soft">
-                <span className="h-1.5 w-1.5 rounded-full bg-live" />
+                <PresenceDot state="working" />
                 {live.length} live
               </span>
             )}

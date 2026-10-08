@@ -803,3 +803,23 @@ export function MenuRow(
 
 // the green "live" / "data" pill shared by the html and folder blocks
 export const LIVE_PILL = "rounded-full border border-chip-active-border bg-chip-active-bg px-2 py-[1px] text-[10px] font-semibold text-active";
+
+// live-agent status dot: working = live, waiting = wait, off = faint
+export function PresenceDot({ state, className = "" }: { state: "working" | "waiting" | "off"; className?: string }) {
+  const color = state === "working" ? "bg-live" : state === "waiting" ? "bg-wait" : "bg-ink-faint";
+  return <span className={`h-1.5 w-1.5 rounded-full ${color} ${className}`.trim()} />;
+}
+
+// thin track with a filled share (0..1); className sets the track width, color the fill
+export function ProgressBar({ value, color, className = "" }: { value: number; color: string; className?: string }) {
+  return (
+    <span className={`inline-block h-1 overflow-hidden rounded-full bg-line ${className}`.trim()}>
+      <span className={`block h-full rounded-full ${color}`} style={{ width: `${value * 100}%` }} />
+    </span>
+  );
+}
+
+// muted one-line "nothing here" message
+export function EmptyState({ children, className = "py-1" }: { children: ReactNode; className?: string }) {
+  return <span className={`${className} text-[11px] text-ink-muted/60`}>{children}</span>;
+}
