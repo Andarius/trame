@@ -61,8 +61,8 @@ import { List } from "./List";
 import { filterSessionBoard, sortSessionBoard, type Sort } from "./SessionSort";
 import { SessionBar } from "./SessionBar";
 import { recentRows } from "./recents";
+import { ImportClaudeModal } from "./ImportClaudeModal";
 import {
-  ImportClaudeModal,
   NewSessionModal,
   NewUdbModal,
   SettingsModal,
