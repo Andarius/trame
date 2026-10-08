@@ -1,29 +1,18 @@
-import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   addSessionLink,
   attachUdbToPage,
   type Block,
   type BoardData,
-  createComment,
   createPage,
   createUdb,
-  deleteComment,
   deletePage,
   getIdentity,
-  getPage,
-  getPresence,
-  listComments,
   type PageChild,
   type PageComment,
-  type PageDetail,
-  pingPresence,
-  type Presence,
   type UdbMeta,
-  updateComment,
-  updatePage,
 } from "./api";
 import {
-  BOOL_CODEC,
   enumCodec,
   useLocalStorage,
   appConfirm,
@@ -48,27 +37,16 @@ import { DatabaseView } from "./udb/DatabaseTable";
 import { FRONTEND_PLUGINS } from "./plugins";
 import { markRoleOf } from "../../../core/mark-roles.ts";
 import { PageRow, ProjectChildren, useFinishedCards } from "./project-page";
-import { genId, ensureIds, PROJECT_COLORS } from "./page-ids";
-import { isText } from "./editor-text";
+import { genId, PROJECT_COLORS } from "./page-ids";
 import { PresenceBar, StartWatcherButton } from "./PresenceBar";
-import {
-  type CommentOps,
-  type CommentMode,
-  COMMENT_MODE_KEY,
-  STORY_ORDER_KEY,
-  PANEL_OPEN_KEY,
-  openKey,
-  loadOpenThreads,
-  isAgent,
-  answeredIn,
-  anchorQuoteOf,
-  RowNote,
-  CommentItem,
-  AddNote,
-} from "./comments";
+import { STORY_ORDER_KEY, isAgent } from "./comments";
 import { BlockEditor } from "./BlockEditor";
 import { SessionsPanel, groupInProgress, InProgressBlock, CardsSection } from "./PageSessions";
 import { PageHeaderMenu, MarkdownPanel } from "./PageHeaderMenu";
+import { usePageAutosave } from "./page-autosave";
+import { commentView, usePageComments } from "./comments-state";
+import { CommentsPanel, CommentsToolbar, OrphanComments } from "./PageComments";
+import { usePageSelection, usePresence } from "./page-hooks";
 
 export function Page(
   {
@@ -91,37 +69,17 @@ export function Page(
     onChanged: () => void; // sidebar tree cares about title/icon/structure changes
   },
 ) {
-  const [page, setPage] = useState<PageDetail | null>(null);
   // 🔗 on a list item: pick the session to link it to
   const [linkPick, setLinkPick] = useState<
     { blockId: string; item: string } | null
   >(null);
   const { live: liveAgentsAll, recent: recentAgents } = useAgents();
-  const [blocks, setBlocks] = useState<Block[]>([]);
-  const focused = useFocusedBlock(blocks);
-  const [comments, setComments] = useState<PageComment[]>([]);
-  const [showResolved, setShowResolved] = useState(false);
   const [sessionFilter, setSessionFilter] = useState<"active" | "done">("active");
   const [showDoneCards, setShowDoneCards] = useState(false);
   const [unfoldedStories, setUnfoldedStories] = useState<Set<string>>(new Set());
   const [cardQuery, setCardQuery] = useState("");
   const [storyOrder, setStoryOrder] = useLocalStorage<"touched" | "priority">(STORY_ORDER_KEY, "touched", enumCodec(["touched", "priority"]));
   const [showArchivedDocs, setShowArchivedDocs] = useState(false);
-  const [commentMode, setCommentMode] = useLocalStorage<CommentMode>(COMMENT_MODE_KEY, "inline", enumCodec(["inline", "panel"]));
-  const [openThreads, setOpenThreads] = useState<Set<string>>(() =>
-    loadOpenThreads(pageId)
-  );
-  const [focusThread, setFocusThread] = useState<string | null>(null);
-  const [panelOpen, setPanelOpen] = useLocalStorage(PANEL_OPEN_KEY, false, BOOL_CODEC);
-  // set + persist open threads together, keyed by the current page (no cross-page race)
-  const putOpenThreads = (v: Set<string> | ((p: Set<string>) => Set<string>)) =>
-    setOpenThreads((p) => {
-      const next = typeof v === "function" ? v(p) : v;
-      localStorage.setItem(openKey(pageId), JSON.stringify([...next]));
-      return next;
-    });
-  const [flash, setFlash] = useState<string | null>(null);
-  const flashTimer = useRef<number | undefined>(undefined);
   const [idCopied, setIdCopied] = useState(false);
   const [headerMenu, setHeaderMenu] = useState(false);
   const [mdOpen, setMdOpen] = useState(false);
@@ -130,209 +88,18 @@ export function Page(
   useEffect(() => {
     getIdentity().then((i) => setMeId(i.userId)).catch(() => {});
   }, []);
-  // presence: heartbeat that I'm here + poll who else / which agents are watching
-  const [presence, setPresence] = useState<Presence[]>([]);
-  useEffect(() => {
-    const beat = () => {
-      if (document.hidden) return;
-      pingPresence(pageId);
-      getPresence(pageId).then(setPresence).catch(() => {});
-    };
-    beat();
-    const t = setInterval(beat, 8000);
-    return () => clearInterval(t);
-  }, [pageId]);
-  // "select all → copy" the whole page as Markdown. Blocks are separate textareas, so
-  // a second Ctrl/⌘+A (or one with nothing focused) selects the page instead of a block;
-  // a copy while page-selected writes Markdown to the clipboard.
-  const [pageSelected, setPageSelected] = useState(false);
-  useEffect(() => {
-    if (!pageSelected) return;
-    const onCopy = (e: ClipboardEvent) => {
-      e.preventDefault();
-      e.clipboardData?.setData(
-        "text/plain",
-        blocksToMarkdown(page?.title ?? "", blocksRef.current),
-      );
-    };
-    document.addEventListener("copy", onCopy);
-    return () => document.removeEventListener("copy", onCopy);
-  }, [pageSelected, page?.title]);
-  const onPageKeyDown = (e: ReactKeyboardEvent) => {
-    const mod = e.metaKey || e.ctrlKey;
-    if (mod && (e.key === "a" || e.key === "A")) {
-      const el = document.activeElement as HTMLTextAreaElement | null;
-      const inTextarea = el?.tagName === "TEXTAREA";
-      const fullySelected = inTextarea &&
-        el!.selectionStart === 0 && el!.selectionEnd === el!.value.length &&
-        el!.value.length > 0;
-      // first Ctrl+A selects the focused block (native); a second one selects the page
-      if (!inTextarea || fullySelected) {
-        e.preventDefault();
-        el?.blur();
-        document.getSelection()?.removeAllRanges();
-        setPageSelected(true);
-      }
-    } else if (e.key !== "Meta" && e.key !== "Control") {
-      setPageSelected(false); // any other key drops the whole-page selection
-    }
-  };
-  // live-refresh comments so watcher status (seen/answering) and agent replies appear
-  // without a reload; only swap state when the payload actually changed (keeps
-  // in-progress edits and avoids re-render churn), and pause when the tab is hidden.
-  useEffect(() => {
-    const tick = () => {
-      if (document.hidden) return;
-      listComments(pageId).then((next) =>
-        setComments((
-          prev,
-        ) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next))
-      ).catch(() => {});
-    };
-    const t = setInterval(tick, 5000);
-    return () => clearInterval(t);
-  }, [pageId]);
+  const presence = usePresence(pageId);
+  const cs = usePageComments(pageId);
+  const { comments, showResolved, commentMode, openThreads, focusThread, flash, commentOps, toggleThread } = cs;
   const [iconOpen, setIconOpen] = useState(false);
   const [colorOpen, setColorOpen] = useState(false);
-  const saveTimer = useRef<number | undefined>(undefined);
-  const savingRef = useRef(0); // in-flight updatePage calls
-  const blocksRef = useRef<Block[]>([]);
-
-  // live-refresh content written by others (agents via MCP, another tab). Never
-  // while the user is mid-edit — focused input/textarea, pending debounce, or
-  // in-flight save skips the tick, re-checked once the fetch resolves.
-  useEffect(() => {
-    const busy = () => {
-      if (saveTimer.current !== undefined || savingRef.current > 0) return true;
-      const tag = document.activeElement?.tagName;
-      return tag === "TEXTAREA" || tag === "INPUT";
-    };
-    const tick = () => {
-      if (document.hidden || busy()) return;
-      getPage(pageId).then((p) => {
-        if (busy()) return; // an edit started while the fetch was in flight
-        if (
-          p.content.length &&
-          JSON.stringify(p.content) !== JSON.stringify(blocksRef.current)
-        ) {
-          const { blocks: content, changed } = ensureIds(p.content);
-          setBlocks(content);
-          blocksRef.current = content;
-          if (changed) {
-            savingRef.current++;
-            updatePage(pageId, { content }).catch(() => {}).finally(() =>
-              savingRef.current--
-            );
-          }
-        }
-        setPage((
-          prev,
-        ) => (JSON.stringify(prev) === JSON.stringify(p) ? prev : p));
-      }).catch(() => {});
-    };
-    const t = setInterval(tick, 5000);
-    return () => clearInterval(t);
-  }, [pageId]);
-
-  const reload = () => getPage(pageId).then(setPage).catch(() => {});
-  const reloadComments = () =>
-    listComments(pageId).then(setComments).catch(() => {});
-  const commentOps: CommentOps = {
-    add: (blockId, anchor, body) =>
-      createComment({
-        page_id: pageId,
-        block_id: blockId,
-        anchor: anchor.slice(0, 300),
-        body,
-      }).then(reloadComments),
-    update: (id, patch) => updateComment(id, patch).then(reloadComments),
-    remove: (id) => deleteComment(id).then(reloadComments),
-  };
-  const setMode = (m: CommentMode) => {
-    if (m === commentMode) return;
-    setCommentMode(m);
-    setFocusThread(null);
-    // carry the open state across so switching doesn't hide what you were reading
-    if (m === "panel") {
-      if (openThreads.size > 0) setPanelOpen(true);
-      putOpenThreads(new Set());
-    } else {
-      if (panelOpen) {
-        putOpenThreads(
-          new Set(
-            comments.filter((c) => showResolved || !c.resolved).map((c) =>
-              c.block_id
-            ),
-          ),
-        );
-      }
-      setPanelOpen(false);
-    }
-  };
-  const toggleThread = (blockId: string) => {
-    const opening = !openThreads.has(blockId);
-    setFocusThread(opening ? blockId : null);
-    putOpenThreads((prev) => {
-      const next = new Set(prev);
-      if (opening) next.add(blockId);
-      else next.delete(blockId);
-      return next;
-    });
-  };
-  const flashBlock = (blockId: string) => {
-    document.querySelector(`[data-block-id="${CSS.escape(blockId)}"]`)
-      ?.scrollIntoView({ behavior: "smooth", block: "center" });
-    setFlash(blockId);
-    clearTimeout(flashTimer.current);
-    flashTimer.current = setTimeout(() => setFlash(null), 1400);
-  };
-  useEffect(() => {
-    setShowResolved(false);
-    setOpenThreads(loadOpenThreads(pageId)); // restore this page's expanded threads
-    setFocusThread(null);
-    getPage(pageId).then((p) => {
-      setPage(p);
-      setComments(p.comments ?? []);
-      const raw = p.content.length
-        ? p.content
-        : [{ type: "text", text: "", id: genId() } as Block];
-      // durable ids up front so a comment made before the next edit can't orphan
-      const { blocks: content, changed } = ensureIds(raw);
-      setBlocks(content);
-      blocksRef.current = content;
-      if (changed) {
-        savingRef.current++;
-        updatePage(pageId, { content }).catch(() => {}).finally(() =>
-          savingRef.current--
-        );
-      }
-    }).catch(() => {});
-    return () => {
-      // flush a pending debounce so fast page-switches don't lose the last edit
-      if (saveTimer.current !== undefined) {
-        clearTimeout(saveTimer.current);
-        updatePage(pageId, { content: blocksRef.current }).catch(() => {});
-      }
-    };
-  }, [pageId]);
-
-  const changeBlocks = (next: Block[]) => {
-    setBlocks(next);
-    blocksRef.current = next;
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      saveTimer.current = undefined;
-      savingRef.current++;
-      updatePage(pageId, { content: blocksRef.current }).catch(() => {})
-        .finally(() => savingRef.current--);
-    }, 800);
-  };
-
-  const patch = (p: Parameters<typeof updatePage>[1]) => {
-    savingRef.current++;
-    return updatePage(pageId, p).then(reload).then(onChanged)
-      .finally(() => savingRef.current--);
-  };
+  const { page, setPage, blocks, blocksRef, reload, changeBlocks, patch } = usePageAutosave(
+    pageId,
+    onChanged,
+    cs.setComments,
+  );
+  const { pageSelected, setPageSelected, onPageKeyDown } = usePageSelection(page?.title, blocksRef);
+  const focused = useFocusedBlock(blocks);
 
   const newSubpage = () =>
     createPage({ parent_id: pageId }).then((
@@ -442,31 +209,7 @@ export function Page(
   const childRow = (c: PageChild, hideTag: string | null = null) => (
     <PageRow key={c.id} c={c} hideTag={hideTag} live={liveAgentsAll} onOpen={onOpenPage} />
   );
-  const blockIds = new Set(
-    blocks.filter(isText).map((b) => b.id).filter(Boolean) as string[],
-  );
-  const orphans = comments.filter((c) => !blockIds.has(c.block_id));
-  const resolvedCount =
-    comments.filter((c) => c.resolved && blockIds.has(c.block_id)).length;
-  const openCount =
-    comments.filter((c) => !c.resolved && blockIds.has(c.block_id)).length;
-  const commentedIds = [
-    ...new Set(
-      comments.filter((c) =>
-        blockIds.has(c.block_id) && (showResolved || !c.resolved)
-      ).map((c) => c.block_id),
-    ),
-  ];
-  const allOpen = commentedIds.length > 0 &&
-    commentedIds.every((id) => openThreads.has(id));
-  // panel threads follow block order so the list reads like the page
-  const panelThreads = blocks.filter(isText).flatMap((b) => {
-    if (!b.id) return [];
-    const list = comments.filter((c) =>
-      c.block_id === b.id && (showResolved || !c.resolved)
-    );
-    return list.length ? [{ block: b, list }] : [];
-  });
+  const cv = commentView(cs, blocks);
 
   return (
     <div
@@ -718,77 +461,7 @@ export function Page(
             />
           )}
 
-          {(openCount > 0 || resolvedCount > 0) && (
-            <div className="-mb-2 flex items-center gap-3 self-start">
-              {commentMode === "inline"
-                ? (
-                  <button
-                    type="button"
-                    className="text-[11px] text-ink-muted/70 transition-colors hover:text-ink-soft"
-                    onClick={() => {
-                      setFocusThread(null);
-                      putOpenThreads(
-                        allOpen ? new Set() : new Set(commentedIds),
-                      );
-                    }}
-                  >
-                    {allOpen ? "Close" : "Open"} all {openCount}{" "}
-                    comment{openCount > 1 ? "s" : ""}
-                  </button>
-                )
-                : (
-                  <button
-                    type="button"
-                    className="text-[11px] text-ink-muted/70 transition-colors hover:text-ink-soft"
-                    onClick={() => setPanelOpen((v) => !v)}
-                  >
-                    {panelOpen ? "Hide" : "Show"} comments panel ({openCount})
-                  </button>
-                )}
-              {resolvedCount > 0 && (
-                <button
-                  type="button"
-                  className="text-[11px] text-ink-muted/70 transition-colors hover:text-ink-soft"
-                  onClick={() => {
-                    const next = !showResolved;
-                    setShowResolved(next);
-                    // inline mode: reveal AND expand the threads holding resolved notes
-                    if (next && commentMode === "inline") {
-                      setFocusThread(null);
-                      putOpenThreads((prev) => {
-                        const n = new Set(prev);
-                        for (const c of comments) {
-                          if (c.resolved && blockIds.has(c.block_id)) {
-                            n.add(c.block_id);
-                          }
-                        }
-                        return n;
-                      });
-                    }
-                  }}
-                >
-                  {showResolved ? "Hide" : "Show"} {resolvedCount}{" "}
-                  resolved comment{resolvedCount > 1 ? "s" : ""}
-                </button>
-              )}
-              <div className="flex overflow-hidden rounded-md border border-line-soft text-[10.5px]">
-                {(["inline", "panel"] as const).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    className={`px-2 py-0.5 capitalize transition-colors ${
-                      commentMode === m
-                        ? "bg-panel text-ink-soft"
-                        : "text-ink-muted/60 hover:text-ink-soft"
-                    }`}
-                    onClick={() => setMode(m)}
-                  >
-                    {m}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          <CommentsToolbar cv={cv} />
 
           <BlockEditor
             blocks={blocks}
@@ -868,30 +541,7 @@ export function Page(
             </div>
           )}
 
-          {orphans.length > 0 && (
-            <div className="flex flex-col gap-2 rounded-lg border border-line-soft bg-panel/30 p-3">
-              <span className={`${SECTION_LABEL}`}>
-                COMMENTS ON REMOVED TEXT
-              </span>
-              {orphans.map((c) => (
-                <div key={c.id} className="flex flex-col gap-1">
-                  {c.anchor && (
-                    <span className="truncate border-l-2 border-line pl-2 text-[11px] italic text-ink-muted/70">
-                      “{c.anchor}”
-                    </span>
-                  )}
-                  <CommentItem
-                    c={c}
-                    canEdit={Boolean(meId) && c.author_id === meId}
-                    onUpdate={(patch) =>
-                      commentOps.update(c.id, patch)}
-                    onDelete={() =>
-                      commentOps.remove(c.id)}
-                  />
-                </div>
-              ))}
-            </div>
-          )}
+          <OrphanComments cv={cv} meId={meId} />
 
           {page.databases.map((d) => (
             // breakout: attached databases use the pane's width (100cqw minus the
@@ -949,75 +599,7 @@ export function Page(
 
         </div>
       </div>
-      {commentMode === "panel" && panelOpen && (
-        <aside className="flex w-[320px] shrink-0 flex-col border-l border-line bg-sidebar">
-          <div className="flex items-center gap-2 border-b border-line-soft px-3.5 py-2.5">
-            <span className="text-[12px] font-semibold text-ink">Comments</span>
-            <span className="text-[10.5px] text-ink-muted">
-              {openCount} open
-            </span>
-            <span className="flex-1" />
-            {resolvedCount > 0 && (
-              <button
-                type="button"
-                className="text-[10.5px] text-ink-muted/70 transition-colors hover:text-ink-soft"
-                onClick={() => setShowResolved((v) => !v)}
-              >
-                {showResolved ? "hide" : "show"} resolved
-              </button>
-            )}
-            <button
-              type="button"
-              title="close"
-              className="text-[11px] text-ink-muted transition-colors hover:text-ink-soft"
-              onClick={() => setPanelOpen(false)}
-            >
-              ✕
-            </button>
-          </div>
-          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
-            {panelThreads.map(({ block, list }) => (
-              <div key={block.id} className="flex flex-col gap-1.5">
-                <button
-                  type="button"
-                  title="jump to text"
-                  className="truncate border-l-2 border-chipline pl-2 text-left text-[11px] italic text-ink-muted/70 transition-colors hover:text-ink-soft"
-                  onClick={() =>
-                    flashBlock(block.id as string)}
-                >
-                  “{block.text || "…"}”
-                </button>
-                {list.map((c) => {
-                  const q = anchorQuoteOf(c, block.text);
-                  return (
-                    <div key={c.id} className="flex flex-col gap-1">
-                      {q && <RowNote label={q.label} text={q.text} />}
-                      <CommentItem
-                        c={c}
-                        canEdit={Boolean(meId) && c.author_id === meId}
-                        answered={answeredIn(c, list)}
-                        onUpdate={(patch) =>
-                          commentOps.update(c.id, patch)}
-                        onDelete={() =>
-                          commentOps.remove(c.id)}
-                      />
-                    </div>
-                  );
-                })}
-                <AddNote
-                  onAdd={(body) =>
-                    commentOps.add(block.id as string, block.text, body)}
-                />
-              </div>
-            ))}
-            {panelThreads.length === 0 && (
-              <span className="px-1 text-[11px] text-ink-muted/60">
-                No comments
-              </span>
-            )}
-          </div>
-        </aside>
-      )}
+      <CommentsPanel cv={cv} meId={meId} />
     </div>
   );
 }
