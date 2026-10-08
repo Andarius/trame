@@ -240,7 +240,14 @@ export function Drawer(
 
   // shared pieces — composed differently by the side-panel and expanded (ticket) layouts
   const headerBar = (
-    <div className="flex items-center gap-2 px-4 pb-1 pt-3.5">
+    <div
+      className="flex items-center gap-2 px-4 pb-1 pt-3.5"
+      onDoubleClick={embedded ? undefined : (e) => {
+        if ((e.target as HTMLElement).closest("button")) return;
+        document.getSelection()?.removeAllRanges();
+        setExpanded((v) => !v);
+      }}
+    >
       <span className={sectionLbl}>SESSION</span>
       <span className="flex-1" />
       {session.repo_path && (

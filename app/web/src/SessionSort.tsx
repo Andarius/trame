@@ -9,17 +9,20 @@ export const SORT_FIELDS = {
 export type SortKey = keyof typeof SORT_FIELDS;
 export type Sort = { key: SortKey; dir: 1 | -1 };
 
+// the highest priority among tags like `p1` / `priority-p2`, lower is more urgent
+export function tagPriority(tags: string[]): number | null {
+  const priorities = tags.flatMap((tag) => {
+    const match = /^(?:(?:priority|priorite)-)?p(\d+)$/i.exec(tag);
+    return match ? [Number(match[1])] : [];
+  });
+  return priorities.length ? Math.min(...priorities) : null;
+}
+
 export function sortSessionBoard(board: BoardData, sort: Sort[]): BoardData {
   const byId = pagesById(board.pages);
   const value = (s: Session, key: SortKey): string | number | null => {
     switch (key) {
-      case "priority": {
-        const priorities = sessionTagKeys(s, byId).flatMap((tag) => {
-          const match = /^(?:(?:priority|priorite)-)?p(\d+)$/i.exec(tag);
-          return match ? [Number(match[1])] : [];
-        });
-        return priorities.length ? Math.min(...priorities) : null;
-      }
+      case "priority": return tagPriority(sessionTagKeys(s, byId));
       case "title": return s.title.toLowerCase();
       case "status": return board.statuses.findIndex((status) => status.key === s.status);
       case "location": {

@@ -45,6 +45,7 @@ import {
   pagesById,
   Popover,
   Select,
+  sessionTagKeys,
   StatusDot,
   statusStyle,
   storyOf,
@@ -91,6 +92,7 @@ import { TagEditor } from "./TagEditor";
 import { FRONTEND_PLUGINS, isMetadataMark } from "./plugins";
 import { markRoleOf } from "../../../core/mark-roles.ts";
 import { HtmlBlock } from "./HtmlBlock";
+import { tagPriority } from "./SessionSort";
 import { FinishedStrip, ProjectChildren, RepoChip, repoTitle, useFinishedCards } from "./project-page";
 
 // project chip palette (matches the client palette + a few extras)
@@ -247,6 +249,7 @@ export type CommentOps = {
 // "panel": threads live in a right-side panel; bubbles open a quick popover.
 type CommentMode = "inline" | "panel";
 const COMMENT_MODE_KEY = "trame-comment-mode";
+const STORY_ORDER_KEY = "trame-story-order";
 const PANEL_OPEN_KEY = "trame-comments-panel-open";
 // which inline threads are expanded — persisted per page so a refresh keeps them open
 const openKey = (pageId: string) => `trame-open-threads:${pageId}`;
@@ -2590,6 +2593,9 @@ export function Page(
   const [sessionFilter, setSessionFilter] = useState<"active" | "done">("active");
   const [showDoneCards, setShowDoneCards] = useState(false);
   const [unfoldedStories, setUnfoldedStories] = useState<Set<string>>(new Set());
+  const [storyOrder, setStoryOrder] = useState<"touched" | "priority">(
+    () => (localStorage.getItem(STORY_ORDER_KEY) === "priority" ? "priority" : "touched"),
+  );
   const [showArchivedDocs, setShowArchivedDocs] = useState(false);
   const [commentMode, setCommentMode] = useState<CommentMode>(
     () => (localStorage.getItem(COMMENT_MODE_KEY) === "panel"
@@ -2915,6 +2921,10 @@ export function Page(
     <div
       key={s.id}
       onClick={() => onOpenSession(s.id)}
+      onDoubleClick={() => {
+        document.getSelection()?.removeAllRanges();
+        onOpenSession(s.id, true);
+      }}
       className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-hover"
     >
       <StatusDot status={s.status} size={7} />
@@ -2929,6 +2939,7 @@ export function Page(
       {s.branch && (
         <span className="text-[10.5px] text-ink-muted">{s.branch}</span>
       )}
+      <TagChips keys={s.tags} />
       <span className="flex-1" />
       {!statusStyle(s.status).terminal && <StaleChip sessionId={s.id} prUrl={s.pr_url} />}
       <span className="text-[10px] text-ink-muted/70">
@@ -2980,6 +2991,10 @@ export function Page(
               key={story.id}
               onClick={() => onOpenSession(s.id)}
               title={s.title}
+              onDoubleClick={() => {
+                document.getSelection()?.removeAllRanges();
+                onOpenSession(s.id, true);
+              }}
               className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-hover"
             >
               <EntityIcon icon={story.icon} fallback={pageGlyph("story", story.mark_role)} className="text-[11px] text-ink-muted" />
@@ -3036,11 +3051,18 @@ export function Page(
   // a project lists its user stories with open cards first, those cards nested under them
   const openOf = (list: Session[]) => list.filter((s) => !statusStyle(s.status).terminal && !finished.has(s.id));
   const lastTouch = (list: Session[]) => list.reduce((m, s) => (s.last_touched > m ? s.last_touched : m), "");
+  // priority = the most urgent `pN` tag on a card (its story's tags included); untagged last
+  const prio = (list: Session[]) => tagPriority(list.flatMap((s) => sessionTagKeys(s, byId))) ?? Infinity;
+  const byPrio = (list: Session[]) =>
+    storyOrder === "priority" ? [...list].sort((a, b) => prio([a]) - prio([b])) : list;
   const inProgress = sessionsByStory
-    .map((g) => ({ ...g, open: openOf(g.list) }))
+    .map((g) => ({ ...g, open: byPrio(openOf(g.list)) }))
     .filter((g) => g.open.length > 0)
-    .sort((a, b) => lastTouch(b.open).localeCompare(lastTouch(a.open)));
-  const looseOpen = openOf(ungroupedSessions);
+    .sort((a, b) =>
+      (storyOrder === "priority" ? prio(a.open) - prio(b.open) : 0) ||
+      lastTouch(b.open).localeCompare(lastTouch(a.open))
+    );
+  const looseOpen = byPrio(openOf(ungroupedSessions));
   const storiesInSessions = new Set(inProgress.map(({ story }) => story.id));
   const FOLD = 3;
   const inProgressBlock = isProject && (
@@ -3049,6 +3071,18 @@ export function Page(
       {inProgress.length > 0 && (
         <span className="px-1.5 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
           IN PROGRESS <span className="font-normal text-ink-faint">· {inProgress.length}</span>
+          <button
+            type="button"
+            title="order stories by last activity or by priority tag (p1, p2…)"
+            onClick={() => {
+              const next = storyOrder === "priority" ? "touched" : "priority";
+              localStorage.setItem(STORY_ORDER_KEY, next);
+              setStoryOrder(next);
+            }}
+            className="ml-2 font-normal tracking-normal text-ink-faint hover:text-ink-soft"
+          >
+            {storyOrder === "priority" ? "by priority" : "by activity"}
+          </button>
         </span>
       )}
       {inProgress.map(({ story, list, open }) => {
@@ -3062,7 +3096,9 @@ export function Page(
               className="flex items-center gap-2 rounded-md px-1.5 py-1 text-left text-[13px] font-medium text-ink hover:bg-panel"
             >
               <EntityIcon icon={story.icon} fallback={pageGlyph("story", story.mark_role)} className="text-ink-muted" />
-              <span className="min-w-0 flex-1 truncate">{story.title || "Untitled"}</span>
+              <span className="min-w-0 truncate">{story.title || "Untitled"}</span>
+              <TagChips keys={story.tags} />
+              <span className="flex-1" />
               <div className="h-1 w-[60px] shrink-0 overflow-hidden rounded-full bg-line">
                 <div className="h-full rounded-full bg-active" style={{ width: `${(doneN / list.length) * 100}%` }} />
               </div>
