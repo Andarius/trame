@@ -846,10 +846,12 @@ export function MenuRow(
 // the green "live" / "data" pill shared by the html and folder blocks
 export const LIVE_PILL = "rounded-full border border-chip-active-border bg-chip-active-bg px-2 py-[1px] text-[10px] font-semibold text-active";
 
-// live-agent status dot: working = live, waiting = wait, off = faint
-export function PresenceDot({ state, className = "" }: { state: "working" | "waiting" | "off"; className?: string }) {
+// live-agent status dot: working = live, waiting = wait, off = faint; sm 6px, md 7px
+export function PresenceDot(
+  { state, size = "sm", className = "" }: { state: "working" | "waiting" | "off"; size?: "sm" | "md"; className?: string },
+) {
   const color = state === "working" ? "bg-live" : state === "waiting" ? "bg-wait" : "bg-ink-faint";
-  return <span className={`h-1.5 w-1.5 rounded-full ${color} ${className}`.trim()} />;
+  return <span className={`${size === "md" ? "h-[7px] w-[7px]" : "h-1.5 w-1.5"} rounded-full ${color} ${className}`.trim()} />;
 }
 
 // thin track with a filled share (0..1); className sets the track width, color the fill

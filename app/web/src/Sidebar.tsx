@@ -601,7 +601,7 @@ export function Sidebar(
             const n = live.filter((l) => l.state === st).length;
             return n > 0 && (
               <span key={st} className="inline-flex items-center gap-2">
-                <span className={`h-[7px] w-[7px] rounded-full ${st === "working" ? "bg-live" : "bg-wait"}`} />
+                <PresenceDot state={st} size="md" />
                 {n} {st === "working" ? "working" : "needs you"}
               </span>
             );
