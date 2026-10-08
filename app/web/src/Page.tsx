@@ -53,7 +53,8 @@ import {
   timeAgo,
   uuid7Time,
 } from "./ui";
-import { type ItemLink, LinkChip, Markdown, PageActivityChip, StaleChip } from "./md";
+import { type ItemLink, LinkChip, Markdown, PageActivityChip } from "./md";
+import { StaleChip } from "./chips";
 import { blocksToMarkdown } from "./page-serialize";
 
 // Stable block id so a comment survives edits/reorders of the surrounding text.

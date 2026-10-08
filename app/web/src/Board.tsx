@@ -27,7 +27,7 @@ import {
   storyOf,
   TagChips,
 } from "./ui";
-import { StaleChip } from "./md";
+import { StaleChip } from "./chips";
 import { FRONTEND_PLUGINS } from "./plugins";
 
 function TicketBody(

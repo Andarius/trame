@@ -24,7 +24,7 @@ import {
 import { appConfirm, clientColor, EntityIcon, ExpandIcon, FieldRow, pageOptions, Popover, Select, TagChips, timeAgo } from "./ui";
 import { AgentIcon, AgentsSummary, EventMeta, PresencePill, useAgents } from "./agents";
 import { summarizeAgents } from "./agent-summary";
-import { PrChip, RepoLink } from "./md";
+import { PrChip, RepoLink } from "./chips";
 import { SpecsEditor } from "./SpecsEditor";
 import { TagEditor } from "./TagEditor";
 

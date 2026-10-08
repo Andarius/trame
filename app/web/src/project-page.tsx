@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { type PageChild, type Session, setStatus } from "./api";
-import { getPrInfo } from "./md";
+import { getPrInfo } from "./chips";
 import { TagChips } from "./ui";
 
 export { repoTitle } from "./repo-title.ts";
