@@ -361,6 +361,8 @@ function mergeLines(cur: unknown, add: unknown): string {
 const OPEN_SESSION = `not deleted and status not in (select key from statuses where terminal and not deleted)`;
 
 // `out` receives a story_note when the story matched or resembles an existing one.
+const KEPT = ["title", "status", "client_id", "repo_path", "next_step", "pr_url", "summary"] as const;
+
 export async function upsertSession(ctx: Ctx, s: Record<string, unknown>, out?: StoryNote): Promise<string> {
   const explicitId = Boolean(s.id);
   if (s.tags !== undefined && (!Array.isArray(s.tags) ||
@@ -456,9 +458,11 @@ export async function upsertSession(ctx: Ctx, s: Record<string, unknown>, out?: 
   // A matched card accumulates branches and PRs; an explicit id (the drawer) sets pr_url
   // as given, so removing a PR there sticks.
   const cur = s.id
-    ? (await pg.query(`select branch, branches, pr_url from sessions where id=$1`, [s.id]))
-      .rows[0] as { branch: string | null; branches: string | null; pr_url: string | null } | undefined
+    ? (await pg.query(`select ${KEPT.join(",")}, branch, branches from sessions where id=$1`, [s.id]))
+      .rows[0] as Record<string, string | null> | undefined
     : undefined;
+  // a partial write (track --card) keeps what it omits; an explicit null still clears
+  if (cur) for (const k of KEPT) if (s[k] === undefined) s[k] = cur[k];
   if (cur && !explicitId) {
     s.branch ??= cur.branch;
     s.pr_url = mergeLines(cur.pr_url, s.pr_url) || null;

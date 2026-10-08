@@ -106,3 +106,15 @@ Deno.test("an exact-branch card wins over a plan; a done plan is never adopted",
   assertNotEquals(fresh, doneId, "a terminal card stays closed");
   assert(fresh);
 });
+
+// track --card sends no title: a partial write keeps the card's fields, null still clears
+Deno.test("partial write on a known card keeps omitted fields", async () => {
+  const id = await upsertSession(APP_CTX, {
+    title: "partial", repo_path: "/repo/partial", branch: "feat/p", next_step: "next", summary: "sum",
+  });
+  await upsertSession(APP_CTX, { id, status: "active", pr_url: null });
+  const pg = await db();
+  const r = (await pg.query(`select title, repo_path, next_step, summary, pr_url from sessions where id=$1`, [id]))
+    .rows[0];
+  assertEquals(r, { title: "partial", repo_path: "/repo/partial", next_step: "next", summary: "sum", pr_url: null });
+});
