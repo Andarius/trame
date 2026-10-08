@@ -21,7 +21,7 @@ import {
   getPage,
   updatePage,
 } from "./api";
-import { appConfirm, clientColor, EntityIcon, ExpandIcon, FieldRow, pageOptions, Popover, Select, TagChips, timeAgo } from "./ui";
+import { appConfirm, clientColor, EntityIcon, ExpandIcon, FIELD_LABEL, FieldRow, pageOptions, Popover, Select, TagChips, timeAgo } from "./ui";
 import { AgentIcon, AgentsSummary, EventMeta, PresencePill, useAgents } from "./agents";
 import { summarizeAgents } from "./agent-summary";
 import { PrChip, RepoLink } from "./chips";
@@ -40,7 +40,6 @@ const RESUME_DONE: Record<ResumeMode, string> = {
   existing: "sent to terminal",
 };
 
-const sectionLbl = "text-[10px] font-medium tracking-[0.8px] text-ink-muted/70";
 const rowLbl = "shrink-0 pt-[5px] text-[11px] text-ink-muted";
 
 const rowVal =
@@ -248,7 +247,7 @@ export function Drawer(
         setExpanded((v) => !v);
       }}
     >
-      <span className={sectionLbl}>SESSION</span>
+      <span className={FIELD_LABEL}>SESSION</span>
       <span className="flex-1" />
       {session.repo_path && (
         <span className="truncate font-mono text-[10px] text-ink-muted/70" title={session.repo_path}>
@@ -835,7 +834,7 @@ export function Drawer(
           </div>
           <div className="flex flex-col border-t border-line bg-panel min-[1000px]:min-h-0 min-[1000px]:w-[408px] min-[1000px]:border-l min-[1000px]:border-t-0">
             <div className="flex flex-col gap-3 border-b border-line px-4 py-4">
-              <span className={sectionLbl}>JOURNAL</span>
+              <span className={FIELD_LABEL}>JOURNAL</span>
               {resumeBlock}
               {nextBanner}
               {activityInput}
@@ -872,7 +871,7 @@ export function Drawer(
       </div>
 
       <div className="flex flex-1 flex-col gap-2.5 border-t border-line-soft px-4 py-3.5">
-        <span className={sectionLbl}>ACTIVITY</span>
+        <span className={FIELD_LABEL}>ACTIVITY</span>
         {activityInput}
         {renderFeed("border-sidebar")}
       </div>

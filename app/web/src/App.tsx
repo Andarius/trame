@@ -78,6 +78,7 @@ import {
   ExpandIcon,
   pageGlyph,
   Popover,
+  SECTION_LABEL,
   setStatuses,
   StatusDot,
   statusStyle,
@@ -750,7 +751,7 @@ function Sidebar(
         <LogoMark />
         <span className="text-[15px] font-semibold">Trame</span>
       </div>
-      <div className="px-2 pb-1.5 pt-0.5 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+      <div className={`px-2 pb-1.5 pt-0.5 ${SECTION_LABEL}`}>
         VIEWS
       </div>
       {NAV.map((item) => {
@@ -806,7 +807,7 @@ function Sidebar(
       })}
       {live.length > 0 && (
         <nav ref={runningRef} aria-label="Running agents" className="flex flex-col gap-0.5">
-          <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+          <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
             RUNNING
           </div>
           {live.map(({ a, state }) => {
@@ -842,7 +843,7 @@ function Sidebar(
       )}
       {due.length > 0 && (
         <nav aria-label="Due todos" className="flex flex-col gap-0.5">
-          <div className="flex items-center px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+          <div className={`flex items-center px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
             DUE
             <span
               className={`ml-auto rounded-full px-1.5 text-[10.5px] tracking-normal tabular-nums ${
@@ -884,7 +885,7 @@ function Sidebar(
         <>
           {/* a landmark, so the rows are addressable apart from STARRED's identical ones */}
           <nav aria-label="Recently modified" className="flex flex-col gap-1">
-          <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+          <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
             RECENTLY MODIFIED
           </div>
           {recents.slice(0, recentsOpen ? RECENTS_LONG : RECENTS_SHORT).map((row) => {
@@ -937,7 +938,7 @@ function Sidebar(
           pages shared in by other users, and unfiled pages (the inbox to triage) */}
       {[...starred].some((id) => byId.has(id)) && (
         <>
-          <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+          <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
             STARRED
           </div>
           {[...starred].flatMap((id) => byId.get(id) ?? []).map((p) => {
@@ -973,7 +974,7 @@ function Sidebar(
           })}
         </>
       )}
-      <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+      <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
         PROJECTS
       </div>
       {rootsOwn.normal.map(renderRoot)}
@@ -990,7 +991,7 @@ function Sidebar(
       <NewChip label="New project" indent={26} onClick={onNewProject} />
       {(childrenOf.get(null) ?? []).some((p) => isSharedIn(p, meId)) && (
         <>
-          <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+          <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
             SHARED WITH ME
           </div>
           {(childrenOf.get(null) ?? []).filter((p) => isSharedIn(p, meId)).map(
@@ -1017,7 +1018,7 @@ function Sidebar(
         </>
       )}
       <UnfiledZone>
-        <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+        <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
           UNFILED
         </div>
         {(childrenOf.get(null) ?? []).filter((p) =>
@@ -1048,7 +1049,7 @@ function Sidebar(
           <NewChip label="Import" indent={9} onClick={onImportPage} />
         </div>
       </UnfiledZone>
-      <div className="px-2 pb-1.5 pt-4 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+      <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
         DATABASES
       </div>
       {looseDbs.map((d) => {

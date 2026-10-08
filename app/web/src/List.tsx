@@ -3,6 +3,7 @@ import type { BoardData } from "./api.ts";
 import type { Sort, SortKey } from "./SessionSort";
 import {
   ClientChip,
+  dblOpen,
   EntityIcon,
   matchesSessionFilter,
   pageGlyph,
@@ -11,8 +12,8 @@ import {
   sessionAnchor,
   sessionTagKeys,
   shiftRange,
-  statusStyle,
   StatusDot,
+  statusStyle,
   storyOf,
   TagChips,
   timeAgo,
@@ -98,10 +99,7 @@ export function List(
           <div
             key={s.id}
             onClick={() => onOpen(s.id)}
-            onDoubleClick={() => {
-              document.getSelection()?.removeAllRanges();
-              onOpenFull?.(s.id);
-            }}
+            onDoubleClick={dblOpen(() => onOpenFull?.(s.id))}
             className={`${GRID} cursor-pointer border-b border-line-soft px-3 py-2.5 hover:bg-panel/60 ${
               selected?.has(s.id) ? "bg-copper/[0.06]" : ""
             }`}

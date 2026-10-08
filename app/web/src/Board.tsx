@@ -13,6 +13,7 @@ import { useRef, useState } from "react";
 import type { BoardData, Session, Status } from "./api.ts";
 import {
   ClientChip,
+  dblOpen,
   EntityIcon,
   matchesSessionFilter,
   ObjectiveChip,
@@ -22,8 +23,8 @@ import {
   sessionAnchor,
   sessionTagKeys,
   shiftRange,
-  statusStyle,
   StatusDot,
+  statusStyle,
   storyOf,
   TagChips,
 } from "./ui";
@@ -148,10 +149,7 @@ function DraggableTicket(
       {...listeners}
       {...attributes}
       onClick={() => onOpen(s.id)}
-      onDoubleClick={() => {
-        document.getSelection()?.removeAllRanges();
-        onOpenFull?.(s.id);
-      }}
+      onDoubleClick={dblOpen(() => onOpenFull?.(s.id))}
       className={`group relative cursor-pointer touch-none active:cursor-grabbing ${isDragging ? "opacity-30" : ""} ${
         selected ? "rounded-lg ring-1 ring-copper/60" : ""
       }`}

@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { type PageChild, type Session, setStatus } from "./api";
 import { getPrInfo } from "./chips";
-import { TagChips } from "./ui";
+import { SECTION_LABEL, TagChips } from "./ui";
 
 export { repoTitle } from "./repo-title.ts";
 
@@ -112,7 +112,7 @@ export function ProjectChildren(
         type="button"
         disabled={!toggle}
         onClick={toggle}
-        className="text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70 enabled:hover:text-ink-soft"
+        className={`${SECTION_LABEL} enabled:hover:text-ink-soft`}
       >
         {toggle ? (open ? "▾ " : "▸ ") : ""}
         {label.toUpperCase()} <span className="font-normal text-ink-faint">· {count}</span>

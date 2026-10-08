@@ -39,11 +39,13 @@ import {
 import {
   appConfirm,
   ClientChip,
+  dblOpen,
   EntityIcon,
   inSubtree,
   pageGlyph,
   pagesById,
   Popover,
+  SECTION_LABEL,
   Select,
   sessionTagKeys,
   StatusDot,
@@ -2925,10 +2927,7 @@ export function Page(
     <div
       key={s.id}
       onClick={() => onOpenSession(s.id)}
-      onDoubleClick={() => {
-        document.getSelection()?.removeAllRanges();
-        onOpenSession(s.id, true);
-      }}
+      onDoubleClick={dblOpen(() => onOpenSession(s.id, true))}
       className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-hover"
     >
       <StatusDot status={s.status} size={7} />
@@ -2974,7 +2973,7 @@ export function Page(
       }`}
     >
       <div className="flex items-center gap-1.5">
-        <span className="mr-1 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+        <span className={`mr-1 ${SECTION_LABEL}`}>
           SESSIONS
         </span>
         {sessionPill("active", "Active", sessions.length - done)}
@@ -2995,10 +2994,7 @@ export function Page(
               key={story.id}
               onClick={() => onOpenSession(s.id)}
               title={s.title}
-              onDoubleClick={() => {
-                document.getSelection()?.removeAllRanges();
-                onOpenSession(s.id, true);
-              }}
+              onDoubleClick={dblOpen(() => onOpenSession(s.id, true))}
               className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-hover"
             >
               <EntityIcon icon={story.icon} fallback={pageGlyph("story", story.mark_role)} className="text-[11px] text-ink-muted" />
@@ -3075,7 +3071,7 @@ export function Page(
       <FinishedStrip cards={finishedCards} onOpen={onOpenSession} />
       {(inProgress.length > 0 || cardQuery) && (
         <div className="flex items-center gap-3">
-          <span className="shrink-0 px-1.5 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+          <span className={`shrink-0 px-1.5 ${SECTION_LABEL}`}>
             IN PROGRESS <span className="font-normal text-ink-faint">· {inProgress.length}</span>
             <button
               type="button"
@@ -3136,7 +3132,7 @@ export function Page(
       })}
       {looseOpen.length > 0 && (
         <div className="flex flex-col">
-          <span className="mt-2 px-1.5 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+          <span className={`mt-2 px-1.5 ${SECTION_LABEL}`}>
             NO USER STORY <span className="font-normal text-ink-faint">· {looseOpen.length}</span>
           </span>
           <div className="ml-[22px] flex flex-col pl-2">{looseOpen.map(sessionRow)}</div>
@@ -3218,7 +3214,7 @@ export function Page(
           }`}
         >
           {isStory && (
-            <span className="-mb-3 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+            <span className={`-mb-3 ${SECTION_LABEL}`}>
               {markRoleOf(page.content ?? []) === "ticket" ? "TICKET" : "USER STORY"}
             </span>
           )}
@@ -3558,7 +3554,7 @@ export function Page(
           {!isStory && !isProject && sessions.length > 0 && sessionsPanel(true)}
           {isStory && subtreeSessions.length > 0 && (
             <div className="flex flex-col gap-0.5 border-b border-line-soft pb-3">
-              <span className="mb-1 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">CARDS</span>
+              <span className={`mb-1 ${SECTION_LABEL}`}>CARDS</span>
               {/* open cards first; done ones fold behind a toggle so a long-lived story stays readable */}
               {[
                 ...subtreeSessions.filter((s) => !statusStyle(s.status).terminal),
@@ -3715,7 +3711,7 @@ export function Page(
                 className="w-[440px] rounded-xl border border-line bg-panel-modal p-3 shadow-2xl shadow-black/50"
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="mb-1.5 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+                <div className={`mb-1.5 ${SECTION_LABEL}`}>
                   LINK TO SESSION
                 </div>
                 <div
@@ -3767,7 +3763,7 @@ export function Page(
 
           {orphans.length > 0 && (
             <div className="flex flex-col gap-2 rounded-lg border border-line-soft bg-panel/30 p-3">
-              <span className="text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+              <span className={`${SECTION_LABEL}`}>
                 COMMENTS ON REMOVED TEXT
               </span>
               {orphans.map((c) => (
@@ -3811,7 +3807,7 @@ export function Page(
 
           <div className="flex flex-col gap-0.5">
             {isStory && page.children.some((c) => !specIds.has(c.id)) && (
-              <span className="mb-1 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">DOCUMENTS</span>
+              <span className={`mb-1 ${SECTION_LABEL}`}>DOCUMENTS</span>
             )}
             {isProject
               ? <ProjectChildren pages={page.children} shown={storiesInSessions} row={childRow} top={inProgressBlock} />

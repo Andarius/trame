@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { type BoardData, updatePage } from "./api";
-import { clientColor, EntityIcon, inSubtree, pagesById, projectOf, statusStyle, StatusDot, storyOf, timeAgo } from "./ui";
+import { clientColor, EntityIcon, FIELD_LABEL, inSubtree, pagesById, projectOf, StatusDot, statusStyle, storyOf, timeAgo } from "./ui";
 import { IconPicker } from "./udb/cells";
 
 // Overview for one client: its projects (each openable) with progress, plus any
@@ -27,7 +27,7 @@ export function ClientView(
   const loose = mine.filter((s) => !storyIds.has(storyOf(s, byId)?.id ?? ""));
   const totalSessions = mine.length;
 
-  const sectionLbl = "px-0.5 pb-1 pt-1 text-[10px] font-medium tracking-[0.8px] text-ink-muted/70";
+  const sectionLbl = `px-0.5 pb-1 pt-1 ${FIELD_LABEL}`;
   const sessionRow = (s: (typeof board.sessions)[number]) => (
     <button type="button"
       key={s.id}

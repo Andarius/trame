@@ -12,8 +12,7 @@ import {
 import { BlockEditor, genId } from "./Page";
 import { useBlockDoc } from "./useBlockDoc";
 import { useFocusedBlock } from "./due";
-
-const sectionLbl = "text-[10px] font-medium tracking-[0.8px] text-ink-muted/70";
+import { FIELD_LABEL } from "./ui";
 
 export function SpecsEditor(
   { sessionId, specsPageId, onLinked, onOpenPage }: {
@@ -55,7 +54,7 @@ export function SpecsEditor(
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
-        <span className={sectionLbl}>SPECS</span>
+        <span className={FIELD_LABEL}>SPECS</span>
         <span className="flex-1" />
       </div>
       {pageId

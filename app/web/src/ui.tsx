@@ -692,6 +692,16 @@ const tagTint = (color: string): CSSProperties => ({
   background: `color-mix(in srgb, ${color} var(--tag-tint, 16%), transparent)`,
   color: `color-mix(in srgb, ${color} calc(100% - var(--tag-shade, 30%)), var(--color-ink, currentColor))`,
 });
+// double-click opens: drop the word the double-click just selected, then open
+export const dblOpen = (open: () => void) => () => {
+  document.getSelection()?.removeAllRanges();
+  open();
+};
+
+// uppercase section headings ("IN PROGRESS", "CARDS"); the small one labels fields
+export const SECTION_LABEL = "text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70";
+export const FIELD_LABEL = "text-[10px] font-medium tracking-[0.8px] text-ink-muted/70";
+
 export function TagChips({ keys, onClick }: { keys?: string[]; onClick?: (key: string) => void }) {
   const [vocab, setVocab] = useState<Map<string, Tag> | null>(null);
   useEffect(() => {
