@@ -13,7 +13,7 @@ import {
   patchSettings,
   type ReportMeta,
 } from "./api";
-import { SET_CODEC, useLocalStorage, appConfirm, ClientChip, Popover, timeAgo } from "./ui";
+import { MenuRow, SET_CODEC, useLocalStorage, appConfirm, ClientChip, Popover, timeAgo } from "./ui";
 import { excalidrawToHtml } from "./excalidraw";
 
 type Selected = {
@@ -423,20 +423,18 @@ export function Explore(
                   FILE TYPE
                 </div>
                 {([["both", "All types"], ["html", "HTML"], ["excalidraw", "Excalidraw"]] as const).map(([v, label]) => (
-                  <button
-                    type="button"
+                  <MenuRow
+                    dense
                     key={v}
                     onClick={() => {
                       setKindFilter(v);
                       setKindMenu(false);
                     }}
-                    className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-panel ${
-                      kindFilter === v ? "text-ink" : "text-ink-soft"
-                    }`}
+                    active={kindFilter === v}
                   >
                     <span className="flex-1">{label}</span>
                     {kindFilter === v && <span className="text-[11px] text-copper">✓</span>}
-                  </button>
+                  </MenuRow>
                 ))}
               </Popover>
             )}

@@ -71,7 +71,7 @@ import { Palette } from "./Palette";
 import { ShareModal } from "./ShareModal";
 import { confirmDeletePage, Page } from "./Page";
 import { ClientView } from "./ClientView";
-import { BOOL_CODEC, SET_CODEC, useLocalStorage, appConfirm, ConfirmHost, EntityIcon, ExpandIcon, pageGlyph, Popover, SECTION_LABEL, setStatuses, StatusDot, statusStyle, timeAgo, IconButton } from "./ui";
+import { MenuRow, BOOL_CODEC, SET_CODEC, useLocalStorage, appConfirm, ConfirmHost, EntityIcon, ExpandIcon, pageGlyph, Popover, SECTION_LABEL, setStatuses, StatusDot, statusStyle, timeAgo, IconButton } from "./ui";
 import { FRONTEND_PLUGINS } from "./plugins";
 import { PluginsModal } from "./plugins/PluginsModal";
 import { PluginSettingsModal } from "./plugins/PluginSettingsModal";
@@ -2149,23 +2149,21 @@ export function App() {
                     {([["none", "None", null], ["story", "User story", "◇"], ["project", "Project", "◎"]] as const).map((
                       [v, label, glyph],
                     ) => (
-                      <button
-                        type="button"
+                      <MenuRow
+                        dense
                         key={v}
                         onClick={() => {
                           setGroup(v);
                           setGroupMenu(false);
                         }}
-                        className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-panel ${
-                          group === v ? "text-ink" : "text-ink-soft"
-                        }`}
+                        active={group === v}
                       >
                         {glyph && <EntityIcon icon={null} fallback={glyph} className="text-ink-muted" />}
                         <span className="flex-1">{label}</span>
                         {group === v && (
                           <span className="text-[11px] text-copper">✓</span>
                         )}
-                      </button>
+                      </MenuRow>
                     ))}
                   </Popover>
                 )}
@@ -2206,11 +2204,7 @@ export function App() {
                     onClose={() => setColMenu(false)}
                     className="w-[264px]"
                   >
-                    <button
-                      type="button"
-                      onClick={() => setHideEmpty((v) => !v)}
-                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-ink-soft hover:bg-panel"
-                    >
+                    <MenuRow onClick={() => setHideEmpty((v) => !v)}>
                       <span
                         className={`flex h-3.5 w-3.5 items-center justify-center rounded border text-[9px] ${
                           hideEmpty
@@ -2221,7 +2215,7 @@ export function App() {
                         {hideEmpty ? "✓" : ""}
                       </span>
                       <span className="flex-1">Hide empty statuses</span>
-                    </button>
+                    </MenuRow>
                     <StatusManager
                       statuses={board?.statuses ?? []}
                       onChanged={refresh}

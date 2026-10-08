@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { BoardData } from "./api";
 import { parseQuery, QUERY_SYNTAX } from "./query";
 import { SessionSort, type Sort, SORT_FIELDS } from "./SessionSort";
-import { EntityIcon, pageGlyph, Popover, TagChips, IconButton } from "./ui";
+import { EntityIcon, MenuRow, pageGlyph, Popover, TagChips, IconButton } from "./ui";
 
 type Pages = BoardData["pages"];
 
@@ -31,7 +31,6 @@ function Check({ on }: { on: boolean }) {
   );
 }
 
-const menuRow = "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-ink-soft hover:bg-panel";
 const menuHead = "px-2 pb-1 pt-1.5 text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70";
 
 // autocomplete over stories/projects (empty query: projects then stories)
@@ -76,15 +75,15 @@ function StoryPicker({ pages, filter, onToggle }: { pages: Pages; filter: string
         }}
       />
       {hits.map((p, i) => (
-        <button
+        <MenuRow
           key={p.id}
-          type="button"
           onClick={() => pick(p.id)}
-          className={`${menuRow} ${i === sel ? "bg-panel text-ink" : ""}`}
+          active={i === sel}
+          className={i === sel ? "bg-panel" : ""}
         >
           <EntityIcon icon={p.icon} fallback={pageGlyph(p.kind, p.mark_role)} className="shrink-0 text-[10px]" />
           <span className="truncate">{p.title}</span>
-        </button>
+        </MenuRow>
       ))}
     </>
   );
@@ -115,15 +114,15 @@ function FilterMenu(
       {open && (
         <Popover onClose={() => setOpen(false)} className="w-[260px]">
           <div className={menuHead}>PRESETS</div>
-          <button type="button" onClick={onNoSpecs} className={menuRow}>
+          <MenuRow onClick={onNoSpecs}>
             <Check on={noSpecs} /> No specs
-          </button>
+          </MenuRow>
           {PRESETS.map(([label, term]) => (
-            <button key={term} type="button" onClick={() => onQuery(toggleTerm(query, term))} className={menuRow}>
+            <MenuRow key={term} onClick={() => onQuery(toggleTerm(query, term))}>
               <Check on={terms.includes(term)} />
               <span className="flex-1">{label}</span>
               <span className="font-mono text-[10.5px] text-ink-muted/60">{term}</span>
-            </button>
+            </MenuRow>
           ))}
           <div className={menuHead}>STORY / PROJECT</div>
           <StoryPicker pages={pages} filter={filter} onToggle={onToggle} />

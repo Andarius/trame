@@ -22,7 +22,7 @@ import {
   type PageEvent,
   type SessionEvent,
 } from "./api";
-import { Modal, Popover, statusStyle, timeAgo, IconButton } from "./ui";
+import { MenuRow, Modal, Popover, statusStyle, timeAgo, IconButton } from "./ui";
 import { DuePill } from "./due";
 import { isMetadataMark } from "./plugins";
 import { EventMeta, PresencePill } from "./agents";
@@ -623,11 +623,9 @@ function ItemMenu({ actions }: { actions: { label: string; icon: string; run: ()
         <Popover onClose={() => setOpen(false)} className="min-w-[160px]" style={{ left: "auto", right: 0 }}>
           <div role="menu">
             {actions.map((a) => (
-              <button
+              <MenuRow dense
                 key={a.label}
-                type="button"
                 role="menuitem"
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-ink-soft hover:bg-panel"
                 onClick={() => {
                   setOpen(false);
                   a.run();
@@ -635,7 +633,7 @@ function ItemMenu({ actions }: { actions: { label: string; icon: string; run: ()
               >
                 <span className="w-4 text-center text-[11px]">{a.icon}</span>
                 <span className="flex-1 truncate">{a.label}</span>
-              </button>
+              </MenuRow>
             ))}
           </div>
         </Popover>

@@ -326,13 +326,12 @@ export function Select(
           )}
           <div className="max-h-56 overflow-y-auto">
             {shown.map((o, i) => (
-              <button
+              <MenuRow
                 key={o.value}
-                type="button"
+                dense
                 ref={searchable && i === hi ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
-                className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-ink-soft hover:bg-panel ${
-                  searchable && i === hi ? "bg-copper/10 text-ink" : ""
-                }`}
+                active={searchable && i === hi}
+                className={searchable && i === hi ? "bg-copper/10" : ""}
                 onMouseDown={(e) => e.preventDefault()} // keep focus in the search box
                 onClick={() => pick(o.value)}
               >
@@ -344,7 +343,7 @@ export function Select(
                   </span>
                 )}
                 {o.value === value && <span className="text-[10px] text-copper">✓</span>}
-              </button>
+              </MenuRow>
             ))}
             {!shown.length && <div className="px-2 py-1 text-xs text-ink-muted/70">No match</div>}
           </div>
@@ -785,4 +784,19 @@ export function useLocalStorage<T>(key: string, init: T, codec: Codec<T>) {
     } catch { /* storage blocked */ }
   }, [key, value]);
   return [value, setValue] as const;
+}
+
+// full-width row of a popover menu; active reads as selected (ink text), className adds the rest
+export function MenuRow(
+  { dense, active, className = "", ...props }: { dense?: boolean; active?: boolean } & ComponentProps<"button">,
+) {
+  return (
+    <button
+      type="button"
+      {...props}
+      className={`flex w-full items-center gap-2 rounded-md px-2 ${dense ? "py-1" : "py-1.5"} text-left text-xs hover:bg-panel ${
+        active ? "text-ink" : "text-ink-soft"
+      } ${className}`.trim()}
+    />
+  );
 }
