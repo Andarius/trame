@@ -723,6 +723,8 @@ export function SegToggle<T extends string>({ options, value, onChange }: {
 
 // uppercase section headings ("IN PROGRESS", "CARDS"); the small one labels fields
 export const SECTION_LABEL = "text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70";
+// the 9.5px variant heading popover menu groups
+export const MENU_LABEL = "text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70";
 export const FIELD_LABEL = "text-[10px] font-medium tracking-[0.8px] text-ink-muted/70";
 
 export function TagChips({ keys, onClick }: { keys?: string[]; onClick?: (key: string) => void }) {

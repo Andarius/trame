@@ -3,6 +3,7 @@
 // immediately; field edits are saved by the plugin's own Settings component.
 import { useEffect, useState } from "react";
 import { getPlugins, type PluginManifest, setPluginEnabled } from "../api";
+import { label } from "../modal-ui";
 import { FRONTEND_PLUGINS } from "./index";
 
 export function Toggle(
@@ -63,7 +64,7 @@ export function PluginsModal({ onClose }: { onClose: () => void }) {
       >
         <div className="flex min-h-0 flex-1">
           <div className="w-[190px] shrink-0 border-r border-line bg-sidebar px-2.5 py-3.5">
-            <div className="px-2 pb-2 text-[10px] font-medium tracking-[0.8px] text-ink-muted/80">
+            <div className={`px-2 pb-2 ${label}`}>
               PLUGINS
             </div>
             {plugins.map((p) => (

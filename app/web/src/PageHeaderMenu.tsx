@@ -1,5 +1,6 @@
 import { getPage, type PageDetail, pageToSession, pageToStory, type updatePage } from "./api";
 import { appConfirm, EntityIcon, MenuRow, Popover, timeAgo, uuid7Time, IconButton } from "./ui";
+import { label } from "./modal-ui";
 import { TagEditor } from "./TagEditor";
 
 export function PageHeaderMenu(
@@ -149,7 +150,7 @@ export function MarkdownPanel(
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-medium tracking-[0.8px] text-ink-muted/80">
+              <span className={label}>
                 MARKDOWN
               </span>
               <span className="flex-1" />

@@ -1,7 +1,7 @@
 import type { StatusDef } from "./api";
 import { GroupIcon } from "./icons";
 import { StatusManager } from "./StatusManager";
-import { EntityIcon, MenuRow, Popover } from "./ui";
+import { EntityIcon, MENU_LABEL, MenuRow, Popover } from "./ui";
 import { useState } from "react";
 import type { View } from "./view";
 
@@ -46,7 +46,7 @@ export function BoardToolbar(
           </button>
           {groupMenu && (
             <Popover onClose={() => setGroupMenu(false)} className="w-40">
-              <div className="px-2 pb-1 pt-1 text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+              <div className={`px-2 pb-1 pt-1 ${MENU_LABEL}`}>
                 GROUP BY
               </div>
               {([["none", "None", null], ["story", "User story", "◇"], ["project", "Project", "◎"]] as const).map((

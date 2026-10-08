@@ -6,7 +6,7 @@ import {
   type StatusDef,
   updateStatus,
 } from "./api";
-import { appConfirm, IconButton } from "./ui";
+import { appConfirm, IconButton, MENU_LABEL } from "./ui";
 
 const STATUS_PALETTE = [
   "#7bd88f",
@@ -34,7 +34,7 @@ export function StatusManager(
   };
   return (
     <div className="mt-1 border-t border-line-soft pt-1.5">
-      <div className="px-2 pb-1 text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+      <div className={`px-2 pb-1 ${MENU_LABEL}`}>
         STATUSES
       </div>
       {statuses.map((s, i) => (

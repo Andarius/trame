@@ -13,7 +13,7 @@ import {
   patchSettings,
   type ReportMeta,
 } from "./api";
-import { MenuRow, SET_CODEC, useLocalStorage, appConfirm, ClientChip, Popover, timeAgo, EmptyState } from "./ui";
+import { MENU_LABEL, MenuRow, SET_CODEC, useLocalStorage, appConfirm, ClientChip, Popover, timeAgo, EmptyState } from "./ui";
 import { excalidrawToHtml } from "./excalidraw";
 
 type Selected = {
@@ -419,7 +419,7 @@ export function Explore(
             </button>
             {kindMenu && (
               <Popover onClose={() => setKindMenu(false)} className="w-36">
-                <div className="px-2 pb-1 pt-1 text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+                <div className={`px-2 pb-1 pt-1 ${MENU_LABEL}`}>
                   FILE TYPE
                 </div>
                 {([["both", "All types"], ["html", "HTML"], ["excalidraw", "Excalidraw"]] as const).map(([v, label]) => (

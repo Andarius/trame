@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { BoardData } from "./api";
 import { parseQuery, QUERY_SYNTAX } from "./query";
 import { SessionSort, type Sort, SORT_FIELDS } from "./SessionSort";
-import { EntityIcon, MenuRow, pageGlyph, Popover, TagChips, IconButton } from "./ui";
+import { EntityIcon, MENU_LABEL, MenuRow, pageGlyph, Popover, TagChips, IconButton } from "./ui";
 
 type Pages = BoardData["pages"];
 
@@ -31,7 +31,7 @@ function Check({ on }: { on: boolean }) {
   );
 }
 
-const menuHead = "px-2 pb-1 pt-1.5 text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70";
+const menuHead = `px-2 pb-1 pt-1.5 ${MENU_LABEL}`;
 
 // autocomplete over stories/projects (empty query: projects then stories)
 function StoryPicker({ pages, filter, onToggle }: { pages: Pages; filter: string[]; onToggle: (id: string) => void }) {
