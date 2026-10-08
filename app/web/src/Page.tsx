@@ -38,7 +38,7 @@ import {
   statusStyle,
   storyOf,
 } from "./ui";
-import { PageActivityChip } from "./md";
+import { PageActivityChip } from "./md-activity";
 import { blocksToMarkdown } from "./page-serialize";
 import { IconPicker } from "./udb/cells";
 import { useFocusedBlock } from "./due";

@@ -1,7 +1,8 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { type Block, openInBrowser, type PageComment, type SessionLink, uploadAsset } from "./api";
 import { Popover, statusStyle } from "./ui";
-import { LinkChip, Markdown } from "./md";
+import { Markdown } from "./md";
+import { LinkChip } from "./md-activity";
 import type { ItemLink } from "./md-types";
 import {
   normalizeMarks,
