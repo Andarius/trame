@@ -46,6 +46,7 @@ export async function listPages(ctx: Ctx) {
 }
 
 export async function getPage(ctx: Ctx, id: string) {
+  if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(id)) return null; // a stray `null` / slug id is a 404, not a pg cast error
   const pg = ctx.q;
   const page =
     (await pg.query(`select * from pages where id=$1 and not deleted`, [id]))

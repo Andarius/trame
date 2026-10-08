@@ -68,3 +68,9 @@ Deno.test("movePage leaves a plain page's client_id alone", async () => {
   assertEquals(page.parent_id, b);
   assertEquals(page.client_id, a);
 });
+
+// a client sending `?page=null` must get a 404, not a uuid cast error
+Deno.test("getPage on a non-uuid id is not found", async () => {
+  const { getPage } = await import("../core/pages.ts");
+  assertEquals(await getPage(APP_CTX, "null"), null);
+});

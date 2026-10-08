@@ -93,6 +93,8 @@ import { FRONTEND_PLUGINS, isMetadataMark } from "./plugins";
 import { markRoleOf } from "../../../core/mark-roles.ts";
 import { HtmlBlock } from "./HtmlBlock";
 import { tagPriority } from "./SessionSort";
+import { QueryBox } from "./SessionBar";
+import { filterSessions } from "./query";
 import { FinishedStrip, ProjectChildren, RepoChip, repoTitle, useFinishedCards } from "./project-page";
 
 // project chip palette (matches the client palette + a few extras)
@@ -2593,6 +2595,7 @@ export function Page(
   const [sessionFilter, setSessionFilter] = useState<"active" | "done">("active");
   const [showDoneCards, setShowDoneCards] = useState(false);
   const [unfoldedStories, setUnfoldedStories] = useState<Set<string>>(new Set());
+  const [cardQuery, setCardQuery] = useState("");
   const [storyOrder, setStoryOrder] = useState<"touched" | "priority">(
     () => (localStorage.getItem(STORY_ORDER_KEY) === "priority" ? "priority" : "touched"),
   );
@@ -3049,7 +3052,8 @@ export function Page(
     </div>
   );
   // a project lists its user stories with open cards first, those cards nested under them
-  const openOf = (list: Session[]) => list.filter((s) => !statusStyle(s.status).terminal && !finished.has(s.id));
+  const openOf = (list: Session[]) =>
+    filterSessions(list.filter((s) => !statusStyle(s.status).terminal && !finished.has(s.id)), board, cardQuery);
   const lastTouch = (list: Session[]) => list.reduce((m, s) => (s.last_touched > m ? s.last_touched : m), "");
   // priority = the most urgent `pN` tag on a card (its story's tags included); untagged last
   const prio = (list: Session[]) => tagPriority(list.flatMap((s) => sessionTagKeys(s, byId))) ?? Infinity;
@@ -3068,22 +3072,25 @@ export function Page(
   const inProgressBlock = isProject && (
     <>
       <FinishedStrip cards={finishedCards} onOpen={onOpenSession} />
-      {inProgress.length > 0 && (
-        <span className="px-1.5 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
-          IN PROGRESS <span className="font-normal text-ink-faint">· {inProgress.length}</span>
-          <button
-            type="button"
-            title="order stories by last activity or by priority tag (p1, p2…)"
-            onClick={() => {
-              const next = storyOrder === "priority" ? "touched" : "priority";
-              localStorage.setItem(STORY_ORDER_KEY, next);
-              setStoryOrder(next);
-            }}
-            className="ml-2 font-normal tracking-normal text-ink-faint hover:text-ink-soft"
-          >
-            {storyOrder === "priority" ? "by priority" : "by activity"}
-          </button>
-        </span>
+      {(inProgress.length > 0 || cardQuery) && (
+        <div className="flex items-center gap-3">
+          <span className="shrink-0 px-1.5 text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70">
+            IN PROGRESS <span className="font-normal text-ink-faint">· {inProgress.length}</span>
+            <button
+              type="button"
+              title="order stories by last activity or by priority tag (p1, p2…)"
+              onClick={() => {
+                const next = storyOrder === "priority" ? "touched" : "priority";
+                localStorage.setItem(STORY_ORDER_KEY, next);
+                setStoryOrder(next);
+              }}
+              className="ml-2 font-normal tracking-normal text-ink-faint hover:text-ink-soft"
+            >
+              {storyOrder === "priority" ? "by priority" : "by activity"}
+            </button>
+          </span>
+          <QueryBox query={cardQuery} onQuery={setCardQuery} onClear={() => setCardQuery("")} />
+        </div>
       )}
       {inProgress.map(({ story, list, open }) => {
         const doneN = list.filter((s) => statusStyle(s.status).terminal).length;

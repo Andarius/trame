@@ -157,13 +157,14 @@ function SortMenu({ sort, onChange }: { sort: Sort[]; onChange: (sort: Sort[]) =
 }
 
 // active story/tag chips and the gh-style query share one field; "/" focuses it
-function QueryBox(
-  { pages, filter, onToggle, noSpecs, onNoSpecs, query, onQuery, onClear }: {
-    pages: Pages;
-    filter: string[];
-    onToggle: (id: string) => void;
-    noSpecs: boolean;
-    onNoSpecs: () => void;
+// story/tag chips are the Sessions board's; elsewhere the box is the query alone
+export function QueryBox(
+  { pages = [], filter = [], onToggle = () => {}, noSpecs = false, onNoSpecs = () => {}, query, onQuery, onClear }: {
+    pages?: Pages;
+    filter?: string[];
+    onToggle?: (id: string) => void;
+    noSpecs?: boolean;
+    onNoSpecs?: () => void;
     query: string;
     onQuery: (q: string) => void;
     onClear: () => void;
