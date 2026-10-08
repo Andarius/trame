@@ -41,18 +41,17 @@ import {
   NewUdbModal,
   SettingsModal,
 } from "./modals";
-import { GroupIcon } from "./icons";
+import { BoardToolbar } from "./BoardToolbar";
 import { Palette } from "./Palette";
 import { useAgentsPoll, useSelection, useStarred, useSync } from "./app-hooks";
 import { SelectionBar, UpdateBanner } from "./UpdateBanner";
 import { Sidebar } from "./Sidebar";
 import type { View } from "./view";
 import { type TreeCards, TreeCardsCtx } from "./sidebar-tree";
-import { StatusManager } from "./StatusManager";
 import { ShareModal } from "./ShareModal";
 import { confirmDeletePage, Page } from "./Page";
 import { ClientView } from "./ClientView";
-import { MenuRow, BOOL_CODEC, useLocalStorage, appConfirm, ConfirmHost, EntityIcon, ExpandIcon, Popover, setStatuses, statusStyle } from "./ui";
+import { BOOL_CODEC, useLocalStorage, appConfirm, ConfirmHost, EntityIcon, ExpandIcon, setStatuses, statusStyle } from "./ui";
 import { FRONTEND_PLUGINS } from "./plugins";
 import { PluginsModal } from "./plugins/PluginsModal";
 import { PluginSettingsModal } from "./plugins/PluginSettingsModal";
@@ -93,8 +92,6 @@ export function App() {
       ? "project"
       : "none";
   });
-  const [groupMenu, setGroupMenu] = useState(false);
-  const [colMenu, setColMenu] = useState(false);
   const [storyFilter, setStoryFilter] = useState<string[]>(
     params.get("story")?.split(",").filter(Boolean) ?? [],
   );
@@ -836,109 +833,17 @@ export function App() {
               sort={sessionSort}
               onSort={setSessionSort}
             >
-            {view === "board" && (
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setGroupMenu((o) => !o)}
-                  title="Group the board"
-                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] ${
-                    group !== "none"
-                      ? "border-copper/50 text-copper"
-                      : "border-line text-ink-muted hover:text-ink-soft"
-                  }`}
-                >
-                  <GroupIcon />
-                  {group === "none"
-                    ? "Group"
-                    : group === "story"
-                    ? "User story"
-                    : "Project"}
-                  <span className="text-[8px]">▾</span>
-                </button>
-                {groupMenu && (
-                  <Popover onClose={() => setGroupMenu(false)} className="w-40">
-                    <div className="px-2 pb-1 pt-1 text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70">
-                      GROUP BY
-                    </div>
-                    {([["none", "None", null], ["story", "User story", "◇"], ["project", "Project", "◎"]] as const).map((
-                      [v, label, glyph],
-                    ) => (
-                      <MenuRow
-                        dense
-                        key={v}
-                        onClick={() => {
-                          setGroup(v);
-                          setGroupMenu(false);
-                        }}
-                        active={group === v}
-                      >
-                        {glyph && <EntityIcon icon={null} fallback={glyph} className="text-ink-muted" />}
-                        <span className="flex-1">{label}</span>
-                        {group === v && (
-                          <span className="text-[11px] text-copper">✓</span>
-                        )}
-                      </MenuRow>
-                    ))}
-                  </Popover>
-                )}
-              </div>
-            )}
-            {view === "board" && (
-              <button
-                type="button"
-                onClick={() => setDense((v) => !v)}
-                title="One line per card"
-                aria-pressed={dense}
-                className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] ${
-                  dense ? "border-copper/50 text-copper" : "border-line text-ink-muted hover:text-ink-soft"
-                }`}
-              >
-                <span className="text-[11px]">≡</span>
-                Compact
-              </button>
-            )}
-            {view === "board" && (
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setColMenu((o) => !o)}
-                  title="Columns"
-                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] ${
-                    hideEmpty
-                      ? "border-copper/50 text-copper"
-                      : "border-line text-ink-muted hover:text-ink-soft"
-                  }`}
-                >
-                  <span className="text-[11px]">▤</span>
-                  Columns
-                  <span className="text-[8px]">▾</span>
-                </button>
-                {colMenu && (
-                  <Popover
-                    onClose={() => setColMenu(false)}
-                    className="w-[264px]"
-                  >
-                    <MenuRow onClick={() => setHideEmpty((v) => !v)}>
-                      <span
-                        className={`flex h-3.5 w-3.5 items-center justify-center rounded border text-[9px] ${
-                          hideEmpty
-                            ? "border-copper bg-copper text-copper-ink"
-                            : "border-chipline"
-                        }`}
-                      >
-                        {hideEmpty ? "✓" : ""}
-                      </span>
-                      <span className="flex-1">Hide empty statuses</span>
-                    </MenuRow>
-                    <StatusManager
-                      statuses={board?.statuses ?? []}
-                      onChanged={refresh}
-                    />
-                  </Popover>
-                )}
-              </div>
-            )}
+            <BoardToolbar
+              view={view}
+              group={group}
+              onGroup={setGroup}
+              dense={dense}
+              onDense={setDense}
+              hideEmpty={hideEmpty}
+              onHideEmpty={setHideEmpty}
+              statuses={board?.statuses ?? []}
+              onStatusesChanged={refresh}
+            />
             </SessionBar>
           )}
         </header>
