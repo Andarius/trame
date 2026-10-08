@@ -697,6 +697,30 @@ export const dblOpen = (open: () => void) => () => {
   open();
 };
 
+// rounded pill buttons, one per option, the current one tinted copper
+export function SegToggle<T extends string>({ options, value, onChange }: {
+  options: { value: T; label: ReactNode }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <>
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          onClick={() => onChange(o.value)}
+          className={`rounded-full px-2 py-0.5 text-[10.5px] font-medium transition-colors ${
+            value === o.value ? "bg-copper/15 text-copper" : "text-ink-muted hover:bg-hover hover:text-ink-soft"
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </>
+  );
+}
+
 // uppercase section headings ("IN PROGRESS", "CARDS"); the small one labels fields
 export const SECTION_LABEL = "text-[10.5px] font-medium tracking-[0.8px] text-ink-muted/70";
 export const FIELD_LABEL = "text-[10px] font-medium tracking-[0.8px] text-ink-muted/70";

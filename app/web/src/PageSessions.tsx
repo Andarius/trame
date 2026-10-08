@@ -5,6 +5,7 @@ import {
   pageGlyph,
   type pagesById,
   SECTION_LABEL,
+  SegToggle,
   sessionTagKeys,
   StatusDot,
   statusStyle,
@@ -48,19 +49,6 @@ export function SessionsPanel(
   const sessionRow = (s: Session) => <SessionRow key={s.id} s={s} onOpen={onOpenSession} />;
   const shownSession = (s: Session) =>
     statusStyle(s.status).terminal === (sessionFilter === "done") && !(sessionFilter === "active" && finished.has(s.id));
-  const sessionPill = (value: "active" | "done", label: string, count: number) => (
-    <button
-      type="button"
-      onClick={() => setSessionFilter(value)}
-      className={`rounded-full px-2 py-0.5 text-[10.5px] font-medium transition-colors ${
-        sessionFilter === value
-          ? "bg-copper/15 text-copper"
-          : "text-ink-muted hover:bg-hover hover:text-ink-soft"
-      }`}
-    >
-      {label} {count}
-    </button>
-  );
   return (
     <div
       className={`flex flex-col gap-1 border-line-soft ${
@@ -71,8 +59,14 @@ export function SessionsPanel(
         <span className={`mr-1 ${SECTION_LABEL}`}>
           SESSIONS
         </span>
-        {sessionPill("active", "Active", sessions.length - done)}
-        {sessionPill("done", "Done", done)}
+        <SegToggle
+          options={[
+            { value: "active", label: `Active ${sessions.length - done}` },
+            { value: "done", label: `Done ${done}` },
+          ]}
+          value={sessionFilter}
+          onChange={setSessionFilter}
+        />
       </div>
       {sessionFilter === "active" && <FinishedStrip cards={finishedCards} onOpen={onOpenSession} />}
       {sessionsByStory.filter(({ list }) => list.some(shownSession)).map(({ story, list }) => {
