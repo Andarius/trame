@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { type BoardData, updatePage } from "./api";
-import { clientColor, EntityIcon, FIELD_LABEL, inSubtree, pagesById, projectOf, StatusDot, statusStyle, storyOf, timeAgo } from "./ui";
+import { clientColor, EntityIcon, FIELD_LABEL, inSubtree, pagesById, projectOf, statusStyle, storyOf } from "./ui";
 import { IconPicker } from "./udb/cells";
+import { SessionRow } from "./project-page";
 
 // Overview for one client: its projects (each openable) with progress, plus any
 // client-tagged sessions that don't ladder up to one of those projects. All derived
@@ -11,7 +12,7 @@ export function ClientView(
     board: BoardData;
     clientId: string;
     onOpenPage: (id: string) => void;
-    onOpenSession: (id: string) => void;
+    onOpenSession: (id: string, full?: boolean) => void;
     onChanged?: () => void;
   },
 ) {
@@ -28,21 +29,7 @@ export function ClientView(
   const totalSessions = mine.length;
 
   const sectionLbl = `px-0.5 pb-1 pt-1 ${FIELD_LABEL}`;
-  const sessionRow = (s: (typeof board.sessions)[number]) => (
-    <button type="button"
-      key={s.id}
-      onClick={() => onOpenSession(s.id)}
-      className="flex items-center gap-2 rounded px-1.5 py-1 text-left hover:bg-hover"
-    >
-      <StatusDot status={s.status} size={7} />
-      <span className={`text-[12.5px] ${statusStyle(s.status).terminal ? "text-ink-muted line-through" : "text-ink-soft"}`}>
-        {s.title}
-      </span>
-      {s.branch && <span className="text-[10.5px] text-ink-muted">⎇ {s.branch}</span>}
-      <span className="flex-1" />
-      <span className="text-[10px] text-ink-muted/70">{timeAgo(s.last_touched)}</span>
-    </button>
-  );
+  const sessionRow = (s: (typeof board.sessions)[number]) => <SessionRow key={s.id} s={s} onOpen={onOpenSession} />;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-6">

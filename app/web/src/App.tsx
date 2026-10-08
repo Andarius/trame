@@ -2314,7 +2314,7 @@ export function App() {
                 board={board}
                 clientId={clientId}
                 onOpenPage={openPage}
-                onOpenSession={(id) => openSession(id)}
+                onOpenSession={openSession}
                 onChanged={refresh}
               />
             )
