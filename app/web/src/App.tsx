@@ -1,25 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  type AgentPresenceSettings,
   applyUpdate,
   type AppStatus,
   type BoardData,
   createPage,
   createUdb,
   createUdbRow,
-  deleteSession,
   deleteUdb,
   exportPage,
-  getAgentPresence,
   getBoard,
   getPlugins,
-  getSettings,
   getStatus,
   getUpdate,
   importPage,
   listPages,
   listUdbs,
-  type LiveAgent,
   movePage,
   openInBrowser,
   type PageMeta,
@@ -28,12 +23,11 @@ import {
   setStatus as apiSetStatus,
   type Session,
   type Status,
-  syncNow,
   type UdbMeta,
   type UpdateInfo,
   updateUdb,
 } from "./api";
-import { AgentsContext, type Live, liveAgents } from "./agents";
+import { AgentsContext } from "./agents";
 import { AgentSessions } from "./AgentSessions";
 import { Board } from "./Board";
 import { Drawer, TOPBAR_SLOT } from "./Drawer";
@@ -49,6 +43,7 @@ import {
 } from "./modals";
 import { GroupIcon } from "./icons";
 import { Palette } from "./Palette";
+import { useAgentsPoll, useSelection, useStarred, useSync } from "./app-hooks";
 import { SelectionBar, UpdateBanner } from "./UpdateBanner";
 import { Sidebar } from "./Sidebar";
 import type { View } from "./view";
@@ -57,7 +52,7 @@ import { StatusManager } from "./StatusManager";
 import { ShareModal } from "./ShareModal";
 import { confirmDeletePage, Page } from "./Page";
 import { ClientView } from "./ClientView";
-import { MenuRow, BOOL_CODEC, SET_CODEC, useLocalStorage, appConfirm, ConfirmHost, EntityIcon, ExpandIcon, Popover, setStatuses, statusStyle } from "./ui";
+import { MenuRow, BOOL_CODEC, useLocalStorage, appConfirm, ConfirmHost, EntityIcon, ExpandIcon, Popover, setStatuses, statusStyle } from "./ui";
 import { FRONTEND_PLUGINS } from "./plugins";
 import { PluginsModal } from "./plugins/PluginsModal";
 import { PluginSettingsModal } from "./plugins/PluginSettingsModal";
@@ -171,37 +166,7 @@ export function App() {
     } else setOpenId(id);
   };
   const [exploreEpoch, setExploreEpoch] = useState(0); // bump to rescan files after settings change
-  const [agents, setAgents] = useState<LiveAgent[]>([]);
-  const [tick, setTick] = useState(0); // re-derives liveness even when a poll fails
-  const [presenceCfg, setPresenceCfg] = useState<AgentPresenceSettings | null>(null);
-  useEffect(() => {
-    getSettings().then((s) => setPresenceCfg(s.agentPresence)).catch(() => {});
-  }, [exploreEpoch]);
-  useEffect(() => {
-    let busy = false; // one request at a time, so an old answer can't land last
-    const load = () => {
-      setTick((n) => n + 1);
-      if (busy) return;
-      busy = true;
-      getAgentPresence()
-        .then((next) => setAgents((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next)))
-        .catch(() => {})
-        .finally(() => (busy = false));
-    };
-    load();
-    const t = setInterval(load, 5000);
-    return () => clearInterval(t);
-  }, []);
-  // same states as before → same object, so the page editor doesn't re-render every poll
-  const liveRef = useRef<
-    { key: string; value: { live: Live[]; recent: LiveAgent[]; cfg: AgentPresenceSettings | null } }
-  >();
-  const agentsCtx = useMemo(() => {
-    const live = liveAgents(agents, presenceCfg);
-    const key = JSON.stringify([presenceCfg, live.map((l) => [l.a, l.state]), agents.map((a) => [a.session_id, a.name])]);
-    if (liveRef.current?.key !== key) liveRef.current = { key, value: { live, recent: agents, cfg: presenceCfg } };
-    return liveRef.current.value;
-  }, [agents, presenceCfg, tick]);
+  const agentsCtx = useAgentsPoll(exploreEpoch);
   const [exploreTarget, setExploreTarget] = useState<string | null>(null); // report path to pre-open in Explore
   const [exploreReturn, setExploreReturn] = useState<string | null>(null); // page id to go back to from Explore
   const [udbs, setUdbs] = useState<UdbMeta[]>([]);
@@ -271,61 +236,10 @@ export function App() {
 
   // multi-select on the sessions views (board + list): checkboxes fill `selected`,
   // a floating bar bulk-deletes. Cleared on view change, Escape, and after delete.
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const toggleSelected = (id: string) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  const selectMany = (ids: string[], on: boolean) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      for (const id of ids) on ? next.add(id) : next.delete(id);
-      return next;
-    });
-  useEffect(() => setSelected(new Set()), [view]);
-  useEffect(() => {
-    if (selected.size === 0) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setSelected(new Set());
-    };
-    globalThis.addEventListener("keydown", onKey);
-    return () => globalThis.removeEventListener("keydown", onKey);
-  }, [selected.size]);
-  const deleteSelected = async () => {
-    const n = selected.size;
-    if (!(await appConfirm(`Delete ${n} session${n > 1 ? "s" : ""}?`))) return;
-    await Promise.all([...selected].map((id) => deleteSession(id).catch(() => {})));
-    setSelected(new Set());
-    refresh();
-  };
+  const { selected, setSelected, toggleSelected, selectMany, deleteSelected } = useSelection(view, refresh);
 
   // "Sync now" is otherwise silent when nothing moves (0↓0↑) — flash the result so it reads as alive
-  const [syncing, setSyncing] = useState(false);
-  const [syncFlash, setSyncFlash] = useState<string | null>(null);
-  const syncFlashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const doSync = async () => {
-    if (syncing) return;
-    setSyncing(true);
-    let msg: string;
-    try {
-      const r = await syncNow();
-      refresh();
-      msg = r
-        ? (r.pulled || r.pushed ? `${r.pulled}↓ ${r.pushed}↑` : "up to date")
-        : "offline";
-    } catch {
-      msg = "failed";
-    } finally {
-      setSyncing(false);
-    }
-    setSyncFlash(msg);
-    clearTimeout(syncFlashTimer.current);
-    syncFlashTimer.current = setTimeout(() => setSyncFlash(null), 2500);
-  };
-  useEffect(() => () => clearTimeout(syncFlashTimer.current), []);
+  const { syncing, syncFlash, doSync } = useSync(refresh);
   // a location (view + the entity it shows) is a browser-history entry; filters and the
   // drawer only rewrite the current one
   const locKey = (
@@ -617,13 +531,7 @@ export function App() {
     : "Explore";
 
   // starred pages: per-browser shortcuts to deep pages (Soren → Weekly → …)
-  const [starred, setStarred] = useLocalStorage("trame:starred", new Set<string>(), SET_CODEC);
-  const toggleStar = (id: string) =>
-    setStarred((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
+  const { starred, toggleStar } = useStarred();
 
   return (
     <AgentsContext.Provider value={agentsCtx}>
