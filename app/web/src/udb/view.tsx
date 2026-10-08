@@ -4,7 +4,7 @@
 // The data half lives in view-core.ts (pure, unit-tested); it is re-exported here.
 import { useState } from "react";
 import type { UdbProp } from "../api";
-import { EntityIcon, Popover, Select } from "../ui";
+import { EntityIcon, Popover, Select, IconButton } from "../ui";
 import { TYPE_GLYPH } from "./PropertyEditor";
 import {
   CHART_AGGS,
@@ -221,14 +221,12 @@ export function ViewTabsBar(
                 {t.name}
               </button>
               {state.tabs.length > 1 && (
-                <button
-                  type="button"
-                  className="w-5 self-stretch text-[9px] text-ink-muted opacity-0 transition-opacity hover:text-blocked group-hover/tab:opacity-70 hover:!opacity-100"
+                <IconButton tone="danger" className="w-5 self-stretch text-[9px] opacity-0 transition-opacity group-hover/tab:opacity-70 hover:!opacity-100"
                   title="delete view tab"
                   onClick={() => remove(t.id)}
                 >
                   ✕
-                </button>
+                </IconButton>
               )}
             </div>
           )
@@ -455,9 +453,7 @@ export function ViewToolbar(
                         />
                       </div>
                     )}
-                    <button
-                      type="button"
-                      className="shrink-0 px-1 text-ink-muted hover:text-blocked"
+                    <IconButton tone="danger" className="shrink-0 px-1"
                       title="remove"
                       onClick={() =>
                         onChange({
@@ -466,7 +462,7 @@ export function ViewToolbar(
                         })}
                     >
                       ✕
-                    </button>
+                    </IconButton>
                   </div>
                 );
               })}
@@ -579,9 +575,7 @@ export function ViewToolbar(
                         </button>
                       ))}
                     </div>
-                    <button
-                      type="button"
-                      className="shrink-0 px-1 text-ink-muted hover:text-blocked"
+                    <IconButton tone="danger" className="shrink-0 px-1"
                       title="remove"
                       onClick={() =>
                         onChange({
@@ -590,7 +584,7 @@ export function ViewToolbar(
                         })}
                     >
                       ✕
-                    </button>
+                    </IconButton>
                   </div>
                 );
               })}
@@ -779,9 +773,7 @@ export function ViewToolbar(
                         </div>
                       )}
                       {cfg.series.length > 1 && (
-                        <button
-                          type="button"
-                          className="w-5 shrink-0 text-[10px] text-ink-muted hover:text-blocked"
+                        <IconButton tone="danger" className="w-5 shrink-0 text-[10px]"
                           title="remove this measure"
                           onClick={() =>
                             setChart({
@@ -789,7 +781,7 @@ export function ViewToolbar(
                             })}
                         >
                           ✕
-                        </button>
+                        </IconButton>
                       )}
                     </div>
                   ))}

@@ -36,25 +36,7 @@ import {
   updatePage,
   uploadAsset,
 } from "./api";
-import {
-  appConfirm,
-  ClientChip,
-  dblOpen,
-  EntityIcon,
-  inSubtree,
-  pageGlyph,
-  pagesById,
-  Popover,
-  SECTION_LABEL,
-  Select,
-  sessionTagKeys,
-  StatusDot,
-  statusStyle,
-  storyOf,
-  TagChips,
-  timeAgo,
-  uuid7Time,
-} from "./ui";
+import { appConfirm, ClientChip, dblOpen, EntityIcon, inSubtree, pageGlyph, pagesById, Popover, SECTION_LABEL, Select, sessionTagKeys, StatusDot, statusStyle, storyOf, TagChips, timeAgo, uuid7Time, IconButton } from "./ui";
 import { type ItemLink, LinkChip, Markdown, PageActivityChip } from "./md";
 import { blocksToMarkdown } from "./page-serialize";
 
@@ -435,14 +417,12 @@ function CommentItem(
         >
           {c.resolved ? "↺" : "✓"}
         </button>
-        <button
-          type="button"
-          title="delete"
+        <IconButton tone="danger" title="delete"
           onClick={onDelete}
-          className="text-[11px] text-ink-muted transition-colors hover:text-blocked"
+          className="text-[11px] transition-colors"
         >
           ✕
-        </button>
+        </IconButton>
       </div>
       {editing
         ? (
@@ -3426,14 +3406,12 @@ export function Page(
                   >
                     {mdCopied ? "copied ✓" : "copy"}
                   </button>
-                  <button
-                    type="button"
-                    className="rounded-md px-1.5 py-0.5 text-[13px] text-ink-muted transition-colors hover:bg-panel hover:text-ink"
+                  <IconButton tone="close" className="rounded-md px-1.5 py-0.5 text-[13px] transition-colors hover:bg-panel"
                     title="close"
                     onClick={() => setMdOpen(false)}
                   >
                     ✕
-                  </button>
+                  </IconButton>
                 </div>
                 <pre className="overflow-auto whitespace-pre-wrap rounded-md border border-line-soft bg-panel px-3 py-2 font-mono text-[12px] leading-relaxed text-ink">
                   {blocksToMarkdown(page.title, blocksRef.current)}

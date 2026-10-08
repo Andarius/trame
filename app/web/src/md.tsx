@@ -22,7 +22,7 @@ import {
   type PageEvent,
   type SessionEvent,
 } from "./api";
-import { Modal, Popover, statusStyle, timeAgo } from "./ui";
+import { Modal, Popover, statusStyle, timeAgo, IconButton } from "./ui";
 import { DuePill } from "./due";
 import { isMetadataMark } from "./plugins";
 import { EventMeta, PresencePill } from "./agents";
@@ -1312,19 +1312,17 @@ function MdTable(
                         )}
                       </button>
                     )}
-                    <button
-                      type="button"
-                      aria-label="Delete this row"
+                    <IconButton tone="danger" aria-label="Delete this row"
                       title="Delete this row"
                       onMouseDown={(e) => e.stopPropagation()}
                       onClick={(e) => {
                         e.stopPropagation();
                         removeRow(ri);
                       }}
-                      className="rounded px-1 text-[11px] text-ink-muted opacity-0 hover:bg-panel hover:text-blocked group-hover/row:opacity-100"
+                      className="rounded px-1 text-[11px] opacity-0 hover:bg-panel group-hover/row:opacity-100"
                     >
                       ×
-                    </button>
+                    </IconButton>
                   </td>
                 )}
               </tr>

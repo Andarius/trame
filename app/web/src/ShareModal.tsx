@@ -14,6 +14,7 @@ import {
   setShare,
   type UserInfo,
 } from "./api";
+import { IconButton } from "./ui";
 
 export function ShareModal(
   { pageId, onClose }: { pageId: string; onClose: () => void },
@@ -112,15 +113,13 @@ export function ShareModal(
                   <option value="editor">editor</option>
                   <option value="viewer">viewer</option>
                 </select>
-                <button
-                  type="button"
-                  title="Revoke — their copy is purged on their next sync"
+                <IconButton tone="danger" title="Revoke — their copy is purged on their next sync"
                   onClick={() =>
                     revokeShare(s.id).then(reload)}
-                  className="rounded-md border border-line px-1.5 py-0.5 text-[11.5px] text-ink-muted hover:text-blocked"
+                  className="rounded-md border border-line px-1.5 py-0.5 text-[11.5px]"
                 >
                   ×
-                </button>
+                </IconButton>
               </div>
             ))}
           </div>
@@ -208,14 +207,12 @@ export function ShareModal(
                     link · created {new Date(l.updated_at).toLocaleDateString()}
                   </span>
                 )}
-              <button
-                type="button"
-                title="Revoke — the URL stops working immediately"
+              <IconButton tone="danger" title="Revoke — the URL stops working immediately"
                 onClick={() => revokeShareLink(l.id).then(reload)}
-                className="rounded-md border border-line px-1.5 py-0.5 text-[11.5px] text-ink-muted hover:text-blocked"
+                className="rounded-md border border-line px-1.5 py-0.5 text-[11.5px]"
               >
                 ×
-              </button>
+              </IconButton>
             </div>
           ))}
           <button

@@ -11,7 +11,7 @@ import {
   type UdbProp,
   updateUdbProp,
 } from "../api";
-import { appConfirm, EntityIcon, Popover, Select } from "../ui";
+import { appConfirm, EntityIcon, Popover, Select, IconButton } from "../ui";
 import { IconPicker, OPTION_COLORS } from "./cells";
 
 const TYPES: { key: PropType; label: string; glyph: string }[] = [
@@ -137,9 +137,7 @@ export function PropertyEditor(
               ▼ Descending
             </button>
             {sortDir != null && (
-              <button
-                type="button"
-                className="rounded-md border border-chipline px-2 py-1 text-[11px] text-ink-muted hover:text-blocked"
+              <IconButton tone="danger" className="rounded-md border border-chipline px-2 py-1 text-[11px]"
                 title="clear sort"
                 onClick={() => {
                   onSort(null);
@@ -147,7 +145,7 @@ export function PropertyEditor(
                 }}
               >
                 ✕
-              </button>
+              </IconButton>
             )}
           </div>
         )}
@@ -475,9 +473,7 @@ export function PropertyEditor(
                         set({ rules });
                       }}
                     />
-                    <button
-                      type="button"
-                      className="px-1 text-[11px] text-ink-muted hover:text-blocked"
+                    <IconButton tone="danger" className="px-1 text-[11px]"
                       onClick={() =>
                         set({
                           rules: (config.rules ?? []).filter((_, j) =>
@@ -486,7 +482,7 @@ export function PropertyEditor(
                         })}
                     >
                       ✕
-                    </button>
+                    </IconButton>
                   </div>
                 ))}
                 <button
@@ -533,9 +529,7 @@ export function PropertyEditor(
                   onChange={(e) =>
                     patchOption(i, { name: e.target.value })}
                 />
-                <button
-                  type="button"
-                  className="px-0.5 text-ink-muted hover:text-blocked"
+                <IconButton tone="danger" className="px-0.5"
                   onClick={() =>
                     set({
                       options: options.filter((_, j) =>
@@ -544,7 +538,7 @@ export function PropertyEditor(
                     })}
                 >
                   ✕
-                </button>
+                </IconButton>
               </div>
             ))}
             <button

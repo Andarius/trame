@@ -21,7 +21,7 @@ import {
   getPage,
   updatePage,
 } from "./api";
-import { appConfirm, clientColor, EntityIcon, ExpandIcon, FIELD_LABEL, FieldRow, pageOptions, Popover, Select, TagChips, timeAgo } from "./ui";
+import { appConfirm, clientColor, EntityIcon, ExpandIcon, FIELD_LABEL, FieldRow, pageOptions, Popover, Select, TagChips, timeAgo, IconButton } from "./ui";
 import { AgentIcon, AgentsSummary, EventMeta, PresencePill, useAgents } from "./agents";
 import { summarizeAgents } from "./agent-summary";
 import { PrChip, RepoLink } from "./chips";
@@ -263,13 +263,12 @@ export function Drawer(
           <ExpandIcon open={expanded} />
         </button>
       )}
-      <button type="button"
-        className="rounded-md px-1.5 py-0.5 text-[13px] text-ink-muted transition-colors hover:bg-panel hover:text-ink"
+      <IconButton tone="close" className="rounded-md px-1.5 py-0.5 text-[13px] transition-colors hover:bg-panel"
         title="close (esc)"
         onClick={onClose}
       >
         ✕
-      </button>
+      </IconButton>
     </div>
   );
 
@@ -523,8 +522,7 @@ export function Drawer(
       {prLinks.map((url) => (
         <div key={url} className="group flex min-w-0 items-center gap-1">
           <PrChip url={url} />
-          <button type="button"
-            className="shrink-0 text-[11.5px] text-ink-muted opacity-0 transition-opacity hover:text-blocked group-hover:opacity-100"
+          <IconButton tone="danger" className="shrink-0 text-[11.5px] opacity-0 transition-opacity group-hover:opacity-100"
             title="remove"
             onClick={() => {
               const next = prLinks.filter((u) => u !== url).join("\n");
@@ -533,7 +531,7 @@ export function Drawer(
             }}
           >
             ✕
-          </button>
+          </IconButton>
         </div>
       ))}
       <input
@@ -661,17 +659,15 @@ export function Drawer(
               <span className="text-[10px] text-ink-muted">▤</span>
               <span className="truncate">{(l.anchor || l.page_title || "").replace(/\*\*|`/g, "")}</span>
             </button>
-            <button
-              type="button"
-              title="unlink"
-              className="shrink-0 text-[11px] text-ink-muted opacity-0 transition-opacity hover:text-blocked group-hover:opacity-100"
+            <IconButton tone="danger" title="unlink"
+              className="shrink-0 text-[11px] opacity-0 transition-opacity group-hover:opacity-100"
               onClick={() =>
                 deleteSessionLink(l.id).then(() =>
                   getSessionLinks(session.id).then((x) => Array.isArray(x) && setLinks(x))
                 )}
             >
               ✕
-            </button>
+            </IconButton>
           </span>
         ))}
       </div>

@@ -1,4 +1,4 @@
-import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
+import { type ComponentProps, type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ancestry } from "./tree.ts";
 import { listTags, type Status, type StatusDef, type Tag, tagRevision, TAGS_CHANGED } from "./api";
@@ -746,4 +746,12 @@ export function TagChips({ keys, onClick }: { keys?: string[]; onClick?: (key: s
       })}
     </div>
   );
+}
+
+// ✕ / × close and remove buttons; tone sets the muted → hover colors, className the size and reveal
+export function IconButton(
+  { tone, className = "", ...props }: { tone?: "close" | "danger" } & ComponentProps<"button">,
+) {
+  const color = tone === "danger" ? "text-ink-muted hover:text-blocked" : tone === "close" ? "text-ink-muted hover:text-ink" : "";
+  return <button type="button" {...props} className={`${color} ${className}`.trim()} />;
 }

@@ -1,7 +1,7 @@
 import { type CSSProperties, useEffect, useState } from "react";
 import { splitTagLabel, TAG_COLORS, tagKey } from "../../../core/tags.ts";
 import { ensureTag, listTags, type Tag, updateTag } from "./api";
-import { Popover } from "./ui";
+import { Popover, IconButton } from "./ui";
 
 /** Fill + text for a hue, mixed with the theme's ink so one hex reads in both. */
 const tint = (color: string): CSSProperties => ({
@@ -120,14 +120,12 @@ export function TagEditor(
             >
               {value}
             </button>
-            <button
-              type="button"
-              title="Remove"
+            <IconButton title="Remove"
               className="py-px pr-[6px] text-[8px] opacity-0 transition-opacity hover:opacity-100 group-hover:opacity-55"
               onClick={() => onChange(tags.filter((k) => k !== key))}
             >
               ✕
-            </button>
+            </IconButton>
             {picked && (
               <Popover
                 onClose={() => setPicking(null)}

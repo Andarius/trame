@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { deleteUdbRow, patchUdbRow, type UdbProp, type UdbRow } from "../api";
-import { appConfirm, EntityIcon, FIELD_LABEL } from "../ui";
+import { appConfirm, EntityIcon, FIELD_LABEL, IconButton } from "../ui";
 import { Cell, IconPicker } from "./cells";
 import { TYPE_GLYPH } from "./PropertyEditor";
 
@@ -72,13 +72,12 @@ export function RowPanel(
         >
           <ExpandIcon open={expanded} />
         </button>
-        <button type="button"
-          className="rounded-md px-1.5 py-0.5 text-[13px] text-ink-muted transition-colors hover:bg-panel hover:text-ink"
+        <IconButton tone="close" className="rounded-md px-1.5 py-0.5 text-[13px] transition-colors hover:bg-panel"
           title="close (esc)"
           onClick={onClose}
         >
           ✕
-        </button>
+        </IconButton>
       </div>
 
       <div className="flex flex-col gap-3 px-4 pb-4">

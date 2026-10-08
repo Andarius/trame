@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { type Block, type FolderEntry, getReportFileContent, listFolder, openPath } from "./api";
+import { IconButton } from "./ui";
 
 type FolderB = Extract<Block, { type: "folder" }>;
 
@@ -128,14 +129,12 @@ export function FolderBlock(
           </span>
         )}
         {entries && <Toggle />}
-        <button
-          type="button"
-          onClick={onRemove}
+        <IconButton onClick={onRemove}
           title="retirer le bloc"
           className="shrink-0 rounded px-1 text-ink-muted/60 hover:bg-panel hover:text-blocked"
         >
           ×
-        </button>
+        </IconButton>
       </div>
 
       {/* body */}

@@ -71,19 +71,7 @@ import { Palette } from "./Palette";
 import { ShareModal } from "./ShareModal";
 import { confirmDeletePage, Page } from "./Page";
 import { ClientView } from "./ClientView";
-import {
-  appConfirm,
-  ConfirmHost,
-  EntityIcon,
-  ExpandIcon,
-  pageGlyph,
-  Popover,
-  SECTION_LABEL,
-  setStatuses,
-  StatusDot,
-  statusStyle,
-  timeAgo,
-} from "./ui";
+import { appConfirm, ConfirmHost, EntityIcon, ExpandIcon, pageGlyph, Popover, SECTION_LABEL, setStatuses, StatusDot, statusStyle, timeAgo, IconButton } from "./ui";
 import { FRONTEND_PLUGINS } from "./plugins";
 import { PluginsModal } from "./plugins/PluginsModal";
 import { PluginSettingsModal } from "./plugins/PluginSettingsModal";
@@ -1244,9 +1232,7 @@ function StatusManager(
             >
               ⚑
             </button>
-            <button
-              type="button"
-              disabled={statuses.length <= 1 || busy}
+            <IconButton disabled={statuses.length <= 1 || busy}
               onClick={() =>
                 appConfirm(
                   `Delete the "${s.label}" status? Sessions in it move to another column.`,
@@ -1255,7 +1241,7 @@ function StatusManager(
               title="delete status"
             >
               ✕
-            </button>
+            </IconButton>
           </div>
           {paletteFor === s.id && (
             <div className="flex flex-wrap gap-1 px-2 pb-1.5 pt-0.5">

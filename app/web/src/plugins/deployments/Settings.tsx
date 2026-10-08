@@ -3,7 +3,7 @@
 // resolved auth source and a live test (nothing persisted by Test).
 import { useEffect, useMemo, useState } from "react";
 import { getPluginSettings, savePluginSettings } from "../../api";
-import { Select } from "../../ui";
+import { Select, IconButton } from "../../ui";
 import { SourceChip } from "./Panel";
 
 type Forge = "github" | "gitlab";
@@ -337,13 +337,11 @@ export function DeploymentsSettings() {
               <span className="text-ink-muted">{r.repo.split("/")[0]}/</span>
               {r.repo.split("/").slice(1).join("/")}
             </span>
-            <button
-              type="button"
-              className="text-[11px] text-ink-muted hover:text-blocked"
+            <IconButton tone="danger" className="text-[11px]"
               onClick={() => setRows((rs) => rs.filter((x) => x !== r))}
             >
               ✕
-            </button>
+            </IconButton>
           </div>
         ))}
         <div className="mt-1.5 flex gap-2">

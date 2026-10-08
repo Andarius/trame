@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import { DateInput, EntityIcon, Popover } from "../ui";
+import { DateInput, EntityIcon, Popover, IconButton } from "../ui";
 import { Markdown } from "../md";
 import {
   type Derived,
@@ -614,13 +614,11 @@ function TextModal(
           <span className="text-[10.5px] text-ink-muted/70">
             {editing ? "click outside the text to save" : "click text to edit"}
           </span>
-          <button
-            type="button"
-            className="rounded px-1.5 text-[13px] leading-none text-ink-muted hover:bg-panel hover:text-ink"
+          <IconButton tone="close" className="rounded px-1.5 text-[13px] leading-none hover:bg-panel"
             onClick={onClose}
           >
             ✕
-          </button>
+          </IconButton>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           {editing

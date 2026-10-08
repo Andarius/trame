@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Block } from "./api";
-import { ExpandIcon } from "./ui";
+import { ExpandIcon, IconButton } from "./ui";
 
 type HtmlB = Extract<Block, { type: "html" }>;
 
@@ -190,14 +190,12 @@ export function HtmlBlock(
         >
           {editing ? "view" : "edit"}
         </button>
-        <button
-          type="button"
-          onClick={onRemove}
+        <IconButton onClick={onRemove}
           title="retirer le bloc"
           className="shrink-0 rounded px-1 text-ink-muted/60 hover:bg-panel hover:text-blocked"
         >
           ×
-        </button>
+        </IconButton>
       </div>
 
       {editing

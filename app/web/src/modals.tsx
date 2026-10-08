@@ -25,7 +25,7 @@ import {
 import { PresencePreview } from "./PresencePreview";
 import { applyScale, getScale, SCALES } from "./scale";
 import { applyTheme, getTheme, type Theme } from "./theme";
-import { Modal, pageOptions, Popover, Select, StatusDot, timeAgo } from "./ui";
+import { Modal, pageOptions, Popover, Select, StatusDot, timeAgo, IconButton } from "./ui";
 import { dataUriToIcon } from "./udb/cells";
 
 const label = "text-[10px] font-medium tracking-[0.8px] text-ink-muted/80";
@@ -260,13 +260,12 @@ function PathRow(
           </div>
         )}
       </div>
-      <button type="button"
-        className="px-1 text-ink-muted hover:text-blocked"
+      <IconButton tone="danger" className="px-1"
         title="remove"
         onClick={onRemove}
       >
         ✕
-      </button>
+      </IconButton>
     </div>
   );
 }
@@ -392,16 +391,14 @@ export function SettingsModal(
       <div className="flex items-center">
         <div className={label}>SETTINGS</div>
         <span className="flex-1" />
-        <button
-          type="button"
-          title="Close (Esc)"
+        <IconButton title="Close (Esc)"
           aria-label="Close settings"
           autoFocus
           className="rounded-md px-2 py-1 text-[18px] leading-none text-ink-muted hover:bg-panel hover:text-ink-soft"
           onClick={onClose}
         >
           ✕
-        </button>
+        </IconButton>
       </div>
 
       <div className="text-[14px] font-semibold">Updates</div>

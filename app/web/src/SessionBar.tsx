@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { BoardData } from "./api";
 import { parseQuery, QUERY_SYNTAX } from "./query";
 import { SessionSort, type Sort, SORT_FIELDS } from "./SessionSort";
-import { EntityIcon, pageGlyph, Popover, TagChips } from "./ui";
+import { EntityIcon, pageGlyph, Popover, TagChips, IconButton } from "./ui";
 
 type Pages = BoardData["pages"];
 
@@ -230,14 +230,12 @@ export function QueryBox(
       />
       {active
         ? (
-          <button
-            type="button"
-            title="Clear all filters"
+          <IconButton tone="close" title="Clear all filters"
             onClick={onClear}
-            className="shrink-0 px-0.5 text-[11px] text-ink-muted hover:text-ink"
+            className="shrink-0 px-0.5 text-[11px]"
           >
             ✕
-          </button>
+          </IconButton>
         )
         : <span className="shrink-0 rounded border border-b-2 border-chipline px-1 font-mono text-[10px] text-ink-muted">/</span>}
     </div>
