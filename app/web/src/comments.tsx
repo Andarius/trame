@@ -18,13 +18,6 @@ export const STORY_ORDER_KEY = "trame-story-order";
 export const PANEL_OPEN_KEY = "trame-comments-panel-open";
 // which inline threads are expanded — persisted per page so a refresh keeps them open
 export const openKey = (pageId: string) => `trame-open-threads:${pageId}`;
-export const loadOpenThreads = (pageId: string): Set<string> => {
-  try {
-    return new Set(JSON.parse(localStorage.getItem(openKey(pageId)) || "[]"));
-  } catch {
-    return new Set();
-  }
-};
 
 // Stable per-author tint so replies from different people read apart at a glance.
 const authorColor = (name: string) =>

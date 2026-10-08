@@ -21,7 +21,7 @@ import {
   updateUdb,
   updateUdbProp,
 } from "../api";
-import { EntityIcon, Select, EmptyState } from "../ui";
+import { EmptyState, EntityIcon, numberCodec, Select, useLocalStorage } from "../ui";
 import { Cell, ColumnRanges, IconPicker, TableProps } from "./cells";
 import { PropertyEditor, TYPE_GLYPH } from "./PropertyEditor";
 import { RowPanel } from "./RowPanel";
@@ -74,10 +74,7 @@ const PAGE_ALL = Number.POSITIVE_INFINITY;
 const PAGE_SIZE_KEY = "trame:udbpagesize";
 // recharts is ~450 KB — a chart tab pays for it, no other page does
 const ChartView = lazy(() => import("./ChartView"));
-const loadPageSize = (): number => {
-  const raw = Number(localStorage.getItem(PAGE_SIZE_KEY));
-  return [25, 50, 100, 200, PAGE_ALL].includes(raw) ? raw : 50;
-};
+const PAGE_SIZE_CODEC = numberCodec([25, 50, 100, 200, PAGE_ALL], 50);
 
 const TableRow = memo(function TableRow(
   {
@@ -416,15 +413,9 @@ export const DatabaseView = memo(function DatabaseView(
 
   // Pagination: render only the current page of ordered rows (default 50).
   // Summary mode (aggregate-only, few rows) is never paged.
-  const [pageSize, setPageSize] = useState(loadPageSize);
+  const [pageSize, setPageSize] = useLocalStorage(PAGE_SIZE_KEY, 50, PAGE_SIZE_CODEC);
   const [page, setPage] = useState(0);
   useEffect(() => setPage(0), [dbId, deferredView, pageSize]); // reset on db/view/size change
-  const changePageSize = (v: number) => {
-    setPageSize(v);
-    try {
-      localStorage.setItem(PAGE_SIZE_KEY, String(v));
-    } catch { /* private mode */ }
-  };
   const paginate = pageSize !== PAGE_ALL && !summaryConfigured && !chartConfig;
   const total = orderedRows.length;
   const pageCount = paginate ? Math.max(1, Math.ceil(total / pageSize)) : 1;
@@ -732,7 +723,7 @@ export const DatabaseView = memo(function DatabaseView(
               <Select
                 value={pageSize === PAGE_ALL ? "all" : String(pageSize)}
                 onChange={(v) =>
-                  changePageSize(v === "all" ? PAGE_ALL : Number(v))}
+                  setPageSize(v === "all" ? PAGE_ALL : Number(v))}
                 options={[
                   { value: "25", label: "25" },
                   { value: "50", label: "50" },

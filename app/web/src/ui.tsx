@@ -1,4 +1,4 @@
-import { type ComponentProps, type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
+import { type ComponentProps, type CSSProperties, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ancestry } from "./tree.ts";
 import { listTags, type Status, type StatusDef, type Tag, tagRevision, TAGS_CHANGED } from "./api";
@@ -787,27 +787,43 @@ export const SET_CODEC: Codec<Set<string>> = {
   stringify: (v) => JSON.stringify([...v]),
 };
 // string enum: anything outside `opts` reads as the first option
+// number among `opts`; anything else reads as `fallback`
+export const numberCodec = (opts: readonly number[], fallback: number): Codec<number> => ({
+  parse: (r) => opts.includes(Number(r)) ? Number(r) : fallback,
+  stringify: String,
+});
 export const enumCodec = <T extends string>(opts: readonly T[]): Codec<T> => ({
   parse: (r) => (opts as readonly string[]).includes(r) ? r as T : opts[0],
   stringify: (v) => v,
 });
 
-// useState persisted in localStorage; blocked storage or a bad value falls back to `init`
+// useState persisted in localStorage; blocked storage or a bad value falls back to `init`; a new `key` re-reads
 export function useLocalStorage<T>(key: string, init: T, codec: Codec<T>) {
-  const [value, setValue] = useState<T>(() => {
+  const read = (k: string): T => {
     try {
-      const raw = localStorage.getItem(key);
+      const raw = localStorage.getItem(k);
       return raw === null ? init : codec.parse(raw);
     } catch {
       return init;
     }
-  });
+  };
+  const [entry, setEntry] = useState({ key, value: read(key) });
+  let cur = entry;
+  if (entry.key !== key) {
+    cur = { key, value: read(key) };
+    setEntry(cur);
+  }
   useEffect(() => {
     try {
-      localStorage.setItem(key, codec.stringify(value));
+      localStorage.setItem(cur.key, codec.stringify(cur.value));
     } catch { /* storage blocked */ }
-  }, [key, value]);
-  return [value, setValue] as const;
+  }, [cur.key, cur.value]);
+  const setValue = useCallback(
+    (v: T | ((prev: T) => T)) =>
+      setEntry((p) => ({ key: p.key, value: typeof v === "function" ? (v as (prev: T) => T)(p.value) : v })),
+    [],
+  );
+  return [cur.value, setValue] as const;
 }
 
 // className tokens that replace the matching MenuRow default instead of stacking on it

@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { type Block, createComment, deleteComment, listComments, type PageComment, updateComment } from "./api";
-import { BOOL_CODEC, enumCodec, useLocalStorage } from "./ui";
+import { BOOL_CODEC, enumCodec, SET_CODEC, useLocalStorage } from "./ui";
 import {
   type CommentMode,
   type CommentOps,
   COMMENT_MODE_KEY,
-  loadOpenThreads,
   openKey,
   PANEL_OPEN_KEY,
 } from "./comments";
@@ -16,18 +15,10 @@ export function usePageComments(pageId: string) {
   const [comments, setComments] = useState<PageComment[]>([]);
   const [showResolved, setShowResolved] = useState(false);
   const [commentMode, setCommentMode] = useLocalStorage<CommentMode>(COMMENT_MODE_KEY, "inline", enumCodec(["inline", "panel"]));
-  const [openThreads, setOpenThreads] = useState<Set<string>>(() =>
-    loadOpenThreads(pageId)
-  );
+  // this page's expanded threads, persisted per page key (no cross-page race)
+  const [openThreads, putOpenThreads] = useLocalStorage(openKey(pageId), new Set<string>(), SET_CODEC);
   const [focusThread, setFocusThread] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useLocalStorage(PANEL_OPEN_KEY, false, BOOL_CODEC);
-  // set + persist open threads together, keyed by the current page (no cross-page race)
-  const putOpenThreads = (v: Set<string> | ((p: Set<string>) => Set<string>)) =>
-    setOpenThreads((p) => {
-      const next = typeof v === "function" ? v(p) : v;
-      localStorage.setItem(openKey(pageId), JSON.stringify([...next]));
-      return next;
-    });
   const [flash, setFlash] = useState<string | null>(null);
   const flashTimer = useRef<number | undefined>(undefined);
   // live-refresh comments so watcher status (seen/answering) and agent replies appear
@@ -47,7 +38,6 @@ export function usePageComments(pageId: string) {
   }, [pageId]);
   useEffect(() => {
     setShowResolved(false);
-    setOpenThreads(loadOpenThreads(pageId)); // restore this page's expanded threads
     setFocusThread(null);
   }, [pageId]);
 
