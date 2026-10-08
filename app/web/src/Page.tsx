@@ -37,7 +37,8 @@ import {
   uploadAsset,
 } from "./api";
 import { BOOL_CODEC, enumCodec, useLocalStorage, appConfirm, ClientChip, dblOpen, EntityIcon, inSubtree, pageGlyph, pagesById, Popover, SECTION_LABEL, Select, sessionTagKeys, StatusDot, statusStyle, storyOf, TagChips, timeAgo, uuid7Time, IconButton, ProgressBar } from "./ui";
-import { type ItemLink, LinkChip, Markdown, PageActivityChip } from "./md";
+import { LinkChip, Markdown, PageActivityChip } from "./md";
+import type { ItemLink } from "./md-types";
 import { blocksToMarkdown } from "./page-serialize";
 
 // Stable block id so a comment survives edits/reorders of the surrounding text.
