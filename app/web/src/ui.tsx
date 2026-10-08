@@ -776,7 +776,7 @@ export function IconButton(
   { tone, className = "", ...props }: { tone?: "close" | "danger" } & ComponentProps<"button">,
 ) {
   const color = tone === "danger" ? "text-ink-muted hover:text-blocked" : tone === "close" ? "text-ink-muted hover:text-ink" : "";
-  return <button type="button" {...props} className={`${color} ${className}`.trim()} />;
+  return <button type="button" {...props} className={`${color} ${className}`.trim() || undefined} />;
 }
 
 type Codec<T> = { parse: (raw: string) => T; stringify: (v: T) => string };

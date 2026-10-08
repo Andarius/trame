@@ -1,6 +1,6 @@
 import type { BoardData, Session } from "./api";
 import { filterSessions } from "./query";
-import { pagesById, projectOf, sessionTagKeys, storyOf } from "./ui";
+import { IconButton, pagesById, projectOf, sessionTagKeys, storyOf } from "./ui";
 
 export const SORT_FIELDS = {
   priority: "Priority", title: "Session", status: "Status",
@@ -58,18 +58,18 @@ export function SessionSort({ sort, onChange }: { sort: Sort[]; onChange: (sort:
       {sort.map((field, index) => (
         <div key={field.key} className="flex items-center gap-1 rounded-md border border-line px-2 py-1 [&>button]:text-ink-muted/70 [&>button:hover]:text-ink">
           <span>{index + 1}. {SORT_FIELDS[field.key]}</span>
-          {index > 0 && <button type="button" aria-label={`Move ${SORT_FIELDS[field.key]} sort earlier`}
+          {index > 0 && <IconButton aria-label={`Move ${SORT_FIELDS[field.key]} sort earlier`}
             onClick={() => {
               const next = [...sort];
               [next[index - 1], next[index]] = [next[index], next[index - 1]];
               onChange(next);
-            }}>←</button>}
-          <button type="button" aria-label={`Reverse ${SORT_FIELDS[field.key]} sort`}
+            }}>←</IconButton>}
+          <IconButton aria-label={`Reverse ${SORT_FIELDS[field.key]} sort`}
             onClick={() => onChange(sort.map((s, i) => i === index ? { ...s, dir: s.dir === 1 ? -1 : 1 } : s))}>
             {field.dir === 1 ? "↑" : "↓"}
-          </button>
-          <button type="button" aria-label={`Remove ${SORT_FIELDS[field.key]} sort`}
-            onClick={() => onChange(sort.filter((_, i) => i !== index))}>×</button>
+          </IconButton>
+          <IconButton aria-label={`Remove ${SORT_FIELDS[field.key]} sort`}
+            onClick={() => onChange(sort.filter((_, i) => i !== index))}>×</IconButton>
         </div>
       ))}
       {sort.length < Object.keys(SORT_FIELDS).length && (

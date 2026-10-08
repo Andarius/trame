@@ -4,7 +4,7 @@
 // the row deep-links to the forge as before.
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { openInBrowser } from "../../api";
-import { timeAgo } from "../../ui";
+import { IconButton, timeAgo } from "../../ui";
 
 type ApproveAction =
   | { kind: "gitlab-play"; project: string; jobId: number }
@@ -529,8 +529,7 @@ export function DeploymentsPanel(
                     >
                       ≡
                     </button>
-                    <button
-                      type="button"
+                    <IconButton
                       title={d.ignored
                         ? "Stop ignoring"
                         : "Ignore this deployment"}
@@ -545,7 +544,7 @@ export function DeploymentsPanel(
                       }`}
                     >
                       {d.ignored ? "↩" : "✕"}
-                    </button>
+                    </IconButton>
                   </div>
                   {openLog === key && <ChangelogBlock log={logs[key]} />}
                 </Fragment>

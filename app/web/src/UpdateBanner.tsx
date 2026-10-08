@@ -1,4 +1,5 @@
 import { openInBrowser, type UpdateInfo } from "./api";
+import { IconButton } from "./ui";
 
 export function UpdateBanner(
   { update, updateState, dismissed, onUpdate, onDismiss }: {
@@ -91,14 +92,13 @@ export function SelectionBar(
       >
         Delete
       </button>
-      <button
-        type="button"
+      <IconButton
         onClick={onClear}
         title="Clear selection (Esc)"
         className="text-[12px] text-ink-muted hover:text-ink-soft"
       >
         ✕
-      </button>
+      </IconButton>
     </div>
   );
 }

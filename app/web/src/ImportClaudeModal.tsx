@@ -10,7 +10,7 @@ import {
   setClaudeIgnored,
 } from "./api";
 import { Check, Footer, label, pill } from "./modal-ui";
-import { Modal, Popover, Select, timeAgo } from "./ui";
+import { IconButton, Modal, Popover, Select, timeAgo } from "./ui";
 
 const AUTO_PROJECT = "__auto__";
 const NEW_PROJECT = "__new__";
@@ -328,8 +328,7 @@ export function ImportClaudeModal(
                     {timeAgo(s.lastActive)}
                   </span>
                   {!s.alreadyImported && (
-                    <button
-                      type="button"
+                    <IconButton
                       className={`shrink-0 px-0.5 text-[11px] text-ink-muted hover:text-ink-soft ${
                         s.ignored ? "" : "opacity-0 group-hover:opacity-100"
                       }`}
@@ -337,7 +336,7 @@ export function ImportClaudeModal(
                       onClick={() => ignore(s.claudeId, s.source, !s.ignored)}
                     >
                       {s.ignored ? "↩" : "✕"}
-                    </button>
+                    </IconButton>
                   )}
                 </div>
               ))}

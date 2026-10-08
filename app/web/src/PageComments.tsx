@@ -1,4 +1,4 @@
-import { SECTION_LABEL } from "./ui";
+import { IconButton, SECTION_LABEL } from "./ui";
 import { AddNote, anchorQuoteOf, answeredIn, CommentItem, RowNote } from "./comments";
 import type { CommentView } from "./comments-state";
 
@@ -156,14 +156,13 @@ export function CommentsPanel({ cv, meId }: { cv: CommentView; meId: string | nu
             {showResolved ? "hide" : "show"} resolved
           </button>
         )}
-        <button
-          type="button"
+        <IconButton
           title="close"
           className="text-[11px] text-ink-muted transition-colors hover:text-ink-soft"
           onClick={() => setPanelOpen(false)}
         >
           ✕
-        </button>
+        </IconButton>
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
         {panelThreads.map(({ block, list }) => (

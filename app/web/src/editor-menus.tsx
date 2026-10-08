@@ -1,5 +1,5 @@
 import type { PageComment } from "./api";
-import { Popover } from "./ui";
+import { IconButton, Popover } from "./ui";
 import type { PILLS, SLASH } from "./editor-text";
 import { type CommentOps, AddNote, answeredIn, anchorQuoteOf, CommentItem, RowNote } from "./comments";
 
@@ -103,13 +103,9 @@ export function PendingNote(
         <span className="min-w-0 truncate">
           {isTable ? "on row" : "on"}: “{anchor}”
         </span>
-        <button
-          type="button"
-          className="shrink-0 hover:text-ink"
-          onClick={onCancel}
-        >
+        <IconButton className="shrink-0 hover:text-ink" onClick={onCancel}>
           ×
-        </button>
+        </IconButton>
       </div>
       <AddNote
         autoFocus
