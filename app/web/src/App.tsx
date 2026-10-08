@@ -1,41 +1,19 @@
-import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  DndContext,
-  DragOverlay,
-  type DragEndEvent,
-  type DragStartEvent,
-  PointerSensor,
-  useDraggable,
-  useDroppable,
-  useSensor,
-  useSensors,
-} from "@dnd-kit/core";
-import {
-  type AgentPresenceSettings,
   applyUpdate,
   type AppStatus,
   type BoardData,
   createPage,
-  createStatus,
   createUdb,
-  createUdbRow,
-  deleteSession,
-  deleteStatus,
-  deleteUdb,
   exportPage,
-  getAgentPresence,
   getBoard,
-  getIdentity,
   getPlugins,
-  getSettings,
   getStatus,
   getUpdate,
   importPage,
   listPages,
   listUdbs,
-  type LiveAgent,
   movePage,
-  moveStatus as apiMoveStatus,
   openInBrowser,
   type PageMeta,
   type PluginManifest,
@@ -43,48 +21,36 @@ import {
   setStatus as apiSetStatus,
   type Session,
   type Status,
-  type StatusDef,
-  syncNow,
   type UdbMeta,
   type UpdateInfo,
-  updateStatus,
-  updateUdb,
 } from "./api";
-import { AgentIcon, AgentsContext, Elapsed, type Live, liveAgents, useAgents } from "./agents";
+import { AgentsContext } from "./agents";
 import { AgentSessions } from "./AgentSessions";
-import { stripMarks } from "../../../core/todo-marks.ts";
-import { DUE_TONE_CLS, dueLabel, dueTone, focusBlock, useDue } from "./due";
 import { Board } from "./Board";
 import { Drawer, TOPBAR_SLOT } from "./Drawer";
 import { Explore } from "./Explore";
 import { List } from "./List";
 import { filterSessionBoard, sortSessionBoard, type Sort } from "./SessionSort";
 import { SessionBar } from "./SessionBar";
-import { recentRows } from "./recents";
 import { ImportClaudeModal } from "./ImportClaudeModal";
 import { NewSessionModal, NewUdbModal } from "./modals";
 import { SettingsModal } from "./SettingsModal";
+import { DbActions, HeaderTitle, PageActions } from "./AppHeader";
+import { BoardToolbar } from "./BoardToolbar";
 import { Palette } from "./Palette";
+import { useAgentsPoll, useSelection, useStarred, useSync } from "./app-hooks";
+import { SelectionBar, UpdateBanner } from "./UpdateBanner";
+import { Sidebar } from "./Sidebar";
+import type { View } from "./view";
+import { type TreeCards, TreeCardsCtx } from "./sidebar-tree";
 import { ShareModal } from "./ShareModal";
-import { confirmDeletePage, Page } from "./Page";
+import { Page } from "./Page";
 import { ClientView } from "./ClientView";
-import { MenuRow, BOOL_CODEC, SET_CODEC, useLocalStorage, appConfirm, ConfirmHost, EntityIcon, ExpandIcon, pageGlyph, Popover, SECTION_LABEL, setStatuses, StatusDot, statusStyle, timeAgo, IconButton, PresenceDot } from "./ui";
+import { BOOL_CODEC, useLocalStorage, appConfirm, ConfirmHost, ExpandIcon, setStatuses, statusStyle } from "./ui";
 import { FRONTEND_PLUGINS } from "./plugins";
 import { PluginsModal } from "./plugins/PluginsModal";
 import { PluginSettingsModal } from "./plugins/PluginSettingsModal";
-import { IconPicker } from "./udb/cells";
 import { DatabaseView } from "./udb/DatabaseTable";
-
-type View =
-  | "board"
-  | "list"
-  | "agents"
-  | "explore"
-  | "database"
-  | "page"
-  | "card"
-  | "client"
-  | "plugin";
 
 const post = (path: string, body: unknown) =>
   fetch(path, {
@@ -93,1174 +59,6 @@ const post = (path: string, body: unknown) =>
     body: JSON.stringify(body),
   });
 
-// inline SVG with hardcoded colors — the span version relied on the --color-copper
-// var and color-mix opacity, one of which the Linux WebKitGTK webview drops (logo
-// rendered invisible). SVG with literal hex is bulletproof across both webviews.
-function LogoMark() {
-  return (
-    <svg
-      width="26"
-      height="26"
-      viewBox="0 0 26 26"
-      aria-hidden="true"
-      className="shrink-0"
-    >
-      <rect width="26" height="26" rx="7" fill="#c98a63" />
-      <rect
-        x="6"
-        y="11"
-        width="14"
-        height="3.5"
-        rx="1.75"
-        fill="#120e0b"
-        fillOpacity="0.85"
-      />
-      <rect
-        x="11.5"
-        y="6"
-        width="3.5"
-        height="14"
-        rx="1.75"
-        fill="#120e0b"
-        fillOpacity="0.55"
-      />
-    </svg>
-  );
-}
-
-function GroupIcon() {
-  return (
-    <svg
-      width="13"
-      height="13"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      aria-hidden="true"
-    >
-      <rect x="2" y="2.5" width="12" height="4" rx="1" />
-      <rect x="2" y="9.5" width="12" height="4" rx="1" />
-    </svg>
-  );
-}
-
-// inline SVG (not a glyph): the Unicode gear renders as a colored emoji on WKWebView
-// and as tofu with the FE0E text selector on WebKitGTK — neither is acceptable
-function GearIcon({ size = 15 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-    </svg>
-  );
-}
-
-const NAV: {
-  key: "sessions" | "agents" | "explore";
-  glyph: string;
-  label: string;
-  view: View;
-}[] = [
-  { key: "sessions", glyph: "▦", label: "Sessions", view: "board" },
-  { key: "agents", glyph: "↻", label: "AI Sessions", view: "agents" },
-  { key: "explore", glyph: "✦", label: "Explore", view: "explore" },
-];
-
-// "New …" affordance under a sidebar section — a subtle dashed chip. `indent` is
-// the x of the section's icon column (tree rows: 26 = 8px pad + 14px chevron + 4px
-// gap; flat rows: 8); the chip shifts by its own padding+border so the ＋ lines up.
-function NewChip(
-  { label, indent, onClick }: {
-    label: string;
-    indent: number;
-    onClick: () => void;
-  },
-) {
-  return (
-    <button
-      type="button"
-      className="mt-0.5 flex w-fit items-center gap-1.5 rounded-md border border-dashed border-chipline px-2 py-1 text-[12px] text-ink-muted/70 hover:border-copper/60 hover:text-copper"
-      style={{ marginLeft: indent - 9 }}
-      onClick={onClick}
-    >
-      <span className="text-[11px]">＋</span> {label}
-    </button>
-  );
-}
-
-// open cards per user story, for the sidebar tree
-type TreeCards = { byStory: Map<string, Session[]>; open: (id: string) => void; current: string | null };
-const TreeCardsCtx = createContext<TreeCards>({ byStory: new Map(), open: () => {}, current: null });
-
-type LiveCount = { working: number; waiting: number; own: boolean };
-// live agents per page, rolled up the tree so a collapsed parent still shows them
-const LiveCounts = createContext<Map<string, LiveCount>>(new Map());
-
-function LiveMarker({ id }: { id: string }) {
-  const c = useContext(LiveCounts).get(id);
-  const { cfg } = useAgents();
-  if (!c) return null;
-  const spin = cfg?.motion ? "motion-safe:animate-spin" : "";
-  const tip = [c.working && `${c.working} working`, c.waiting && `${c.waiting} needs you`].filter(Boolean).join(", ");
-  return (
-    <span className="ml-auto flex shrink-0 items-center gap-1.5 pl-1 font-mono text-[10.5px] font-semibold text-ink-soft" title={tip}>
-      {c.working > 0 && (
-        <span className="inline-flex items-center gap-1">
-          {c.own
-            ? <span className={`h-2.5 w-2.5 rounded-full border-[1.5px] border-live/40 border-t-live ${spin}`} />
-            : <PresenceDot state="working" />}
-          {(c.working > 1 || !c.own) && c.working}
-        </span>
-      )}
-      {c.waiting > 0 && (
-        <span className="inline-flex items-center gap-1">
-          <PresenceDot state="waiting" />
-          {(c.waiting > 1 || !c.own) && c.waiting}
-        </span>
-      )}
-    </span>
-  );
-}
-
-function PageNode(
-  {
-    p,
-    depth,
-    childrenOf,
-    dbsOf,
-    expanded,
-    onToggle,
-    current,
-    currentDb,
-    onOpenPage,
-    onOpenDb,
-    onNewChild,
-    onStar,
-    starred,
-    meId,
-  }: {
-    p: PageMeta;
-    depth: number;
-    childrenOf: Map<string | null, PageMeta[]>;
-    dbsOf: Map<string, UdbMeta[]>;
-    expanded: Set<string>;
-    onToggle: (id: string) => void;
-    current: string | null;
-    currentDb: string | null;
-    onOpenPage: (id: string) => void;
-    onOpenDb: (id: string) => void;
-    onNewChild: (parentId: string) => void;
-    onStar: (id: string) => void;
-    starred: Set<string>;
-    meId: string | null;
-  },
-) {
-  const allKids = childrenOf.get(p.id) ?? [];
-  const { normal: kids, archived } = splitArchived(allKids, starred);
-  const dbs = dbsOf.get(p.id) ?? [];
-  const treeCards = useContext(TreeCardsCtx);
-  const { live: liveNow } = useAgents();
-  const cards = treeCards.byStory.get(p.id) ?? [];
-  const hasKids = allKids.length + dbs.length + cards.length > 0;
-  const open = expanded.has(p.id);
-  const active = p.id === current;
-  const sharedIn = isSharedIn(p, meId);
-  const canDrag = (p.kind === "page" || p.kind === "story") && !sharedIn;
-  const { attributes, listeners, setNodeRef: setDragRef, isDragging } =
-    useDraggable({ id: p.id, disabled: !canDrag, data: { kind: p.kind } });
-  const { setNodeRef: setDropRef, isOver, active: dragged } = useDroppable({
-    id: `drop:${p.id}`,
-  });
-  // pages file under any node; stories only re-home across projects
-  const draggedKind = dragged?.data.current?.kind as string | undefined;
-  const canDrop = !sharedIn && (p.kind === "project" || draggedKind === "page");
-  return (
-    <>
-      <div
-        ref={(el) => {
-          setDragRef(el);
-          setDropRef(el);
-        }}
-        {...(canDrag ? { ...attributes, ...listeners } : {})}
-        className={`group flex items-center gap-1 rounded-md py-[5px] pr-1 text-left text-[13px] ${
-          active
-            ? "bg-active-row font-medium text-ink"
-            : "text-ink-muted hover:text-ink-soft"
-        }${canDrag ? " touch-none active:cursor-grabbing" : ""}${
-          isDragging ? " opacity-40" : ""
-        }${isOver && canDrop ? " bg-copper/10 ring-1 ring-copper/40" : ""}`}
-        style={{ paddingLeft: 8 + depth * 14 }}
-      >
-        <button
-          type="button"
-          className={`w-[14px] shrink-0 text-[9px] ${
-            hasKids ? "text-ink-muted/70 hover:text-ink" : "text-transparent"
-          }`}
-          onClick={() => hasKids && onToggle(p.id)}
-          onPointerDown={(e) => e.stopPropagation()}
-          tabIndex={hasKids ? 0 : -1}
-        >
-          {open ? "▾" : "▸"}
-        </button>
-        <button
-          type="button"
-          className="flex min-w-0 flex-1 items-center gap-1.5"
-          onClick={() => onOpenPage(p.id)}
-        >
-          <span
-            className={`text-[12px] ${
-              active && !(p.kind === "project" && p.color) ? "text-copper" : ""
-            }`}
-            style={p.kind === "project" && p.color
-              ? { color: p.color }
-              : undefined}
-          >
-            <EntityIcon icon={p.icon} fallback={pageGlyph(p.kind, p.mark_role)} />
-          </span>
-          <span
-            className={`truncate ${p.title ? "" : "italic text-ink-muted/60"}`}
-          >
-            {p.title || "Untitled"}
-          </span>
-          <LiveMarker id={p.id} />
-        </button>
-        <button
-          type="button"
-          className={`shrink-0 rounded px-1 text-[11px] hover:text-copper ${
-            starred.has(p.id) ? "text-copper" : "hidden text-ink-muted group-hover:block"
-          }`}
-          title={starred.has(p.id) ? "unstar" : "star — pin this page on top"}
-          onClick={() => onStar(p.id)}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          ★
-        </button>
-        <button
-          type="button"
-          className="hidden shrink-0 rounded px-1 text-[12px] text-ink-muted hover:text-ink group-hover:block"
-          title="new sub-page"
-          onClick={() => onNewChild(p.id)}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          ＋
-        </button>
-      </div>
-      {open && cards.map((c) => {
-        const on = liveNow.find(({ a }) => a.session_id === c.id);
-        return (
-          <button
-            type="button"
-            key={c.id}
-            onClick={() => treeCards.open(c.id)}
-            className={`flex items-center gap-1.5 rounded-md py-[5px] pr-1 text-left text-[13px] ${
-              c.id === treeCards.current ? "bg-active-row font-medium text-ink" : "text-ink-muted hover:text-ink-soft"
-            }`}
-            style={{ paddingLeft: 8 + (depth + 1) * 14 + 14 }}
-            title={`${c.title} — ${statusStyle(c.status).label}`}
-          >
-            <span className="text-[11px]">▦</span>
-            <span className="flex-1 truncate">{c.title}</span>
-            {on && <PresenceDot state={on.state} className="shrink-0" />}
-            <StatusDot status={c.status} size={6} />
-          </button>
-        );
-      })}
-      {open && dbs.map((d) => {
-        const dbActive = d.id === currentDb;
-        return (
-          <button
-            type="button"
-            key={d.id}
-            onClick={() => onOpenDb(d.id)}
-            className={`flex items-center gap-1.5 rounded-md py-[5px] pr-2 text-left text-[13px] ${
-              dbActive
-                ? "bg-active-row font-medium text-ink"
-                : "text-ink-muted hover:text-ink-soft"
-            }`}
-            style={{ paddingLeft: 8 + (depth + 1) * 14 + 14 }}
-          >
-            <span className={`text-[12px] ${dbActive ? "text-copper" : ""}`}>
-              <EntityIcon icon={d.icon} fallback="⌗" />
-            </span>
-            <span className="flex-1 truncate">{d.name}</span>
-            <span className="text-[10.5px] text-ink-muted/60">
-              {d.row_count || ""}
-            </span>
-          </button>
-        );
-      })}
-      {open && kids.map(renderKid)}
-      {open && archived.length > 0 && (
-        <ArchivedFold
-          parentKey={p.id}
-          kids={archived}
-          depth={depth + 1}
-          expanded={expanded}
-          onToggle={onToggle}
-          node={renderKid}
-        />
-      )}
-    </>
-  );
-
-  function renderKid(k: PageMeta) {
-    return (
-      <PageNode
-        key={k.id}
-        p={k}
-        depth={depth + 1}
-        childrenOf={childrenOf}
-        dbsOf={dbsOf}
-        expanded={expanded}
-        onToggle={onToggle}
-        current={current}
-        currentDb={currentDb}
-        onOpenPage={onOpenPage}
-        onOpenDb={onOpenDb}
-        onNewChild={onNewChild}
-        onStar={onStar}
-        starred={starred}
-        meId={meId}
-      />
-    );
-  }
-}
-
-// A root page owned by another hub user reached us via a share — group it apart.
-// Ownerless pages (dev mode, unclaimed device) count as mine.
-function isSharedIn(p: PageMeta, meId: string | null): boolean {
-  return meId != null && p.owner_id != null && p.owner_id !== meId;
-}
-
-// archived stories leave the main list, starred ones ride on top
-// (stable sort: server order kept within each group)
-const splitArchived = (kids: PageMeta[], starred: Set<string>) => ({
-  normal: kids.filter((k) => k.status !== "archived").sort((a, b) =>
-    Number(starred.has(b.id)) - Number(starred.has(a.id))
-  ),
-  archived: kids.filter((k) => k.status === "archived"),
-});
-
-// "Show more" on RECENTLY MODIFIED — parked in `expanded` like `archived:<parent>`,
-// so it persists through the same localStorage key
-const RECENTS_KEY = "recents:more";
-const RECENTS_SHORT = 5;
-const RECENTS_LONG = 20;
-
-// collapsed per-parent bucket for archived stories — expand state persists through
-// the same `expanded` set as real nodes, under the synthetic `archived:<parent>` key
-function ArchivedFold(
-  { parentKey, kids, depth, expanded, onToggle, node }: {
-    parentKey: string;
-    kids: PageMeta[];
-    depth: number;
-    expanded: Set<string>;
-    onToggle: (id: string) => void;
-    node: (k: PageMeta) => ReactNode;
-  },
-) {
-  const key = `archived:${parentKey}`;
-  const open = expanded.has(key);
-  return (
-    <>
-      <button
-        type="button"
-        className="flex items-center gap-1 rounded-md py-[5px] pr-1 text-left text-[12px] text-ink-muted/70 hover:text-ink-soft"
-        style={{ paddingLeft: 8 + depth * 14 }}
-        onClick={() => onToggle(key)}
-      >
-        <span className="w-[14px] shrink-0 text-[9px]">
-          {open ? "▾" : "▸"}
-        </span>
-        Archived ({kids.length})
-      </button>
-      {open && (
-        <div className="flex flex-col gap-1 opacity-50">{kids.map(node)}</div>
-      )}
-    </>
-  );
-}
-
-// drop zone covering the whole UNFILED section — dropping a page here un-files it
-function UnfiledZone({ children }: { children: ReactNode }) {
-  const { setNodeRef, isOver } = useDroppable({ id: "unfiled" });
-  return (
-    <div
-      ref={setNodeRef}
-      className={`flex flex-col gap-1 ${
-        isOver ? "rounded-md bg-copper/5 ring-1 ring-copper/30" : ""
-      }`}
-    >
-      {children}
-    </div>
-  );
-}
-
-function Sidebar(
-  {
-    view,
-    onNav,
-    status,
-    onSettings,
-    pages,
-    pageId,
-    plugins,
-    pluginId,
-    onOpenPlugin,
-    onOpenPage,
-    onNewPage,
-    onNewProject,
-    onImportPage,
-    onMovePage,
-    starred,
-    toggleStar,
-    udbs,
-    dbId,
-    onOpenDb,
-    onNewDb,
-    update,
-    updateState,
-    onUpdate,
-  }: {
-    view: View;
-    onNav: (v: View) => void;
-    status: AppStatus | null;
-    onSettings: () => void;
-    pages: PageMeta[];
-    pageId: string | null;
-    plugins: PluginManifest[];
-    pluginId: string | null;
-    onOpenPlugin: (id: string) => void;
-    onOpenPage: (id: string) => void;
-    onNewPage: (parentId: string | null) => void;
-    onNewProject: () => void;
-    onImportPage: () => void;
-    onMovePage: (id: string, parentId: string | null) => void;
-    starred: Set<string>;
-    toggleStar: (id: string) => void;
-    udbs: UdbMeta[];
-    dbId: string | null;
-    onOpenDb: (id: string) => void;
-    onNewDb: () => void;
-    update: UpdateInfo | null;
-    updateState: "idle" | "busy" | "done";
-    onUpdate: () => void;
-  },
-) {
-  const activeKey = view === "board" || view === "list" ? "sessions" : view;
-  const synced = status?.remote && status.lastSync;
-  // my user id (null in dev / before hub login) — used to split off shared-in roots
-  const [meId, setMeId] = useState<string | null>(null);
-  useEffect(() => {
-    getIdentity().then((i) => setMeId(i.userId)).catch(() => {});
-  }, []);
-  const [expanded, setExpanded] = useLocalStorage("trame:expanded", new Set<string>(), SET_CODEC);
-
-  const byId = useMemo(() => new Map(pages.map((p) => [p.id, p])), [pages]);
-  const childrenOf = useMemo(() => {
-    const m = new Map<string | null, PageMeta[]>();
-    for (const p of pages) {
-      // orphan-tolerant: a child whose parent hasn't synced yet shows at the root
-      const key = p.parent_id && byId.has(p.parent_id) ? p.parent_id : null;
-      m.set(key, [...(m.get(key) ?? []), p]);
-    }
-    return m;
-  }, [pages, byId]);
-  const dbsOf = useMemo(() => {
-    const m = new Map<string, UdbMeta[]>();
-    for (const d of udbs) {
-      if (d.page_id && byId.has(d.page_id)) {
-        m.set(d.page_id, [...(m.get(d.page_id) ?? []), d]);
-      }
-    }
-    return m;
-  }, [udbs, byId]);
-  const looseDbs = udbs.filter((d) => !d.page_id || !byId.has(d.page_id));
-
-  const { live } = useAgents();
-  const treeCards = useContext(TreeCardsCtx);
-  const due = useDue();
-  const lateCount = due.filter((d) => dueTone(d.due) === "late").length;
-  const liveCounts = useMemo(() => {
-    const m = new Map<string, LiveCount>();
-    for (const { a, state } of live) {
-      // one count per agent per page, even when it links several todos below it
-      const seen = new Map<string, boolean>(); // page id -> own (directly linked)
-      for (const l of a.page_id ? [{ page_id: a.page_id }] : a.links) {
-        let own = true;
-        for (let p = byId.get(l.page_id); p; p = p.parent_id ? byId.get(p.parent_id) : undefined) {
-          seen.set(p.id, (seen.get(p.id) ?? false) || own);
-          own = false;
-        }
-      }
-      for (const [id, own] of seen) {
-        const c = m.get(id) ?? { working: 0, waiting: 0, own: false };
-        c[state]++;
-        c.own ||= own;
-        m.set(id, c);
-      }
-    }
-    return m;
-  }, [live, byId]);
-  const runningRef = useRef<HTMLElement>(null);
-
-  // the whole tree by mtime — sliced short/long at render
-  const recentsOpen = expanded.has(RECENTS_KEY);
-  const recents = useMemo(() => recentRows(pages), [pages]);
-
-  // opening a deep page (deep link, subpage nav) expands its ancestors
-  useEffect(() => {
-    if (!pageId) return;
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      for (
-        let p = byId.get(pageId);
-        p;
-        p = p.parent_id ? byId.get(p.parent_id) : undefined
-      ) {
-        if (p.parent_id) next.add(p.parent_id);
-        // an archived hop hides behind its parent's fold — open that too
-        if (p.status === "archived") {
-          next.add(`archived:${p.parent_id ?? "root"}`);
-        }
-      }
-      return next;
-    });
-  }, [pageId, byId]);
-
-  const onToggle = (id: string) =>
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-
-  // drag a page row onto a project/story (or the UNFILED zone) to re-file it
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-  );
-  const [dragId, setDragId] = useState<string | null>(null);
-  const lastDragEnd = useRef(0);
-  // suppress the click that fires right after a drop
-  const openGuarded = (id: string) => {
-    if (Date.now() - lastDragEnd.current > 250) onOpenPage(id);
-  };
-  const onDragStart = (e: DragStartEvent) => setDragId(String(e.active.id));
-  const onDragEnd = (e: DragEndEvent) => {
-    setDragId(null);
-    lastDragEnd.current = Date.now();
-    if (!e.over) return;
-    const id = String(e.active.id);
-    const page = byId.get(id);
-    if (!page) return;
-    const target = e.over.id === "unfiled"
-      ? null
-      : String(e.over.id).slice("drop:".length);
-    if (target === (page.parent_id ?? null)) return; // already there
-    if (target) {
-      // droppables stay live for the hover state — enforce what accepts what here:
-      // pages land on any node, stories only on projects
-      const tk = byId.get(target)?.kind;
-      if (tk !== "project" && page.kind !== "page") return;
-      // cycle guard — server rejects too, this just skips the round-trip
-      for (
-        let a = byId.get(target);
-        a;
-        a = a.parent_id ? byId.get(a.parent_id) : undefined
-      ) {
-        if (a.id === id) return;
-      }
-      setExpanded((prev) => new Set(prev).add(target)); // reveal landing spot
-    }
-    onMovePage(id, target);
-  };
-  const dragged = dragId ? byId.get(dragId) : undefined;
-  const rootsOwn = splitArchived(
-    (childrenOf.get(null) ?? []).filter((p) =>
-      (p.kind === "project" || p.kind === "story") && !isSharedIn(p, meId)
-    ),
-    starred,
-  );
-  const renderRoot = (p: PageMeta) => (
-    <PageNode
-      key={p.id}
-      p={p}
-      depth={0}
-      childrenOf={childrenOf}
-      dbsOf={dbsOf}
-      expanded={expanded}
-      onToggle={onToggle}
-      current={view === "page" ? pageId : null}
-      currentDb={view === "database" ? dbId : null}
-      onOpenPage={openGuarded}
-      onOpenDb={onOpenDb}
-      onNewChild={(id) => onNewPage(id)}
-      onStar={toggleStar}
-      starred={starred}
-      meId={meId}
-    />
-  );
-
-  return (
-    <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-    <LiveCounts.Provider value={liveCounts}>
-    <aside className="flex w-[240px] shrink-0 flex-col border-r border-line bg-sidebar">
-      {/* Seule la liste défile : le statut de synchro et l'accès aux réglages
-          restent visibles, sinon il faut dérouler tout l'arbre pour les
-          atteindre. */}
-      <div className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 pb-3 pt-4">
-      <div className="mb-3 flex items-center gap-2.5 px-2">
-        <LogoMark />
-        <span className="text-[15px] font-semibold">Trame</span>
-      </div>
-      <div className={`px-2 pb-1.5 pt-0.5 ${SECTION_LABEL}`}>
-        VIEWS
-      </div>
-      {NAV.map((item) => {
-        const active = item.key === activeKey;
-        return (
-          <button
-            type="button"
-            key={item.key}
-            onClick={() => onNav(item.view)}
-            className={`flex items-center gap-2.5 rounded-md px-2 py-[7px] text-left text-[13.5px] ${
-              active
-                ? "bg-active-row font-medium text-ink"
-                : "text-ink-muted hover:text-ink-soft"
-            }`}
-          >
-            <span className={`text-[13px] ${active ? "text-copper" : ""}`}>
-              {item.glyph}
-            </span>
-            {item.label}
-            {item.key === "agents" && live.length > 0 && (
-              <span className="ml-auto inline-flex items-center gap-1 rounded-full border border-chipline px-1.5 text-[10.5px] font-medium text-ink-soft">
-                <PresenceDot state="working" />
-                {live.length} live
-              </span>
-            )}
-          </button>
-        );
-      })}
-      {plugins.filter((p) => p.enabled).map((p) => {
-        const active = view === "plugin" && p.id === pluginId;
-        return (
-          <button
-            type="button"
-            key={p.id}
-            onClick={() => onOpenPlugin(p.id)}
-            className={`flex items-center gap-2.5 rounded-md px-2 py-[7px] text-left text-[13.5px] ${
-              active
-                ? "bg-active-row font-medium text-ink"
-                : "text-ink-muted hover:text-ink-soft"
-            }`}
-          >
-            <span className={`text-[13px] ${active ? "text-copper" : ""}`}>
-              {p.glyph}
-            </span>
-            {p.label}
-            {p.badge != null && p.badge > 0 && (
-              <span className="ml-auto rounded-full bg-copper/15 px-1.5 py-0.5 text-[10px] font-medium text-copper">
-                {p.badge}
-              </span>
-            )}
-          </button>
-        );
-      })}
-      {live.length > 0 && (
-        <nav ref={runningRef} aria-label="Running agents" className="flex flex-col gap-0.5">
-          <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
-            RUNNING
-          </div>
-          {live.map(({ a, state }) => {
-            const link = a.links.find((l) => a.block_id ? l.block_id === a.block_id : l.block_id) ?? a.links[0];
-            const what = (link?.anchor && stripMarks(link.anchor).trim()) || a.session_title;
-            return (
-              <button
-                type="button"
-                key={a.session_id}
-                disabled={!link}
-                onClick={() => link && onOpenPage(link.page_id)}
-                title={`${a.harness} · ${a.session_title}${link ? ` — ${link.page_title}` : ""}`}
-                className={`grid grid-cols-[auto_1fr_auto] items-center gap-x-2 rounded-md px-2 py-[5px] text-left hover:bg-active-row ${
-                  state === "waiting" ? "bg-wait/[0.1]" : ""
-                }`}
-              >
-                <AgentIcon a={a} />
-                <span className="truncate text-[13px] text-ink">{what}</span>
-                <span className="font-mono text-[10.5px] font-semibold tabular-nums text-ink-soft">
-                  <Elapsed since={a.since} state={state} />
-                </span>
-                <span
-                  className={`col-span-2 col-start-2 truncate text-[11.5px] ${
-                    state === "waiting" ? "italic text-ink-soft" : "text-ink-muted"
-                  }`}
-                >
-                  {state === "waiting" ? `needs you: ${a.question ?? "waiting for input"}` : link?.page_title ?? "no linked todo"}
-                </span>
-              </button>
-            );
-          })}
-        </nav>
-      )}
-      {due.length > 0 && (
-        <nav aria-label="Due todos" className="flex flex-col gap-0.5">
-          <div className={`flex items-center px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
-            DUE
-            <span
-              className={`ml-auto rounded-full px-1.5 text-[10.5px] tracking-normal tabular-nums ${
-                lateCount ? DUE_TONE_CLS.late : DUE_TONE_CLS.later
-              }`}
-            >
-              {lateCount ? `${lateCount} late · ${due.length}` : due.length}
-            </span>
-          </div>
-          {due.map((d) => {
-            const tone = dueTone(d.due);
-            return (
-              <button
-                type="button"
-                key={`${d.page_id}:${d.block_id ?? d.text}`}
-                onClick={() => {
-                  if (d.block_id) focusBlock(d.block_id);
-                  if (d.card_id) treeCards.open(d.card_id);
-                  else onOpenPage(d.page_id);
-                }}
-                title={`${d.text} — ${d.page_title}`}
-                className="grid grid-cols-[auto_1fr_auto] items-center gap-x-2 rounded-md px-2 py-[5px] text-left hover:bg-active-row"
-              >
-                <span className={tone === "late" ? "text-blocked" : tone === "soon" ? "text-wait" : "text-ink-faint"}>⚑</span>
-                <span className="truncate text-[13px] text-ink">{d.text}</span>
-                <span
-                  className={`whitespace-nowrap text-[11px] tabular-nums ${
-                    tone === "late" ? "text-blocked" : tone === "soon" ? "text-wait" : "text-ink-faint"
-                  }`}
-                >
-                  {dueLabel(d.due)}
-                </span>
-              </button>
-            );
-          })}
-        </nav>
-      )}
-      {recents.length > 0 && (
-        <>
-          {/* a landmark, so the rows are addressable apart from STARRED's identical ones */}
-          <nav aria-label="Recently modified" className="flex flex-col gap-1">
-          <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
-            RECENTLY MODIFIED
-          </div>
-          {recents.slice(0, recentsOpen ? RECENTS_LONG : RECENTS_SHORT).map((row) => {
-            // a bulk edit collapses to its parent, labelled with the page count
-            const p = row.kind === "page" ? row.page : byId.get(row.parentId);
-            if (!p) return null;
-            const count = row.kind === "group" ? row.pages.length : 0;
-            const at = row.kind === "group" ? row.pages[0].updated_at : p.updated_at;
-            const active = view === "page" && p.id === pageId;
-            const path: string[] = [];
-            for (let a = byId.get(p.parent_id ?? ""); a; a = byId.get(a.parent_id ?? "")) path.unshift(a.title);
-            return (
-              <button
-                type="button"
-                key={row.kind === "group" ? `group:${row.pages[0].id}` : p.id}
-                onClick={() => onOpenPage(p.id)}
-                title={[...path, p.title].join(" / ") + (count ? ` · ${count} pages changed` : "")}
-                className={`flex items-center gap-1.5 rounded-md py-[5px] pl-[22px] pr-1 text-left text-[13px] ${
-                  active ? "bg-active-row font-medium text-ink" : "text-ink-muted hover:text-ink-soft"
-                }`}
-              >
-                <span className={`text-[12px] ${active ? "text-copper" : ""}`}>
-                  <EntityIcon icon={p.icon} fallback={pageGlyph(p.kind, p.mark_role)} />
-                </span>
-                <span className="flex-1 truncate">{p.title || "Untitled"}</span>
-                <LiveMarker id={p.id} />
-                {count > 0 && (
-                  <span className="shrink-0 rounded-full bg-copper/15 px-1.5 text-[10px] font-medium text-copper">
-                    {count}
-                  </span>
-                )}
-                <span className="shrink-0 text-[10.5px] text-ink-muted/60">{timeAgo(at)}</span>
-              </button>
-            );
-          })}
-          </nav>
-          {recents.length > RECENTS_SHORT && (
-            <button
-              type="button"
-              onClick={() => onToggle(RECENTS_KEY)}
-              className="flex items-center gap-1 rounded-md py-[5px] pl-2 pr-1 text-left text-[12px] text-ink-muted/70 hover:text-ink-soft"
-            >
-              <span className="w-[14px] shrink-0 text-[9px]">{recentsOpen ? "▾" : "▸"}</span>
-              {recentsOpen ? "Show less" : "Show more"}
-            </button>
-          )}
-        </>
-      )}
-      {/* one tree, three root sections: projects (what sessions ladder up to),
-          pages shared in by other users, and unfiled pages (the inbox to triage) */}
-      {[...starred].some((id) => byId.has(id)) && (
-        <>
-          <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
-            STARRED
-          </div>
-          {[...starred].flatMap((id) => byId.get(id) ?? []).map((p) => {
-            const active = view === "page" && p.id === pageId;
-            const path: string[] = [];
-            for (let a = byId.get(p.parent_id ?? ""); a; a = byId.get(a.parent_id ?? "")) path.unshift(a.title);
-            return (
-              <button
-                type="button"
-                key={p.id}
-                onClick={() => onOpenPage(p.id)}
-                title={[...path, p.title].join(" / ")}
-                className={`group flex items-center gap-1.5 rounded-md py-[5px] pl-[22px] pr-1 text-left text-[13px] ${
-                  active ? "bg-active-row font-medium text-ink" : "text-ink-muted hover:text-ink-soft"
-                }`}
-              >
-                <span className={`text-[12px] ${active ? "text-copper" : ""}`}>
-                  <EntityIcon icon={p.icon} fallback={pageGlyph(p.kind, p.mark_role)} />
-                </span>
-                <span className="flex-1 truncate">{p.title || "Untitled"}</span>
-                <span
-                  className="hidden px-1 text-[11px] text-copper group-hover:block"
-                  title="unstar"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleStar(p.id);
-                  }}
-                >
-                  ★
-                </span>
-              </button>
-            );
-          })}
-        </>
-      )}
-      <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
-        PROJECTS
-      </div>
-      {rootsOwn.normal.map(renderRoot)}
-      {rootsOwn.archived.length > 0 && (
-        <ArchivedFold
-          parentKey="root"
-          kids={rootsOwn.archived}
-          depth={0}
-          expanded={expanded}
-          onToggle={onToggle}
-          node={renderRoot}
-        />
-      )}
-      <NewChip label="New project" indent={26} onClick={onNewProject} />
-      {(childrenOf.get(null) ?? []).some((p) => isSharedIn(p, meId)) && (
-        <>
-          <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
-            SHARED WITH ME
-          </div>
-          {(childrenOf.get(null) ?? []).filter((p) => isSharedIn(p, meId)).map(
-            (p) => (
-              <PageNode
-                key={p.id}
-                p={p}
-                depth={0}
-                childrenOf={childrenOf}
-                dbsOf={dbsOf}
-                expanded={expanded}
-                onToggle={onToggle}
-                current={view === "page" ? pageId : null}
-                currentDb={view === "database" ? dbId : null}
-                onOpenPage={openGuarded}
-                onOpenDb={onOpenDb}
-                onNewChild={(id) => onNewPage(id)}
-                onStar={toggleStar}
-                starred={starred}
-                meId={meId}
-              />
-            ),
-          )}
-        </>
-      )}
-      <UnfiledZone>
-        <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
-          UNFILED
-        </div>
-        {(childrenOf.get(null) ?? []).filter((p) =>
-          p.kind === "page" && !isSharedIn(p, meId)
-        ).map((
-          p,
-        ) => (
-          <PageNode
-            key={p.id}
-            p={p}
-            depth={0}
-            childrenOf={childrenOf}
-            dbsOf={dbsOf}
-            expanded={expanded}
-            onToggle={onToggle}
-            current={view === "page" ? pageId : null}
-            currentDb={view === "database" ? dbId : null}
-            onOpenPage={openGuarded}
-            onOpenDb={onOpenDb}
-            onNewChild={(id) => onNewPage(id)}
-            onStar={toggleStar}
-            starred={starred}
-            meId={meId}
-          />
-        ))}
-        <div className="flex flex-wrap items-center gap-1.5">
-          <NewChip label="New page" indent={26} onClick={() => onNewPage(null)} />
-          <NewChip label="Import" indent={9} onClick={onImportPage} />
-        </div>
-      </UnfiledZone>
-      <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
-        DATABASES
-      </div>
-      {looseDbs.map((d) => {
-        const active = view === "database" && d.id === dbId;
-        return (
-          <button
-            type="button"
-            key={d.id}
-            onClick={() => onOpenDb(d.id)}
-            // pl-[26px]: align the ⌗ with the ◎/□ glyph column of the tree sections above
-            className={`flex items-center gap-1.5 rounded-md py-[7px] pl-[26px] pr-2 text-left text-[13.5px] ${
-              active
-                ? "bg-active-row font-medium text-ink"
-                : "text-ink-muted hover:text-ink-soft"
-            }`}
-          >
-            <span className={`text-[13px] ${active ? "text-copper" : ""}`}>
-              <EntityIcon icon={d.icon} fallback="⌗" />
-            </span>
-            <span className="flex-1 truncate">{d.name}</span>
-            <span className="text-[10.5px] text-ink-muted/60">
-              {d.row_count || ""}
-            </span>
-          </button>
-        );
-      })}
-      <NewChip label="New database" indent={26} onClick={onNewDb} />
-      </div>
-      {live.length > 0 && (
-        <button
-          type="button"
-          title="show the running agents"
-          // one status block with the sync line below: same inset, dot and type
-          className="flex shrink-0 items-center gap-3 border-t border-line px-5 pt-2 text-[11.5px] text-ink-muted hover:text-ink"
-          onClick={() => runningRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-        >
-          {(["working", "waiting"] as const).map((st) => {
-            const n = live.filter((l) => l.state === st).length;
-            return n > 0 && (
-              <span key={st} className="inline-flex items-center gap-2">
-                <span className={`h-[7px] w-[7px] rounded-full ${st === "working" ? "bg-live" : "bg-wait"}`} />
-                {n} {st === "working" ? "working" : "needs you"}
-              </span>
-            );
-          })}
-        </button>
-      )}
-      <div
-        className={`flex shrink-0 items-center gap-2 px-5 text-[11.5px] text-ink-muted ${
-          live.length > 0 ? "pb-2 pt-1.5" : "border-t border-line py-2"
-        }`}
-      >
-        <span
-          className="h-[7px] w-[7px] rounded-full"
-          style={{
-            background: synced ? "var(--color-active)" : "var(--color-done)",
-          }}
-        />
-        <span className="flex-1">
-          {status
-            ? status.remote
-              ? status.lastSync ? `Synced · ${status.nodeId}` : "Sync pending…"
-              : `Local only · ${status.nodeId}`
-            : "…"}
-        </span>
-        {(update?.available || update?.applied) && (
-          <button
-            type="button"
-            className="rounded bg-copper/15 px-1.5 py-0.5 text-[10.5px] font-medium text-copper hover:bg-copper/25 disabled:opacity-60"
-            title={updateState === "done"
-              ? "updated — restart Trame to finish"
-              : update.canSelfUpdate
-              ? `update to v${update.latest} in place`
-              : `v${update.latest} available — open the release page`}
-            disabled={updateState === "busy"}
-            onClick={onUpdate}
-          >
-            {updateState === "done"
-              ? "↻ restart"
-              : updateState === "busy"
-              ? "…"
-              : `↑ v${update.latest}`}
-          </button>
-        )}
-        <button
-          type="button"
-          className="text-ink-muted hover:text-ink-soft"
-          title="Settings"
-          onClick={onSettings}
-        >
-          <GearIcon />
-        </button>
-      </div>
-    </aside>
-    </LiveCounts.Provider>
-    <DragOverlay>
-      {dragged && (
-        <div className="flex w-fit items-center gap-1.5 rounded-md border border-line bg-sidebar px-2 py-1 text-[13px] shadow-lg">
-          <EntityIcon icon={dragged.icon} fallback={pageGlyph(dragged.kind, dragged.mark_role)} />
-          <span className="max-w-[200px] truncate">
-            {dragged.title || "Untitled"}
-          </span>
-        </div>
-      )}
-    </DragOverlay>
-    </DndContext>
-  );
-}
-
-const STATUS_PALETTE = [
-  "#7bd88f",
-  "#5fb8e8",
-  "#7a9ee7",
-  "#b590e7",
-  "#e08bc4",
-  "#e06c75",
-  "#e3925e",
-  "#e3c567",
-  "#9aa4b2",
-  "#6b7280",
-];
-
-// Board-column manager (lives in the "Columns" popover): reorder, rename, recolor,
-// flag done-like (terminal), delete, and add statuses. All edits hit the synced DB.
-function StatusManager(
-  { statuses, onChanged }: { statuses: StatusDef[]; onChanged: () => void },
-) {
-  const [paletteFor, setPaletteFor] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const run = (p: Promise<unknown>) => {
-    setBusy(true);
-    p.then(onChanged).finally(() => setBusy(false));
-  };
-  return (
-    <div className="mt-1 border-t border-line-soft pt-1.5">
-      <div className="px-2 pb-1 text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70">
-        STATUSES
-      </div>
-      {statuses.map((s, i) => (
-        <div key={s.id}>
-          <div className="flex items-center gap-1 px-1.5 py-0.5">
-            <div className="flex flex-col leading-none">
-              <button
-                type="button"
-                disabled={i === 0 || busy}
-                onClick={() => run(apiMoveStatus(s.id, -1))}
-                className="text-[7px] text-ink-muted hover:text-ink disabled:opacity-25"
-                title="move up"
-              >
-                ▲
-              </button>
-              <button
-                type="button"
-                disabled={i === statuses.length - 1 || busy}
-                onClick={() => run(apiMoveStatus(s.id, 1))}
-                className="text-[7px] text-ink-muted hover:text-ink disabled:opacity-25"
-                title="move down"
-              >
-                ▼
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={() => setPaletteFor((c) => (c === s.id ? null : s.id))}
-              className="h-3 w-3 shrink-0 rounded-full ring-1 ring-inset ring-white/10"
-              style={{ background: s.color }}
-              title="change color"
-            />
-            <input
-              defaultValue={s.label}
-              key={s.label}
-              onBlur={(e) => {
-                const v = e.target.value.trim();
-                if (v && v !== s.label) run(updateStatus(s.id, { label: v }));
-              }}
-              onKeyDown={(e) =>
-                e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-              className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-xs text-ink-soft outline-none hover:bg-panel/60 focus:border-chipline focus:bg-panel"
-            />
-            <button
-              type="button"
-              onClick={() => run(updateStatus(s.id, { terminal: !s.terminal }))}
-              disabled={busy}
-              className={`shrink-0 rounded px-1 text-[10px] ${
-                s.terminal
-                  ? "text-copper"
-                  : "text-ink-muted/50 hover:text-ink-muted"
-              }`}
-              title={s.terminal
-                ? "done-like column (click to unset)"
-                : "mark as a done-like column"}
-            >
-              ⚑
-            </button>
-            <IconButton disabled={statuses.length <= 1 || busy}
-              onClick={() =>
-                appConfirm(
-                  `Delete the "${s.label}" status? Sessions in it move to another column.`,
-                ).then((ok) => ok && run(deleteStatus(s.id)))}
-              className="shrink-0 rounded px-1 text-[11px] text-ink-muted/60 hover:text-blocked disabled:opacity-25"
-              title="delete status"
-            >
-              ✕
-            </IconButton>
-          </div>
-          {paletteFor === s.id && (
-            <div className="flex flex-wrap gap-1 px-2 pb-1.5 pt-0.5">
-              {STATUS_PALETTE.map((c) => (
-                <button
-                  type="button"
-                  key={c}
-                  onClick={() => {
-                    setPaletteFor(null);
-                    if (c !== s.color) run(updateStatus(s.id, { color: c }));
-                  }}
-                  className={`h-4 w-4 rounded-full ring-1 ring-inset ${
-                    c === s.color ? "ring-white/70" : "ring-white/10"
-                  }`}
-                  style={{ background: c }}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      ))}
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() =>
-          run(createStatus({ label: "New status", color: STATUS_PALETTE[2] }))}
-        className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11.5px] text-ink-muted/70 hover:text-copper disabled:opacity-50"
-      >
-        <span className="text-[11px]">＋</span> Add status
-      </button>
-    </div>
-  );
-}
 
 export function App() {
   const params = new URLSearchParams(location.search);
@@ -1288,8 +86,6 @@ export function App() {
       ? "project"
       : "none";
   });
-  const [groupMenu, setGroupMenu] = useState(false);
-  const [colMenu, setColMenu] = useState(false);
   const [storyFilter, setStoryFilter] = useState<string[]>(
     params.get("story")?.split(",").filter(Boolean) ?? [],
   );
@@ -1361,37 +157,7 @@ export function App() {
     } else setOpenId(id);
   };
   const [exploreEpoch, setExploreEpoch] = useState(0); // bump to rescan files after settings change
-  const [agents, setAgents] = useState<LiveAgent[]>([]);
-  const [tick, setTick] = useState(0); // re-derives liveness even when a poll fails
-  const [presenceCfg, setPresenceCfg] = useState<AgentPresenceSettings | null>(null);
-  useEffect(() => {
-    getSettings().then((s) => setPresenceCfg(s.agentPresence)).catch(() => {});
-  }, [exploreEpoch]);
-  useEffect(() => {
-    let busy = false; // one request at a time, so an old answer can't land last
-    const load = () => {
-      setTick((n) => n + 1);
-      if (busy) return;
-      busy = true;
-      getAgentPresence()
-        .then((next) => setAgents((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next)))
-        .catch(() => {})
-        .finally(() => (busy = false));
-    };
-    load();
-    const t = setInterval(load, 5000);
-    return () => clearInterval(t);
-  }, []);
-  // same states as before → same object, so the page editor doesn't re-render every poll
-  const liveRef = useRef<
-    { key: string; value: { live: Live[]; recent: LiveAgent[]; cfg: AgentPresenceSettings | null } }
-  >();
-  const agentsCtx = useMemo(() => {
-    const live = liveAgents(agents, presenceCfg);
-    const key = JSON.stringify([presenceCfg, live.map((l) => [l.a, l.state]), agents.map((a) => [a.session_id, a.name])]);
-    if (liveRef.current?.key !== key) liveRef.current = { key, value: { live, recent: agents, cfg: presenceCfg } };
-    return liveRef.current.value;
-  }, [agents, presenceCfg, tick]);
+  const agentsCtx = useAgentsPoll(exploreEpoch);
   const [exploreTarget, setExploreTarget] = useState<string | null>(null); // report path to pre-open in Explore
   const [exploreReturn, setExploreReturn] = useState<string | null>(null); // page id to go back to from Explore
   const [udbs, setUdbs] = useState<UdbMeta[]>([]);
@@ -1403,7 +169,6 @@ export function App() {
   const [pluginId, setPluginId] = useState<string | null>(params.get("plugin"));
   const [udbEpoch, setUdbEpoch] = useState(0); // bump to refetch the open database view
   const [dbReadOnly, setDbReadOnly] = useState(false); // active db tab is a read-only summary view
-  const [dbIconOpen, setDbIconOpen] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [updateState, setUpdateState] = useState<"idle" | "busy" | "done">(
     "idle",
@@ -1461,61 +226,10 @@ export function App() {
 
   // multi-select on the sessions views (board + list): checkboxes fill `selected`,
   // a floating bar bulk-deletes. Cleared on view change, Escape, and after delete.
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const toggleSelected = (id: string) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  const selectMany = (ids: string[], on: boolean) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      for (const id of ids) on ? next.add(id) : next.delete(id);
-      return next;
-    });
-  useEffect(() => setSelected(new Set()), [view]);
-  useEffect(() => {
-    if (selected.size === 0) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setSelected(new Set());
-    };
-    globalThis.addEventListener("keydown", onKey);
-    return () => globalThis.removeEventListener("keydown", onKey);
-  }, [selected.size]);
-  const deleteSelected = async () => {
-    const n = selected.size;
-    if (!(await appConfirm(`Delete ${n} session${n > 1 ? "s" : ""}?`))) return;
-    await Promise.all([...selected].map((id) => deleteSession(id).catch(() => {})));
-    setSelected(new Set());
-    refresh();
-  };
+  const { selected, setSelected, toggleSelected, selectMany, deleteSelected } = useSelection(view, refresh);
 
   // "Sync now" is otherwise silent when nothing moves (0↓0↑) — flash the result so it reads as alive
-  const [syncing, setSyncing] = useState(false);
-  const [syncFlash, setSyncFlash] = useState<string | null>(null);
-  const syncFlashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const doSync = async () => {
-    if (syncing) return;
-    setSyncing(true);
-    let msg: string;
-    try {
-      const r = await syncNow();
-      refresh();
-      msg = r
-        ? (r.pulled || r.pushed ? `${r.pulled}↓ ${r.pushed}↑` : "up to date")
-        : "offline";
-    } catch {
-      msg = "failed";
-    } finally {
-      setSyncing(false);
-    }
-    setSyncFlash(msg);
-    clearTimeout(syncFlashTimer.current);
-    syncFlashTimer.current = setTimeout(() => setSyncFlash(null), 2500);
-  };
-  useEffect(() => () => clearTimeout(syncFlashTimer.current), []);
+  const { syncing, syncFlash, doSync } = useSync(refresh);
   // a location (view + the entity it shows) is a browser-history entry; filters and the
   // drawer only rewrite the current one
   const locKey = (
@@ -1807,13 +521,7 @@ export function App() {
     : "Explore";
 
   // starred pages: per-browser shortcuts to deep pages (Soren → Weekly → …)
-  const [starred, setStarred] = useLocalStorage("trame:starred", new Set<string>(), SET_CODEC);
-  const toggleStar = (id: string) =>
-    setStarred((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
+  const { starred, toggleStar } = useStarred();
 
   return (
     <AgentsContext.Provider value={agentsCtx}>
@@ -1863,110 +571,20 @@ export function App() {
         {!zen && (
         <header className="flex flex-col gap-2 border-b border-line px-6 py-3">
           <div className="flex items-center gap-3">
-            {view === "card" && cardSession
-              ? (
-                <div className="flex min-w-0 items-center gap-1 text-[13px] text-ink-muted">
-                  {cardCrumbs.map((c) => (
-                    <span key={c.id} className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        className="flex max-w-[160px] items-center gap-1 hover:text-ink-soft"
-                        onClick={() => openPage(c.id)}
-                      >
-                        <EntityIcon icon={c.icon} className="shrink-0 text-[11px]" size={14} />
-                        <span className="truncate">{c.title || "Untitled"}</span>
-                      </button>
-                      <span className="text-ink-muted/50">/</span>
-                    </span>
-                  ))}
-                  <span className="flex min-w-0 items-center gap-1 font-medium text-ink">
-                    <EntityIcon
-                      icon={pages.find((x) => x.id === cardSession.specs_page_id)?.icon}
-                      fallback="▦"
-                      className="shrink-0 text-[11px]"
-                      size={14}
-                    />
-                    <span className="truncate">{cardSession.title}</span>
-                  </span>
-                </div>
-              )
-              : view === "page" && currentPage
-              ? (
-                <div className="flex min-w-0 items-center gap-1 text-[13px] text-ink-muted">
-                  {crumbs.map((c) => (
-                    <span key={c.id} className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        className="flex max-w-[160px] items-center gap-1 hover:text-ink-soft"
-                        onClick={() =>
-                          openPage(c.id)}
-                      >
-                        <EntityIcon icon={c.icon} className="shrink-0 text-[11px]" size={14} />
-                        <span className="truncate">{c.title || "Untitled"}</span>
-                      </button>
-                      <span className="text-ink-muted/50">/</span>
-                    </span>
-                  ))}
-                  <span className="flex min-w-0 items-center gap-1 font-medium text-ink">
-                    <EntityIcon icon={currentPage.icon} className="shrink-0 text-[11px]" size={14} />
-                    <span className="truncate">{currentPage.title || "Untitled"}</span>
-                  </span>
-                  <button
-                    type="button"
-                    className={`ml-1 shrink-0 text-[13px] hover:text-copper ${
-                      starred.has(currentPage.id) ? "text-copper" : "text-ink-muted/40"
-                    }`}
-                    title={starred.has(currentPage.id) ? "unstar" : "star — pin this page in the sidebar"}
-                    onClick={() => toggleStar(currentPage.id)}
-                  >
-                    ★
-                  </button>
-                </div>
-              )
-              : view === "database" && currentDb
-              ? (
-                <div className="flex items-center gap-1">
-                  <div className="relative">
-                    <button
-                      type="button"
-                      className="rounded-md p-1 text-[15px] leading-none transition-colors hover:bg-panel"
-                      title="database icon"
-                      onClick={() => setDbIconOpen(true)}
-                    >
-                      <EntityIcon
-                        icon={currentDb.icon}
-                        fallback="⌗"
-                        className={currentDb.icon ? "" : "text-ink-muted"}
-                      />
-                    </button>
-                    {dbIconOpen && (
-                      <IconPicker
-                        current={currentDb.icon}
-                        onPick={(icon) =>
-                          updateUdb(currentDb.id, { icon }).then(refresh)}
-                        onClose={() => setDbIconOpen(false)}
-                      />
-                    )}
-                  </div>
-                  <input
-                    key={currentDb.id}
-                    className="rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[15px] font-semibold text-ink outline-none transition-colors hover:bg-panel/60 focus:border-chipline focus:bg-panel"
-                    defaultValue={currentDb.name}
-                    onBlur={(e) => {
-                      const v = e.target.value.trim();
-                      if (v && v !== currentDb.name) {
-                        updateUdb(currentDb.id, {
-                          name: v,
-                        }).then(refresh);
-                      }
-                    }}
-                    onKeyDown={(e) =>
-                      e.key === "Enter" &&
-                      (e.target as HTMLInputElement).blur()}
-                  />
-                </div>
-              )
-              : <h1 className="text-[15px] font-semibold">{title}</h1>}
+            <HeaderTitle
+              view={view}
+              title={title}
+              cardSession={cardSession}
+              cardCrumbs={cardCrumbs}
+              crumbs={crumbs}
+              pages={pages}
+              currentPage={currentPage}
+              currentDb={currentDb}
+              starred={starred}
+              onToggleStar={toggleStar}
+              onOpenPage={openPage}
+              onRefresh={refresh}
+            />
             {isSessions && (
               <div className="flex rounded-[7px] bg-panel p-[3px]">
                 {(["board", "list"] as const).map((v) => (
@@ -2009,97 +627,30 @@ export function App() {
                 ? `Synced · ${syncFlash}`
                 : "Sync now"}
             </button>
-            {view === "page" && currentPage && (
-              <button
-                type="button"
-                onClick={() => setZen(true)}
-                title="Full screen — hide the sidebar and this bar"
-                className="flex shrink-0 items-center rounded-md border border-line px-2 py-[5px] text-ink-muted hover:text-ink-soft"
-              >
-                <ExpandIcon open={false} />
-              </button>
-            )}
-            {view === "page" && currentPage && (
-              <button
-                type="button"
-                onClick={() => setSharePageId(currentPage.id)}
-                title="Share this page's subtree with a guest user (live sync, viewer or editor)"
-                className="shrink-0 whitespace-nowrap rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
-              >
-                Share
-              </button>
-            )}
-            {view === "page" && currentPage && (
-              <button
-                type="button"
-                onClick={() => sharePage(currentPage.id)}
-                title="Export this page — with its sub-pages and databases — to a file another Trame user can import"
-                className="shrink-0 whitespace-nowrap rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
-              >
-                {shareFlash ?? "Export"}
-              </button>
-            )}
-            {view === "page" && currentPage && (
-              <button
-                type="button"
-                onClick={() =>
-                  confirmDeletePage(currentPage).then((ok) => {
-                    if (!ok) return;
-                    // a sub-page lands on its parent; a root page on the board
-                    if (currentPage.parent_id) openPage(currentPage.parent_id);
-                    else {
-                      setView("board");
-                      setPageId(null);
-                    }
-                    refresh();
-                  })}
-                className="rounded-md border border-blocked/40 px-2.5 py-1 text-[11.5px] text-blocked/80 hover:bg-blocked/15 hover:text-blocked"
-              >
-                Delete
-              </button>
-            )}
-            {view === "database" && currentDb && (
-              <button
-                type="button"
-                onClick={async () => {
-                  if (
-                    await appConfirm(
-                      `Delete database "${currentDb.name}" and all its rows?`,
-                    )
-                  ) {
-                    deleteUdb(currentDb.id).then(() => {
-                      setView("board");
-                      setDbId(null);
-                      refresh();
-                    });
-                  }
-                }}
-                className="rounded-md border border-blocked/40 px-2.5 py-1 text-[11.5px] text-blocked/80 hover:bg-blocked/15 hover:text-blocked"
-              >
-                Delete
-              </button>
-            )}
-            {view === "database" && !dbReadOnly
-              ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    dbId &&
-                    createUdbRow(dbId).then(() => setUdbEpoch((e) => e + 1))}
-                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md bg-copper px-3 py-1.5 text-[12.5px] font-medium text-copper-ink hover:brightness-110"
-                >
-                  <span>＋</span> New row
-                </button>
-              )
-              : isSessions && (
-                <button
-                  type="button"
-                  onClick={() => setModal("session")}
-                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md bg-copper px-3 py-1.5 text-[12.5px] font-medium text-copper-ink hover:brightness-110"
-                >
-                  <span>＋</span> New session
-                </button>
-              )}
+            <PageActions
+              view={view}
+              currentPage={currentPage}
+              setZen={setZen}
+              setSharePageId={setSharePageId}
+              sharePage={sharePage}
+              shareFlash={shareFlash}
+              openPage={openPage}
+              setView={setView}
+              setPageId={setPageId}
+              refresh={refresh}
+            />
+            <DbActions
+              view={view}
+              currentDb={currentDb}
+              dbId={dbId}
+              dbReadOnly={dbReadOnly}
+              isSessions={isSessions}
+              setView={setView}
+              setDbId={setDbId}
+              refresh={refresh}
+              setUdbEpoch={setUdbEpoch}
+              setModal={setModal}
+            />
           </div>
           {isSessions && board && (
             <SessionBar
@@ -2118,109 +669,17 @@ export function App() {
               sort={sessionSort}
               onSort={setSessionSort}
             >
-            {view === "board" && (
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setGroupMenu((o) => !o)}
-                  title="Group the board"
-                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] ${
-                    group !== "none"
-                      ? "border-copper/50 text-copper"
-                      : "border-line text-ink-muted hover:text-ink-soft"
-                  }`}
-                >
-                  <GroupIcon />
-                  {group === "none"
-                    ? "Group"
-                    : group === "story"
-                    ? "User story"
-                    : "Project"}
-                  <span className="text-[8px]">▾</span>
-                </button>
-                {groupMenu && (
-                  <Popover onClose={() => setGroupMenu(false)} className="w-40">
-                    <div className="px-2 pb-1 pt-1 text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70">
-                      GROUP BY
-                    </div>
-                    {([["none", "None", null], ["story", "User story", "◇"], ["project", "Project", "◎"]] as const).map((
-                      [v, label, glyph],
-                    ) => (
-                      <MenuRow
-                        dense
-                        key={v}
-                        onClick={() => {
-                          setGroup(v);
-                          setGroupMenu(false);
-                        }}
-                        active={group === v}
-                      >
-                        {glyph && <EntityIcon icon={null} fallback={glyph} className="text-ink-muted" />}
-                        <span className="flex-1">{label}</span>
-                        {group === v && (
-                          <span className="text-[11px] text-copper">✓</span>
-                        )}
-                      </MenuRow>
-                    ))}
-                  </Popover>
-                )}
-              </div>
-            )}
-            {view === "board" && (
-              <button
-                type="button"
-                onClick={() => setDense((v) => !v)}
-                title="One line per card"
-                aria-pressed={dense}
-                className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] ${
-                  dense ? "border-copper/50 text-copper" : "border-line text-ink-muted hover:text-ink-soft"
-                }`}
-              >
-                <span className="text-[11px]">≡</span>
-                Compact
-              </button>
-            )}
-            {view === "board" && (
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setColMenu((o) => !o)}
-                  title="Columns"
-                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] ${
-                    hideEmpty
-                      ? "border-copper/50 text-copper"
-                      : "border-line text-ink-muted hover:text-ink-soft"
-                  }`}
-                >
-                  <span className="text-[11px]">▤</span>
-                  Columns
-                  <span className="text-[8px]">▾</span>
-                </button>
-                {colMenu && (
-                  <Popover
-                    onClose={() => setColMenu(false)}
-                    className="w-[264px]"
-                  >
-                    <MenuRow onClick={() => setHideEmpty((v) => !v)}>
-                      <span
-                        className={`flex h-3.5 w-3.5 items-center justify-center rounded border text-[9px] ${
-                          hideEmpty
-                            ? "border-copper bg-copper text-copper-ink"
-                            : "border-chipline"
-                        }`}
-                      >
-                        {hideEmpty ? "✓" : ""}
-                      </span>
-                      <span className="flex-1">Hide empty statuses</span>
-                    </MenuRow>
-                    <StatusManager
-                      statuses={board?.statuses ?? []}
-                      onChanged={refresh}
-                    />
-                  </Popover>
-                )}
-              </div>
-            )}
+            <BoardToolbar
+              view={view}
+              group={group}
+              onGroup={setGroup}
+              dense={dense}
+              onDense={setDense}
+              hideEmpty={hideEmpty}
+              onHideEmpty={setHideEmpty}
+              statuses={board?.statuses ?? []}
+              onStatusesChanged={refresh}
+            />
             </SessionBar>
           )}
         </header>
@@ -2343,26 +802,7 @@ export function App() {
           )}
       </main>
       {isSessions && selected.size > 0 && (
-        <div className="fixed bottom-5 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-line bg-panel px-3.5 py-2 shadow-xl shadow-black/40">
-          <span className="text-[12px] text-ink-soft">
-            {selected.size} selected
-          </span>
-          <button
-            type="button"
-            onClick={deleteSelected}
-            className="rounded-md border border-blocked/50 px-2.5 py-1 text-[11.5px] text-blocked hover:bg-blocked/10"
-          >
-            Delete
-          </button>
-          <button
-            type="button"
-            onClick={() => setSelected(new Set())}
-            title="Clear selection (Esc)"
-            className="text-[12px] text-ink-muted hover:text-ink-soft"
-          >
-            ✕
-          </button>
-        </div>
+        <SelectionBar count={selected.size} onDelete={deleteSelected} onClear={() => setSelected(new Set())} />
       )}
       {openId && board && (() => {
         const session = board.sessions.find((s) => s.id === openId);
@@ -2431,70 +871,7 @@ export function App() {
           onClose={() => setModal(null)}
         />
       )}
-      {update && (update.available || update.applied) && !updateDismissed && (
-        <div className="fixed bottom-4 right-4 z-[60] flex w-[320px] flex-col gap-2.5 rounded-xl border border-overlay-border bg-panel-modal p-3.5 shadow-2xl shadow-black/50">
-          {updateState === "done"
-            ? (
-              <>
-                <p className="m-0 text-[12.5px] font-medium text-ink">
-                  ✓ Updated to v{update.latest}
-                </p>
-                <p className="m-0 text-[11.5px] leading-relaxed text-ink-muted">
-                  Restart Trame to run the new version.
-                </p>
-                <div className="flex items-center justify-end">
-                  <button
-                    type="button"
-                    className="rounded-md px-2 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
-                    onClick={() => setUpdateDismissed(true)}
-                  >
-                    Close
-                  </button>
-                </div>
-              </>
-            )
-            : (
-              <>
-                <p className="m-0 text-[12.5px] font-medium text-ink">
-                  <span className="text-copper">↑</span> Trame v{update.latest}
-                  {" "}
-                  is available
-                </p>
-                <p className="m-0 text-[11.5px] text-ink-muted">
-                  You're on v{update.current}.{" "}
-                  <button
-                    type="button"
-                    className="text-ink-muted underline decoration-chipline underline-offset-2 hover:text-ink-soft"
-                    onClick={() => openInBrowser(update.releaseUrl)}
-                  >
-                    Release notes
-                  </button>
-                </p>
-                <div className="flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    className="rounded-md px-2 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
-                    onClick={() => setUpdateDismissed(true)}
-                  >
-                    Later
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-md bg-copper px-2.5 py-1 text-[11.5px] font-medium text-copper-ink hover:brightness-110 disabled:opacity-60"
-                    disabled={updateState === "busy"}
-                    onClick={onUpdate}
-                  >
-                    {updateState === "busy"
-                      ? "Updating…"
-                      : update.canSelfUpdate
-                      ? "Update now"
-                      : "Open release"}
-                  </button>
-                </div>
-              </>
-            )}
-        </div>
-      )}
+      <UpdateBanner update={update} updateState={updateState} dismissed={updateDismissed} onUpdate={onUpdate} onDismiss={() => setUpdateDismissed(true)} />
       <ConfirmHost />
     </div>
     </TreeCardsCtx.Provider>
