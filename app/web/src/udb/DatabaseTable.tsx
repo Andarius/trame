@@ -21,7 +21,7 @@ import {
   updateUdb,
   updateUdbProp,
 } from "../api";
-import { EntityIcon, Select } from "../ui";
+import { EntityIcon, Select, EmptyState } from "../ui";
 import { Cell, ColumnRanges, IconPicker, TableProps } from "./cells";
 import { PropertyEditor, TYPE_GLYPH } from "./PropertyEditor";
 import { RowPanel } from "./RowPanel";
@@ -439,7 +439,7 @@ export const DatabaseView = memo(function DatabaseView(
     pageRows,
   ]);
 
-  if (!data) return <p className="p-6 text-ink-muted">Loading…</p>;
+  if (!data) return <EmptyState page>Loading…</EmptyState>;
   const props = data.properties;
   // grid + header render only the view's visible columns; data ops use all props
   const visProps = props.filter((p) => !view.hidden?.includes(p.id));

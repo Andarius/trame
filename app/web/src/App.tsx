@@ -46,7 +46,7 @@ import { type TreeCards, TreeCardsCtx } from "./sidebar-tree";
 import { ShareModal } from "./ShareModal";
 import { Page } from "./Page";
 import { ClientView } from "./ClientView";
-import { BOOL_CODEC, useLocalStorage, appConfirm, ConfirmHost, ExpandIcon, setStatuses, statusStyle } from "./ui";
+import { BOOL_CODEC, useLocalStorage, appConfirm, ConfirmHost, ExpandIcon, setStatuses, statusStyle, EmptyState } from "./ui";
 import { FRONTEND_PLUGINS } from "./plugins";
 import { PluginsModal } from "./plugins/PluginsModal";
 import { PluginSettingsModal } from "./plugins/PluginSettingsModal";
@@ -685,7 +685,7 @@ export function App() {
         </header>
         )}
         {!board
-          ? <p className="p-6 text-ink-muted">Loading…</p>
+          ? <EmptyState page>Loading…</EmptyState>
           : view === "board"
           ? (
             <Board
@@ -735,7 +735,7 @@ export function App() {
                 onChanged={refresh}
               />
             )
-            : <p className="p-6 text-ink-muted">No page selected.</p>)
+            : <EmptyState page>No page selected.</EmptyState>)
           : view === "card"
           ? (cardSession
             ? (
@@ -750,7 +750,7 @@ export function App() {
                 onSaved={refresh}
               />
             )
-            : <p className="p-6 text-ink-muted">Session not found.</p>)
+            : <EmptyState page>Session not found.</EmptyState>)
           : view === "database"
           ? (dbId
             ? (
@@ -762,7 +762,7 @@ export function App() {
                 onReadOnly={setDbReadOnly}
               />
             )
-            : <p className="p-6 text-ink-muted">No database selected.</p>)
+            : <EmptyState page>No database selected.</EmptyState>)
           : view === "client"
           ? (clientId
             ? (
@@ -774,7 +774,7 @@ export function App() {
                 onChanged={refresh}
               />
             )
-            : <p className="p-6 text-ink-muted">No client selected.</p>)
+            : <EmptyState page>No client selected.</EmptyState>)
           : view === "plugin"
           ? (() => {
             const Panel = FRONTEND_PLUGINS.find((p) => p.id === pluginId)
@@ -786,7 +786,7 @@ export function App() {
                   onOpenPage={openPage}
                 />
               )
-              : <p className="p-6 text-ink-muted">Unknown plugin.</p>;
+              : <EmptyState page>Unknown plugin.</EmptyState>;
           })()
           : view === "agents"
           ? <AgentSessions board={board} onOpenSession={(id) => openSession(id)} />

@@ -13,7 +13,7 @@ import {
   patchSettings,
   type ReportMeta,
 } from "./api";
-import { MenuRow, SET_CODEC, useLocalStorage, appConfirm, ClientChip, Popover, timeAgo } from "./ui";
+import { MenuRow, SET_CODEC, useLocalStorage, appConfirm, ClientChip, Popover, timeAgo, EmptyState } from "./ui";
 import { excalidrawToHtml } from "./excalidraw";
 
 type Selected = {
@@ -577,7 +577,7 @@ export function Explore(
               </div>
             </>
           )
-          : <p className="p-6 text-ink-muted">Select a report</p>}
+          : <EmptyState page>Select a report</EmptyState>}
       </div>
     </div>
   );

@@ -27,6 +27,7 @@ import {
   statusStyle,
   storyOf,
   MenuRow,
+  EmptyState,
 } from "./ui";
 import { PageActivityChip } from "./md-activity";
 import { blocksToMarkdown } from "./page-serialize";
@@ -132,7 +133,7 @@ export function Page(
   const finished = useFinishedCards(
     board.sessions.filter((s) => !statusStyle(s.status).terminal && inSubtree(s, pageId, pagesById(board.pages))),
   );
-  if (!page) return <p className="p-6 text-ink-muted">Loading…</p>;
+  if (!page) return <EmptyState page>Loading…</EmptyState>;
   const client = board.projects.find((c) => c.id === page.client_id);
   const isProject = page.kind === "project";
   const isStory = page.kind === "story";

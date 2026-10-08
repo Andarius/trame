@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { type BoardData, updatePage } from "./api";
-import { clientColor, EntityIcon, FIELD_LABEL, inSubtree, pagesById, projectOf, statusStyle, storyOf } from "./ui";
+import { clientColor, EntityIcon, FIELD_LABEL, inSubtree, pagesById, projectOf, statusStyle, storyOf, EmptyState } from "./ui";
 import { IconPicker } from "./udb/cells";
 import { SessionRow } from "./project-page";
 
@@ -19,7 +19,7 @@ export function ClientView(
   const [iconOpen, setIconOpen] = useState(false);
   const byId = pagesById(board.pages);
   const client = board.projects.find((c) => c.id === clientId);
-  if (!client) return <p className="p-6 text-ink-muted">Client not found.</p>;
+  if (!client) return <EmptyState page>Client not found.</EmptyState>;
   const col = clientColor(client.name, client.color);
   const stories = board.stories.filter((o) => o.client_id === clientId);
   const storyIds = new Set(stories.map((p) => p.id));
