@@ -1,8 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { type Block, openInBrowser, type PageComment, type SessionLink, uploadAsset } from "./api";
-import { Popover, statusStyle } from "./ui";
+import { statusStyle } from "./ui";
 import { Markdown } from "./md";
-import { LinkChip } from "./md-activity";
 import type { ItemLink } from "./md-types";
 import {
   normalizeMarks,
@@ -14,7 +13,7 @@ import {
   touchTodo,
   writeMark,
 } from "../../../core/todo-marks.ts";
-import { DueMenu, TodoDueCtx } from "./due";
+import { TodoDueCtx } from "./due";
 import { LiveLine, LiveRail, liveRingCls, liveRowCls, LiveTrail, useAgents, worksOn } from "./agents";
 import { FolderBlock } from "./FolderBlock";
 import { isMetadataMark } from "./plugins";
@@ -32,16 +31,9 @@ import {
   linkify,
 } from "./editor-text";
 import { CornerToolbar, FormatBar } from "./editor-toolbar";
-import {
-  type CommentOps,
-  type CommentMode,
-  answeredIn,
-  anchorQuoteOf,
-  RowNote,
-  CommentItem,
-  AddNote,
-  CommentGutter,
-} from "./comments";
+import { type CommentOps, type CommentMode, CommentGutter } from "./comments";
+import { FoldHeader, TabStrip, TodoActions, TodoCheck, TodoChips } from "./editor-blocks";
+import { InlineThread, PendingNote, PillMenu, SlashMenu } from "./editor-menus";
 
 // React rewrites node.defaultValue on every render of a controlled textarea, which
 // mutates its text child and resets the browser's undo grouping — Ctrl+Z then crawls
@@ -761,24 +753,14 @@ export function BlockEditor(
               const title = stripMarks((b as TextBlock).text)
                 .replace(/\s*\{\{fold\}\}\s*/i, " ").trim();
               return (
-                <div
+                <FoldHeader
                   key={bid0}
-                  className="my-1 overflow-hidden rounded-lg border border-line-soft"
-                >
-                  <button
-                    type="button"
-                    title="double-click to rename"
-                    className="flex w-full items-center gap-2 bg-panel px-3 py-2 text-left text-[13px] font-medium text-ink transition-colors hover:text-copper"
-                    onClick={() =>
-                      setOpenFolds((m) => ({ ...m, [gid]: !open }))}
-                    onDoubleClick={() => setFocusIdx(i)}
-                  >
-                    <span className="text-[10px] text-ink-muted">
-                      {open ? "▾" : "▸"}
-                    </span>
-                    {title || "untitled"}
-                  </button>
-                </div>
+                  title={title}
+                  open={open}
+                  onToggle={() =>
+                    setOpenFolds((m) => ({ ...m, [gid]: !open }))}
+                  onRename={() => setFocusIdx(i)}
+                />
               );
             }
             if (!isHead && !open) return null;
@@ -791,44 +773,16 @@ export function BlockEditor(
             if (isHead && !renaming) {
               if (i !== tm.group) return null;
               return (
-                <div
+                <TabStrip
                   key={bid0}
-                  className="flex gap-1 border-b border-line pb-0 pt-2"
-                >
-                  {heads.map((h, ti) => (
-                    <button
-                      key={h.i}
-                      type="button"
-                      title="drag to reorder · double-click to rename"
-                      className={`-mb-px cursor-grab border-b-2 px-3 py-1.5 text-[12.5px] transition-colors ${
-                        ti === active
-                          ? "border-copper font-medium text-copper"
-                          : "border-transparent text-ink-muted hover:text-ink-soft"
-                      } ${
-                        // drop indicator: a bar on the side the tab would land on
-                        tabDrag === null || tabDrag === h.i
-                          ? ""
-                          : h.i < tabDrag
-                          ? "cursor-grabbing hover:shadow-[-2px_0_0_0_#c98a63]"
-                          : "cursor-grabbing hover:shadow-[2px_0_0_0_#c98a63]"
-                      }`}
-                      onMouseDown={(e) => {
-                        e.preventDefault(); // no text selection while dragging
-                        setTabDrag(h.i);
-                      }}
-                      onMouseUp={() => {
-                        if (tabDrag === null || tabDrag === h.i) return;
-                        moveTab(tabDrag, h.i);
-                        setActiveTabs((m) => ({ ...m, [gid]: ti }));
-                      }}
-                      onClick={() =>
-                        setActiveTabs((m) => ({ ...m, [gid]: ti }))}
-                      onDoubleClick={() => setFocusIdx(h.i)}
-                    >
-                      {h.title || "untitled"}
-                    </button>
-                  ))}
-                </div>
+                  heads={heads}
+                  active={active}
+                  tabDrag={tabDrag}
+                  setTabDrag={setTabDrag}
+                  moveTab={moveTab}
+                  onSelect={(ti) => setActiveTabs((m) => ({ ...m, [gid]: ti }))}
+                  onRename={setFocusIdx}
+                />
               );
             }
             if (!isHead && tm.tab !== active) return null;
@@ -963,27 +917,11 @@ export function BlockEditor(
               {dragHandle(i)}
               {lv && liveCfg && <LiveRail state={lv.state} cfg={liveCfg} />}
               {b.type === "todo" && (
-                // same visual language as session-report lists: ○ open, ✓ done
-                <button
-                  type="button"
-                  title={b.done ? "Mark as open" : "Mark as done"}
-                  onClick={() => toggleTodo(i)}
-                  className="mt-[7px] flex h-3.5 w-3.5 shrink-0 items-center justify-center"
-                >
-                  {b.done
-                    ? (
-                      <span className="text-[12px] leading-none text-active">
-                        ✓
-                      </span>
-                    )
-                    : (
-                      <span
-                        className={`h-3 w-3 rounded-full border-[1.5px] hover:bg-copper/20 ${
-                          (lv && liveCfg && liveRingCls(lv.state, liveCfg)) || "border-copper"
-                        }`}
-                      />
-                    )}
-                </button>
+                <TodoCheck
+                  done={!!b.done}
+                  ringCls={(lv && liveCfg && liveRingCls(lv.state, liveCfg)) || "border-copper"}
+                  onToggle={() => toggleTodo(i)}
+                />
               )}
               <div
                 // kept mounted (not conditionally excluded) so the sibling textarea below
@@ -1297,70 +1235,28 @@ export function BlockEditor(
               {/* a todo is its own block, not a list item — carry its chips here, after
                   the textarea so edit mode does not move them left of the task text */}
               {lv && liveCfg && <LiveTrail a={lv.a} state={lv.state} cfg={liveCfg} />}
-              {b.type === "todo" &&
-                chipsFor(links?.filter((x) => x.block_id === b.id) ?? []).map((lk) => (
-                  <span key={lk.sessionId} className="mt-[3px] shrink-0">
-                    <LinkChip lk={lk} />
-                  </span>
-                ))}
+              {b.type === "todo" && (
+                <TodoChips chips={chipsFor(links?.filter((x) => x.block_id === b.id) ?? [])} />
+              )}
               {menuIdx === i && items.length > 0 && (
-                <Popover
+                <SlashMenu
+                  items={items}
+                  menuSel={menuSel}
+                  setMenuSel={setMenuSel}
+                  onPick={(key) => pick(i, key)}
                   onClose={() => setMenuIdx(null)}
-                  className="!top-8 w-[240px]"
-                >
-                  {items.map((s, si) => (
-                    <button
-                      type="button"
-                      key={s.key}
-                      className={`flex w-full items-baseline gap-2 rounded-md px-2 py-1.5 text-left ${
-                        si === Math.min(menuSel, items.length - 1)
-                          ? "bg-panel"
-                          : "hover:bg-panel"
-                      }`}
-                      onMouseMove={() => setMenuSel(si)}
-                      onClick={() => pick(i, s.key)}
-                    >
-                      <span className="text-xs font-medium text-ink">
-                        {s.label}
-                      </span>
-                      <span className="text-[10.5px] text-ink-muted">
-                        {s.hint}
-                      </span>
-                    </button>
-                  ))}
-                </Popover>
+                />
               )}
               {pill?.i === i && pillItems.length > 0 && (
-                <Popover
+                <PillMenu
+                  items={pillItems}
+                  pillSel={pillSel}
+                  setPillSel={setPillSel}
+                  x={pill.x}
+                  y={pill.y}
+                  onPick={pickPill}
                   onClose={() => setPill(null)}
-                  className="w-[200px]"
-                  // anchored under the "{{" — inline left/top override left-0/top-full
-                  style={{ left: pill.x, top: pill.y }}
-                >
-                  {pillItems.map((p, si) => (
-                    <button
-                      type="button"
-                      key={p.key}
-                      className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ${
-                        si === Math.min(pillSel, pillItems.length - 1)
-                          ? "bg-panel"
-                          : "hover:bg-panel"
-                      }`}
-                      onMouseMove={() => setPillSel(si)}
-                      onClick={() => pickPill(p.key)}
-                    >
-                      <span
-                        className={`h-2.5 w-2.5 shrink-0 rounded-full ${p.dot}`}
-                      />
-                      <span className="text-xs font-medium text-ink">
-                        {p.key}
-                      </span>
-                      <span className="text-[10.5px] text-ink-muted">
-                        {p.hint}
-                      </span>
-                    </button>
-                  ))}
-                </Popover>
+                />
               )}
               {sel?.i === i && (
                 <FormatBar
@@ -1495,28 +1391,13 @@ export function BlockEditor(
                 />
               )}
               {b.type === "todo" && (
-                <CornerToolbar
-                  actions={[
-                    // clicking the text edits, so the second slot is the due date
-                    {
-                      icon: "flag",
-                      title: "Due date",
-                      onClick: () => setDueIdx(i),
-                    },
-                    {
-                      icon: "delete",
-                      title: "Delete",
-                      danger: true,
-                      onClick: () => remove(i),
-                    },
-                  ]}
-                />
-              )}
-              {dueIdx === i && b.type === "todo" && (
-                <DueMenu
-                  current={readMarks(b.text).due ?? null}
-                  onPick={(due) => set(i, { text: due ? writeMark(b.text, "due", due) : removeMark(b.text, "due") })}
-                  onClose={() => setDueIdx(null)}
+                <TodoActions
+                  dueOpen={dueIdx === i}
+                  due={readMarks(b.text).due ?? null}
+                  onDue={() => setDueIdx(i)}
+                  onRemove={() => remove(i)}
+                  onPickDue={(due) => set(i, { text: due ? writeMark(b.text, "due", due) : removeMark(b.text, "due") })}
+                  onCloseDue={() => setDueIdx(null)}
                 />
               )}
               <div className="absolute -right-7 top-[3px]">
@@ -1534,50 +1415,26 @@ export function BlockEditor(
               </div>
             </div>
             {pendingNote?.id === bid && (
-              <div className="my-1 ml-6 flex max-w-[480px] flex-col gap-1.5 rounded-md border border-copper/40 bg-panel p-2">
-                <div className="flex items-start justify-between gap-2 text-[10.5px] text-ink-muted">
-                  <span className="min-w-0 truncate">
-                    {isTable ? "on row" : "on"}: “{pendingNote.anchor}”
-                  </span>
-                  <button
-                    type="button"
-                    className="shrink-0 hover:text-ink"
-                    onClick={() => setPendingNote(null)}
-                  >
-                    ×
-                  </button>
-                </div>
-                <AddNote
-                  autoFocus
-                  onAdd={(body) => {
-                    commentOps.add(bid, pendingNote?.anchor ?? "", body);
-                    setPendingNote(null);
-                  }}
-                />
-              </div>
+              <PendingNote
+                anchor={pendingNote.anchor}
+                isTable={isTable}
+                onCancel={() => setPendingNote(null)}
+                onAdd={(body) => {
+                  commentOps.add(bid, pendingNote?.anchor ?? "", body);
+                  setPendingNote(null);
+                }}
+              />
             )}
             {inlineOpen && (
-              <div className="my-1 ml-6 flex max-w-[480px] flex-col gap-1.5 border-l-2 border-copper/40 pl-3">
-                {visibleComments.map((c) => {
-                  const q = anchorQuoteOf(c, b.text);
-                  return (
-                    <div key={c.id} className="flex flex-col gap-1">
-                      {q && <RowNote label={q.label} text={q.text} />}
-                      <CommentItem
-                        c={c}
-                        canEdit={Boolean(meId) && c.author_id === meId}
-                        answered={answeredIn(c, blockComments)}
-                        onUpdate={(patch) => commentOps.update(c.id, patch)}
-                        onDelete={() => commentOps.remove(c.id)}
-                      />
-                    </div>
-                  );
-                })}
-                <AddNote
-                  autoFocus={focusThread === b.id}
-                  onAdd={(body) => commentOps.add(b.id as string, b.text, body)}
-                />
-              </div>
+              <InlineThread
+                text={b.text}
+                visibleComments={visibleComments}
+                blockComments={blockComments}
+                meId={meId}
+                ops={commentOps}
+                autoFocus={focusThread === b.id}
+                onAdd={(body) => commentOps.add(b.id as string, b.text, body)}
+              />
             )}
           </Fragment>
         );
