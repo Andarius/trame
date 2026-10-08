@@ -26,6 +26,7 @@ import {
   Select,
   statusStyle,
   storyOf,
+  MenuRow,
 } from "./ui";
 import { PageActivityChip } from "./md-activity";
 import { blocksToMarkdown } from "./page-serialize";
@@ -507,10 +508,8 @@ export function Page(
                       (statusStyle(b.status).terminal ? 1 : 0)
                     )
                     .map((sn) => (
-                      <button
+                      <MenuRow
                         key={sn.id}
-                        type="button"
-                        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-ink-soft hover:bg-panel"
                         onClick={() => {
                           addSessionLink(sn.id, {
                             page_id: pageId,
@@ -534,7 +533,7 @@ export function Page(
                             {sn.branch}
                           </span>
                         )}
-                      </button>
+                      </MenuRow>
                     ))}
                 </div>
               </div>

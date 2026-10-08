@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import { DateInput, EntityIcon, Popover, IconButton, EmptyState } from "../ui";
+import { DateInput, EntityIcon, MenuRow, Popover, IconButton, EmptyState } from "../ui";
 import { Markdown } from "../md";
 import {
   type Derived,
@@ -924,10 +924,8 @@ function SelectCell(
           />
           <div className="flex max-h-52 flex-col overflow-y-auto">
             {shown.map((o) => (
-              <button
-                type="button"
+              <MenuRow dense
                 key={o.id}
-                className="flex items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-panel"
                 onClick={() => toggle(o.id)}
               >
                 <OptionChip opt={o} />
@@ -935,18 +933,17 @@ function SelectCell(
                 {selected.includes(o.id) && (
                   <span className="text-[10px] text-copper">✓</span>
                 )}
-              </button>
+              </MenuRow>
             ))}
             {filter.trim() && !options.some((o) =>
               o.name.toLowerCase() === filter.trim().toLowerCase()
             ) && (
-              <button
-                type="button"
-                className="rounded-md px-2 py-1 text-left text-xs text-ink-muted hover:bg-panel"
+              <MenuRow dense
+                className="text-ink-muted"
                 onClick={createOption}
               >
                 ＋ create “{filter.trim()}”
-              </button>
+              </MenuRow>
             )}
             {!shown.length && !filter.trim() && (
               <EmptyState className="px-2 py-1">
@@ -1014,10 +1011,8 @@ function RelationCell(
           />
           <div className="flex max-h-52 flex-col overflow-y-auto">
             {candidates.map((c) => (
-              <button
-                type="button"
+              <MenuRow dense
                 key={c.id}
-                className="flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-ink-soft hover:bg-panel"
                 onClick={() => toggle(c.id)}
               >
                 {c.icon && (
@@ -1027,7 +1022,7 @@ function RelationCell(
                 {linked.has(c.id) && (
                   <span className="text-[10px] text-copper">✓</span>
                 )}
-              </button>
+              </MenuRow>
             ))}
             {!candidates.length && (
               <EmptyState className="px-2 py-1">

@@ -4,7 +4,7 @@
 // The data half lives in view-core.ts (pure, unit-tested); it is re-exported here.
 import { useState } from "react";
 import type { UdbProp } from "../api";
-import { EntityIcon, Popover, Select, IconButton } from "../ui";
+import { EntityIcon, MenuRow, Popover, Select, IconButton } from "../ui";
 import { TYPE_GLYPH } from "./PropertyEditor";
 import {
   CHART_AGGS,
@@ -242,27 +242,24 @@ export function ViewTabsBar(
         </button>
         {adding && (
           <Popover onClose={() => setAdding(false)} className="w-[168px] p-1">
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11.5px] text-ink-soft hover:bg-panel"
+            <MenuRow
+              className="text-[11.5px]"
               onClick={add}
             >
               <span className="text-[11px] text-ink-muted">▦</span> Table view
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11.5px] text-ink-soft hover:bg-panel"
+            </MenuRow>
+            <MenuRow
+              className="text-[11.5px]"
               onClick={addSummary}
             >
               <span className="text-[11px] text-copper">Σ</span> Summary view
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11.5px] text-ink-soft hover:bg-panel"
+            </MenuRow>
+            <MenuRow
+              className="text-[11.5px]"
               onClick={addChart}
             >
               <span className="text-[11px] text-copper">▂▅</span> Chart view
-            </button>
+            </MenuRow>
             <p className="px-2 pt-1 text-[10px] text-ink-muted/60">
               Summary = one row per group, aggregates only. Chart = the same
               aggregates drawn.

@@ -21,7 +21,7 @@ import {
   getPage,
   updatePage,
 } from "./api";
-import { enumCodec, useLocalStorage, appConfirm, clientColor, EntityIcon, ExpandIcon, FIELD_LABEL, FieldRow, pageOptions, Popover, Select, TagChips, timeAgo, IconButton, PresenceDot, EmptyState } from "./ui";
+import { MenuRow, enumCodec, useLocalStorage, appConfirm, clientColor, EntityIcon, ExpandIcon, FIELD_LABEL, FieldRow, pageOptions, Popover, Select, TagChips, timeAgo, IconButton, PresenceDot, EmptyState } from "./ui";
 import { AgentIcon, AgentsSummary, EventMeta, PresencePill, useAgents } from "./agents";
 import { summarizeAgents } from "./agent-summary";
 import { PrChip, RepoLink } from "./chips";
@@ -395,9 +395,9 @@ export function Drawer(
         {resumeMenu && (
           <Popover onClose={() => setResumeMenu(false)} className="left-auto right-0 min-w-[220px]">
             {RESUME_MODES.map((m) => (
-              <button type="button"
+              <MenuRow
                 key={m.mode}
-                className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-panel"
+                className="items-start"
                 onClick={() => doResume(m.mode)}
               >
                 <span className="flex-1">
@@ -405,7 +405,7 @@ export function Drawer(
                   <span className="block text-[10px] text-ink-muted/70">{m.hint}</span>
                 </span>
                 {m.mode === resumeMode && <span className="pt-0.5 text-[10px] text-copper">✓</span>}
-              </button>
+              </MenuRow>
             ))}
           </Popover>
         )}

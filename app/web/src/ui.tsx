@@ -810,17 +810,35 @@ export function useLocalStorage<T>(key: string, init: T, codec: Codec<T>) {
   return [value, setValue] as const;
 }
 
-// full-width row of a popover menu; active reads as selected (ink text), className adds the rest
+// className tokens that replace the matching MenuRow default instead of stacking on it
+const MENU_SLOTS: [string, RegExp][] = [
+  ["rounded", /^rounded/],
+  ["gap", /^gap-/],
+  ["px", /^px-/],
+  ["items", /^items-/],
+  ["size", /^text-(xs|\[\d)/],
+  ["color", /^text-ink(-|$)/],
+];
+
+// full-width row of a popover menu; active reads as selected (ink text); className overrides rounded/gap/px/items/text size+color, the rest is appended
 export function MenuRow(
   { dense, active, className = "", ...props }: { dense?: boolean; active?: boolean } & ComponentProps<"button">,
 ) {
+  const slots: Record<string, string> = {
+    rounded: "rounded-md", gap: "gap-2", px: "px-2", items: "items-center", size: "text-xs",
+    color: active ? "text-ink" : "text-ink-soft",
+  };
+  const rest: string[] = [];
+  for (const tok of className.split(/\s+/).filter(Boolean)) {
+    const slot = MENU_SLOTS.find(([, re]) => re.test(tok));
+    if (slot) slots[slot[0]] = tok;
+    else rest.push(tok);
+  }
   return (
     <button
       type="button"
       {...props}
-      className={`flex w-full items-center gap-2 rounded-md px-2 ${dense ? "py-1" : "py-1.5"} text-left text-xs hover:bg-panel ${
-        active ? "text-ink" : "text-ink-soft"
-      } ${className}`.trim()}
+      className={`flex w-full ${slots.items} ${slots.gap} ${slots.rounded} ${slots.px} ${dense ? "py-1" : "py-1.5"} text-left ${slots.size} hover:bg-panel ${slots.color} ${rest.join(" ")}`.trim()}
     />
   );
 }

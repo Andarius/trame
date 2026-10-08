@@ -1,7 +1,7 @@
 import { type CSSProperties, useEffect, useState } from "react";
 import { splitTagLabel, TAG_COLORS, tagKey } from "../../../core/tags.ts";
 import { ensureTag, listTags, type Tag, updateTag } from "./api";
-import { Popover, IconButton } from "./ui";
+import { MenuRow, Popover, IconButton } from "./ui";
 
 /** Fill + text for a hue, mixed with the theme's ink so one hex reads in both. */
 const tint = (color: string): CSSProperties => ({
@@ -187,29 +187,27 @@ export function TagEditor(
             />
             <div className="max-h-48 overflow-y-auto">
               {matches.map((t) => (
-                <button
-                  type="button"
+                <MenuRow dense
                   key={t.id}
                   disabled={busy}
                   onClick={() => add(t.label)}
-                  className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11.5px] text-ink-soft hover:bg-panel disabled:opacity-50"
+                  className="gap-1.5 rounded px-1.5 text-[11.5px] disabled:opacity-50"
                 >
                   <span
                     className="h-2 w-2 shrink-0 rounded-full"
                     style={{ background: t.color }}
                   />
                   <span className="truncate">{t.label}</span>
-                </button>
+                </MenuRow>
               ))}
               {canCreate && (
-                <button
-                  type="button"
+                <MenuRow dense
                   disabled={busy}
                   onClick={() => add(trimmed)}
-                  className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11.5px] text-ink-muted hover:bg-panel disabled:opacity-50"
+                  className="gap-1.5 rounded px-1.5 text-[11.5px] text-ink-muted disabled:opacity-50"
                 >
                   ＋ Create “{trimmed}”
-                </button>
+                </MenuRow>
               )}
               {!canCreate && matches.length === 0 && (
                 <div className="px-1.5 py-1 text-[11.5px] text-ink-muted">

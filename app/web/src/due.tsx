@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { daysUntil, isShownDue } from "../../../core/due.ts";
 import { type Block, type DueTodo, getDue } from "./api";
 import { todayMark } from "../../../core/todo-marks.ts";
-import { Popover } from "./ui";
+import { MenuRow, Popover } from "./ui";
 
 // Due dates on todos: the {{trame:due=YYYY-MM-DD}} mark rendered as a pill, the
 // picker that writes it, and the wording shared with the sidebar's DUE section.
@@ -146,13 +146,12 @@ export function DueMenu(
         </button>
       </form>
       {current && (
-        <button
-          type="button"
+        <MenuRow dense
           onClick={() => pick(null)}
-          className="w-full rounded-md px-2 py-1 text-left text-[12px] text-ink-muted hover:bg-panel hover:text-ink"
+          className="text-[12px] text-ink-muted hover:text-ink"
         >
           Clear due date
-        </button>
+        </MenuRow>
       )}
     </Popover>
   );

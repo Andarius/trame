@@ -1,5 +1,5 @@
 import { getPage, type PageDetail, pageToSession, pageToStory, type updatePage } from "./api";
-import { appConfirm, EntityIcon, Popover, timeAgo, uuid7Time, IconButton } from "./ui";
+import { appConfirm, EntityIcon, MenuRow, Popover, timeAgo, uuid7Time, IconButton } from "./ui";
 import { TagEditor } from "./TagEditor";
 
 export function PageHeaderMenu(
@@ -33,7 +33,7 @@ export function PageHeaderMenu(
 ) {
         const created = uuid7Time(page.id);
             const item =
-          "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12.5px] text-ink-soft hover:bg-panel";
+          "rounded text-[12.5px]";
         return (
           <div className="-mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 px-1 text-[11px] text-ink-muted/70">
             {created && (
@@ -70,8 +70,7 @@ export function PageHeaderMenu(
               </button>
               {headerMenu && (
                 <Popover onClose={() => setHeaderMenu(false)} className="!left-auto right-0 w-[230px]">
-                  <button
-                    type="button"
+                  <MenuRow
                     className={item}
                     onClick={() => {
                       navigator.clipboard?.writeText(page.id).then(() => {
@@ -81,9 +80,8 @@ export function PageHeaderMenu(
                     }}
                   >
                     ⧉ {idCopied ? "Copied ✓" : "Copy page id"}
-                  </button>
-                  <button
-                    type="button"
+                  </MenuRow>
+                  <MenuRow
                     className={item}
                     onClick={() => {
                       setHeaderMenu(false);
@@ -91,10 +89,9 @@ export function PageHeaderMenu(
                     }}
                   >
                     ⌘ Show as Markdown
-                  </button>
+                  </MenuRow>
                   {canConvert && (
-                    <button
-                      type="button"
+                    <MenuRow
                       className={item}
                       title="Track this page as a session — the page becomes the card's specs"
                       onClick={() => {
@@ -108,11 +105,10 @@ export function PageHeaderMenu(
                       }}
                     >
                       ▦ Convert to session
-                    </button>
+                    </MenuRow>
                   )}
                   {canConvert && page.kind === "page" && !underStory && (
-                    <button
-                      type="button"
+                    <MenuRow
                       className={item}
                       title="Make this page a user story under its project — cards will attach to it"
                       onClick={() => {
@@ -126,7 +122,7 @@ export function PageHeaderMenu(
                       }}
                     >
                       <EntityIcon icon={null} fallback="◇" /> Convert to user story
-                    </button>
+                    </MenuRow>
                   )}
                 </Popover>
               )}
