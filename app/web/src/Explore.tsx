@@ -15,6 +15,7 @@ import {
 } from "./api";
 import { MENU_LABEL, MenuRow, SET_CODEC, useLocalStorage, appConfirm, ClientChip, Popover, timeAgo, EmptyState } from "./ui";
 import { excalidrawToHtml } from "./excalidraw";
+import { readStore, writeStore } from "./storage";
 
 type Selected = {
   kind: "db" | "file";
@@ -101,11 +102,11 @@ export function Explore(
   };
   const ignoreFolder = async (dir: string) => {
     // warn only on first use — afterwards ⊘ applies immediately (undo lives in Settings)
-    if (!localStorage.getItem("trame:ignore-warned")) {
+    if (!readStore("trame:ignore-warned")) {
       if (!(await appConfirm(`Ignore ${dir}?\n\nIgnored folders can be restored in Settings.\n(This warning is only shown once.)`, "Ignore"))) {
         return;
       }
-      localStorage.setItem("trame:ignore-warned", "1");
+      writeStore("trame:ignore-warned", "1");
     }
     getSettings()
       .then((s) => patchSettings({ ignorePaths: [...(s.ignore ?? []), dir] }))

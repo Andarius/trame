@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { IconButton } from "./ui";
+import { clearSelection, IconButton } from "./ui";
 import { renderInline } from "./md-inline";
 import type { TableOps } from "./md-types";
 
@@ -314,7 +314,7 @@ export function MdTable(
                     onDoubleClick={(e) => {
                       if (!editable) return;
                       e.stopPropagation();
-                      document.getSelection()?.removeAllRanges();
+                      clearSelection();
                       setEditing({ ri, ci });
                       setDraft(c);
                     }}

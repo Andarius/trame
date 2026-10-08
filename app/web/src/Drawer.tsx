@@ -21,7 +21,7 @@ import {
   getPage,
   updatePage,
 } from "./api";
-import { MenuRow, enumCodec, useLocalStorage, appConfirm, clientColor, EntityIcon, ExpandIcon, FIELD_LABEL, FieldRow, pageOptions, Popover, Select, TagChips, timeAgo, IconButton, PresenceDot, EmptyState } from "./ui";
+import { clearSelection, MenuRow, enumCodec, useLocalStorage, appConfirm, clientColor, EntityIcon, ExpandIcon, FIELD_LABEL, FieldRow, pageOptions, Popover, Select, TagChips, timeAgo, IconButton, PresenceDot, EmptyState } from "./ui";
 import { AgentIcon, AgentsSummary, EventMeta, PresencePill, useAgents } from "./agents";
 import { summarizeAgents } from "./agent-summary";
 import { PrChip, RepoLink } from "./chips";
@@ -242,7 +242,7 @@ export function Drawer(
       className="flex items-center gap-2 px-4 pb-1 pt-3.5"
       onDoubleClick={embedded ? undefined : (e) => {
         if ((e.target as HTMLElement).closest("button")) return;
-        document.getSelection()?.removeAllRanges();
+        clearSelection();
         setExpanded((v) => !v);
       }}
     >

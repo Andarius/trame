@@ -1,6 +1,7 @@
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useState } from "react";
 import { type Block, getPresence, pingPresence, type Presence } from "./api";
 import { blocksToMarkdown } from "./page-serialize";
+import { clearSelection } from "./ui";
 
 /** Heartbeat that I'm on the page, and poll who else / which agents are watching. */
 export function usePresence(pageId: string) {
@@ -47,7 +48,7 @@ export function usePageSelection(title: string | undefined, blocksRef: { current
       if (!inTextarea || fullySelected) {
         e.preventDefault();
         el?.blur();
-        document.getSelection()?.removeAllRanges();
+        clearSelection();
         setPageSelected(true);
       }
     } else if (e.key !== "Meta" && e.key !== "Control") {

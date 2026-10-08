@@ -674,6 +674,7 @@ export {
   sessionTagKeys,
   storyOf,
 } from "./tree.ts";
+import { readStore, writeStore } from "./storage";
 // ◎ project; a page whose marks give it a role (a mirrored ticket, a linked story) shows that role
 export const pageGlyph = (kind: string, role?: string | null) =>
   kind === "project" ? "◎" : role === "ticket" ? "ticket" : kind === "story" || role === "linked-story" ? "◇" : "□";
@@ -691,9 +692,11 @@ const tagTint = (color: string): CSSProperties => ({
   background: `color-mix(in srgb, ${color} var(--tag-tint, 16%), transparent)`,
   color: `color-mix(in srgb, ${color} calc(100% - var(--tag-shade, 30%)), var(--color-ink, currentColor))`,
 });
+export const clearSelection = () => document.getSelection()?.removeAllRanges();
+
 // double-click opens: drop the word the double-click just selected, then open
 export const dblOpen = (open: () => void) => () => {
-  document.getSelection()?.removeAllRanges();
+  clearSelection();
   open();
 };
 
@@ -802,8 +805,8 @@ export const enumCodec = <T extends string>(opts: readonly T[]): Codec<T> => ({
 // useState persisted in localStorage; blocked storage or a bad value falls back to `init`; a new `key` re-reads
 export function useLocalStorage<T>(key: string, init: T, codec: Codec<T>) {
   const read = (k: string): T => {
+    const raw = readStore(k);
     try {
-      const raw = localStorage.getItem(k);
       return raw === null ? init : codec.parse(raw);
     } catch {
       return init;
@@ -816,9 +819,7 @@ export function useLocalStorage<T>(key: string, init: T, codec: Codec<T>) {
     setEntry(cur);
   }
   useEffect(() => {
-    try {
-      localStorage.setItem(cur.key, codec.stringify(cur.value));
-    } catch { /* storage blocked */ }
+    writeStore(cur.key, codec.stringify(cur.value));
   }, [cur.key, cur.value]);
   const setValue = useCallback(
     (v: T | ((prev: T) => T)) =>

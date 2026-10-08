@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { type Block, openInBrowser, type PageComment, type SessionLink, uploadAsset } from "./api";
-import { statusStyle } from "./ui";
+import { clearSelection, statusStyle } from "./ui";
 import { Markdown } from "./md";
 import type { ItemLink } from "./md-types";
 import {
@@ -720,7 +720,7 @@ export function BlockEditor(
               onClick: () => {
                 setPendingNote({ id: viewSel.id, anchor: viewSel.text });
                 setViewSel(null);
-                document.getSelection()?.removeAllRanges();
+                clearSelection();
               },
             },
           ]}
@@ -963,7 +963,7 @@ export function BlockEditor(
                 }}
                 onDoubleClick={() => {
                   if (isSnippet) {
-                    document.getSelection()?.removeAllRanges();
+                    clearSelection();
                     setSelectedId(null);
                     setFocusIdx(i);
                   }

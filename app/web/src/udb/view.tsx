@@ -26,6 +26,7 @@ import {
   opsFor,
   type ViewConfig,
 } from "./view-core.ts";
+import { readStore, writeStore } from "../storage";
 
 export * from "./view-core.ts";
 
@@ -112,7 +113,7 @@ export const isDefaultTabs = (v: ViewTabs) =>
 export function loadTabs(dbId: string): ViewTabs {
   try {
     const parsed = parseTabs(
-      JSON.parse(localStorage.getItem(key(dbId)) ?? "null"),
+      JSON.parse(readStore(key(dbId)) ?? "null"),
     );
     if (parsed) return parsed;
   } catch { /* fall through */ }
@@ -120,8 +121,7 @@ export function loadTabs(dbId: string): ViewTabs {
   return { tabs: [tab], active: tab.id };
 }
 export const saveTabs = (dbId: string, v: ViewTabs) => {
-  if (isDefaultTabs(v)) localStorage.removeItem(key(dbId));
-  else localStorage.setItem(key(dbId), JSON.stringify(v));
+  writeStore(key(dbId), isDefaultTabs(v) ? null : JSON.stringify(v));
 };
 
 // UI
