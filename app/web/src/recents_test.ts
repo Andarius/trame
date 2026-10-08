@@ -30,5 +30,16 @@ for (
       pages: [page("a", "db", "10:00:00"), page("x", "y", "10:00:10"), page("b", "db", "10:00:20")],
       want: ["b", "x", "a"],
     },
+    {
+      name: "a split burst under the same parent stays one row",
+      pages: [
+        page("a", "db", "10:00:00"),
+        page("b", "db", "10:00:01"),
+        page("x", "y", "10:00:10"),
+        page("c", "db", "10:00:20"),
+        page("d", "db", "10:00:21"),
+      ],
+      want: ["db[d,c,b,a]", "x"],
+    },
   ]
 ) Deno.test(`recentRows: ${name}`, () => assertEquals(shape(pages), want));
