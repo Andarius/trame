@@ -50,6 +50,20 @@ export function liveState(a: LiveAgent, cfg: AgentPresenceSettings, now = Date.n
 export type Live = { a: LiveAgent; state: LiveState };
 
 // the todo this agent works on now: its pushed target, else any todo its session links
+// an agent live on a page or card: icon, name, working/needs-you dot
+export function LiveAgentChip({ a, state }: Live) {
+  return (
+    <span
+      title={`${a.session_title} — ${state === "working" ? "working" : "needs you"}`}
+      className="inline-flex items-center gap-1.5 rounded-md border border-chipline/60 px-1.5 py-0.5 text-[11px] text-ink-muted"
+    >
+      <AgentIcon a={a} />
+      {a.name ?? a.harness}
+      <span className={`h-1.5 w-1.5 rounded-full ${state === "working" ? "bg-live" : "bg-wait"}`} />
+    </span>
+  );
+}
+
 export const worksOn = (a: LiveAgent, blockId: string) =>
   a.block_id ? a.block_id === blockId : a.links.some((l) => l.block_id === blockId);
 

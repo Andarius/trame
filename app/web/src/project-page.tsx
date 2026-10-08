@@ -9,6 +9,19 @@ export const RepoChip = ({ repo }: { repo: string }) => (
   <span className="shrink-0 rounded bg-card px-1 font-mono text-[10px] text-ink-muted">{repo}</span>
 );
 
+// a page's todo progress: bar + done/total
+export const TodoBar = ({ done, total }: { done: number; total: number }) => (
+  <span
+    className="inline-flex items-center gap-1.5 pl-1 font-mono text-[11px] tabular-nums text-ink-faint"
+    title={`${done} of ${total} todos done`}
+  >
+    <span className="inline-block h-1 w-10 overflow-hidden rounded bg-line">
+      <span className="block h-full rounded bg-live" style={{ width: `${(done / total) * 100}%` }} />
+    </span>
+    {done}/{total}
+  </span>
+);
+
 // open cards whose PR is already merged/closed — same signal as StaleChip, lifted to the page
 export function useFinishedCards(open: Session[]): Set<string> {
   const [done, setDone] = useState<Set<string>>(new Set());

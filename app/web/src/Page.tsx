@@ -86,7 +86,7 @@ import {
 } from "../../../core/todo-marks.ts";
 import { DueMenu, TodoDueCtx, useFocusedBlock } from "./due";
 import { PAGE_STATUSES } from "../../../core/page-status.ts";
-import { AgentIcon, LiveLine, LiveRail, liveRingCls, liveRowCls, LiveTrail, useAgents, worksOn } from "./agents";
+import { LiveAgentChip, LiveLine, LiveRail, liveRingCls, liveRowCls, LiveTrail, useAgents, worksOn } from "./agents";
 import { DatabaseView } from "./udb/DatabaseTable";
 import { FolderBlock } from "./FolderBlock";
 import { TagEditor } from "./TagEditor";
@@ -96,7 +96,7 @@ import { HtmlBlock } from "./HtmlBlock";
 import { tagPriority } from "./SessionSort";
 import { QueryBox } from "./SessionBar";
 import { filterSessions } from "./query";
-import { FinishedStrip, ProjectChildren, RepoChip, repoTitle, useFinishedCards } from "./project-page";
+import { FinishedStrip, ProjectChildren, RepoChip, repoTitle, TodoBar, useFinishedCards } from "./project-page";
 
 // project chip palette (matches the client palette + a few extras)
 const PROJECT_COLORS = [
@@ -3171,31 +3171,8 @@ export function Page(
       <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
         {liveAgentsAll
           .filter(({ a }) => a.page_id ? a.page_id === c.id : a.links.some((l) => l.page_id === c.id))
-          .map(({ a, state }) => (
-            <span
-              key={a.session_id}
-              title={`${a.session_title} — ${state === "working" ? "working" : "needs you"}`}
-              className="inline-flex items-center gap-1.5 rounded-md border border-chipline/60 px-1.5 py-0.5 text-[11px] text-ink-muted"
-            >
-              <AgentIcon a={a} />
-              {a.name ?? a.harness}
-              <span className={`h-1.5 w-1.5 rounded-full ${state === "working" ? "bg-live" : "bg-wait"}`} />
-            </span>
-          ))}
-        {!!c.todos && (
-          <span
-            className="inline-flex items-center gap-1.5 pl-1 font-mono text-[11px] tabular-nums text-ink-faint"
-            title={`${c.todos_done ?? 0} of ${c.todos} todos done`}
-          >
-            <span className="inline-block h-1 w-10 overflow-hidden rounded bg-line">
-              <span
-                className="block h-full rounded bg-live"
-                style={{ width: `${((c.todos_done ?? 0) / c.todos) * 100}%` }}
-              />
-            </span>
-            {c.todos_done ?? 0}/{c.todos}
-          </span>
-        )}
+          .map((l) => <LiveAgentChip key={l.a.session_id} {...l} />)}
+        {!!c.todos && <TodoBar done={c.todos_done ?? 0} total={c.todos} />}
         <span className="w-[52px] text-right text-[11px] text-ink-faint">{timeAgo(c.updated_at)}</span>
       </span>
     </button>
@@ -3617,31 +3594,8 @@ export function Page(
                       return keys.length > 0 && <TagChips keys={keys} />;
                     })()}
                     <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
-                      {agents.map(({ a, state }) => (
-                        <span
-                          key={a.session_id}
-                          title={`${a.session_title} — ${state === "working" ? "working" : "needs you"}`}
-                          className="inline-flex items-center gap-1.5 rounded-md border border-chipline/60 px-1.5 py-0.5 text-[11px] text-ink-muted"
-                        >
-                          <AgentIcon a={a} />
-                          {a.name ?? a.harness}
-                          <span className={`h-1.5 w-1.5 rounded-full ${state === "working" ? "bg-live" : "bg-wait"}`} />
-                        </span>
-                      ))}
-                      {!!spec?.todos && (
-                        <span
-                          className="inline-flex items-center gap-1.5 pl-1 font-mono text-[11px] tabular-nums text-ink-faint"
-                          title={`${spec.todos_done ?? 0} of ${spec.todos} todos done`}
-                        >
-                          <span className="inline-block h-1 w-10 overflow-hidden rounded bg-line">
-                            <span
-                              className="block h-full rounded bg-live"
-                              style={{ width: `${((spec.todos_done ?? 0) / spec.todos) * 100}%` }}
-                            />
-                          </span>
-                          {spec.todos_done ?? 0}/{spec.todos}
-                        </span>
-                      )}
+                      {agents.map((l) => <LiveAgentChip key={l.a.session_id} {...l} />)}
+                      {!!spec?.todos && <TodoBar done={spec.todos_done ?? 0} total={spec.todos} />}
                       <span className="w-[64px] text-right text-[10.5px] text-ink-muted/70">
                         {statusStyle(s.status).label}
                       </span>
