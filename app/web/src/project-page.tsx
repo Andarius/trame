@@ -1,7 +1,9 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { type PageChild, type Session, setStatus } from "./api";
-import { getPrInfo } from "./chips";
-import { SECTION_LABEL, TagChips } from "./ui";
+import { type Live, LiveAgentChip } from "./agents";
+import { getPrInfo, StaleChip } from "./chips";
+import { repoTitle } from "./repo-title.ts";
+import { dblOpen, EntityIcon, pageGlyph, SECTION_LABEL, StatusDot, statusStyle, TagChips, timeAgo } from "./ui";
 
 export { repoTitle } from "./repo-title.ts";
 
@@ -21,6 +23,59 @@ export const TodoBar = ({ done, total }: { done: number; total: number }) => (
     {done}/{total}
   </span>
 );
+
+// a card as one line: click opens the drawer, double-click the full card
+export function SessionRow({ s, onOpen }: { s: Session; onOpen: (id: string, full?: boolean) => void }) {
+  const { repo, title } = repoTitle(s);
+  const { terminal, label } = statusStyle(s.status);
+  return (
+    <div
+      onClick={() => onOpen(s.id)}
+      onDoubleClick={dblOpen(() => onOpen(s.id, true))}
+      className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-hover"
+    >
+      <StatusDot status={s.status} size={7} />
+      {repo && <RepoChip repo={repo} />}
+      <span className={`text-xs font-medium ${terminal ? "text-ink-muted" : ""}`}>{title}</span>
+      {s.branch && <span className="text-[10.5px] text-ink-muted">{s.branch}</span>}
+      <TagChips keys={s.tags} />
+      <span className="flex-1" />
+      {!terminal && <StaleChip sessionId={s.id} prUrl={s.pr_url} />}
+      <span className="text-[10px] text-ink-muted/70">{label}</span>
+    </div>
+  );
+}
+
+// a sub-page line: icon, title, tags (minus the one its bucket is named after), live agents, todos, age
+export function PageRow({ c, hideTag, live, onOpen }: {
+  c: PageChild;
+  hideTag: string | null;
+  live: Live[];
+  onOpen: (id: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`flex items-center gap-2 rounded-md px-1.5 py-1 text-left text-[13px] text-ink-soft hover:bg-panel${
+        c.status === "archived" ? " opacity-40" : ""
+      }`}
+      onClick={() => onOpen(c.id)}
+    >
+      <EntityIcon icon={c.icon} fallback={pageGlyph(c.kind, c.mark_role)} className="text-ink-muted" />
+      <span className={c.title ? "" : "text-ink-muted/60 italic"}>{c.title || "Untitled"}</span>
+      {c.status === "archived" && <span className="text-[10.5px] text-ink-muted/60">archived</span>}
+      {c.tags.some((t) => t !== hideTag) && <TagChips keys={c.tags.filter((t) => t !== hideTag)} />}
+      {/* agents live on that sub-page right now, then its progress and age */}
+      <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+        {live
+          .filter(({ a }) => a.page_id ? a.page_id === c.id : a.links.some((l) => l.page_id === c.id))
+          .map((l) => <LiveAgentChip key={l.a.session_id} {...l} />)}
+        {!!c.todos && <TodoBar done={c.todos_done ?? 0} total={c.todos} />}
+        <span className="w-[52px] text-right text-[11px] text-ink-faint">{timeAgo(c.updated_at)}</span>
+      </span>
+    </button>
+  );
+}
 
 // open cards whose PR is already merged/closed — same signal as StaleChip, lifted to the page
 export function useFinishedCards(open: Session[]): Set<string> {

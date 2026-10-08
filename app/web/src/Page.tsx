@@ -56,7 +56,6 @@ import {
   uuid7Time,
 } from "./ui";
 import { type ItemLink, LinkChip, Markdown, PageActivityChip } from "./md";
-import { StaleChip } from "./chips";
 import { blocksToMarkdown } from "./page-serialize";
 
 // Stable block id so a comment survives edits/reorders of the surrounding text.
@@ -98,7 +97,16 @@ import { HtmlBlock } from "./HtmlBlock";
 import { tagPriority } from "./SessionSort";
 import { QueryBox } from "./SessionBar";
 import { filterSessions } from "./query";
-import { FinishedStrip, ProjectChildren, RepoChip, repoTitle, TodoBar, useFinishedCards } from "./project-page";
+import {
+  FinishedStrip,
+  PageRow,
+  ProjectChildren,
+  RepoChip,
+  repoTitle,
+  SessionRow,
+  TodoBar,
+  useFinishedCards,
+} from "./project-page";
 
 // project chip palette (matches the client palette + a few extras)
 const PROJECT_COLORS = [
@@ -2923,33 +2931,7 @@ export function Page(
   const ungroupedSessions = isProject
     ? sessions.filter((s) => !childStoryIds.has(storyOf(s, byId)?.id ?? ""))
     : sessions;
-  const sessionRow = (s: Session) => (
-    <div
-      key={s.id}
-      onClick={() => onOpenSession(s.id)}
-      onDoubleClick={dblOpen(() => onOpenSession(s.id, true))}
-      className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-hover"
-    >
-      <StatusDot status={s.status} size={7} />
-      {repoTitle(s).repo && <RepoChip repo={repoTitle(s).repo as string} />}
-      <span
-        className={`text-xs font-medium ${
-          statusStyle(s.status).terminal ? "text-ink-muted" : ""
-        }`}
-      >
-        {repoTitle(s).title}
-      </span>
-      {s.branch && (
-        <span className="text-[10.5px] text-ink-muted">{s.branch}</span>
-      )}
-      <TagChips keys={s.tags} />
-      <span className="flex-1" />
-      {!statusStyle(s.status).terminal && <StaleChip sessionId={s.id} prUrl={s.pr_url} />}
-      <span className="text-[10px] text-ink-muted/70">
-        {statusStyle(s.status).label}
-      </span>
-    </div>
-  );
+  const sessionRow = (s: Session) => <SessionRow key={s.id} s={s} onOpen={onOpenSession} />;
   const finishedCards = sessions.filter((s) => !statusStyle(s.status).terminal && finished.has(s.id));
   const shownSession = (s: Session) =>
     statusStyle(s.status).terminal === (sessionFilter === "done") && !(sessionFilter === "active" && finished.has(s.id));
@@ -3141,37 +3123,7 @@ export function Page(
     </>
   );
   const childRow = (c: PageChild, hideTag: string | null = null) => (
-    <button
-      type="button"
-      key={c.id}
-      className={`flex items-center gap-2 rounded-md px-1.5 py-1 text-left text-[13px] text-ink-soft hover:bg-panel${
-        c.status === "archived" ? " opacity-40" : ""
-      }`}
-      onClick={() => onOpenPage(c.id)}
-    >
-      <EntityIcon
-        icon={c.icon}
-        fallback={pageGlyph(c.kind, c.mark_role)}
-        className="text-ink-muted"
-      />
-      <span className={c.title ? "" : "text-ink-muted/60 italic"}>
-        {c.title || "Untitled"}
-      </span>
-      {c.status === "archived" && (
-        <span className="text-[10.5px] text-ink-muted/60">
-          archived
-        </span>
-      )}
-      {c.tags.some((t) => t !== hideTag) && <TagChips keys={c.tags.filter((t) => t !== hideTag)} />}
-      {/* agents live on that sub-page right now, then its progress and age */}
-      <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
-        {liveAgentsAll
-          .filter(({ a }) => a.page_id ? a.page_id === c.id : a.links.some((l) => l.page_id === c.id))
-          .map((l) => <LiveAgentChip key={l.a.session_id} {...l} />)}
-        {!!c.todos && <TodoBar done={c.todos_done ?? 0} total={c.todos} />}
-        <span className="w-[52px] text-right text-[11px] text-ink-faint">{timeAgo(c.updated_at)}</span>
-      </span>
-    </button>
+    <PageRow key={c.id} c={c} hideTag={hideTag} live={liveAgentsAll} onOpen={onOpenPage} />
   );
   const blockIds = new Set(
     blocks.filter(isText).map((b) => b.id).filter(Boolean) as string[],
