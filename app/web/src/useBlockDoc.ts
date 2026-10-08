@@ -12,7 +12,8 @@ import {
   updateComment,
   updatePage,
 } from "./api";
-import { type CommentOps, ensureIds, genId } from "./Page";
+import type { CommentOps } from "./Page";
+import { ensureIds, genId } from "./page-ids";
 
 export function useBlockDoc(pageId: string | null) {
   const [page, setPage] = useState<PageDetail | null>(null);

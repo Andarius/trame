@@ -9,7 +9,8 @@ import {
   ensureSpecsPage,
   getIdentity,
 } from "./api";
-import { BlockEditor, genId } from "./Page";
+import { BlockEditor } from "./Page";
+import { genId } from "./page-ids";
 import { useBlockDoc } from "./useBlockDoc";
 import { useFocusedBlock } from "./due";
 import { FIELD_LABEL } from "./ui";

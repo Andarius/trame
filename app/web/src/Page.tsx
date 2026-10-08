@@ -36,26 +36,32 @@ import {
   updatePage,
   uploadAsset,
 } from "./api";
-import { BOOL_CODEC, enumCodec, useLocalStorage, appConfirm, ClientChip, dblOpen, EntityIcon, inSubtree, pageGlyph, pagesById, Popover, SECTION_LABEL, Select, sessionTagKeys, StatusDot, statusStyle, storyOf, TagChips, timeAgo, uuid7Time, IconButton, ProgressBar } from "./ui";
+import {
+  BOOL_CODEC,
+  enumCodec,
+  useLocalStorage,
+  appConfirm,
+  ClientChip,
+  dblOpen,
+  EntityIcon,
+  inSubtree,
+  pageGlyph,
+  pagesById,
+  Popover,
+  SECTION_LABEL,
+  Select,
+  sessionTagKeys,
+  StatusDot,
+  statusStyle,
+  storyOf,
+  TagChips,
+  timeAgo,
+  uuid7Time,
+  IconButton,
+  ProgressBar,
+} from "./ui";
 import { type ItemLink, LinkChip, Markdown, PageActivityChip } from "./md";
 import { blocksToMarkdown } from "./page-serialize";
-
-// Stable block id so a comment survives edits/reorders of the surrounding text.
-export const genId = () => crypto.randomUUID().slice(0, 8);
-const isTextType = (t: Block["type"]) =>
-  t === "text" || t === "heading" || t === "todo";
-// Backfill ids on text blocks that predate them; `changed` tells the caller to persist.
-export function ensureIds(blocks: Block[]): { blocks: Block[]; changed: boolean } {
-  let changed = false;
-  const out = blocks.map((b) => {
-    if (isTextType(b.type) && !("id" in b && b.id)) {
-      changed = true;
-      return { ...b, id: genId() } as Block;
-    }
-    return b;
-  });
-  return { blocks: out, changed };
-}
 import { IconPicker } from "./udb/cells";
 import {
   normalizeMarks,
@@ -69,7 +75,16 @@ import {
 } from "../../../core/todo-marks.ts";
 import { DueMenu, TodoDueCtx, useFocusedBlock } from "./due";
 import { PAGE_STATUSES } from "../../../core/page-status.ts";
-import { LiveAgentChip, LiveLine, LiveRail, liveRingCls, liveRowCls, LiveTrail, useAgents, worksOn } from "./agents";
+import {
+  LiveAgentChip,
+  LiveLine,
+  LiveRail,
+  liveRingCls,
+  liveRowCls,
+  LiveTrail,
+  useAgents,
+  worksOn,
+} from "./agents";
 import { DatabaseView } from "./udb/DatabaseTable";
 import { FolderBlock } from "./FolderBlock";
 import { TagEditor } from "./TagEditor";
@@ -89,19 +104,7 @@ import {
   TodoBar,
   useFinishedCards,
 } from "./project-page";
-
-// project chip palette (matches the client palette + a few extras)
-const PROJECT_COLORS = [
-  "#7a9ee7",
-  "#b590e7",
-  "#c98a63",
-  "#7bd88f",
-  "#e3c567",
-  "#e06c75",
-  "#56b6c2",
-  "#8b93a3",
-];
-
+import { genId, ensureIds, PROJECT_COLORS } from "./page-ids";
 
 type TextBlock = Extract<Block, { type: "text" | "heading" | "todo" }>;
 const isText = (b: Block): b is TextBlock =>
