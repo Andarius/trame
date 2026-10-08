@@ -1,7 +1,7 @@
 import { createContext, Fragment, type ReactNode, useContext, useEffect, useState } from "react";
 import type { AgentPresenceSettings, LiveAgent } from "./api";
 import { type AgentSummary, fmtDuration } from "./agent-summary";
-import { PresenceDot } from "./ui";
+import { PresenceDot, ProgressBar } from "./ui";
 
 // brand marks for the harnesses/providers Trame knows; others send their own icon
 const ICONS: Record<string, { viewBox: string; d: string }> = {
@@ -236,9 +236,7 @@ export function AgentLine({ agent, name, icon, provider, model, tokens, contextM
       >
         {fmtTokens(tokens)} tok
         {pct !== null && (
-          <span className="inline-block h-1 w-9 overflow-hidden rounded bg-card">
-            <span className="block h-full bg-ink-faint" style={{ width: `${pct}%` }} />
-          </span>
+          <ProgressBar value={pct / 100} color="bg-ink-faint" track="bg-card rounded" fill="" className="w-9" />
         )}
       </span>,
     );

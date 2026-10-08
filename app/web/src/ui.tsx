@@ -854,11 +854,19 @@ export function PresenceDot(
   return <span className={`${size === "md" ? "h-[7px] w-[7px]" : "h-1.5 w-1.5"} rounded-full ${color} ${className}`.trim()} />;
 }
 
-// thin track with a filled share (0..1); className sets the track width, color the fill
-export function ProgressBar({ value, color, className = "" }: { value: number; color: string; className?: string }) {
+// thin track with a filled share (0..1); className sets the track width, color the fill, track/fill the rounding and track color
+export function ProgressBar(
+  { value, color, className = "", track = "bg-line rounded-full", fill = "rounded-full" }: {
+    value: number;
+    color: string;
+    className?: string;
+    track?: string;
+    fill?: string;
+  },
+) {
   return (
-    <span className={`inline-block h-1 overflow-hidden rounded-full bg-line ${className}`.trim()}>
-      <span className={`block h-full rounded-full ${color}`} style={{ width: `${value * 100}%` }} />
+    <span className={`inline-block h-1 overflow-hidden ${track} ${className}`.trim()}>
+      <span className={`block h-full ${fill} ${color}`.replace(/ +/g, " ")} style={{ width: `${value * 100}%` }} />
     </span>
   );
 }
