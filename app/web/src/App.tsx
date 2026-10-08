@@ -62,11 +62,8 @@ import { filterSessionBoard, sortSessionBoard, type Sort } from "./SessionSort";
 import { SessionBar } from "./SessionBar";
 import { recentRows } from "./recents";
 import { ImportClaudeModal } from "./ImportClaudeModal";
-import {
-  NewSessionModal,
-  NewUdbModal,
-  SettingsModal,
-} from "./modals";
+import { NewSessionModal, NewUdbModal } from "./modals";
+import { SettingsModal } from "./SettingsModal";
 import { Palette } from "./Palette";
 import { ShareModal } from "./ShareModal";
 import { confirmDeletePage, Page } from "./Page";
