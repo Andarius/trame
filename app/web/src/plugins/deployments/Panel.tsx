@@ -4,7 +4,7 @@
 // the row deep-links to the forge as before.
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { openInBrowser } from "../../api";
-import { IconButton, timeAgo, EmptyState } from "../../ui/ui";
+import { IconButton, timeAgo, EmptyState, StatusDot } from "../../ui/ui";
 
 type ApproveAction =
   | { kind: "gitlab-play"; project: string; jobId: number }
@@ -16,8 +16,13 @@ type ApproveAction =
     environmentId: number;
   };
 
+type CancelAction =
+  | { kind: "github-reject"; repo: string; runId: number; environmentId: number }
+  | { kind: "gitlab-reject"; project: string; deploymentId: number }
+  | { kind: "gitlab-cancel"; project: string; jobId: number };
+
 type DeployStatus = "waiting" | "running" | "failed";
-type PendingDeployment = {
+export type PendingDeployment = {
   source: "github" | "gitlab";
   repo: string;
   environment: string;
@@ -28,9 +33,21 @@ type PendingDeployment = {
   waitingSince: string;
   url: string;
   action: ApproveAction | null;
+  cancel?: CancelAction | null;
   status: DeployStatus;
   ignored?: boolean;
+  ships?: {
+    card_id: string;
+    title: string;
+    status: string;
+    pr: number;
+    prUrl: string;
+    via: number | null;
+    viaUrl: string | null;
+  }[];
 };
+
+const refLabel = (source: string, n: number) => `${source === "gitlab" ? "!" : "#"}${n}`;
 
 type ChangelogCommit = {
   sha: string;
@@ -187,8 +204,79 @@ function ChangelogBlock({ log }: { log: Changelog | "loading" | undefined }) {
   );
 }
 
+// environments with the most waiting first, then the most items
+function byEnvironment(items: PendingDeployment[]): [string, PendingDeployment[]][] {
+  const m = new Map<string, PendingDeployment[]>();
+  for (const d of items) m.set(d.environment, [...(m.get(d.environment) ?? []), d]);
+  const waiting = (l: PendingDeployment[]) => l.filter((d) => d.status === "waiting").length;
+  return [...m.entries()].sort((a, b) =>
+    waiting(b[1]) - waiting(a[1]) || b[1].length - a[1].length || a[0].localeCompare(b[0])
+  );
+}
+
+function envSummary(items: PendingDeployment[]): string {
+  const n = (s: DeployStatus) => items.filter((d) => d.status === s).length;
+  return [
+    n("waiting") && `${n("waiting")} waiting`,
+    n("running") && `${n("running")} deploying`,
+    n("failed") && `${n("failed")} failed`,
+  ].filter(Boolean).join(" · ");
+}
+
+function EnvPill({ env }: { env: string }) {
+  return (
+    <span
+      className="whitespace-nowrap rounded-full border px-2 py-0.5 text-[10.5px]"
+      style={{ color: envColor(env), borderColor: envColor(env) + "66", background: envColor(env) + "1a" }}
+    >
+      {env}
+    </span>
+  );
+}
+
+// Two clicks: the first arms (4s), the second fires — shared by deploy and cancel.
+function ConfirmButton(
+  { id, label, busyLabel, title, muted, confirming, setConfirming, deploying, deployErr, onFire }: {
+    id: string;
+    label: string;
+    busyLabel: string;
+    title: string;
+    muted?: boolean;
+    confirming: string | null;
+    setConfirming: (f: (c: string | null) => string | null) => void;
+    deploying: string | null;
+    deployErr: Record<string, string>;
+    onFire: () => void;
+  },
+) {
+  const armed = confirming === id;
+  const err = deployErr[id];
+  return (
+    <button
+      type="button"
+      disabled={deploying === id}
+      title={err ? `${err} — click to retry` : title}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (armed) return onFire();
+        setConfirming(() => id);
+        setTimeout(() => setConfirming((c) => (c === id ? null : c)), 4000);
+      }}
+      className={`whitespace-nowrap rounded-md border px-2 py-0.5 text-[11.5px] disabled:opacity-40 ${
+        armed || err
+          ? "border-blocked/60 text-blocked hover:bg-blocked/10"
+          : muted
+          ? "border-chipline text-ink-muted hover:border-blocked/60 hover:text-blocked"
+          : "border-copper/50 text-copper hover:bg-copper/10"
+      }`}
+    >
+      {deploying === id ? busyLabel : armed ? "confirm?" : err ? "✕ retry" : label}
+    </button>
+  );
+}
+
 export function DeploymentsPanel(
-  { onOpenSettings }: { onOpenSettings: () => void },
+  { onOpenSettings, onOpenSession }: { onOpenSettings: () => void; onOpenSession: (id: string) => void },
 ) {
   const [state, setState] = useState<DeploymentsState | null>(null);
   const [busy, setBusy] = useState(false);
@@ -216,15 +304,16 @@ export function DeploymentsPanel(
     refreshState().then(setState).catch(() => {}).finally(() => setBusy(false));
   };
 
-  const deploy = (d: PendingDeployment, key: string) => {
+  // approve/play via the item's `action`, or reject/cancel via its `cancel`
+  const act = (d: PendingDeployment, key: string, what: "approve" | "cancel") => {
     setConfirming(null);
     setDeploying(key);
     setDeployErr(({ [key]: _drop, ...rest }) => rest);
-    fetch("/api/plugins/deployments/approve", {
+    fetch(`/api/plugins/deployments/${what}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        action: d.action,
+        action: what === "approve" ? d.action : d.cancel,
         url: d.url,
         environment: d.environment,
       }),
@@ -237,6 +326,8 @@ export function DeploymentsPanel(
       .catch(() => setDeployErr((e) => ({ ...e, [key]: "request failed" })))
       .finally(() => setDeploying(null));
   };
+
+  const armed = { confirming, setConfirming, deploying, deployErr };
 
   const setIgnored = (d: PendingDeployment, ignored: boolean) => {
     fetch("/api/plugins/deployments/ignore", {
@@ -409,147 +500,151 @@ export function DeploymentsPanel(
         )
         : (
           <div className="overflow-hidden rounded-[10px] border border-line bg-panel">
-            {shown.map((d) => {
-              const key = d.url + d.environment;
-              return (
-                <Fragment key={key}>
-                  <div
-                    onClick={() => openInBrowser(d.url)}
-                    title={d.status === "running"
-                      ? "Open the running pipeline"
-                      : d.status === "failed"
-                      ? "Open the failed pipeline"
-                      : "Open the approval page in the browser"}
-                    className={`group flex cursor-pointer items-center gap-3.5 border-b border-line-soft px-3.5 py-[11px] last:border-b-0 hover:bg-card/50 ${
-                      d.ignored ? "opacity-45" : ""
-                    }`}
-                  >
-                    <span className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate text-[12.5px] font-medium">
-                        {d.title}
-                      </span>
-                      <span className="mt-0.5 flex items-center gap-1.5 truncate text-[10.5px] text-ink-muted">
-                        <SourceChip source={d.source} /> {d.repo}
-                        {d.requester ? ` · ${d.requester}` : ""}
-                      </span>
-                    </span>
-                    <span className="w-20 truncate font-mono text-[10.5px] text-ink-muted">
-                      {d.ref}
-                    </span>
-                    <span
-                      className="whitespace-nowrap rounded-full border px-2 py-0.5 text-[10.5px]"
-                      style={{
-                        color: envColor(d.environment),
-                        borderColor: envColor(d.environment) + "66",
-                        background: envColor(d.environment) + "1a",
-                      }}
-                    >
-                      {d.environment}
-                    </span>
-                    <span
-                      className={`w-[76px] text-right text-[11px] ${
-                        d.status === "failed"
-                          ? "text-blocked"
-                          : ageColor(d.waitingSince)
-                      }`}
-                    >
-                      {d.status === "running" ? "" : timeAgo(d.waitingSince)}
-                    </span>
-                    {d.status === "running"
-                      ? (
-                        <span className="flex items-center gap-1.5 whitespace-nowrap text-[11.5px] text-copper">
-                          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-copper" />
-                          deploying · {elapsed(d.waitingSince)}
+            {byEnvironment(shown).map(([env, items]) => (
+              <Fragment key={env}>
+                <div className="flex items-center gap-2 border-b border-line-soft bg-card/30 px-3.5 py-2 text-[11px] text-ink-muted">
+                  <EnvPill env={env} />
+                  {envSummary(items)}
+                </div>
+                {items.map((d) => {
+                  const key = d.url + d.environment;
+                  return (
+                    <Fragment key={key}>
+                      <div
+                        onClick={() => openInBrowser(d.url)}
+                        title={d.status === "running"
+                          ? "Open the running pipeline"
+                          : d.status === "failed"
+                          ? "Open the failed pipeline"
+                          : "Open the approval page in the browser"}
+                        className={`group flex cursor-pointer items-center gap-3 border-b border-line-soft py-[9px] pl-6 pr-3.5 hover:bg-card/50 ${
+                          d.ignored ? "opacity-45" : ""
+                        }`}
+                      >
+                        <span className="flex min-w-0 flex-1 flex-col">
+                          <span className="truncate text-[12.5px] font-medium">
+                            {d.title}
+                          </span>
+                          <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5 text-[10.5px] text-ink-muted">
+                            <SourceChip source={d.source} /> {d.repo} ·{" "}
+                            <span className="font-mono">{d.ref}</span>
+                            {d.requester ? ` · ${d.requester}` : ""}
+                            {d.status !== "running" && (
+                              <>
+                                {" · "}
+                                <span className={d.status === "failed" ? "text-blocked" : ageColor(d.waitingSince)}>
+                                  {timeAgo(d.waitingSince)}
+                                </span>
+                              </>
+                            )}
+                            {d.ships?.length
+                              ? (
+                                <>
+                                  {" · "}
+                                  <span className="text-copper">⇈</span>
+                                  {d.ships.map((c) => (
+                                    <button
+                                      key={c.card_id}
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation(); // the row opens the forge
+                                        onOpenSession(c.card_id);
+                                      }}
+                                      title={`Open the card · ${refLabel(d.source, c.pr)}${
+                                        c.via ? ` via ${refLabel(d.source, c.via)}` : ""
+                                      }`}
+                                      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-line px-2 py-px text-[11px] text-ink hover:border-copper hover:text-copper"
+                                    >
+                                      <StatusDot status={c.status} size={6} />
+                                      {c.title}
+                                    </button>
+                                  ))}
+                                </>
+                              )
+                              : null}
+                          </span>
                         </span>
-                      )
-                      : d.status === "failed"
-                      ? (
-                        <span
-                          className="whitespace-nowrap text-[11.5px] text-blocked"
-                          title="pipeline failed — open to inspect the logs"
-                        >
-                          ✕ failed
+                        {/* primary action last, so it lines up on every row */}
+                        <span className="flex shrink-0 items-center gap-2">
+                          {d.status === "running" && (
+                            <span className="flex items-center gap-1.5 whitespace-nowrap text-[11.5px] text-copper">
+                              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-copper" />
+                              deploying · {elapsed(d.waitingSince)}
+                            </span>
+                          )}
+                          {d.cancel && (
+                            <ConfirmButton
+                              id={`${key}:cancel`}
+                              label={d.status === "running" ? "■ cancel" : "cancel"}
+                              busyLabel="cancelling…"
+                              title={d.status === "running" ? "cancel the running deploy job" : "reject this deployment"}
+                              muted
+                              {...armed}
+                              onFire={() => act(d, `${key}:cancel`, "cancel")}
+                            />
+                          )}
+                          {d.status === "failed"
+                            ? (
+                              <span
+                                className="whitespace-nowrap text-[11.5px] text-blocked"
+                                title="pipeline failed — open to inspect the logs"
+                              >
+                                ✕ failed
+                              </span>
+                            )
+                            : d.status === "running"
+                            ? null
+                            : d.action
+                            ? (
+                              <ConfirmButton
+                                id={key}
+                                label="▶ deploy"
+                                busyLabel="deploying…"
+                                title={d.action.kind === "gitlab-play" ? "run the deploy job" : "approve this deployment"}
+                                {...armed}
+                                onFire={() => act(d, key, "approve")}
+                              />
+                            )
+                            : (
+                              <span className="whitespace-nowrap text-[11.5px] text-copper">
+                                approve ↗
+                              </span>
+                            )}
                         </span>
-                      )
-                      : d.action
-                      ? (
                         <button
                           type="button"
-                          disabled={deploying === key}
-                          title={deployErr[key]
-                            ? `${deployErr[key]} — click to retry`
-                            : d.action.kind === "gitlab-play"
-                            ? "run the deploy job"
-                            : "approve this deployment"}
+                          title="Show changelog"
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (confirming === key) deploy(d, key);
-                            else {
-                              setConfirming(key);
-                              // un-arm after a beat — no stale confirm on another row
-                              setTimeout(
-                                () =>
-                                  setConfirming((c) => (c === key ? null : c)),
-                                4000,
-                              );
-                            }
+                            toggleLog(d, key);
                           }}
-                          className={`whitespace-nowrap rounded-md border px-2 py-0.5 text-[11.5px] disabled:opacity-40 ${
-                            confirming === key || deployErr[key]
-                              ? "border-blocked/60 text-blocked hover:bg-blocked/10"
-                              : "border-copper/50 text-copper hover:bg-copper/10"
+                          className={`rounded-md border px-1.5 py-0.5 text-[11px] ${
+                            openLog === key
+                              ? "border-copper/50 text-copper"
+                              : "border-chipline text-ink-muted opacity-0 transition-opacity hover:text-ink-soft group-hover:opacity-100"
                           }`}
                         >
-                          {deploying === key
-                            ? "deploying…"
-                            : confirming === key
-                            ? "confirm?"
-                            : deployErr[key]
-                            ? "✕ retry"
-                            : "▶ deploy"}
+                          ≡
                         </button>
-                      )
-                      : (
-                        <span className="whitespace-nowrap text-[11.5px] text-copper">
-                          approve ↗
-                        </span>
-                      )}
-                    <button
-                      type="button"
-                      title="Show changelog"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleLog(d, key);
-                      }}
-                      className={`rounded-md border px-1.5 py-0.5 text-[11px] ${
-                        openLog === key
-                          ? "border-copper/50 text-copper"
-                          : "border-chipline text-ink-muted opacity-0 transition-opacity hover:text-ink-soft group-hover:opacity-100"
-                      }`}
-                    >
-                      ≡
-                    </button>
-                    <IconButton
-                      title={d.ignored
-                        ? "Stop ignoring"
-                        : "Ignore this deployment"}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setIgnored(d, !d.ignored);
-                      }}
-                      className={`rounded-md border border-chipline px-1.5 py-0.5 text-[11px] text-ink-muted hover:text-ink-soft ${
-                        d.ignored
-                          ? ""
-                          : "opacity-0 transition-opacity group-hover:opacity-100"
-                      }`}
-                    >
-                      {d.ignored ? "↩" : "✕"}
-                    </IconButton>
-                  </div>
-                  {openLog === key && <ChangelogBlock log={logs[key]} />}
-                </Fragment>
-              );
-            })}
+                        <IconButton
+                          title={d.ignored ? "Stop ignoring" : "Ignore this deployment"}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIgnored(d, !d.ignored);
+                          }}
+                          className={`rounded-md border border-chipline px-1.5 py-0.5 text-[11px] text-ink-muted hover:text-ink-soft ${
+                            d.ignored ? "" : "opacity-0 transition-opacity group-hover:opacity-100"
+                          }`}
+                        >
+                          {d.ignored ? "↩" : "✕"}
+                        </IconButton>
+                      </div>
+                      {openLog === key && <ChangelogBlock log={logs[key]} />}
+                    </Fragment>
+                  );
+                })}
+              </Fragment>
+            ))}
           </div>
         )}
     </div>

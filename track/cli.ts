@@ -15,10 +15,12 @@ import { main as watchMain } from "./page-watch.ts";
 import { main as answerMain } from "./watch.ts";
 import { run as setupRun } from "./setup.ts";
 import { main as dbMain } from "./db.ts";
+import { main as deploymentsMain } from "./deployments.ts";
 // static: a dynamic import of the npm MCP SDK dies silently under deno compile
 import { serve as mcpServe } from "../mcp/server.ts";
 import {
   COMMENT_HELP,
+  DEPLOYMENTS_HELP,
   PRESENCE_HELP,
   SHOW_HELP,
   CONVERT_HELP,
@@ -43,6 +45,7 @@ const HELP_TOPICS: Record<string, string> = {
   stories: STORIES_HELP,
   convert: CONVERT_HELP,
   setup: SETUP_HELP,
+  deployments: DEPLOYMENTS_HELP,
   db: UDB_CONTRACT,
   query: QUERY_SYNTAX,
 };
@@ -246,7 +249,7 @@ async function warnIfStale(): Promise<void> {
 
 // the commands that speak to the app — the ones a version mismatch breaks
 const APP_COMMANDS = new Set(
-  ["track", "page", "comment", "presence", "show", "watch", "answer", "list", "convert", "mcp", "db"],
+  ["track", "page", "comment", "presence", "show", "watch", "answer", "list", "convert", "mcp", "db", "deployments"],
 );
 
 export async function run(argv: string[]): Promise<number> {
@@ -328,6 +331,10 @@ export async function run(argv: string[]): Promise<number> {
     case "convert":
       if (wantsHelp) console.log(CONVERT_HELP);
       else await convert(rest.find((a) => a !== "--story"), json, rest.includes("--story"));
+      return 0;
+    case "deployments":
+      if (!rest.length || wantsHelp) console.log(DEPLOYMENTS_HELP);
+      else await deploymentsMain(rest, { json });
       return 0;
     case "setup":
       if (wantsHelp) {

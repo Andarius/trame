@@ -15,6 +15,12 @@
         "repo": "acme/webapp",
         "runId": 123456789,
         "environmentId": 7
+      },
+      "cancel": {
+        "kind": "github-reject",
+        "repo": "acme/webapp",
+        "runId": 123456789,
+        "environmentId": 7
       }
     },
     {
@@ -29,6 +35,11 @@
       "status": "waiting",
       "action": {
         "kind": "gitlab-approve",
+        "project": "acme/api",
+        "deploymentId": 4242
+      },
+      "cancel": {
+        "kind": "gitlab-reject",
         "project": "acme/api",
         "deploymentId": 4242
       }
@@ -59,7 +70,12 @@
       "waitingSince": "2026-07-15T08:30:00Z",
       "url": "https://gitlab.com/acme/api/-/jobs/55010",
       "status": "running",
-      "action": null
+      "action": null,
+      "cancel": {
+        "kind": "gitlab-cancel",
+        "project": "acme/api",
+        "jobId": 9950
+      }
     },
     {
       "source": "gitlab",
@@ -77,6 +93,13 @@
   "changelogs": {
     "https://github.com/acme/webapp/actions/runs/123456789": [
       {
+        "sha": "b4d5e6f",
+        "title": "[master] perf(billing): avoid the bill_items seq scan (#3928) (#3931)",
+        "author": "julien",
+        "date": "2026-07-12T09:00:00Z",
+        "url": "https://github.com/acme/webapp/commit/b4d5e6f"
+      },
+      {
         "sha": "a1b2c3d",
         "title": "feat: checkout revamp",
         "author": "julien",
@@ -92,6 +115,13 @@
       }
     ],
     "https://gitlab.com/acme/api/-/environments/42": [
+      {
+        "sha": "4e5f6a7b",
+        "title": "Merge branch 'feat/idempotency-keys' into 'master' — See merge request acme/api!58",
+        "author": "julien",
+        "date": "2026-07-13T06:20:00Z",
+        "url": "https://gitlab.com/acme/api/-/commit/4e5f6a7b"
+      },
       {
         "sha": "c0ffee12",
         "title": "fix: rate-limit retries",

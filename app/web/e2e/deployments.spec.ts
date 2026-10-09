@@ -54,6 +54,27 @@ test("refresh button re-polls", async ({ page }) => {
   await expect(page.getByText(/polled/)).toBeVisible();
 });
 
+test("a waiting release lists the open cards it ships, logged once", async ({ page }) => {
+  // the fixture changelog carries the backport `[master] perf(billing): … (#3928) (#3931)`
+  const title = "deployments e2e — bill_items seq scan";
+  const { id } = await (await page.request.post("/api/sessions", {
+    data: { title, story: "deployments e2e", pr_url: "https://github.com/acme/webapp/pull/3928" },
+  })).json() as { id: string };
+  await page.request.post("/api/plugins/deployments/refresh");
+  await page.request.post("/api/plugins/deployments/refresh");
+  const events = await (await page.request.get(`/api/sessions/${id}/events`)).json() as { summary: string }[];
+  expect(events.filter((e) => e.summary.includes("waiting on production"))).toHaveLength(1);
+
+  await page.goto("/?view=plugin&plugin=deployments");
+  await page.getByRole("button", { name: title }).click();
+  await expect(page.getByText(/release "Deploy 2.4.0 — checkout revamp" waiting on production/)).toBeVisible(); // its drawer
+  await page.request.post(`/api/sessions/${id}/delete`, { data: {} });
+  const pages = await (await page.request.get("/api/pages")).json() as { id: string; title: string }[];
+  for (const p of pages.filter((x) => x.title === "deployments e2e")) {
+    await page.request.post(`/api/pages/${p.id}/delete`, { data: {} });
+  }
+});
+
 test("deploy button approves after a confirm click", async ({ page }) => {
   await page.request.post("/api/plugins/deployments/refresh");
   await page.goto("/?view=plugin&plugin=deployments");
@@ -69,6 +90,17 @@ test("deploy button approves after a confirm click", async ({ page }) => {
   expect(state.items).toHaveLength(4);
 });
 
+test("cancel rejects a gate after a confirm click; manual jobs have none", async ({ page }) => {
+  await page.request.post("/api/plugins/deployments/refresh");
+  await page.goto("/?view=plugin&plugin=deployments");
+  // GitHub gate, GitLab approval gate and the running job cancel; the GitLab manual job can't
+  await expect(page.getByRole("button", { name: /cancel$/ })).toHaveCount(3);
+  const row = page.locator("div.cursor-pointer", { hasText: "Deploy 2.4.0 — checkout revamp" });
+  await row.getByRole("button", { name: "cancel", exact: true }).click();
+  await row.getByRole("button", { name: "confirm?" }).click();
+  await expect(page.getByText("Deploy 2.4.0 — checkout revamp")).toHaveCount(0);
+});
+
 test("changelog expands with the commits in the deploy", async ({ page }) => {
   await page.request.post("/api/plugins/deployments/refresh");
   await page.goto("/?view=plugin&plugin=deployments");
@@ -76,7 +108,7 @@ test("changelog expands with the commits in the deploy", async ({ page }) => {
     hasText: "Deploy 2.4.0 — checkout revamp",
   });
   await row.getByTitle("Show changelog").click();
-  await expect(page.getByText("2 commits")).toBeVisible();
+  await expect(page.getByText("3 commits")).toBeVisible();
   await expect(page.getByText("feat: checkout revamp")).toBeVisible();
   await expect(page.getByText("fix: rounding on cart totals")).toBeVisible();
   // second click folds it back
