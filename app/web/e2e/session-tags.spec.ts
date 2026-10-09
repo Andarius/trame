@@ -43,16 +43,19 @@ for (const full of [false, true]) {
     }
 
     await page.goto(`/?session=${id}${full ? "&full=1" : ""}`);
-    await tags.getByTitle("Remove", { exact: true }).first().click();
+    // removal lives in the chip's popover
+    await tags.getByTitle("Colour or remove this tag").first().click();
+    await page.getByText("✕ Remove tag").click();
     await expect.poll(async () =>
       (await (await request.get(`/api/sessions/${id}`)).json()).tags
     ).toEqual([`review-${id}`]);
-    await tags.getByTitle("Remove", { exact: true }).click();
+    await tags.getByTitle("Colour or remove this tag").click();
+    await page.getByText("✕ Remove tag").click();
     await expect.poll(async () =>
       (await (await request.get(`/api/sessions/${id}`)).json()).tags
     ).toEqual([]);
     await page.reload();
-    await expect(tags.getByTitle("Remove", { exact: true })).toHaveCount(0);
+    await expect(tags.getByTitle("Colour or remove this tag")).toHaveCount(0);
   });
 }
 
