@@ -3,7 +3,8 @@
 // composition conventions from track/help.ts (the single source of truth).
 import pc from "picocolors";
 import { PORT_FILE } from "../app/config.ts";
-import { appLink, resolveTarget, targetFetch } from "./target.ts";
+import { apiRequest, appLink, resolveTarget, targetFetch } from "./target.ts";
+import { parseSessionRef } from "../mcp/session_url.ts";
 import { filterSessions, parseQuery, type QueryBoard, type QuerySession } from "../app/web/src/query.ts";
 import { newer } from "../app/update.ts";
 import { main as trackMain } from "./track.ts";
@@ -24,6 +25,7 @@ import {
   PRESENCE_HELP,
   SHOW_HELP,
   CONVERT_HELP,
+  ARCHIVE_HELP,
   LIST_HELP,
   STORIES_HELP,
   OVERVIEW,
@@ -44,6 +46,7 @@ const HELP_TOPICS: Record<string, string> = {
   list: LIST_HELP,
   stories: STORIES_HELP,
   convert: CONVERT_HELP,
+  archive: ARCHIVE_HELP,
   setup: SETUP_HELP,
   deployments: DEPLOYMENTS_HELP,
   db: UDB_CONTRACT,
@@ -180,6 +183,24 @@ async function list(json: boolean, query: string | null, deleted: boolean): Prom
 
 // The page becomes a card whose specs are that page — the page header's
 // "Convert to session" button, from a terminal. Idempotent server-side.
+// Fold a page (a story, a doc) out of the tree and the pickers, or bring it back.
+async function archive(ref: string | undefined, json: boolean, restore: boolean): Promise<void> {
+  const id = ref ? parseSessionRef(ref)?.id : null;
+  if (!id) throw new Error("usage: tramecli archive [--restore] <page id | page URL>");
+  const target = await resolveTarget();
+  // the update answers ok for an unknown id, so check it is a page first
+  await apiRequest(target, `/api/pages/${id}`).catch(() => {
+    throw new Error(`no page with id ${id} — a card is closed by tracking it done`);
+  });
+  const status = restore ? "open" : "archived";
+  await apiRequest(target, `/api/pages/${id}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+  console.log(json ? JSON.stringify({ id, status }) : `ok: page ${id} ${status}${appLink(target, `page=${id}`)}`);
+}
+
 async function convert(
   pageId: string | undefined,
   json: boolean,
@@ -331,6 +352,10 @@ export async function run(argv: string[]): Promise<number> {
     case "convert":
       if (wantsHelp) console.log(CONVERT_HELP);
       else await convert(rest.find((a) => a !== "--story"), json, rest.includes("--story"));
+      return 0;
+    case "archive":
+      if (wantsHelp) console.log(ARCHIVE_HELP);
+      else await archive(rest.find((a) => !a.startsWith("--")), json, rest.includes("--restore"));
       return 0;
     case "deployments":
       if (!rest.length || wantsHelp) console.log(DEPLOYMENTS_HELP);

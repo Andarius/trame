@@ -60,14 +60,15 @@ const unboundToken = await mintToken(db, "unbound-dev");
 
 const call = (
   path: string,
-  { token = memberToken, protocol = String(PROTOCOL_VERSION), body }: {
+  { token = memberToken, protocol = String(PROTOCOL_VERSION), body, method }: {
     token?: string | null;
     protocol?: string | null;
     body?: unknown;
+    method?: string;
   } = {},
 ) =>
   app.request(path, {
-    method: body === undefined ? "GET" : "POST",
+    method: method ?? (body === undefined ? "GET" : "POST"),
     headers: {
       "content-type": "application/json",
       ...(protocol ? { "x-trame-protocol": protocol } : {}),
@@ -170,6 +171,18 @@ Deno.test("hub /api reads and writes pages and comments", async () => {
     [{ body: "from the hub", author_id: MEMBER }],
   );
 });
+
+// a PATCH used to answer 200 by falling through to the GET, with nothing written
+for (const method of ["PATCH", "PUT", "DELETE"]) {
+  Deno.test(`hub /api refuses ${method} on a page instead of faking success`, async () => {
+    const { id } = await (await call("/api/pages", { body: { title: "Status probe" } })).json() as { id: string };
+    const res = await call(`/api/pages/${id}`, { method, body: { status: "archived" } });
+    assertEquals(res.status, 405);
+    await res.body?.cancel();
+    const page = await (await call(`/api/pages/${id}`)).json() as { status: string };
+    assertEquals(page.status, "open");
+  });
+}
 
 Deno.test("a hub /api error rolls back what the route wrote first", async () => {
   // resolveHomeProject mints the repo's project, then content validation fails

@@ -34,7 +34,7 @@ Deno.test("help carries the composition conventions", () => {
   assertStringIncludes(PAGE_DIALECT, "`cards` fence");
   assertStringIncludes(COMMENT_HELP, "meta.model is required");
   assertStringIncludes(CONVERT_HELP, "specs_page_id");
-  for (const cmd of ["track", "page", "comment", "watch", "list", "stories", "convert"]) {
+  for (const cmd of ["track", "page", "comment", "watch", "list", "stories", "convert", "archive"]) {
     assertStringIncludes(OVERVIEW, `\n  ${cmd}`);
   }
 });
@@ -93,6 +93,7 @@ Deno.test("dispatch: help and version exit 0, unknown command exits 2", async ()
   assertEquals(await run(["help", "track"]), 0);
   assertEquals(await run(["track", "--help"]), 0);
   assertEquals(await run(["convert", "--help"]), 0);
+  assertEquals(await run(["archive", "--help"]), 0);
   assertEquals(await run(["db"]), 0);
   assertEquals(await run(["bogus"]), 2);
 });
