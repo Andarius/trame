@@ -22,11 +22,24 @@ import {
   glabCliUser,
 } from "./auth.ts";
 import { spawnTerminal } from "../../terminal.ts";
-import { githubChangelog, githubPending } from "./github.ts";
+import { githubChangelog, githubPending, githubShippedPrs } from "./github.ts";
+import { APP_CTX } from "../../ctx.ts";
+import {
+  DEFAULT_RULES,
+  logWaiting,
+  matchCards,
+  openCardsWithPrs,
+  refNumbers,
+  ruleFor,
+  sanitizeRules,
+  type ShippedCard,
+  type ShipRule,
+} from "./ships.ts";
 import {
   gitlabActivePipeline,
   gitlabChangelog,
   gitlabPending,
+  gitlabShippedMrs,
 } from "./gitlab.ts";
 
 // How to act on a pending deployment from the panel (null = deep link only).
@@ -39,6 +52,12 @@ export type ApproveAction =
     runId: number;
     environmentId: number;
   };
+
+// How to stop it: reject a gate, or cancel a running job. A GitLab manual job has none (ignore it instead).
+export type CancelAction =
+  | { kind: "github-reject"; repo: string; runId: number; environmentId: number }
+  | { kind: "gitlab-reject"; project: string; deploymentId: number }
+  | { kind: "gitlab-cancel"; project: string; jobId: number };
 
 // waiting = needs approval/play; running = deploying now; failed = recently failed.
 export type DeployStatus = "waiting" | "running" | "failed";
@@ -54,8 +73,10 @@ export type PendingDeployment = {
   waitingSince: string; // the relevant instant: waiting-since / started-at / failed-at
   url: string;
   action: ApproveAction | null;
+  cancel?: CancelAction | null;
   status: DeployStatus;
   ignored?: boolean; // stamped from the settings slice at poll time
+  ships?: ShippedCard[]; // open cards whose PRs this waiting release carries
 };
 
 export type ChangelogCommit = {
@@ -142,13 +163,27 @@ const markIgnored = (
 async function pollOnce(): Promise<DeploymentsState> {
   if (DEPLOYMENTS_FIXTURE) {
     const fixture = JSON.parse(await Deno.readTextFile(DEPLOYMENTS_FIXTURE));
-    const items = ((fixture.items ?? []) as PendingDeployment[]).map((i) => ({
-      ...i,
-      status: i.status ?? "waiting",
-    }));
+    const changelogs = (fixture.changelogs ?? {}) as Record<
+      string,
+      ChangelogCommit[]
+    >;
+    const fixtureSlice = await getPluginSettings(ID);
+    const items = await withShips(
+      ((fixture.items ?? []) as PendingDeployment[]).map((i) => ({
+        ...i,
+        status: i.status ?? "waiting",
+      })),
+      fixtureSlice,
+      (i, rule) =>
+        Promise.resolve(
+          (changelogs[i.url] ?? []).map((c) =>
+            refNumbers(c.title, rule.pattern)
+          ),
+        ),
+    );
     return state = {
       configured: true,
-      items: markIgnored(byWaiting(items), await getPluginSettings(ID)),
+      items: markIgnored(byWaiting(items), fixtureSlice),
       polledAt: new Date().toISOString(),
       errors: (fixture.errors ?? []) as DeploymentsState["errors"],
       auth: { github: "none", gitlab: "none" },
@@ -207,7 +242,33 @@ async function pollOnce(): Promise<DeploymentsState> {
     Promise.all(jobs),
     Promise.all(pipelineChecks),
   ]);
-  const items = markIgnored(byWaiting(itemLists.flat()), slice);
+  const items = markIgnored(
+    byWaiting(
+      await withShips(itemLists.flat(), slice, (i, rule) => {
+        const sha = i.sha ?? i.ref;
+        if (i.source === "github") {
+          return gh.token
+            ? githubShippedPrs(
+              i.repo,
+              i.environment,
+              sha,
+              gh.token,
+              rule.pattern,
+            )
+            : Promise.resolve(null);
+        }
+        return gl.source === "none" ? Promise.resolve(null) : gitlabShippedMrs(
+          i.repo,
+          baseUrl,
+          gl,
+          i.environment,
+          sha,
+          rule.pattern,
+        );
+      }),
+    ),
+    slice,
+  );
   // Ignores for items the forges no longer report are spent — prune them, but
   // only on a clean poll (an erroring forge would otherwise wipe live ignores).
   if (errors.length === 0) {
@@ -229,6 +290,63 @@ async function pollOnce(): Promise<DeploymentsState> {
     activePipeline: active.some(Boolean) ||
       items.some((i) => i.status === "running"),
   };
+}
+
+// `${repo}@${sha}@${pattern}` → PR/MR numbers per commit; a sha's compare range never changes.
+const shippedPrs = new Map<string, number[][]>();
+
+// Stamp each waiting release with the open cards it ships (per-repo rule), logging once on each card.
+// `refsOf` resolves null when the forge has no auth: skipped, not cached.
+async function withShips(
+  items: PendingDeployment[],
+  slice: PluginSettings,
+  refsOf: (i: PendingDeployment, rule: ShipRule) => Promise<number[][] | null>,
+): Promise<PendingDeployment[]> {
+  const ruleOf = (i: PendingDeployment) =>
+    ruleFor(slice.ships, i.repo, i.source);
+  const isWaiting = (i: PendingDeployment) => {
+    const envs = ruleOf(i).environments;
+    return i.status === "waiting" &&
+      (!envs.length || envs.includes(i.environment));
+  };
+  if (!items.some(isWaiting)) return items;
+  const host = baseUrlOf(slice);
+  const cards = await openCardsWithPrs(APP_CTX);
+  const live = new Set<string>();
+  const out: PendingDeployment[] = [];
+  for (const i of items) {
+    if (!isWaiting(i)) {
+      out.push(i);
+      continue;
+    }
+    const rule = ruleOf(i);
+    const key = `${i.repo}@${i.sha ?? i.url}@${rule.pattern}`;
+    live.add(key);
+    let prs = shippedPrs.get(key);
+    if (!prs) {
+      try {
+        const got = await refsOf(i, rule);
+        if (got) shippedPrs.set(key, prs = got);
+      } catch (e) {
+        console.error(e); // retried next poll
+      }
+    }
+    if (!prs) {
+      out.push(i);
+      continue;
+    }
+    const ships = matchCards(i.source, host, i.repo, prs, cards, rule.backport);
+    for (const c of ships) {
+      await logWaiting(
+        APP_CTX,
+        c.card_id,
+        `release "${i.title}" waiting on ${i.environment} — ${i.url}`,
+      );
+    }
+    out.push(ships.length ? { ...i, ships } : i);
+  }
+  for (const k of shippedPrs.keys()) if (!live.has(k)) shippedPrs.delete(k);
+  return out;
 }
 
 // Coalesce concurrent polls (refresh clicked while the interval tick runs).
@@ -329,15 +447,15 @@ async function httpError(r: Response): Promise<string> {
   return `HTTP ${r.status}${msg ? ` — ${msg}` : ""}`;
 }
 
-// Act on a pending deployment: approve the GitHub gate, play the GitLab manual
-// job, or approve the GitLab deployment. Guarded by the watch list.
+// Act on a deployment: approve/reject the GitHub gate, play the GitLab manual job,
+// approve/reject the GitLab deployment, or cancel a running job. Guarded by the watch list.
 async function approveOne(
   raw: unknown,
 ): Promise<{ ok: boolean; error?: string }> {
   const a = (raw ?? {}) as Record<string, unknown>;
   const slice = await getPluginSettings(ID);
   try {
-    if (a.kind === "github-approve") {
+    if (a.kind === "github-approve" || a.kind === "github-reject") {
       const repo = typeof a.repo === "string" ? a.repo : "";
       if (!strList(slice.githubRepos).includes(repo)) {
         return { ok: false, error: "repo not in watch list" };
@@ -358,8 +476,8 @@ async function approveOne(
           },
           body: JSON.stringify({
             environment_ids: [a.environmentId],
-            state: "approved",
-            comment: "approved from Trame",
+            state: a.kind === "github-approve" ? "approved" : "rejected",
+            comment: `${a.kind === "github-approve" ? "approved" : "rejected"} from Trame`,
           }),
         },
       );
@@ -367,23 +485,27 @@ async function approveOne(
       await r.body?.cancel();
       return { ok: true };
     }
-    if (a.kind === "gitlab-play" || a.kind === "gitlab-approve") {
+    if (
+      a.kind === "gitlab-play" || a.kind === "gitlab-approve" ||
+      a.kind === "gitlab-reject" || a.kind === "gitlab-cancel"
+    ) {
       const project = typeof a.project === "string" ? a.project : "";
       if (!strList(slice.gitlabProjects).includes(project)) {
         return { ok: false, error: "project not in watch list" };
       }
-      const id = a.kind === "gitlab-play" ? a.jobId : a.deploymentId;
+      const job = a.kind === "gitlab-play" || a.kind === "gitlab-cancel";
+      const id = job ? a.jobId : a.deploymentId;
       if (typeof id !== "number") return { ok: false, error: "bad action" };
       const baseUrl = baseUrlOf(slice);
       const gl = await gitlabAuth(slice, baseUrl);
       if (gl.source === "none") return { ok: false, error: "no GitLab token" };
       const proj = encodeURIComponent(project);
-      const path = a.kind === "gitlab-play"
-        ? `projects/${proj}/jobs/${id}/play`
+      const path = job
+        ? `projects/${proj}/jobs/${id}/${a.kind === "gitlab-play" ? "play" : "cancel"}`
         : `projects/${proj}/deployments/${id}/approval`;
-      const fields = a.kind === "gitlab-approve"
-        ? { status: "approved" }
-        : undefined;
+      const fields = job
+        ? undefined
+        : { status: a.kind === "gitlab-approve" ? "approved" : "rejected" };
       if (gl.source === "cli") {
         await glabApi(new URL(baseUrl).hostname, path, {
           method: "POST",
@@ -513,7 +635,8 @@ const deployments: Plugin = {
     if (subPath === "/refresh" && req.method === "POST") {
       return json(await poll());
     }
-    if (subPath === "/approve" && req.method === "POST") {
+    // /cancel posts the item's `cancel` action through the same path
+    if ((subPath === "/approve" || subPath === "/cancel") && req.method === "POST") {
       const body = await req.json().catch(() => ({}));
       const drop = () =>
         // remove the acted-on item now — the forge lags a beat
@@ -648,6 +771,13 @@ const deployments: Plugin = {
     if (typeof raw.gitlabBaseUrl === "string") {
       patch.gitlabBaseUrl = raw.gitlabBaseUrl.trim();
     }
+    if ("ships" in raw) {
+      const watched = [
+        ...strList(patch.githubRepos ?? current.githubRepos),
+        ...strList(patch.gitlabProjects ?? current.gitlabProjects),
+      ];
+      patch.ships = sanitizeRules(raw.ships, watched);
+    }
     if ("pollIdleSeconds" in raw) {
       const n = Number(raw.pollIdleSeconds);
       if (Number.isFinite(n) && n > 0) patch.pollIdleSeconds = clampIdle(n);
@@ -695,6 +825,11 @@ const deployments: Plugin = {
         ? slice.pollIdleSeconds
         : DEFAULT_IDLE_SECONDS,
       auth: state.auth, // which chain link answered on the last poll
+      ships: sanitizeRules(slice.ships, [
+        ...strList(slice.githubRepos),
+        ...strList(slice.gitlabProjects),
+      ]),
+      shipDefaults: DEFAULT_RULES,
     };
   },
 };

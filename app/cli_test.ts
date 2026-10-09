@@ -2,6 +2,7 @@ import { testTempDir } from "./test_tmp.ts";
 import { assertEquals, assertRejects, assertStringIncludes, assertThrows } from "@std/assert";
 import { boardRows, formatBoard, run, staleWarning } from "../track/cli.ts";
 import { resolveVals } from "../track/db.ts";
+import { applyFlags } from "../track/deployments.ts";
 import { ensureOnPath, EMBEDS, installHook, setup } from "../track/setup.ts";
 import {
   COMMENT_HELP,
@@ -347,4 +348,21 @@ Deno.test("staleWarning fires only on a mismatch, and points at the right instal
     if (want === null) assertEquals(line, null, `${cli} vs ${app}`);
     else assertStringIncludes(line ?? "", want);
   }
+});
+
+Deno.test("deployments ships flags merge into the repo's override and keep the others", () => {
+  const ships = { "a/x": { backport: false }, "a/y": { environments: ["live"] } };
+  const cases: [string, string[], Record<string, unknown>][] = [
+    ["env added, backport kept", ["--env", "production, staging"], {
+      "a/x": { backport: false, environments: ["production", "staging"] },
+      "a/y": ships["a/y"],
+    }],
+    ["pattern + backport on", ["--pattern", "PR-(\\d+)", "--backport"], {
+      "a/x": { backport: true, pattern: "PR-(\\d+)" },
+      "a/y": ships["a/y"],
+    }],
+    ["reset drops the override", ["--reset"], { "a/y": ships["a/y"] }],
+  ];
+  for (const [name, argv, want] of cases) assertEquals(applyFlags(ships, "a/x", argv), want, name);
+  assertThrows(() => applyFlags(ships, "a/x", ["--env"]), Error, "--env needs a value");
 });

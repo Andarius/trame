@@ -784,6 +784,7 @@ export function App() {
                 <Panel
                   onOpenSettings={() => setModal("pluginSettings")}
                   onOpenPage={openPage}
+                  onOpenSession={openSession}
                 />
               )
               : <EmptyState page>Unknown plugin.</EmptyState>;

@@ -8,6 +8,8 @@ import { SourceChip } from "./Panel";
 
 type Forge = "github" | "gitlab";
 type Row = { source: Forge; repo: string };
+// per-repo card matching override (ships.ts ShipRule); a missing field = the forge default
+type ShipRule = { pattern?: string; environments?: string[]; backport?: boolean };
 type TestResult =
   | { state: "idle" | "busy" }
   | { state: "ok"; user?: string; source?: string }
@@ -82,6 +84,11 @@ export function DeploymentsSettings() {
   const [saved, setSaved] = useState<"idle" | "busy" | "done">("idle");
   const [copied, setCopied] = useState<Forge | null>(null);
   const [pollSeconds, setPollSeconds] = useState(300);
+  const [rules, setRules] = useState<Record<string, ShipRule>>({});
+  const [ruleDefaults, setRuleDefaults] = useState<Record<Forge, Required<ShipRule>> | null>(null);
+  const [openRule, setOpenRule] = useState<string | null>(null); // repo
+  const setRule = (repo: string, patch: ShipRule) =>
+    setRules((rs) => ({ ...rs, [repo]: { ...rs[repo], ...patch } }));
 
   const copyCmd = async (forge: Forge, cmd: string) => {
     try {
@@ -149,6 +156,8 @@ export function DeploymentsSettings() {
       if (typeof s.pollIdleSeconds === "number") {
         setPollSeconds(s.pollIdleSeconds);
       }
+      setRules((s.ships ?? {}) as Record<string, ShipRule>);
+      setRuleDefaults((s.shipDefaults ?? null) as Record<Forge, Required<ShipRule>> | null);
     }).catch(() => {});
     loadAuth();
   }, []);
@@ -223,7 +232,9 @@ export function DeploymentsSettings() {
       githubToken: ghToken.trim(), // blank = keep stored
       gitlabToken: glToken.trim(),
       pollIdleSeconds: pollSeconds,
+      ships: rules,
     }).then((s) => {
+      setRules((s.ships ?? {}) as Record<string, ShipRule>); // server drops invalid patterns
       setHasGh(Boolean(s.githubHasToken));
       setHasGl(Boolean(s.gitlabHasToken));
       setGhToken("");
@@ -327,23 +338,84 @@ export function DeploymentsSettings() {
     <div className="flex flex-col gap-3">
       <div className="text-[12.5px] font-semibold">Watched repositories</div>
       <div>
-        {rows.map((r) => (
-          <div
-            key={r.source + r.repo}
-            className="flex items-center gap-2 py-1.5"
-          >
-            <SourceChip source={r.source} />
-            <span className="flex-1 truncate text-[11.5px]">
-              <span className="text-ink-muted">{r.repo.split("/")[0]}/</span>
-              {r.repo.split("/").slice(1).join("/")}
-            </span>
-            <IconButton tone="danger" className="text-[11px]"
-              onClick={() => setRows((rs) => rs.filter((x) => x !== r))}
-            >
-              ✕
-            </IconButton>
-          </div>
-        ))}
+        {rows.map((r) => {
+          const rule = rules[r.repo] ?? {};
+          const def = ruleDefaults?.[r.source];
+          const custom = Object.keys(rule).length > 0;
+          return (
+            <div key={r.source + r.repo}>
+              <div className="flex items-center gap-2 py-1.5">
+                <SourceChip source={r.source} />
+                <span className="flex-1 truncate text-[11.5px]">
+                  <span className="text-ink-muted">{r.repo.split("/")[0]}/</span>
+                  {r.repo.split("/").slice(1).join("/")}
+                </span>
+                <button
+                  type="button"
+                  title="How waiting releases of this repo are matched to cards"
+                  className={`rounded-md border px-2 py-0.5 text-[10.5px] ${
+                    custom ? "border-copper/60 text-copper" : "border-line text-ink-muted hover:text-ink"
+                  }`}
+                  onClick={() => setOpenRule((o) => o === r.repo ? null : r.repo)}
+                >
+                  ⇈ cards{custom ? " · custom" : ""}
+                </button>
+                <IconButton tone="danger" className="text-[11px]"
+                  onClick={() => setRows((rs) => rs.filter((x) => x !== r))}
+                >
+                  ✕
+                </IconButton>
+              </div>
+              {openRule === r.repo && (
+                <div className="mb-2 ml-7 grid grid-cols-[110px_minmax(0,1fr)] items-center gap-x-3 gap-y-1.5 rounded-md border border-line-soft bg-panel/50 p-2.5 text-[11px]">
+                  <span className="text-ink-muted" title="Regex with one capture group: the PR/MR number, searched in each commit message">
+                    PR/MR pattern
+                  </span>
+                  <input
+                    className={pill}
+                    spellCheck={false}
+                    placeholder={def?.pattern ?? ""}
+                    value={rule.pattern ?? ""}
+                    onChange={(e) => setRule(r.repo, { pattern: e.target.value || undefined })}
+                  />
+                  <span className="text-ink-muted">Environments</span>
+                  <input
+                    className={pill}
+                    spellCheck={false}
+                    placeholder="all — or production, staging"
+                    value={(rule.environments ?? []).join(", ")}
+                    onChange={(e) => {
+                      const envs = e.target.value.split(",").map((s) => s.trim()).filter(Boolean);
+                      setRule(r.repo, { environments: envs.length ? envs : undefined });
+                    }}
+                  />
+                  <span className="text-ink-muted">Backports</span>
+                  <label className="flex items-center gap-2 text-ink-soft">
+                    <input
+                      type="checkbox"
+                      checked={rule.backport ?? def?.backport ?? true}
+                      onChange={(e) => setRule(r.repo, { backport: e.target.checked })}
+                    />
+                    a second ref on the same commit is the card's backport
+                  </label>
+                  {custom && (
+                    <button
+                      type="button"
+                      className="col-start-2 w-fit text-[10.5px] text-ink-muted hover:text-ink"
+                      onClick={() =>
+                        setRules((rs) => {
+                          const { [r.repo]: _, ...rest } = rs;
+                          return rest;
+                        })}
+                    >
+                      reset to defaults
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
         <div className="mt-1.5 flex gap-2">
           <div className="w-[92px] shrink-0">
             <Select

@@ -2,6 +2,7 @@
 // runs?status=waiting, then pending_deployments per run — fine authenticated
 // (5000 req/h), so callers must not invoke this without a token.
 import type { Changelog, PendingDeployment } from "./mod.ts";
+import { refNumbers } from "./ships.ts";
 
 type Run = {
   id: number;
@@ -66,6 +67,12 @@ export async function githubPending(
           runId: run.id,
           environmentId: p.environment.id,
         },
+        cancel: p.current_user_can_approve === false ? null : {
+          kind: "github-reject",
+          repo,
+          runId: run.id,
+          environmentId: p.environment.id,
+        },
         status: "waiting", // GitHub currently tracks approval gates only
       });
     }
@@ -77,12 +84,21 @@ export async function githubPending(
 // the pending head. Baseline = newest deployment record with a different sha
 // (the pending run's own record is already there, in "waiting"); statuses are
 // not checked — that would be another N+1 for a marginal edge case.
-export async function githubChangelog(
+type CompareCommit = {
+  sha: string;
+  html_url: string;
+  commit: { message: string; author: { name?: string; date?: string } | null };
+  author: { login: string } | null;
+};
+
+async function compare(
   repo: string,
   environment: string,
   sha: string,
   token: string,
-): Promise<Changelog> {
+): Promise<
+  { base: string; html_url: string; commits: CompareCommit[] } | null
+> {
   const deps = await gh(
     `/repos/${repo}/deployments?environment=${
       encodeURIComponent(environment)
@@ -90,27 +106,27 @@ export async function githubChangelog(
     token,
   ) as { sha: string }[];
   const base = deps.find((d) => d.sha !== sha)?.sha;
-  if (!base) {
-    return { ok: false, error: "no previous deployment to compare against" };
-  }
+  if (!base) return null;
   const cmp = await gh(
     `/repos/${repo}/compare/${base}...${sha}?per_page=100`,
     token,
-  ) as {
-    html_url: string;
-    commits: {
-      sha: string;
-      html_url: string;
-      commit: {
-        message: string;
-        author: { name?: string; date?: string } | null;
-      };
-      author: { login: string } | null;
-    }[];
-  };
+  ) as { html_url: string; commits: CompareCommit[] };
+  return { base, ...cmp };
+}
+
+export async function githubChangelog(
+  repo: string,
+  environment: string,
+  sha: string,
+  token: string,
+): Promise<Changelog> {
+  const cmp = await compare(repo, environment, sha, token);
+  if (!cmp) {
+    return { ok: false, error: "no previous deployment to compare against" };
+  }
   return {
     ok: true,
-    baseline: base.slice(0, 7),
+    baseline: cmp.base.slice(0, 7),
     compareUrl: cmp.html_url,
     commits: cmp.commits.map((c) => ({
       sha: c.sha.slice(0, 7),
@@ -120,4 +136,29 @@ export async function githubChangelog(
       url: c.html_url,
     })).reverse(), // newest first, like the deployments list
   };
+}
+
+// PR numbers a deploy ships, one group per commit: `pattern` over its message, else its associated PRs.
+export async function githubShippedPrs(
+  repo: string,
+  environment: string,
+  sha: string,
+  token: string,
+  pattern: string,
+): Promise<number[][]> {
+  const cmp = await compare(repo, environment, sha, token);
+  if (!cmp) return [];
+  const out: number[][] = [];
+  for (const c of cmp.commits) {
+    const nums = refNumbers(c.commit.message, pattern);
+    if (nums.length) out.push(nums);
+    else {
+      const pulls = await gh(
+        `/repos/${repo}/commits/${c.sha}/pulls`,
+        token,
+      ) as { number: number }[];
+      out.push(pulls.map((p) => p.number));
+    }
+  }
+  return out;
 }

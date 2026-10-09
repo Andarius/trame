@@ -7,6 +7,7 @@
 // stored token can be expired even while `auth status` says logged in).
 import { type Auth, glabApi } from "./auth.ts";
 import type { Changelog, PendingDeployment } from "./mod.ts";
+import { refNumbers } from "./ships.ts";
 
 type Deployment = {
   id: number;
@@ -128,14 +129,17 @@ export async function gitlabPending(
     const manual = d.deployable?.status === "manual" && d.deployable.id;
     let status: PendingDeployment["status"];
     let action: PendingDeployment["action"] = null;
+    let cancel: PendingDeployment["cancel"] = null;
     if (manual && (d.status === "blocked" || d.status === "created")) {
       status = "waiting"; // un-played manual job → play it
       action = { kind: "gitlab-play", project, jobId: d.deployable!.id! };
     } else if (d.status === "blocked") {
       status = "waiting"; // Premium approval gate → approve it
       action = { kind: "gitlab-approve", project, deploymentId: d.id };
+      cancel = { kind: "gitlab-reject", project, deploymentId: d.id };
     } else if (d.status === "running" || d.status === "created") {
       status = "running"; // approved/played and deploying now
+      if (d.deployable?.id) cancel = { kind: "gitlab-cancel", project, jobId: d.deployable.id };
     } else if (d.status === "failed") {
       status = "failed";
     } else {
@@ -166,8 +170,61 @@ export async function gitlabPending(
           ? `${baseUrl}/${project}/-/environments/${d.environment.id}`
           : `${baseUrl}/${project}`),
       action,
+      cancel,
       status,
     });
+  }
+  return out;
+}
+
+// The environment's last successful deployment sha, the base every compare starts from.
+async function lastDeployedSha(
+  project: string,
+  baseUrl: string,
+  auth: Auth,
+  environment: string,
+): Promise<string | undefined> {
+  const prev = await gitlabGet<{ sha: string }[]>(
+    baseUrl,
+    auth,
+    `projects/${encodeURIComponent(project)}/deployments?environment=${
+      encodeURIComponent(environment)
+    }&status=success&order_by=created_at&sort=desc&per_page=1`,
+  );
+  return prev[0]?.sha;
+}
+
+// MR iids a deploy ships, one group per commit: `pattern` over its message, else its MRs.
+export async function gitlabShippedMrs(
+  project: string,
+  baseUrl: string,
+  auth: Auth,
+  environment: string,
+  sha: string,
+  pattern: string,
+): Promise<number[][]> {
+  const base = await lastDeployedSha(project, baseUrl, auth, environment);
+  if (!base) return [];
+  const proj = encodeURIComponent(project);
+  const cmp = await gitlabGet<{ commits: { id: string; message: string }[] }>(
+    baseUrl,
+    auth,
+    `projects/${proj}/repository/compare?from=${base}&to=${
+      encodeURIComponent(sha)
+    }`,
+  );
+  const out: number[][] = [];
+  for (const c of cmp.commits) {
+    const nums = refNumbers(c.message, pattern);
+    if (nums.length) out.push(nums);
+    else {
+      const mrs = await gitlabGet<{ iid: number }[]>(
+        baseUrl,
+        auth,
+        `projects/${proj}/repository/commits/${c.id}/merge_requests`,
+      );
+      out.push(mrs.map((m) => m.iid));
+    }
   }
   return out;
 }
@@ -182,14 +239,7 @@ export async function gitlabChangelog(
   sha: string,
 ): Promise<Changelog> {
   const proj = encodeURIComponent(project);
-  const prev = await gitlabGet<{ sha: string }[]>(
-    baseUrl,
-    auth,
-    `projects/${proj}/deployments?environment=${
-      encodeURIComponent(environment)
-    }&status=success&order_by=created_at&sort=desc&per_page=1`,
-  );
-  const base = prev[0]?.sha;
+  const base = await lastDeployedSha(project, baseUrl, auth, environment);
   if (!base) {
     return {
       ok: false,

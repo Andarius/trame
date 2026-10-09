@@ -4,6 +4,7 @@
 // manifest (GET /api/plugins) — only the components live here.
 import type { ComponentType } from "react";
 import type { PageDetail, Session } from "../api";
+import { DeploymentsCardPath } from "./deployments/CardPath";
 import { DeploymentsPanel } from "./deployments/Panel";
 import { DeploymentsSettings } from "./deployments/Settings";
 import { LOCAL_PLUGINS } from "./local.gen";
@@ -12,6 +13,7 @@ import { LOCAL_PLUGINS } from "./local.gen";
 export type PanelProps = {
   onOpenSettings: () => void;
   onOpenPage: (id: string) => void;
+  onOpenSession: (id: string) => void;
 };
 
 /** What a plugin shows in the host's own views; the host renders these and never names a plugin. */
@@ -30,7 +32,7 @@ export type FrontendPlugin = {
 };
 
 export const FRONTEND_PLUGINS: FrontendPlugin[] = [
-  { id: "deployments", Panel: DeploymentsPanel, Settings: DeploymentsSettings },
+  { id: "deployments", Panel: DeploymentsPanel, Settings: DeploymentsSettings, CardFields: DeploymentsCardPath },
   ...LOCAL_PLUGINS,
 ];
 
