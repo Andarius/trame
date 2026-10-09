@@ -224,9 +224,9 @@ function SummaryBody(
         </div>
       ))}
       {aggProps.length === 0 && (
-        <p className="px-2 pt-4 text-[12px] text-ink-muted/60">
+        <EmptyState block className="px-2 pt-4 text-[12px]">
           Pick an aggregate in ▤ Group (avg, sum, …) to fill the columns.
-        </p>
+        </EmptyState>
       )}
     </>
   );
@@ -548,9 +548,9 @@ export const DatabaseView = memo(function DatabaseView(
               ? (
                 <Suspense
                   fallback={
-                    <p className="px-1 py-8 text-[13px] text-ink-muted/60">
+                    <EmptyState block className="px-1 py-8 text-[13px]">
                       Loading chart…
-                    </p>
+                    </EmptyState>
                   }
                 >
                   <ChartView rows={rows} props={props} config={chartConfig} />
@@ -702,15 +702,15 @@ export const DatabaseView = memo(function DatabaseView(
                     ＋ New row
                   </button>
                   {data.rows.length === 0 && (
-                    <p className="px-2 pt-4 text-[12px] text-ink-muted/60">
+                    <EmptyState block className="px-2 pt-4 text-[12px]">
                       No rows yet — add one, or add columns with the “+” header
                       cell.
-                    </p>
+                    </EmptyState>
                   )}
                   {data.rows.length > 0 && rows.length === 0 && (
-                    <p className="px-2 pt-4 text-[12px] text-ink-muted/60">
+                    <EmptyState block className="px-2 pt-4 text-[12px]">
                       No rows match the current filter.
-                    </p>
+                    </EmptyState>
                   )}
                 </>
               )}

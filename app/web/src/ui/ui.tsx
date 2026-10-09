@@ -892,8 +892,14 @@ export function ProgressBar(
 
 // muted "nothing here" message: a one-line span, or with `page` a padded paragraph filling a whole view
 export function EmptyState(
-  { children, className = "py-1", page }: { children: ReactNode; className?: string; page?: boolean },
+  { children, className = "py-1", page, block }: {
+    children: ReactNode;
+    className?: string;
+    page?: boolean;
+    block?: boolean; // a <p> sized by className, for empty grids/lists
+  },
 ) {
   if (page) return <p className="p-6 text-ink-muted">{children}</p>;
+  if (block) return <p className={`${className} text-ink-muted/60`}>{children}</p>;
   return <span className={`${className} text-[11px] text-ink-muted/60`}>{children}</span>;
 }
