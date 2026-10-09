@@ -94,6 +94,7 @@ export function Drawer(
   const [nextStep, setNextStep] = useState(session.next_step ?? "");
   const [prUrl, setPrUrl] = useState(session.pr_url ?? "");
   const [prNew, setPrNew] = useState("");
+  const [prOpen, setPrOpen] = useState(false);
   // JS auto-grow: field-sizing:content isn't supported in the desktop WebKitGTK webview,
   // so long next-steps would clip. Size the textarea to its content by hand.
   const [expanded, setExpanded] = useState(defaultExpanded ?? false);
@@ -519,9 +520,11 @@ export function Drawer(
       placeholder="none"
     />
   );
+  // past 2 PRs, collapse to the first one + a "+N more" toggle
+  const prCollapsed = prLinks.length > 2 && !prOpen;
   const prField = (
     <div className="flex min-w-0 flex-col gap-1">
-      {prLinks.map((url) => (
+      {(prCollapsed ? prLinks.slice(0, 1) : prLinks).map((url) => (
         <div key={url} className="group flex min-w-0 items-center gap-1">
           <PrChip url={url} />
           <button type="button"
@@ -537,6 +540,14 @@ export function Drawer(
           </button>
         </div>
       ))}
+      {prLinks.length > 2 && (
+        <button type="button"
+          className="w-fit text-[11.5px] text-ink-muted hover:text-ink"
+          onClick={() => setPrOpen(!prOpen)}
+        >
+          {prCollapsed ? `+${prLinks.length - 1} more ▾` : "show less ▴"}
+        </button>
+      )}
       <input
         className={rowVal}
         value={prNew}
