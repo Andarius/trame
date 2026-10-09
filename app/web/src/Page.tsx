@@ -30,6 +30,7 @@ import {
   EmptyState,
 } from "./ui";
 import { PageActivityChip } from "./md-activity";
+import { feedMd } from "./md";
 import { blocksToMarkdown } from "./page-serialize";
 import { IconPicker } from "./udb/cells";
 import { useFocusedBlock } from "./due";
@@ -272,7 +273,7 @@ export function Page(
               onKeyDown={(e) =>
                 e.key === "Enter" && (e.target as HTMLInputElement).blur()}
             />
-            {linkedSessions > 0 && <PageActivityChip pageId={page.id} sessions={linkedSessions} />}
+            {linkedSessions > 0 && <PageActivityChip pageId={page.id} sessions={linkedSessions} md={feedMd} />}
             {specCard && (
               <button
                 type="button"

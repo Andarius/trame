@@ -1,7 +1,12 @@
+import type { ReactNode } from "react";
+
 // Session-report styling for bullet lists, driven by the section they sit under
 // (Page.tsx maps the preceding heading block to a variant): "done" renders green
 // checks with muted text, "open" renders copper rings in a copper-tinted callout.
 export type ListVariant = "done" | "open";
+
+// renders an event summary as Markdown; passed in so md-activity never imports md
+export type RenderMd = (text: string) => ReactNode;
 
 // Linked-session chip data attached to a list item
 export type ItemLink = { title: string; color: string; sessionId: string; open: () => void };

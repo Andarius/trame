@@ -1,4 +1,5 @@
 import { LinkChip } from "./md-activity";
+import { feedMd } from "./md";
 import type { ItemLink } from "./md-types";
 import { DueMenu } from "./due";
 import { CornerToolbar } from "./editor-toolbar";
@@ -114,7 +115,7 @@ export function TodoCheck(
 export function TodoChips({ chips }: { chips: ItemLink[] }) {
   return chips.map((lk) => (
     <span key={lk.sessionId} className="mt-[3px] shrink-0">
-      <LinkChip lk={lk} />
+      <LinkChip lk={lk} md={feedMd} />
     </span>
   ));
 }

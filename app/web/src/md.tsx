@@ -16,7 +16,7 @@ import { CardsBlock, GraphBlock, MermaidBlock } from "./md-diagrams";
 import { MdTable, TABLE_SEP, colAlign, parseTableRow } from "./MdTable";
 import { renderInline } from "./md-inline";
 import { ItemMenu, LinkChip } from "./md-activity";
-import type { ListVariant, TableOps } from "./md-types";
+import type { ListVariant, RenderMd, TableOps } from "./md-types";
 
 const HEADING: Record<number, string> = {
   1: "mb-1 mt-2 text-[1.15em] font-semibold text-ink first:mt-0",
@@ -35,7 +35,7 @@ function itemTrail(t: string, ops?: TableOps): ReactNode {
   if (!lks.length && ops?.onLinkItem) actions.push({ label: "Link a session", icon: "🔗", run: () => ops.onLinkItem!(t) });
   return (
     <>
-      {lks.map((lk) => <LinkChip key={lk.sessionId} lk={lk} />)}
+      {lks.map((lk) => <LinkChip key={lk.sessionId} lk={lk} md={feedMd} />)}
       {actions.length > 0 && <ItemMenu actions={actions} />}
     </>
   );
@@ -390,6 +390,9 @@ function renderBlocks(
 
 // Render `text` as Markdown. `className` styles the wrapper (e.g. font size context).
 // `onEdit`/`onCommentRow`/`onMarkDone` enable per-row controls (page editor only).
+// an activity-feed summary, for the md-activity chips
+export const feedMd: RenderMd = (text) => <Markdown className="text-[12.5px] text-ink-soft" text={text} />;
+
 export function Markdown(
   {
     text,

@@ -2,9 +2,7 @@ import { useEffect, useState } from "react";
 import { getEvents, getPageEvents, type PageEvent, type SessionEvent } from "./api";
 import { MenuRow, Modal, Popover, statusStyle, timeAgo } from "./ui";
 import { EventMeta, PresencePill } from "./agents";
-// md ↔ md-activity cycle is render-time only (Markdown ⇄ LinkChip recursion)
-import { Markdown } from "./md";
-import type { ItemLink } from "./md-types";
+import type { ItemLink, RenderMd } from "./md-types";
 
 // Per-item ⋯ menu (shown on hover of that item only — the group is named so the
 // block wrapper's own `group` does not light up every line at once).
@@ -55,7 +53,7 @@ export function ItemMenu({ actions }: { actions: { label: string; icon: string; 
 // entry rendered as Markdown. Fetched on open — the page payload carries the links,
 // never the entries.
 
-function SessionFeed({ lk, onClose }: { lk: ItemLink; onClose: () => void }) {
+function SessionFeed({ lk, onClose, md }: { lk: ItemLink; onClose: () => void; md: RenderMd }) {
   const [events, setEvents] = useState<SessionEvent[] | "failed" | null>(null);
   useEffect(() => {
     let alive = true;
@@ -83,6 +81,7 @@ function SessionFeed({ lk, onClose }: { lk: ItemLink; onClose: () => void }) {
       </button>
       <FeedList
         events={events}
+        md={md}
         limit={3}
         onMore={() => {
           onClose();
@@ -98,8 +97,9 @@ function SessionFeed({ lk, onClose }: { lk: ItemLink; onClose: () => void }) {
 type FeedEvent = SessionEvent & Partial<Pick<PageEvent, "session_title" | "session_status">>;
 
 // `limit` keeps a peek short (the chip popover); the rest stays in the card's journal
-function FeedList({ events, limit, onMore }: {
+function FeedList({ events, md, limit, onMore }: {
   events: FeedEvent[] | "failed" | null;
+  md: RenderMd;
   limit?: number;
   onMore?: () => void;
 }) {
@@ -126,7 +126,7 @@ function FeedList({ events, limit, onMore }: {
             ? <PresencePill e={e} when={timeAgo(e.at)} />
             : (
               <>
-                {e.summary && <Markdown className="text-[12.5px] text-ink-soft" text={e.summary} />}
+                {e.summary && md(e.summary)}
                 <EventMeta e={e} agent={e.agent ?? null} when={timeAgo(e.at)} />
               </>
             )}
@@ -156,7 +156,7 @@ function FeedList({ events, limit, onMore }: {
 
 // Page-level twin of LinkChip: every session linked anywhere on the page, one
 // timeline. Same rule — entries are fetched on open, never carried by the page.
-export function PageActivityChip({ pageId, sessions }: { pageId: string; sessions: number }) {
+export function PageActivityChip({ pageId, sessions, md }: { pageId: string; sessions: number; md: RenderMd }) {
   const [open, setOpen] = useState(false);
   const [events, setEvents] = useState<PageEvent[] | "failed" | null>(null);
   useEffect(() => {
@@ -191,14 +191,14 @@ export function PageActivityChip({ pageId, sessions }: { pageId: string; session
               {Array.isArray(events) ? `${events.length} entries · ${sessions} sessions` : ""}
             </span>
           </div>
-          <FeedList events={events} />
+          <FeedList events={events} md={md} />
         </Modal>
       )}
     </>
   );
 }
 
-export function LinkChip({ lk }: { lk: ItemLink }) {
+export function LinkChip({ lk, md }: { lk: ItemLink; md: RenderMd }) {
   const [open, setOpen] = useState(false);
   return (
     <span
@@ -217,7 +217,7 @@ export function LinkChip({ lk }: { lk: ItemLink }) {
         <span className="h-[6px] w-[6px] shrink-0 rounded-full" style={{ background: lk.color }} />
         <span className="truncate">{lk.title}</span>
       </button>
-      {open && <SessionFeed lk={lk} onClose={() => setOpen(false)} />}
+      {open && <SessionFeed lk={lk} md={md} onClose={() => setOpen(false)} />}
     </span>
   );
 }
