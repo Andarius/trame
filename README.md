@@ -39,6 +39,12 @@ the hub. (Design + migration story: `docs-site/src/content/docs/hub-api.md`.)
 | [![drawer](docs/drawer.png)](docs/drawer.png) | [![list](docs/list.png)](docs/list.png) |
 | **Pages — notes & docs next to the work** | **Databases — Notion-style tables** |
 | [![page](docs/page.png)](docs/page.png) | [![database](docs/database.png)](docs/database.png) |
+| **Agent presence — who is on which todo, live** | **…and which agent needs you** |
+| [![agent presence](docs/presence.gif)](docs/presence.gif) | [![agent presence still](docs/presence.png)](docs/presence.png) |
+| **Page activity — every linked agent's worklog, one timeline** | **Card activity — worklog + presence events** |
+| [![page activity](docs/activity.png)](docs/activity.png) | [![card activity](docs/card-activity.png)](docs/card-activity.png) |
+| **Reminders — due todos flag late, and gather in the sidebar** | |
+| [![reminders](docs/reminders.png)](docs/reminders.png) | |
 
 ## Requirements
 - **Deno 2.9+** on each laptop (for `deno desktop`). Install: `curl -fsSL https://deno.land/install.sh | sh`.
