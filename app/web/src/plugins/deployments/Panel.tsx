@@ -4,7 +4,7 @@
 // the row deep-links to the forge as before.
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { openInBrowser } from "../../api";
-import { timeAgo } from "../../ui";
+import { IconButton, timeAgo, EmptyState } from "../../ui/ui";
 
 type ApproveAction =
   | { kind: "gitlab-play"; project: string; jobId: number }
@@ -283,7 +283,7 @@ export function DeploymentsPanel(
   // Before the first poll completes a fresh instance reports configured:false —
   // that's "still loading", not "no repos". Only trust it once polledAt is set.
   if (!state || (!state.configured && !state.polledAt)) {
-    return <p className="p-6 text-ink-muted">Loading…</p>;
+    return <EmptyState page>Loading…</EmptyState>;
   }
 
   if (!state.configured) {
@@ -529,8 +529,7 @@ export function DeploymentsPanel(
                     >
                       ≡
                     </button>
-                    <button
-                      type="button"
+                    <IconButton
                       title={d.ignored
                         ? "Stop ignoring"
                         : "Ignore this deployment"}
@@ -545,7 +544,7 @@ export function DeploymentsPanel(
                       }`}
                     >
                       {d.ignored ? "↩" : "✕"}
-                    </button>
+                    </IconButton>
                   </div>
                   {openLog === key && <ChangelogBlock log={logs[key]} />}
                 </Fragment>

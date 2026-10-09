@@ -21,7 +21,7 @@ import {
   updateUdb,
   updateUdbProp,
 } from "../api";
-import { EntityIcon, Select } from "../ui";
+import { EmptyState, EntityIcon, numberCodec, Select, useLocalStorage } from "../ui/ui";
 import { Cell, ColumnRanges, IconPicker, TableProps } from "./cells";
 import { PropertyEditor, TYPE_GLYPH } from "./PropertyEditor";
 import { RowPanel } from "./RowPanel";
@@ -74,10 +74,7 @@ const PAGE_ALL = Number.POSITIVE_INFINITY;
 const PAGE_SIZE_KEY = "trame:udbpagesize";
 // recharts is ~450 KB — a chart tab pays for it, no other page does
 const ChartView = lazy(() => import("./ChartView"));
-const loadPageSize = (): number => {
-  const raw = Number(localStorage.getItem(PAGE_SIZE_KEY));
-  return [25, 50, 100, 200, PAGE_ALL].includes(raw) ? raw : 50;
-};
+const PAGE_SIZE_CODEC = numberCodec([25, 50, 100, 200, PAGE_ALL], 50);
 
 const TableRow = memo(function TableRow(
   {
@@ -227,9 +224,9 @@ function SummaryBody(
         </div>
       ))}
       {aggProps.length === 0 && (
-        <p className="px-2 pt-4 text-[12px] text-ink-muted/60">
+        <EmptyState block className="px-2 pt-4 text-[12px]">
           Pick an aggregate in ▤ Group (avg, sum, …) to fill the columns.
-        </p>
+        </EmptyState>
       )}
     </>
   );
@@ -416,15 +413,9 @@ export const DatabaseView = memo(function DatabaseView(
 
   // Pagination: render only the current page of ordered rows (default 50).
   // Summary mode (aggregate-only, few rows) is never paged.
-  const [pageSize, setPageSize] = useState(loadPageSize);
+  const [pageSize, setPageSize] = useLocalStorage(PAGE_SIZE_KEY, 50, PAGE_SIZE_CODEC);
   const [page, setPage] = useState(0);
   useEffect(() => setPage(0), [dbId, deferredView, pageSize]); // reset on db/view/size change
-  const changePageSize = (v: number) => {
-    setPageSize(v);
-    try {
-      localStorage.setItem(PAGE_SIZE_KEY, String(v));
-    } catch { /* private mode */ }
-  };
   const paginate = pageSize !== PAGE_ALL && !summaryConfigured && !chartConfig;
   const total = orderedRows.length;
   const pageCount = paginate ? Math.max(1, Math.ceil(total / pageSize)) : 1;
@@ -439,7 +430,7 @@ export const DatabaseView = memo(function DatabaseView(
     pageRows,
   ]);
 
-  if (!data) return <p className="p-6 text-ink-muted">Loading…</p>;
+  if (!data) return <EmptyState page>Loading…</EmptyState>;
   const props = data.properties;
   // grid + header render only the view's visible columns; data ops use all props
   const visProps = props.filter((p) => !view.hidden?.includes(p.id));
@@ -557,9 +548,9 @@ export const DatabaseView = memo(function DatabaseView(
               ? (
                 <Suspense
                   fallback={
-                    <p className="px-1 py-8 text-[13px] text-ink-muted/60">
+                    <EmptyState block className="px-1 py-8 text-[13px]">
                       Loading chart…
-                    </p>
+                    </EmptyState>
                   }
                 >
                   <ChartView rows={rows} props={props} config={chartConfig} />
@@ -711,15 +702,15 @@ export const DatabaseView = memo(function DatabaseView(
                     ＋ New row
                   </button>
                   {data.rows.length === 0 && (
-                    <p className="px-2 pt-4 text-[12px] text-ink-muted/60">
+                    <EmptyState block className="px-2 pt-4 text-[12px]">
                       No rows yet — add one, or add columns with the “+” header
                       cell.
-                    </p>
+                    </EmptyState>
                   )}
                   {data.rows.length > 0 && rows.length === 0 && (
-                    <p className="px-2 pt-4 text-[12px] text-ink-muted/60">
+                    <EmptyState block className="px-2 pt-4 text-[12px]">
                       No rows match the current filter.
-                    </p>
+                    </EmptyState>
                   )}
                 </>
               )}
@@ -732,7 +723,7 @@ export const DatabaseView = memo(function DatabaseView(
               <Select
                 value={pageSize === PAGE_ALL ? "all" : String(pageSize)}
                 onChange={(v) =>
-                  changePageSize(v === "all" ? PAGE_ALL : Number(v))}
+                  setPageSize(v === "all" ? PAGE_ALL : Number(v))}
                 options={[
                   { value: "25", label: "25" },
                   { value: "50", label: "50" },

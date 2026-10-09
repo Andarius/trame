@@ -4,7 +4,7 @@
 // The data half lives in view-core.ts (pure, unit-tested); it is re-exported here.
 import { useState } from "react";
 import type { UdbProp } from "../api";
-import { EntityIcon, Popover, Select } from "../ui";
+import { EntityIcon, MenuRow, Popover, Select, IconButton } from "../ui/ui";
 import { TYPE_GLYPH } from "./PropertyEditor";
 import {
   CHART_AGGS,
@@ -26,6 +26,7 @@ import {
   opsFor,
   type ViewConfig,
 } from "./view-core.ts";
+import { readStore, writeStore } from "../ui/storage";
 
 export * from "./view-core.ts";
 
@@ -112,7 +113,7 @@ export const isDefaultTabs = (v: ViewTabs) =>
 export function loadTabs(dbId: string): ViewTabs {
   try {
     const parsed = parseTabs(
-      JSON.parse(localStorage.getItem(key(dbId)) ?? "null"),
+      JSON.parse(readStore(key(dbId)) ?? "null"),
     );
     if (parsed) return parsed;
   } catch { /* fall through */ }
@@ -120,8 +121,7 @@ export function loadTabs(dbId: string): ViewTabs {
   return { tabs: [tab], active: tab.id };
 }
 export const saveTabs = (dbId: string, v: ViewTabs) => {
-  if (isDefaultTabs(v)) localStorage.removeItem(key(dbId));
-  else localStorage.setItem(key(dbId), JSON.stringify(v));
+  writeStore(key(dbId), isDefaultTabs(v) ? null : JSON.stringify(v));
 };
 
 // UI
@@ -221,14 +221,12 @@ export function ViewTabsBar(
                 {t.name}
               </button>
               {state.tabs.length > 1 && (
-                <button
-                  type="button"
-                  className="w-5 self-stretch text-[9px] text-ink-muted opacity-0 transition-opacity hover:text-blocked group-hover/tab:opacity-70 hover:!opacity-100"
+                <IconButton tone="danger" className="w-5 self-stretch text-[9px] opacity-0 transition-opacity group-hover/tab:opacity-70 hover:!opacity-100"
                   title="delete view tab"
                   onClick={() => remove(t.id)}
                 >
                   ✕
-                </button>
+                </IconButton>
               )}
             </div>
           )
@@ -244,27 +242,24 @@ export function ViewTabsBar(
         </button>
         {adding && (
           <Popover onClose={() => setAdding(false)} className="w-[168px] p-1">
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11.5px] text-ink-soft hover:bg-panel"
+            <MenuRow
+              className="text-[11.5px]"
               onClick={add}
             >
               <span className="text-[11px] text-ink-muted">▦</span> Table view
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11.5px] text-ink-soft hover:bg-panel"
+            </MenuRow>
+            <MenuRow
+              className="text-[11.5px]"
               onClick={addSummary}
             >
               <span className="text-[11px] text-copper">Σ</span> Summary view
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11.5px] text-ink-soft hover:bg-panel"
+            </MenuRow>
+            <MenuRow
+              className="text-[11.5px]"
               onClick={addChart}
             >
               <span className="text-[11px] text-copper">▂▅</span> Chart view
-            </button>
+            </MenuRow>
             <p className="px-2 pt-1 text-[10px] text-ink-muted/60">
               Summary = one row per group, aggregates only. Chart = the same
               aggregates drawn.
@@ -455,9 +450,7 @@ export function ViewToolbar(
                         />
                       </div>
                     )}
-                    <button
-                      type="button"
-                      className="shrink-0 px-1 text-ink-muted hover:text-blocked"
+                    <IconButton tone="danger" className="shrink-0 px-1"
                       title="remove"
                       onClick={() =>
                         onChange({
@@ -466,7 +459,7 @@ export function ViewToolbar(
                         })}
                     >
                       ✕
-                    </button>
+                    </IconButton>
                   </div>
                 );
               })}
@@ -579,9 +572,7 @@ export function ViewToolbar(
                         </button>
                       ))}
                     </div>
-                    <button
-                      type="button"
-                      className="shrink-0 px-1 text-ink-muted hover:text-blocked"
+                    <IconButton tone="danger" className="shrink-0 px-1"
                       title="remove"
                       onClick={() =>
                         onChange({
@@ -590,7 +581,7 @@ export function ViewToolbar(
                         })}
                     >
                       ✕
-                    </button>
+                    </IconButton>
                   </div>
                 );
               })}
@@ -779,9 +770,7 @@ export function ViewToolbar(
                         </div>
                       )}
                       {cfg.series.length > 1 && (
-                        <button
-                          type="button"
-                          className="w-5 shrink-0 text-[10px] text-ink-muted hover:text-blocked"
+                        <IconButton tone="danger" className="w-5 shrink-0 text-[10px]"
                           title="remove this measure"
                           onClick={() =>
                             setChart({
@@ -789,7 +778,7 @@ export function ViewToolbar(
                             })}
                         >
                           ✕
-                        </button>
+                        </IconButton>
                       )}
                     </div>
                   ))}

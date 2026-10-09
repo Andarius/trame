@@ -1,5 +1,5 @@
 // What a pasted Trame link points at. The app mirrors its state into the query string
-// (app/web/src/App.tsx): `card` (the card view), `session` (the side panel) and `page`.
+// (app/web/src/app/App.tsx): `card` (the card view), `session` (the side panel) and `page`.
 export type SessionRef = { kind: "session"; id: string } | { kind: "page"; id: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

@@ -3,11 +3,11 @@
 // tables — without any editing affordances. Data comes fully resolved from the
 // hub (window.__TRAME_LINK__); the only requests this page makes are its assets.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Markdown } from "../md";
-import { ExpandIcon } from "../ui";
-import { BRIDGE } from "../HtmlBlock";
+import { Markdown } from "../md/md";
+import { ExpandIcon } from "../ui/ui";
+import { BRIDGE } from "../editor/HtmlBlock";
 import { ColumnRanges, NumberViz, OptionChip } from "../udb/cells";
-import { blocksToMarkdown } from "../page-serialize";
+import { blocksToMarkdown } from "../page/page-serialize";
 import type { PropConfig, SelectOption } from "../api";
 
 export type LinkBlock = {

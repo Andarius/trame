@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import { DateInput, EntityIcon, Popover } from "../ui";
-import { Markdown } from "../md";
+import { DateInput, EntityIcon, MenuRow, Popover, IconButton, EmptyState } from "../ui/ui";
+import { Markdown } from "../md/md";
 import {
   type Derived,
   getStatus,
@@ -480,9 +480,9 @@ export function IconPicker(
             />
             {lib === null
               ? (
-                <span className="py-2 text-[11px] text-ink-muted/60">
+                <EmptyState className="py-2">
                   loading…
-                </span>
+                </EmptyState>
               )
               : (() => {
                 const needle = q.toLowerCase().replace(/\s+/g, "");
@@ -515,15 +515,15 @@ export function IconPicker(
         {tab === "icons" && (
           used === null
             ? (
-              <span className="py-2 text-[11px] text-ink-muted/60">
+              <EmptyState className="py-2">
                 loading…
-              </span>
+              </EmptyState>
             )
             : used.length === 0
             ? (
-              <span className="py-2 text-[11px] text-ink-muted/60">
+              <EmptyState className="py-2">
                 No uploaded icons yet — add one via Upload.
-              </span>
+              </EmptyState>
             )
             : (
               <div className="grid max-h-44 grid-cols-7 gap-1 overflow-y-auto">
@@ -614,13 +614,11 @@ function TextModal(
           <span className="text-[10.5px] text-ink-muted/70">
             {editing ? "click outside the text to save" : "click text to edit"}
           </span>
-          <button
-            type="button"
-            className="rounded px-1.5 text-[13px] leading-none text-ink-muted hover:bg-panel hover:text-ink"
+          <IconButton tone="close" className="rounded px-1.5 text-[13px] leading-none hover:bg-panel"
             onClick={onClose}
           >
             ✕
-          </button>
+          </IconButton>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           {editing
@@ -926,10 +924,8 @@ function SelectCell(
           />
           <div className="flex max-h-52 flex-col overflow-y-auto">
             {shown.map((o) => (
-              <button
-                type="button"
+              <MenuRow dense
                 key={o.id}
-                className="flex items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-panel"
                 onClick={() => toggle(o.id)}
               >
                 <OptionChip opt={o} />
@@ -937,23 +933,22 @@ function SelectCell(
                 {selected.includes(o.id) && (
                   <span className="text-[10px] text-copper">✓</span>
                 )}
-              </button>
+              </MenuRow>
             ))}
             {filter.trim() && !options.some((o) =>
               o.name.toLowerCase() === filter.trim().toLowerCase()
             ) && (
-              <button
-                type="button"
-                className="rounded-md px-2 py-1 text-left text-xs text-ink-muted hover:bg-panel"
+              <MenuRow dense
+                className="text-ink-muted"
                 onClick={createOption}
               >
                 ＋ create “{filter.trim()}”
-              </button>
+              </MenuRow>
             )}
             {!shown.length && !filter.trim() && (
-              <span className="px-2 py-1 text-[11px] text-ink-muted/60">
+              <EmptyState className="px-2 py-1">
                 no options yet — type to create
-              </span>
+              </EmptyState>
             )}
           </div>
         </Popover>
@@ -1016,10 +1011,8 @@ function RelationCell(
           />
           <div className="flex max-h-52 flex-col overflow-y-auto">
             {candidates.map((c) => (
-              <button
-                type="button"
+              <MenuRow dense
                 key={c.id}
-                className="flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-ink-soft hover:bg-panel"
                 onClick={() => toggle(c.id)}
               >
                 {c.icon && (
@@ -1029,12 +1022,12 @@ function RelationCell(
                 {linked.has(c.id) && (
                   <span className="text-[10px] text-copper">✓</span>
                 )}
-              </button>
+              </MenuRow>
             ))}
             {!candidates.length && (
-              <span className="px-2 py-1 text-[11px] text-ink-muted/60">
+              <EmptyState className="px-2 py-1">
                 {target ? "no matches" : "loading…"}
-              </span>
+              </EmptyState>
             )}
           </div>
         </Popover>

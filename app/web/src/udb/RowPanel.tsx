@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { deleteUdbRow, patchUdbRow, type UdbProp, type UdbRow } from "../api";
-import { appConfirm, EntityIcon } from "../ui";
+import { appConfirm, EntityIcon, FIELD_LABEL, IconButton, EmptyState } from "../ui/ui";
 import { Cell, IconPicker } from "./cells";
 import { TYPE_GLYPH } from "./PropertyEditor";
 
-const sectionLbl = "text-[10px] font-medium tracking-[0.8px] text-ink-muted/70";
 
 // expand / collapse (full-screen) glyph — inline SVG so it renders on WebKitGTK
 function ExpandIcon({ open }: { open: boolean }) {
@@ -64,7 +63,7 @@ export function RowPanel(
     >
       <div className={expanded ? "flex min-h-full w-full max-w-[860px] flex-col" : "contents"}>
       <div className="flex items-center gap-2 px-4 pb-1 pt-3.5">
-        <span className={sectionLbl}>{db.name.toUpperCase()}</span>
+        <span className={FIELD_LABEL}>{db.name.toUpperCase()}</span>
         <span className="flex-1" />
         <button type="button"
           className="flex items-center rounded-md px-1.5 py-1 text-ink-muted transition-colors hover:bg-panel hover:text-ink"
@@ -73,13 +72,12 @@ export function RowPanel(
         >
           <ExpandIcon open={expanded} />
         </button>
-        <button type="button"
-          className="rounded-md px-1.5 py-0.5 text-[13px] text-ink-muted transition-colors hover:bg-panel hover:text-ink"
+        <IconButton tone="close" className="rounded-md px-1.5 py-0.5 text-[13px] transition-colors hover:bg-panel"
           title="close (esc)"
           onClick={onClose}
         >
           ✕
-        </button>
+        </IconButton>
       </div>
 
       <div className="flex flex-col gap-3 px-4 pb-4">
@@ -126,7 +124,7 @@ export function RowPanel(
             </div>
           </div>
         ))}
-        {properties.length <= 1 && <span className="py-1 text-[11px] text-ink-muted/60">No columns yet.</span>}
+        {properties.length <= 1 && <EmptyState>No columns yet.</EmptyState>}
       </div>
 
       <div className="sticky bottom-0 mt-auto flex items-center gap-2 border-t border-line bg-sidebar px-4 py-2.5">
