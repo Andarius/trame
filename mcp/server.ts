@@ -184,7 +184,7 @@ server.tool(
   `Create or update a session card. One agent session + story = one card: new branches and PRs attach to it, a different story starts a new card (without a session id: repo_path + any of the card's branches). Pass a story; reuse an existing open one (a near-duplicate is matched, story_note says so). Client and story are names — they are resolved or created. Specs live on the session's spec page: write them with trame_update_page {session_id} after tracking (the response returns specs_page_id). ${SPECS_WHEN.replaceAll("\n", " ")}`,
   {
     title: z.string(),
-    status: z.enum(["active", "paused", "blocked", "done"]).optional(),
+    status: z.enum(["todo", "active", "paused", "blocked", "done"]).optional(),
     client: z.string().optional(),
     story: z.string().optional(),
     tags: z.array(z.string().trim().min(1)).optional()
@@ -218,7 +218,7 @@ server.tool(
 server.tool(
   "trame_set_status",
   "Move a session card to another column. Closing one returns a note listing any spec todos still open.",
-  { id: z.string(), status: z.enum(["active", "paused", "blocked", "done"]) },
+  { id: z.string(), status: z.enum(["todo", "active", "paused", "blocked", "done"]) },
   async ({ id, status }: { id: string; status: string }) =>
     text(await post(`/api/sessions/${id}/status`, { status })),
 );

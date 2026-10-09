@@ -20,7 +20,7 @@ of worrying about duplicates. A different story is the only thing that starts a 
 Interpret an optional first argument as the action:
 
 - Empty or `log`: status `active`.
-- `paused`, `blocked`, or `done`: use that status; treat the remaining text as a note.
+- `todo`, `paused`, `blocked`, or `done`: use that status; treat the remaining text as a note.
 - `list`: run `tramecli list` (filter with `-q`, syntax in `tramecli query`). Do not write.
 - `show <id or Trame URL>`: run `tramecli show` to read one card (fields, specs, worklog) or page. Do not write.
 

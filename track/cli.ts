@@ -95,6 +95,7 @@ export function boardRows(board: Board) {
 
 const STATUS_TINT: Record<string, (s: string) => string> = {
   active: pc.green,
+  todo: pc.blue,
   paused: pc.yellow,
   blocked: pc.red,
 };

@@ -42,7 +42,7 @@ Deno.test("a session whose status was deleted lands on a surviving column", asyn
   const { deleteStatus, getBoard, upsertSession } = await import("../core/sessions.ts");
 
   const before = (await getBoard(APP_CTX)).statuses as { id: string; key: string }[];
-  assertEquals(before.map((s) => s.key), ["active", "paused", "blocked", "done"]);
+  assertEquals(before.map((s) => s.key), ["todo", "active", "paused", "blocked", "done"]);
 
   await deleteStatus(APP_CTX, before.find((s) => s.key === "active")!.id);
 
@@ -54,7 +54,7 @@ Deno.test("a session whose status was deleted lands on a surviving column", asyn
   assert(!keys.includes("active"), "active was deleted");
   const card = (after.sessions as { id: string; status: string }[]).find((s) => s.id === id)!;
   assert(keys.includes(card.status), `card landed on a live column, got "${card.status}"`);
-  assertEquals(card.status, "paused"); // first surviving non-terminal
+  assertEquals(card.status, "todo"); // first surviving non-terminal
 });
 
 // One agent session ships many small PRs on one topic: they belong on one card. The

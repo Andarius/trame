@@ -58,7 +58,7 @@ A Trame URL the user pastes carries the ids in its query string: `?card=<id>` (l
 state (filters/layout) — ignore them. Read the card
 with `GET /api/sessions/<session id>` — that one call is what the drawer shows.
 
-Session fields worth knowing: `status` (active|paused|blocked|done), `next_step` (for a
+Session fields worth knowing: `status` (todo|active|paused|blocked|done), `next_step` (for a
 blocked session this states the blocker), `client_id`/`page_id` (join against
 `board.projects` / `board.stories` — `page_id` can point at any page in the tree),
 `repo_path`, `branch` (latest) and `branches` (every branch the card shipped, newline-separated;

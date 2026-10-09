@@ -60,6 +60,7 @@ create table if not exists statuses (
   deleted boolean not null default false
 );
 insert into statuses (id, key, label, color, terminal, sort_key) values
+('de913146-8302-57ec-9315-72bf6939115b', 'todo', 'Todo', '#6ca9e8', false, '5'), -- statusId('todo'), so a user-made Todo column is the same row
 ('00000000-0000-4000-8000-000000000001', 'active', 'Active', '#7bd88f', false, 'a0'),
 ('00000000-0000-4000-8000-000000000002', 'paused', 'Paused', '#e3c567', false, 'a1'),
 ('00000000-0000-4000-8000-000000000003', 'blocked', 'Blocked', '#e06c75', false, 'a2'),

@@ -22,6 +22,7 @@ type StatusStyle = { label: string; color: string; terminal: boolean };
 // built-ins are the fallback until the first board arrives; an unknown key (e.g. a
 // status a teammate defined but hasn't synced yet) degrades to a neutral grey chip.
 export const STATUS: Record<string, StatusStyle> = {
+  todo: { label: "Todo", color: "#6ca9e8", terminal: false },
   active: { label: "Active", color: "#7bd88f", terminal: false },
   paused: { label: "Paused", color: "#e3c567", terminal: false },
   blocked: { label: "Blocked", color: "#e06c75", terminal: false },
@@ -29,7 +30,7 @@ export const STATUS: Record<string, StatusStyle> = {
 };
 
 // order preserved so callers that iterate columns follow the board's sort_key order
-export let STATUS_ORDER: string[] = ["active", "paused", "blocked", "done"];
+export let STATUS_ORDER: string[] = ["todo", "active", "paused", "blocked", "done"];
 
 export function setStatuses(list: StatusDef[]) {
   if (!list.length) return; // never blank the registry on an empty/failed load

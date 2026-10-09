@@ -20,6 +20,7 @@ to the Figma file ("Trame — local-first session tracker", page *Components*).
 | `ink-muted` | `#8b93a3` | labels, hints, meta |
 | `copper` | `#c98a63` | THE accent: primary buttons, active states, focus |
 | `copper-ink` | `#120e0b` | text on copper |
+| `todo` | `#6ca9e8` | status blue |
 | `active` | `#7bd88f` | status green |
 | `paused` | `#e3c567` | status yellow |
 | `blocked` | `#e06c75` | status red |
@@ -69,7 +70,7 @@ faint at 12px.
 | sidebar nav row | `NavItem` (variants: default, active) | active = `#1a1d26` bg, copper glyph |
 | tree row (PageNode) | `TreeRow` | glyph is a text override (◎/▫/⌗) |
 | `NewChip` (App.tsx) | `NewChip` | dashed `chipline` border, ＋ prefix |
-| `StatusDot` | `StatusDot` (variants: active/paused/blocked/done) | |
+| `StatusDot` | `StatusDot` (variants: todo/active/paused/blocked/done) | |
 | `Modal` shell (modals.tsx) | `ModalShell` | panel `#171923`, `#323649` border, r12, footer w/ divider |
 | Sidebar (App.tsx) | `Sidebar` | composed of the above; screens embed instances |
 

@@ -5,10 +5,10 @@ import { type APIRequestContext, expect, test } from "@playwright/test";
 // column counts as done on the project page, no longer just the built-in "done").
 //
 // Single shared backend: these tests only ever ADD custom statuses and clean them up,
-// never delete a built-in, so board.spec and friends keep their four columns.
+// never delete a built-in, so board.spec and friends keep their five columns.
 test.describe.configure({ mode: "serial" });
 
-const BUILTINS = ["active", "paused", "blocked", "done"];
+const BUILTINS = ["todo", "active", "paused", "blocked", "done"];
 type Status = { id: string; key: string; label: string; color: string; terminal: boolean; sort_key: string };
 
 const statuses = async (request: APIRequestContext): Promise<Status[]> =>
@@ -33,7 +33,7 @@ async function cleanup(request: APIRequestContext) {
 test.beforeAll(async ({ request }) => await cleanup(request)); // retry-safe
 test.afterAll(async ({ request }) => await cleanup(request)); // leave the board as we found it
 
-test("board ships the four built-in statuses with fixed keys", async ({ request }) => {
+test("board ships the five built-in statuses with fixed keys", async ({ request }) => {
   const list = await statuses(request);
   expect(list.map((s) => s.key)).toEqual(expect.arrayContaining(BUILTINS));
   expect(list.find((s) => s.key === "done")?.terminal).toBe(true);
