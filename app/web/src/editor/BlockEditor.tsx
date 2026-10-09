@@ -12,9 +12,7 @@ import {
   writeMark,
 } from "../../../../core/todo-marks.ts";
 import { LiveLine, LiveRail, liveRingCls, liveRowCls, LiveTrail, useAgents, worksOn } from "../agents/agents";
-import { FolderBlock } from "./FolderBlock";
 import { isMetadataMark } from "../plugins";
-import { HtmlBlock } from "./HtmlBlock";
 import { genId } from "../page/page-ids";
 import { useBlockDrag } from "./useBlockDrag";
 import {
@@ -27,7 +25,8 @@ import {
 } from "./editor-text";
 import { FormatBar } from "./editor-toolbar";
 import { type CommentOps, type CommentMode, CommentGutter } from "../page/comments";
-import { FoldHeader, TabStrip, TodoActions, TodoCheck, TodoChips } from "./editor-blocks";
+import { TodoActions, TodoCheck, TodoChips } from "./editor-blocks";
+import { EmbedBlock, renderSection, rowCls, type SectionCtx, sectionMeta } from "./editor-sections";
 import { InlineThread, PendingNote, PillMenu, SlashMenu } from "./editor-menus";
 import {
   BlockCorners,
@@ -617,41 +616,7 @@ export function BlockEditor(
   // consecutive tabs form one strip; a fold is a standalone accordion. The first
   // heading's row renders the control; hidden blocks are skipped. Double-click
   // a label to rename its heading.
-  const tabMeta = (() => {
-    let group: number | null = null;
-    let foldAt: number | null = null;
-    const heads = new Map<number, { i: number; title: string }[]>();
-    const of = new Map<
-      number,
-      { kind: "tab" | "fold"; group: number; tab: number }
-    >();
-    blocks.forEach((b, i) => {
-      const m = isText(b) && b.type === "heading" &&
-        b.text.match(/\{\{(tab|fold)\}\}/i);
-      if (m && m[1].toLowerCase() === "tab") {
-        foldAt = null;
-        if (group === null) {
-          group = i;
-          heads.set(i, []);
-        }
-        heads.get(group)!.push({
-          i,
-          title: stripMarks((b as TextBlock).text)
-            .replace(/\s*\{\{tab\}\}\s*/i, " ").trim(),
-        });
-        of.set(i, { kind: "tab", group, tab: heads.get(group)!.length - 1 });
-      } else if (m) {
-        group = null;
-        foldAt = i;
-        of.set(i, { kind: "fold", group: i, tab: 0 });
-      } else if (group !== null) {
-        of.set(i, { kind: "tab", group, tab: heads.get(group)!.length - 1 });
-      } else if (foldAt !== null) {
-        of.set(i, { kind: "fold", group: foldAt, tab: 0 });
-      }
-    });
-    return { heads, of };
-  })();
+  const tabMeta = sectionMeta(blocks);
 
   // a tab owns every block filed under it (plain headings included), so its span
   // comes from tabMeta, not from the next-heading rule moveTo uses
@@ -685,6 +650,10 @@ export function BlockEditor(
     setMenuIdx, setMenuSel, setPill, setPillSel, setSel, setPendingNote,
   };
 
+  const sectionCtx: SectionCtx = {
+    blocks, tabMeta, openFolds, setOpenFolds, activeTabs, setActiveTabs,
+    focusIdx, activeId, setFocusIdx, tabDrag, setTabDrag, moveTab,
+  };
   return (
     <div
       ref={rootRef}
@@ -726,80 +695,14 @@ export function BlockEditor(
       )}
       {blocks.map((b, i) => {
         // section groups: strip/accordion on the marked heading, hide inactive blocks
-        const tm = tabMeta.of.get(i);
-        if (tm) {
-          const gb = blocks[tm.group];
-          const gid = (isText(gb) && gb.id) || String(tm.group);
-          const bid0 = ("id" in b && b.id) || String(i);
-          if (tm.kind === "fold") {
-            const open = openFolds[gid] ?? false;
-            const isHead = i === tm.group;
-            // a heading being renamed renders as its normal editable row
-            const renaming = isHead && (focusIdx === i || activeId === bid0);
-            if (isHead && !renaming) {
-              const title = stripMarks((b as TextBlock).text)
-                .replace(/\s*\{\{fold\}\}\s*/i, " ").trim();
-              return (
-                <FoldHeader
-                  key={bid0}
-                  title={title}
-                  open={open}
-                  onToggle={() =>
-                    setOpenFolds((m) => ({ ...m, [gid]: !open }))}
-                  onRename={() => setFocusIdx(i)}
-                />
-              );
-            }
-            if (!isHead && !open) return null;
-          } else {
-            const active = activeTabs[gid] ?? 0;
-            const heads = tabMeta.heads.get(tm.group)!;
-            const isHead = heads.some((h) => h.i === i);
-            // a tab heading being renamed renders as its normal editable row
-            const renaming = isHead && (focusIdx === i || activeId === bid0);
-            if (isHead && !renaming) {
-              if (i !== tm.group) return null;
-              return (
-                <TabStrip
-                  key={bid0}
-                  heads={heads}
-                  active={active}
-                  tabDrag={tabDrag}
-                  setTabDrag={setTabDrag}
-                  moveTab={moveTab}
-                  onSelect={(ti) => setActiveTabs((m) => ({ ...m, [gid]: ti }))}
-                  onRename={setFocusIdx}
-                />
-              );
-            }
-            if (!isHead && tm.tab !== active) return null;
-          }
-        }
-        if (b.type === "folder") {
+        const section = renderSection(sectionCtx, b, i);
+        if (section !== undefined) return section;
+        if (b.type === "folder" || b.type === "html") {
           return (
             <Fragment key={b.id ?? i}>
               {dragRow(
                 i,
-                <FolderBlock
-                  block={b}
-                  onPatch={(patch) => setBlock(i, patch)}
-                  onRemove={() => remove(i)}
-                  onOpenReport={onOpenReport}
-                />,
-              )}
-            </Fragment>
-          );
-        }
-        if (b.type === "html") {
-          return (
-            <Fragment key={b.id ?? i}>
-              {dragRow(
-                i,
-                <HtmlBlock
-                  block={b}
-                  onPatch={(patch) => setBlock(i, patch)}
-                  onRemove={() => remove(i)}
-                />,
+                <EmbedBlock block={b} onPatch={(patch) => setBlock(i, patch)} onRemove={() => remove(i)} onOpenReport={onOpenReport} />,
               )}
             </Fragment>
           );
@@ -834,21 +737,15 @@ export function BlockEditor(
           <Fragment key={b.id ?? i}>
             <div
               data-block-id={b.id || undefined}
-              className={`group relative -ml-6 -mr-1 flex items-start gap-2 pl-6 pr-1 ${
-                hasOpen ? "rounded-md bg-copper/[0.05]" : ""
-              } ${flash === b.id ? "rounded-md ring-1 ring-copper/50" : ""} ${
-                selectedId === bid
-                  // tables/snippets: color the card's own contour — no ring
-                  // floating around the block gutter with a gap
-                  ? isTable
-                    ? "[&_.md-table-card]:border-copper/70 [&_.md-table-card]:ring-1 [&_.md-table-card]:ring-copper/50"
-                    : isSnippet
-                    ? "[&_.md-snippet-card]:ring-1 [&_.md-snippet-card]:ring-copper/60"
-                    : "rounded-md ring-2 ring-copper/60"
-                  : ""
-              } ${
-                dropClass(i)
-              } ${lv && liveCfg ? liveRowCls(lv.state, liveCfg) : ""}`}
+              className={rowCls({
+                hasOpen,
+                flashed: flash === b.id,
+                selected: selectedId === bid,
+                isTable,
+                isSnippet,
+                drop: dropClass(i),
+                live: lv && liveCfg ? liveRowCls(lv.state, liveCfg) : "",
+              })}
               // nested blocks shift right; overrides the base pl-6 (24px)
               style={b.indent ? { paddingLeft: 24 + b.indent * 20 } : undefined}
               onMouseMove={() => {
