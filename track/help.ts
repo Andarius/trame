@@ -460,6 +460,16 @@ Then track it as usual — \`repo_path\`/\`branch\` land on the card on the firs
 comments and links. Refused for a card's spec page, under another user story, or above
 one — stories don't nest. Tracking by name never does this to a nested page.`;
 
+export const ARCHIVE_HELP = `tramecli archive — fold a page (a user story, a doc) away, or bring it back
+
+  tramecli archive <page-id | page URL>             status → archived
+  tramecli archive --restore <page-id | page URL>   status → open
+
+Archived pages leave the sidebar tree and the story pickers; their cards and content
+stay. Same as the page header's status picker (POST /api/pages/<id> {"status": …}).
+Pages have only these two statuses — finished work is a card tracked \`done\`, so
+archive a story once all its cards are done. --json prints {id, status}.`;
+
 export const DEPLOYMENTS_HELP = `tramecli deployments — how the Deployments plugin matches waiting releases to cards
 
   tramecli deployments ships                    list every watched repo's rule
@@ -492,6 +502,7 @@ Commands:
   list       print open sessions grouped by story
   stories    open stories similar to a topic (pick one before tracking)
   convert    turn a page into a session card whose specs are that page
+  archive    fold a page or user story away (--restore brings it back)
   setup      install the agent skills embedded in this binary
   deployments  per-repo rules matching waiting releases to cards
   db         write database rows (\`db rows <db>\`); bare, the database contract

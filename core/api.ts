@@ -469,10 +469,12 @@ export async function handleCoreApi(
     }
     return json({ ok: true });
   }
-  if (pgm && !pgm[2]) {
+  if (pgm && !pgm[2] && req.method === "GET") {
     const page = await getPage(ctx, pgm[1]);
     return page ? json(page) : json({ error: "not found" }, 404);
   }
+  // a PATCH used to fall through to the GET above and answer 200 with nothing written
+  if (pgm) return json({ error: `${req.method} not allowed; update a page with POST` }, 405);
   // ephemeral presence (device-local, not synced): who's on a page + active watchers
   if (pathname === "/api/presence" && req.method === "POST") {
     const b = await req.json();
