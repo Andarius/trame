@@ -1,7 +1,7 @@
 import { type CSSProperties, useEffect, useState } from "react";
 import { splitTagLabel, TAG_COLORS, tagKey } from "../../../../core/tags.ts";
 import { ensureTag, listTags, type Tag, updateTag } from "../api";
-import { MenuRow, Popover, IconButton } from "./ui";
+import { MenuRow, Popover } from "./ui";
 
 /** Fill + text for a hue, mixed with the theme's ink so one hex reads in both. */
 const tint = (color: string): CSSProperties => ({
@@ -95,7 +95,7 @@ export function TagEditor(
         return (
           <span
             key={key}
-            className="group relative inline-flex items-stretch rounded-full text-[11px] leading-[1.45]"
+            className="relative inline-flex items-stretch rounded-full text-[11px] leading-[1.45]"
             style={valStyle}
           >
             {ns && (
@@ -112,20 +112,13 @@ export function TagEditor(
             )}
             <button
               type="button"
-              title={t ? "Colour this tag" : `Unknown tag: ${key}`}
-              disabled={!t}
-              className={`cursor-pointer py-px pr-[7px] font-medium ${ns ? "pl-[5px]" : "pl-[9px]"}`}
+              title={t ? "Colour or remove this tag" : `Unknown tag: ${key}`}
+              className={`cursor-pointer py-px pr-[9px] font-medium ${ns ? "pl-[5px]" : "pl-[9px]"}`}
               onClick={() =>
                 setPicking(picked && !picking.ns ? null : { key, ns: false })}
             >
               {value}
             </button>
-            <IconButton title="Remove"
-              className="py-px pr-[6px] text-[8px] opacity-0 transition-opacity hover:opacity-100 group-hover:opacity-55"
-              onClick={() => onChange(tags.filter((k) => k !== key))}
-            >
-              ✕
-            </IconButton>
             {picked && (
               <Popover
                 onClose={() => setPicking(null)}
@@ -155,6 +148,17 @@ export function TagEditor(
                     );
                   })}
                 </div>
+                {!picking.ns && (
+                  <MenuRow dense
+                    onClick={() => {
+                      setPicking(null);
+                      onChange(tags.filter((k) => k !== key));
+                    }}
+                    className="mt-1 w-full gap-1.5 rounded px-1.5 text-[11.5px] text-ink-muted hover:text-blocked"
+                  >
+                    ✕ Remove tag
+                  </MenuRow>
+                )}
               </Popover>
             )}
           </span>
