@@ -1,10 +1,8 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import { type Block, openInBrowser, type PageComment, type SessionLink, uploadAsset } from "./api";
+import { type Block, type PageComment, type SessionLink, uploadAsset } from "./api";
 import { clearSelection, statusStyle } from "./ui";
-import { Markdown } from "./md";
 import type { ItemLink } from "./md-types";
 import {
-  normalizeMarks,
   readMarks,
   removeMark,
   setMark,
@@ -13,7 +11,6 @@ import {
   touchTodo,
   writeMark,
 } from "../../../core/todo-marks.ts";
-import { TodoDueCtx } from "./due";
 import { LiveLine, LiveRail, liveRingCls, liveRowCls, LiveTrail, useAgents, worksOn } from "./agents";
 import { FolderBlock } from "./FolderBlock";
 import { isMetadataMark } from "./plugins";
@@ -23,38 +20,29 @@ import { useBlockDrag } from "./useBlockDrag";
 import {
   type TextBlock,
   isText,
-  SLASH,
-  PILLS,
   caretXY,
   type InlineKind,
   toggleInline,
   linkify,
 } from "./editor-text";
-import { CornerToolbar, FormatBar } from "./editor-toolbar";
+import { FormatBar } from "./editor-toolbar";
 import { type CommentOps, type CommentMode, CommentGutter } from "./comments";
 import { FoldHeader, TabStrip, TodoActions, TodoCheck, TodoChips } from "./editor-blocks";
 import { InlineThread, PendingNote, PillMenu, SlashMenu } from "./editor-menus";
-
-// React rewrites node.defaultValue on every render of a controlled textarea, which
-// mutates its text child and resets the browser's undo grouping — Ctrl+Z then crawls
-// back one character per press. While the field is focused, report the live value so
-// React's `defaultValue !== value` guard skips the write; unfocused it behaves
-// normally, so the text child re-syncs on the render that follows a blur.
-const defaultValueProp = Object.getOwnPropertyDescriptor(
-  HTMLTextAreaElement.prototype,
-  "defaultValue",
-)!;
-const keepNativeUndo = (el: HTMLTextAreaElement) => {
-  if (Object.getOwnPropertyDescriptor(el, "defaultValue")) return;
-  Object.defineProperty(el, "defaultValue", {
-    get: () =>
-      document.activeElement === el
-        ? el.value
-        : defaultValueProp.get!.call(el) as string,
-    set: (v: string) => defaultValueProp.set!.call(el, v),
-    configurable: true,
-  });
-};
+import {
+  BlockCorners,
+  BlockRendered,
+  blockShape,
+  BlockTextarea,
+  listVariantAt,
+  type PillState,
+  pillItemsFor,
+  SelectionBar,
+  type SelState,
+  slashItems,
+  type TextCtx,
+  textClsOf,
+} from "./editor-text-block";
 
 export function BlockEditor(
   {
@@ -100,19 +88,11 @@ export function BlockEditor(
   const [menuIdx, setMenuIdx] = useState<number | null>(null); // block showing the slash menu
   const [dueIdx, setDueIdx] = useState<number | null>(null); // todo showing the due-date picker
   const [menuSel, setMenuSel] = useState(0); // highlighted item in the slash menu
-  // open "{{" pill autocomplete: block index, offset of the partial color, its
-  // text, and the popup anchor under the "{{" (px, relative to the block row)
-  const [pill, setPill] = useState<
-    { i: number; start: number; query: string; x: number; y: number } | null
-  >(null);
+  const [pill, setPill] = useState<PillState | null>(null);
   const [pillSel, setPillSel] = useState(0);
   // block currently in raw-textarea edit mode (Notion-style: click to edit, blur to render)
   const [activeId, setActiveId] = useState<string | null>(null);
-  // non-collapsed selection inside a block textarea → floating format toolbar
-  // (px anchor is relative to the block row, like the pill menu)
-  const [sel, setSel] = useState<
-    { i: number; start: number; end: number; x: number; y: number } | null
-  >(null);
+  const [sel, setSel] = useState<SelState | null>(null);
   // non-collapsed selection over rendered markdown → fixed-position comment bar
   const [viewSel, setViewSel] = useState<
     { id: string; text: string; x: number; y: number } | null
@@ -698,6 +678,13 @@ export function BlockEditor(
     onChange(next);
   };
 
+  const textCtx: TextCtx = {
+    blocks, refs, editStart, menuIdx, menuSel, pill, pillSel, autoItem, links, onLinkItem, chipsFor,
+    set, remove, move, insertAt, insertAfter, grow, syncSel, applyInline, applyLink, commentSel, pick, pickPill,
+    replaceImage, markDone, markOpen, editItem, splitItem, setFocusIdx, setActiveId, setSelectedId, setDueIdx,
+    setMenuIdx, setMenuSel, setPill, setPillSel, setSel, setPendingNote,
+  };
+
   return (
     <div
       ref={rootRef}
@@ -821,16 +808,8 @@ export function BlockEditor(
           // database/subpage markers live in the flow but render as the page sections below
           return null;
         }
-        const filter = b.text.startsWith("/")
-          ? b.text.slice(1).toLowerCase()
-          : null;
-        const items = filter === null ? [] : SLASH.filter((s) =>
-          // match the key too: "/todo" must find "To-do" despite the hyphen
-          s.key.includes(filter) || s.label.toLowerCase().includes(filter)
-        );
-        const pillItems = pill?.i === i
-          ? PILLS.filter((p) => p.key.startsWith(pill.query.toLowerCase()))
-          : [];
+        const items = slashItems(b);
+        const pillItems = pillItemsFor(pill, i);
         const blockComments = b.id
           ? comments.filter((c) => c.block_id === b.id)
           : [];
@@ -844,47 +823,9 @@ export function BlockEditor(
         // empty/new/mid-navigation blocks always stay in raw-text edit mode
         const editing = activeId === bid || (!stripMarks(b.text).trim() && !Object.keys(readMarks(b.text)).some(isMetadataMark)) ||
           focusIdx === i;
-        // session-report lists: the nearest heading above decides how bullets render
-        // (Completed → green checks, Open/Next → copper rings; see md.tsx ListVariant)
-        let listVariant: "done" | "open" | undefined;
-        for (let j = i - 1; j >= 0; j--) {
-          const pb = blocks[j];
-          if (pb.type !== "heading") continue;
-          listVariant = /^\s*(completed|done|shipped)\b/i.test(pb.text)
-            ? "done"
-            : /^\s*(open|todo|next|pending|remaining|in progress|blocked)\b/i
-                .test(pb.text)
-            ? "open"
-            : undefined;
-          break;
-        }
-        const textCls = b.type === "heading"
-          ? "text-[16px] font-semibold text-ink"
-          : `text-[13px] leading-relaxed ${
-            b.type === "todo" && b.done
-              ? "text-ink-muted line-through"
-              : "text-ink-soft"
-          }`;
-        // fenced-code blocks keep their snippet look while editing (see md.tsx <pre>)
-        const isSnippet = b.type === "text" && /^\s*```/.test(b.text);
-        // image-only blocks keep the picture visible; the markdown edits below it
-        const isImage = b.type === "text" &&
-          /^\s*!\[[^\]]*\]\([^)\s]+\)\s*$/.test(b.text);
-        // pipe-table blocks select on click (like images) — raw markdown via ✏️ only
-        const isTable = b.type === "text" && /^\s*\|.*\|/.test(b.text);
-        // all-bullet blocks edit line by line (md.tsx EditableItem), keeping the
-        // list rendered — raw markdown via ✏️ only
-        const isList = b.type === "text" && /\S/.test(b.text) &&
-          b.text.split("\n").filter((l) => l.trim()).every((l) =>
-            /^\s*([-*+]|\d+\.)\s+/.test(l)
-          );
-        const editCls = isSnippet
-          ? "my-1 rounded-md bg-panel px-2 font-mono text-[12px] leading-relaxed text-ink-soft"
-          : isImage
-          ? "rounded-md bg-panel px-2 font-mono text-[11px] leading-relaxed text-ink-muted"
-          : isTable
-          ? "my-1 rounded-md bg-panel px-2 font-mono text-[11.5px] leading-relaxed text-ink-soft"
-          : `bg-transparent ${textCls}`;
+        const textCls = textClsOf(b);
+        const shape = blockShape(b);
+        const { isSnippet, isTable } = shape;
         // the live agent working on this todo, if any
         const lv = b.type === "todo" && !b.done && b.id && liveCfg
           ? live.find((x) => worksOn(x.a, b.id as string))
@@ -923,315 +864,24 @@ export function BlockEditor(
                   onToggle={() => toggleTodo(i)}
                 />
               )}
-              <div
-                // kept mounted (not conditionally excluded) so the sibling textarea below
-                // never shifts position and gets remounted, which would drop its ref/focus
-                style={editing && !isImage ? { display: "none" } : undefined}
-                title={isList
-                  ? "Click a line to edit it — ✏️ for raw markdown (export)"
-                  : isTable
-                  ? "Double-click a cell to edit — ✏️ for raw markdown (export)"
-                  : isSnippet
-                  ? "Click selects — double-click or ✏️ to edit"
-                  : isImage
-                  ? "Click selects the block — edit its markdown via ✏️"
-                  : undefined}
-                className={`w-full py-1 ${
-                  isImage || isTable || isSnippet
-                    ? "cursor-default"
-                    : "cursor-text"
-                } ${textCls}`}
-                // a drag-selection also fires click on mouseup; only a plain click edits
-                onClick={(e) => {
-                  if (document.getSelection()?.isCollapsed === false) return;
-                  // an inline image inside a text block selects instead of opening
-                  // the raw markdown; clicks on the surrounding text still edit
-                  const onImg = (e.target as HTMLElement).tagName === "IMG";
-                  if (isImage || isTable || isSnippet || onImg) {
-                    return setSelectedId(bid);
-                  }
-                  if (isList) {
-                    // click anywhere on a line (or past the list) edits that line;
-                    // outside any item, continue on the last one
-                    const li = (e.target as HTMLElement).closest("li");
-                    const spans = (li ?? e.currentTarget)
-                      .querySelectorAll<HTMLElement>("[data-item-edit]");
-                    const hit = spans[spans.length - 1];
-                    if (hit) return hit.click();
-                  }
-                  setFocusIdx(i);
-                }}
-                onDoubleClick={() => {
-                  if (isSnippet) {
-                    clearSelection();
-                    setSelectedId(null);
-                    setFocusIdx(i);
-                  }
-                }}
-                onMouseDown={(e) => {
-                  // keep the document-level clear from racing this row's select
-                  if (
-                    isImage || isTable || isSnippet ||
-                    (e.target as HTMLElement).tagName === "IMG"
-                  ) e.stopPropagation();
-                }}
+              <BlockRendered
+                ctx={textCtx}
+                b={b}
+                i={i}
+                shape={shape}
+                editing={editing}
+                textCls={textCls}
+                listVariant={listVariantAt(blocks, i)}
+                visibleComments={visibleComments}
               >
-                <TodoDueCtx.Provider
-                  value={b.type === "todo" ? { done: !!b.done, onDue: () => setDueIdx(i) } : { done: false }}
-                >
-                <Markdown
-                  text={b.type === "todo" && !b.done && !b.text.includes("{{trame:due=")
-                    ? `${b.text} {{trame:due=}}` // placeholder: DuePill's hover "⚑ due"
-                    : b.text}
-                  listVariant={listVariant}
-                  onEdit={isTable
-                    ? (next) => set(i, { text: next })
-                    : undefined}
-                  onCommentRow={isTable && b.id
-                    ? (anchor) => setPendingNote({ id: b.id as string, anchor })
-                    : undefined}
-                  rowComments={isTable && b.id
-                    ? (anchor) =>
-                      visibleComments.filter((c) => c.anchor === anchor).length
-                    : undefined}
-                  onMarkDone={listVariant === "open"
-                    ? (item) => markDone(i, item)
-                    : undefined}
-                  onMarkOpen={listVariant === "done"
-                    ? (item) => markOpen(i, item)
-                    : undefined}
-                  onEditItem={(item, next) => editItem(i, item, next)}
-                  onSplitItem={(item, before, after) =>
-                    splitItem(i, item, before, after)}
-                  autoEditItem={autoItem && autoItem.id === b.id
-                    ? autoItem.item
-                    : undefined}
-                  getItemLinks={(item) =>
-                    chipsFor(
-                      links?.filter((x) =>
-                        x.block_id === b.id && x.anchor === item
-                      ) ?? [],
-                    )}
-                  onLinkItem={b.id && onLinkItem
-                    ? (item) => onLinkItem(b.id as string, item)
-                    : undefined}
-                />
-                </TodoDueCtx.Provider>
                 {lv && liveCfg && (
                   // reading the activity line shouldn't open the editor
                   <div onClick={(e) => e.stopPropagation()}>
                     <LiveLine a={lv.a} state={lv.state} cfg={liveCfg} />
                   </div>
                 )}
-              </div>
-              <textarea
-                ref={(el) => {
-                  refs.current[i] = el;
-                  if (el) {
-                    keepNativeUndo(el);
-                    grow(el);
-                  }
-                }}
-                rows={1}
-                value={b.text}
-                placeholder={i === 0 && blocks.length === 1
-                  ? "Write something, or type / for blocks…"
-                  : ""}
-                style={editing ? undefined : {
-                  position: "absolute",
-                  width: 1,
-                  height: 1,
-                  overflow: "hidden",
-                  opacity: 0,
-                  pointerEvents: "none",
-                }}
-                className={`w-full resize-none overflow-hidden border-none py-1 outline-none placeholder:text-ink-muted/40 ${editCls}`}
-                onFocus={() => {
-                  setActiveId(bid);
-                  editStart.current = stripMarks(b.text);
-                }}
-                onBlur={() => {
-                  setActiveId((cur) => (cur === bid ? null : cur));
-                  setSel((cur) => (cur && cur.i === i ? null : cur));
-                  // on blur, not on keystroke: appending mid-typing would move the caret
-                  if (b.type === "todo" && stripMarks(b.text).trim()) {
-                    const was = editStart.current;
-                    let text = setMark(b.text, "created_at", todayMark());
-                    if (was !== null && was !== stripMarks(b.text)) {
-                      text = touchTodo(text, todayMark());
-                    }
-                    text = normalizeMarks(text);
-                    if (text !== b.text) set(i, { text });
-                  }
-                  editStart.current = null;
-                }}
-                onSelect={(e) => syncSel(i, e.currentTarget)}
-                onChange={(e) => {
-                  set(i, { text: e.target.value });
-                  grow(e.target);
-                  setMenuIdx(e.target.value.startsWith("/") ? i : null);
-                  setMenuSel(0);
-                  // caret sitting right after "{{" (plus a partial color) opens the pill menu
-                  const m = e.target.value
-                    .slice(0, e.target.selectionStart)
-                    .match(/\{\{([a-zA-Z]*)$/);
-                  if (m) {
-                    const el = e.target;
-                    const p = caretXY(el, el.selectionStart - m[0].length);
-                    setPill({
-                      i,
-                      start: el.selectionStart - m[1].length,
-                      query: m[1],
-                      x: Math.max(
-                        0,
-                        Math.min(
-                          el.offsetLeft + p.x,
-                          el.offsetLeft + el.clientWidth - 210,
-                        ),
-                      ),
-                      y: el.offsetTop + p.y,
-                    });
-                  } else setPill(null);
-                  setPillSel(0);
-                }}
-                onPaste={(e) => {
-                  const files = [...(e.clipboardData?.files ?? [])]
-                    .filter((f) => f.type.startsWith("image/"));
-                  if (!files.length) return;
-                  e.preventDefault();
-                  const before = b.text.slice(
-                    0,
-                    e.currentTarget.selectionStart,
-                  );
-                  const after = b.text.slice(e.currentTarget.selectionEnd);
-                  Promise.all(files.map((f) => uploadAsset(f))).then((rs) => {
-                    const md = rs
-                      .filter((r) => r.id)
-                      .map((r) => `![image](/api/assets/${r.id})`)
-                      .join("\n");
-                    if (md) set(i, { text: `${before}${md}${after}` });
-                  });
-                }}
-                onKeyDown={(e) => {
-                  // formatting shortcuts wrap/unwrap the selection in markdown
-                  if ((e.ctrlKey || e.metaKey) && !e.altKey) {
-                    const k = e.key.toLowerCase();
-                    const kind = k === "b"
-                      ? "bold"
-                      : k === "i"
-                      ? "italic"
-                      : k === "e"
-                      ? "code"
-                      : k === "s" && e.shiftKey
-                      ? "strike"
-                      : null;
-                    if (kind) {
-                      e.preventDefault();
-                      return applyInline(i, kind);
-                    }
-                    if (k === "k") {
-                      e.preventDefault();
-                      return applyLink(i);
-                    }
-                  }
-                  if (menuIdx === i && items.length) {
-                    if (e.key === "ArrowDown") {
-                      e.preventDefault();
-                      return setMenuSel((s) => (s + 1) % items.length);
-                    }
-                    if (e.key === "ArrowUp") {
-                      e.preventDefault();
-                      return setMenuSel((s) =>
-                        (s - 1 + items.length) % items.length
-                      );
-                    }
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      return pick(
-                        i,
-                        items[Math.min(menuSel, items.length - 1)].key,
-                      );
-                    }
-                    if (e.key === "Escape") {
-                      e.preventDefault();
-                      return setMenuIdx(null);
-                    }
-                  }
-                  if (pill?.i === i && pillItems.length) {
-                    if (e.key === "ArrowDown") {
-                      e.preventDefault();
-                      return setPillSel((s) => (s + 1) % pillItems.length);
-                    }
-                    if (e.key === "ArrowUp") {
-                      e.preventDefault();
-                      return setPillSel((s) =>
-                        (s - 1 + pillItems.length) % pillItems.length
-                      );
-                    }
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      return pickPill(
-                        pillItems[Math.min(pillSel, pillItems.length - 1)].key,
-                      );
-                    }
-                    if (e.key === "Escape") {
-                      e.preventDefault();
-                      return setPill(null);
-                    }
-                  }
-                  // inside a snippet Enter stays a newline; a closed fence + caret
-                  // at the end exits to a new block, and arrows move within the code
-                  const el = e.currentTarget;
-                  const atEnd = el.selectionStart === b.text.length &&
-                    el.selectionEnd === b.text.length;
-                  const snippetDone = isSnippet && /\n\s*```\s*$/.test(b.text);
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    if (isSnippet && !(snippetDone && atEnd)) return;
-                    e.preventDefault();
-                    if (el.selectionStart === 0 && el.selectionEnd === 0 && b.text) {
-                      insertAt(i, b.indent ?? 0);
-                    } else insertAfter(i);
-                  } else if (
-                    e.key === "Backspace" && b.text === "" && blocks.length > 1
-                  ) {
-                    e.preventDefault();
-                    remove(i);
-                  } else if (
-                    e.key === "Tab" && !isSnippet && b.type !== "heading"
-                  ) {
-                    // Tab / Shift+Tab nest the block under the one above
-                    e.preventDefault();
-                    const lvl = b.indent ?? 0;
-                    if (e.shiftKey) {
-                      if (lvl > 0) set(i, { indent: lvl - 1 });
-                    } else {
-                      const prev = blocks.slice(0, i).filter(isText).at(-1);
-                      const max = Math.min(
-                        4,
-                        prev ? (prev.indent ?? 0) + 1 : 0,
-                      );
-                      if (lvl < max) set(i, { indent: lvl + 1 });
-                    }
-                  } else if (e.key === "ArrowUp" && e.altKey) {
-                    e.preventDefault();
-                    move(i, -1);
-                  } else if (e.key === "ArrowDown" && e.altKey) {
-                    e.preventDefault();
-                    move(i, 1);
-                  } else if (e.key === "ArrowUp" && !e.shiftKey && i > 0) {
-                    if (isSnippet && el.selectionStart > 0) return;
-                    e.preventDefault();
-                    setFocusIdx(i - 1);
-                  } else if (
-                    e.key === "ArrowDown" && !e.shiftKey &&
-                    i < blocks.length - 1
-                  ) {
-                    if (isSnippet && !atEnd) return;
-                    e.preventDefault();
-                    setFocusIdx(i + 1);
-                  }
-                }}
-              />
+              </BlockRendered>
+              <BlockTextarea ctx={textCtx} b={b} i={i} shape={shape} editing={editing} textCls={textCls} />
               {/* a todo is its own block, not a list item — carry its chips here, after
                   the textarea so edit mode does not move them left of the task text */}
               {lv && liveCfg && <LiveTrail a={lv.a} state={lv.state} cfg={liveCfg} />}
@@ -1258,138 +908,8 @@ export function BlockEditor(
                   onClose={() => setPill(null)}
                 />
               )}
-              {sel?.i === i && (
-                <FormatBar
-                  style={{
-                    left: sel.x,
-                    top: sel.y - 6,
-                    transform: "translateY(-100%)",
-                  }}
-                  actions={[
-                    {
-                      label: "B",
-                      title: "Bold (Ctrl+B)",
-                      cls: "font-bold",
-                      onClick: () => applyInline(i, "bold"),
-                    },
-                    {
-                      label: "I",
-                      title: "Italic (Ctrl+I)",
-                      cls: "italic",
-                      onClick: () => applyInline(i, "italic"),
-                    },
-                    {
-                      label: "S",
-                      title: "Strikethrough (Ctrl+Shift+S)",
-                      cls: "line-through",
-                      onClick: () => applyInline(i, "strike"),
-                    },
-                    {
-                      label: "</>",
-                      title: "Code (Ctrl+E)",
-                      cls: "font-mono !text-[10.5px]",
-                      onClick: () => applyInline(i, "code"),
-                    },
-                    {
-                      label: "🔗",
-                      title: "Link (Ctrl+K)",
-                      cls: "!text-[10.5px]",
-                      onClick: () => applyLink(i),
-                    },
-                    ...(b.id
-                      ? [{
-                        label: "💬",
-                        title: "Comment on selection",
-                        cls: "!text-[10.5px]",
-                        onClick: () => commentSel(i),
-                      }]
-                      : []),
-                  ]}
-                />
-              )}
-              {isSnippet && (
-                <CornerToolbar
-                  chip={b.text.match(/^\s*```\s*([\w+#-]*)/)?.[1] ?? ""}
-                  onChip={(l) =>
-                    set(i, {
-                      text: b.text.replace(
-                        /^(\s*```)[^\n]*/,
-                        `$1${l === "plain" ? "" : l}`,
-                      ),
-                    })}
-                  actions={[
-                    {
-                      icon: "copy",
-                      title: "Copy code",
-                      onClick: () =>
-                        navigator.clipboard?.writeText(
-                          b.text
-                            .replace(/^\s*```[^\n]*\n?/, "")
-                            .replace(/\n?\s*```\s*$/, ""),
-                        ),
-                    },
-                    {
-                      icon: "edit",
-                      title: "Edit",
-                      onClick: () => setFocusIdx(i),
-                    },
-                    {
-                      icon: "delete",
-                      title: "Delete",
-                      danger: true,
-                      onClick: () => remove(i),
-                    },
-                  ]}
-                />
-              )}
-              {isImage && (
-                <CornerToolbar
-                  actions={[
-                    {
-                      icon: "open",
-                      title: "Open full size",
-                      onClick: () => {
-                        const url = b.text.match(/\(([^)\s]+)\)\s*$/)?.[1];
-                        // the desktop webview has no window.open — route via /api/open
-                        if (url) openInBrowser(url);
-                      },
-                    },
-                    {
-                      icon: "replace",
-                      title: "Replace image",
-                      onClick: () => replaceImage(i),
-                    },
-                    {
-                      icon: "edit",
-                      title: "Edit alt / URL",
-                      onClick: () => setFocusIdx(i),
-                    },
-                    {
-                      icon: "delete",
-                      title: "Delete",
-                      danger: true,
-                      onClick: () => remove(i),
-                    },
-                  ]}
-                />
-              )}
-              {(isTable || isList) && (
-                <CornerToolbar
-                  actions={[
-                    {
-                      icon: "edit",
-                      title: "Raw markdown (edit / export)",
-                      onClick: () => setFocusIdx(i),
-                    },
-                    {
-                      icon: "delete",
-                      title: "Delete",
-                      danger: true,
-                      onClick: () => remove(i),
-                    },
-                  ]}
-                />
-              )}
+              {sel?.i === i && <SelectionBar ctx={textCtx} b={b} i={i} sel={sel} />}
+              <BlockCorners ctx={textCtx} b={b} i={i} shape={shape} />
               {b.type === "todo" && (
                 <TodoActions
                   dueOpen={dueIdx === i}
