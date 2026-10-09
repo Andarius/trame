@@ -4,7 +4,7 @@
 // the row deep-links to the forge as before.
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { openInBrowser } from "../../api";
-import { IconButton, timeAgo, EmptyState } from "../../ui";
+import { IconButton, timeAgo, EmptyState } from "../../ui/ui";
 
 type ApproveAction =
   | { kind: "gitlab-play"; project: string; jobId: number }

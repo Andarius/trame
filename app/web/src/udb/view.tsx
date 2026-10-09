@@ -4,7 +4,7 @@
 // The data half lives in view-core.ts (pure, unit-tested); it is re-exported here.
 import { useState } from "react";
 import type { UdbProp } from "../api";
-import { EntityIcon, MenuRow, Popover, Select, IconButton } from "../ui";
+import { EntityIcon, MenuRow, Popover, Select, IconButton } from "../ui/ui";
 import { TYPE_GLYPH } from "./PropertyEditor";
 import {
   CHART_AGGS,
@@ -26,7 +26,7 @@ import {
   opsFor,
   type ViewConfig,
 } from "./view-core.ts";
-import { readStore, writeStore } from "../storage";
+import { readStore, writeStore } from "../ui/storage";
 
 export * from "./view-core.ts";
 

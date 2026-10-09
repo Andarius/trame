@@ -1,0 +1,188 @@
+import { useState } from "react";
+import type { BoardData } from "../api.ts";
+import type { Sort, SortKey } from "./SessionSort";
+import {
+  ClientChip,
+  dblOpen,
+  EntityIcon,
+  matchesSessionFilter,
+  pageGlyph,
+  pagesById,
+  projectOf,
+  sessionAnchor,
+  sessionTagKeys,
+  shiftRange,
+  StatusDot,
+  statusStyle,
+  storyOf,
+  TagChips,
+  timeAgo,
+} from "../ui/ui";
+
+const GRID = "grid grid-cols-[18px_1fr_110px_280px_150px_90px] items-center gap-4";
+
+const COLS: [SortKey, string][] = [
+  ["title", "SESSION"],
+  ["status", "STATUS"],
+  ["location", "LOCATION"],
+  ["branch", "BRANCH"],
+  ["touched", "TOUCHED"],
+];
+
+export function List(
+  { board, sort, onSortChange, onOpen, onOpenFull, storyFilter, onFilterStory, noSpecs, selected, onToggleSelect, onSelectMany }: {
+    board: BoardData;
+    sort: Sort[];
+    onSortChange: (sort: Sort[]) => void;
+    onOpen: (id: string) => void;
+    onOpenFull?: (id: string) => void;
+    storyFilter?: string[] | null;
+    onFilterStory?: (id: string) => void;
+    noSpecs?: boolean;
+    selected?: Set<string>;
+    onToggleSelect?: (id: string) => void;
+    onSelectMany?: (ids: string[], on: boolean) => void;
+  },
+) {
+  const [anchorId, setAnchorId] = useState<string | null>(null); // last-clicked checkbox, for shift-ranges
+  const byId = pagesById(board.pages);
+
+  const scoped = storyFilter?.length
+    ? board.sessions.filter((s) => storyFilter.some((f) => matchesSessionFilter(s, f, byId)))
+    : board.sessions;
+  const filtered = noSpecs
+    ? scoped.filter((s) => !s.specs_page_id || !byId.has(s.specs_page_id))
+    : scoped;
+  const sessions = filtered;
+  const onSort = (key: SortKey, append: boolean) => {
+    const current = sort.find((s) => s.key === key);
+    const field: Sort = { key, dir: current ? (current.dir === 1 ? -1 : 1) : key === "touched" ? -1 : 1 };
+    onSortChange(append
+      ? current ? sort.map((s) => s.key === key ? field : s) : [...sort, field]
+      : [field]);
+  };
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-3">
+      <div className={`${GRID} px-3 pb-2.5 pt-1 text-[10px] font-medium tracking-[0.7px] text-ink-muted/75`}>
+        <input
+          type="checkbox"
+          title="Select all"
+          className="h-3.5 w-3.5 accent-[#c98a63]"
+          checked={sessions.length > 0 && sessions.every((s) => selected?.has(s.id))}
+          onChange={(e) => onSelectMany?.(sessions.map((s) => s.id), e.target.checked)}
+        />
+        {COLS.map(([k, label]) => (
+          <button type="button"
+            key={k}
+            title="Click to sort; Shift-click to add a sort field"
+            onClick={(e) => onSort(k, e.shiftKey)}
+            className={`flex items-center gap-1 tracking-[0.7px] transition-colors hover:text-ink-soft ${
+              sort.some((s) => s.key === k) ? "text-ink-soft" : ""
+            }`}
+          >
+            {label}
+            <span className="text-[7px] leading-none">{sort.some((s) => s.key === k)
+              ? `${sort.findIndex((s) => s.key === k) + 1}${sort.find((s) => s.key === k)?.dir === 1 ? "▲" : "▼"}` : ""}</span>
+          </button>
+        ))}
+      </div>
+      {sessions.map((s) => {
+        const project = board.projects.find((c) => c.id === projectOf(s, byId));
+        const story = storyOf(s, byId);
+        const anchor = sessionAnchor(s, byId);
+        // Location = Project chip › Story (clickable, subtree filter) › dim anchor tail
+        const target = story ?? anchor; // what a click filters by
+        const tail = anchor && anchor.id !== story?.id ? anchor : null;
+        const done = statusStyle(s.status).terminal;
+        return (
+          <div
+            key={s.id}
+            onClick={() => onOpen(s.id)}
+            onDoubleClick={dblOpen(() => onOpenFull?.(s.id))}
+            className={`${GRID} cursor-pointer border-b border-line-soft px-3 py-2.5 hover:bg-panel/60 ${
+              selected?.has(s.id) ? "bg-copper/[0.06]" : ""
+            }`}
+          >
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5 accent-[#c98a63]"
+              checked={selected?.has(s.id) ?? false}
+              readOnly
+              onMouseDown={(e) => e.shiftKey && e.preventDefault()} // no text selection on shift-click
+              // toggle in onClick (not onChange): change events have no shiftKey
+              onClick={(e) => {
+                e.stopPropagation();
+                const range = e.shiftKey && onSelectMany
+                  ? shiftRange(sessions.map((x) => x.id), anchorId, s.id)
+                  : null;
+                if (range) onSelectMany!(range, !(selected?.has(s.id) ?? false));
+                else onToggleSelect?.(s.id);
+                setAnchorId(s.id);
+              }}
+            />
+            <div className="flex min-w-0 flex-col gap-1">
+              <span className={`truncate text-[12.5px] font-medium ${done ? "text-ink-muted" : ""}`}>
+                {s.title}
+              </span>
+              <TagChips
+                keys={sessionTagKeys(s, byId)}
+                onClick={onFilterStory ? (key) => onFilterStory(`tag:${key}`) : undefined}
+              />
+            </div>
+            <span className="flex items-center gap-1.5 text-[11.5px]" style={{ color: statusStyle(s.status).color }}>
+              <StatusDot status={s.status} size={7} /> {statusStyle(s.status).label}
+            </span>
+            <span className="flex min-w-0 items-center gap-1.5">
+              {project && (
+                <ClientChip
+                  name={project.name}
+                  color={project.color}
+                  title={`Show only “${project.name}”`}
+                  active={storyFilter?.includes(project.id) ?? false}
+                  onClick={onFilterStory
+                    ? () => onFilterStory(project.id)
+                    : undefined}
+                />
+              )}
+              {target && (
+                <>
+                  {project && <span className="shrink-0 text-[10px] text-ink-muted/50">›</span>}
+                  {onFilterStory
+                    ? (
+                      <button type="button"
+                        onClick={(e) => {
+                          e.stopPropagation(); // filter instead of opening the row
+                          onFilterStory(target.id);
+                        }}
+                        title={`Show only “${target.title}”`}
+                        className={`flex min-w-0 items-center gap-1 truncate text-left text-[11.5px] hover:text-copper ${
+                          storyFilter?.includes(target.id) ? "text-copper" : "text-ink-muted"
+                        }`}
+                      >
+                        <EntityIcon icon={target.icon} fallback={pageGlyph(target.kind, target.mark_role)} className="shrink-0 text-[9px]" />
+                        <span className="truncate">{target.title}</span>
+                      </button>
+                    )
+                    : (
+                      <span className="flex min-w-0 items-center gap-1 truncate text-[11.5px] text-ink-muted">
+                        <EntityIcon icon={target.icon} fallback={pageGlyph(target.kind, target.mark_role)} className="shrink-0 text-[9px]" />
+                        <span className="truncate">{target.title}</span>
+                      </span>
+                    )}
+                  {tail && tail.id !== target.id && (
+                    <span className="truncate text-[11px] text-ink-muted/60" title={tail.title}>
+                      › {tail.title}
+                    </span>
+                  )}
+                </>
+              )}
+            </span>
+            <span className="truncate text-[11px] text-ink-muted">{s.branch ?? ""}</span>
+            <span className="text-[11.5px] text-ink-muted">{timeAgo(s.last_touched)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}

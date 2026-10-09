@@ -638,7 +638,7 @@ const html = (body: string, status = 200) =>
   });
 
 // Standalone editor for a .excalidraw scene — for "open in browser", where scripts
-// run (the in-app preview pre-renders static SVG instead; see web/src/excalidraw.ts).
+// run (the in-app preview pre-renders static SVG instead; see web/src/md/excalidraw.ts).
 // Edits auto-save back to the file via POST /report-file.
 function excalidrawPage(json: string, path: string): string {
   const name = path.slice(path.lastIndexOf("/") + 1).replace(/</g, "&lt;");

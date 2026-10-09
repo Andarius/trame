@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import { DateInput, EntityIcon, MenuRow, Popover, IconButton, EmptyState } from "../ui";
-import { Markdown } from "../md";
+import { DateInput, EntityIcon, MenuRow, Popover, IconButton, EmptyState } from "../ui/ui";
+import { Markdown } from "../md/md";
 import {
   type Derived,
   getStatus,

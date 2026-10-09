@@ -11,7 +11,7 @@ import {
   type UdbProp,
   updateUdbProp,
 } from "../api";
-import { appConfirm, EntityIcon, Popover, Select, IconButton } from "../ui";
+import { appConfirm, EntityIcon, Popover, Select, IconButton } from "../ui/ui";
 import { IconPicker, OPTION_COLORS } from "./cells";
 
 const TYPES: { key: PropType; label: string; glyph: string }[] = [

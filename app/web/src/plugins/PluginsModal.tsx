@@ -3,7 +3,7 @@
 // immediately; field edits are saved by the plugin's own Settings component.
 import { useEffect, useState } from "react";
 import { getPlugins, type PluginManifest, setPluginEnabled } from "../api";
-import { label } from "../modal-ui";
+import { label } from "../modals/modal-ui";
 import { FRONTEND_PLUGINS } from "./index";
 
 export function Toggle(

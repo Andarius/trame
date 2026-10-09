@@ -21,7 +21,7 @@ import {
   updateUdb,
   updateUdbProp,
 } from "../api";
-import { EmptyState, EntityIcon, numberCodec, Select, useLocalStorage } from "../ui";
+import { EmptyState, EntityIcon, numberCodec, Select, useLocalStorage } from "../ui/ui";
 import { Cell, ColumnRanges, IconPicker, TableProps } from "./cells";
 import { PropertyEditor, TYPE_GLYPH } from "./PropertyEditor";
 import { RowPanel } from "./RowPanel";

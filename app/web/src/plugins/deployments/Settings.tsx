@@ -3,7 +3,7 @@
 // resolved auth source and a live test (nothing persisted by Test).
 import { useEffect, useMemo, useState } from "react";
 import { getPluginSettings, savePluginSettings } from "../../api";
-import { Select, IconButton } from "../../ui";
+import { Select, IconButton } from "../../ui/ui";
 import { SourceChip } from "./Panel";
 
 type Forge = "github" | "gitlab";

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { deleteUdbRow, patchUdbRow, type UdbProp, type UdbRow } from "../api";
-import { appConfirm, EntityIcon, FIELD_LABEL, IconButton, EmptyState } from "../ui";
+import { appConfirm, EntityIcon, FIELD_LABEL, IconButton, EmptyState } from "../ui/ui";
 import { Cell, IconPicker } from "./cells";
 import { TYPE_GLYPH } from "./PropertyEditor";
 
