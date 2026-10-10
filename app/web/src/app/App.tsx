@@ -729,8 +729,10 @@ export function App() {
                 board={sortedBoard ?? board}
                 storyFilter={storyFilter}
                 noSpecs={noSpecs}
+                openId={openId}
                 onOpen={(id) => openSession(id)}
                 onOpenFull={(id) => openSession(id, true)}
+                onClose={() => setOpenId(null)}
               />
             </Suspense>
           )

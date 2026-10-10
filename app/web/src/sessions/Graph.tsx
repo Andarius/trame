@@ -11,9 +11,9 @@ import {
   type SimulationNodeDatum,
 } from "d3-force";
 import { select } from "d3-selection";
-import { zoom, zoomIdentity, type ZoomTransform } from "d3-zoom";
+import { zoom, zoomIdentity, zoomTransform, type ZoomTransform } from "d3-zoom";
 import type { BoardData } from "../api.ts";
-import { matchesSessionFilter, pagesById, statusStyle, timeAgo } from "../ui/ui";
+import { matchesSessionFilter, pagesById, StatusDot, statusStyle, timeAgo } from "../ui/ui";
 import { buildGraph, type GraphNode } from "./graph-model.ts";
 
 type Node = GraphNode & SimulationNodeDatum;
@@ -43,19 +43,25 @@ const hitsDot = (b: Box, n: Node) => {
 // positions survive board refreshes, so a new card doesn't reshuffle the whole graph
 const placed = new Map<string, { x: number; y: number }>();
 
+const PEEK_W = 320;
+
 export default function Graph(
-  { board, storyFilter, noSpecs, onOpen, onOpenFull }: {
+  { board, storyFilter, noSpecs, openId, onOpen, onOpenFull, onClose }: {
     board: BoardData;
     storyFilter: string[];
     noSpecs: boolean;
+    openId: string | null; // the card shown in the drawer
     onOpen: (id: string) => void;
     onOpenFull: (id: string) => void;
+    onClose: () => void;
   },
 ) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [tip, setTip] = useState<{ node: GraphNode; x: number; y: number } | null>(null);
-  const open = useRef({ onOpen, onOpenFull });
-  open.current = { onOpen, onOpenFull };
+  const [peek, setPeek] = useState<string | null>(null); // repo or project listed in the peek panel
+  const open = useRef({ onOpen, onOpenFull, onClose });
+  open.current = { onOpen, onOpenFull, onClose };
+  const focusRef = useRef<((id: string | null, dx: number) => void) | null>(null);
 
   const graph = useMemo(() => {
     const byId = pagesById(board.pages);
@@ -98,6 +104,8 @@ export default function Graph(
       .attr("stroke", LINE)
       .attr("stroke-width", (d) => (d.source.kind === "project" ? 1.3 : 0.8))
       .attr("vector-effect", "non-scaling-stroke");
+    const halo = world.append("circle").attr("fill", "none").attr("stroke", HOT).attr("stroke-width", 2)
+      .attr("vector-effect", "non-scaling-stroke").attr("pointer-events", "none").attr("opacity", 0);
     const node = world.append("g").selectAll<SVGCircleElement, Node>("circle").data(nodes).join("circle")
       .attr("r", (d) => RADIUS[d.kind])
       .attr("fill", fill)
@@ -138,12 +146,23 @@ export default function Graph(
 
     let k = 1;
     let hovered: Node | null = null;
+    let selected: Node | null = null;
+    let offset = 0;
+    // a card lights up with its repo's other cards; a repo or project with everything under it
+    const selection = (n: Node) => {
+      const set = new Set(near.get(n)!);
+      for (const d of near.get(parent.get(n) ?? n)!) set.add(d);
+      if (n.kind === "project") for (const d of near.get(n)!) for (const x of near.get(d)!) if (x.kind === "card") set.add(x);
+      return set;
+    };
+    let chosen: Set<Node> | null = null;
+    const litSet = () => (hovered ? near.get(hovered)! : chosen);
     const shown = new Map<Node, number>();
     // Places every label (cards on the side facing away from their repo), then keeps a label only
     // when it overlaps no kept label and no dot of its rank or above: busy fans thin out instead of piling up.
     const layoutLabels = () => {
       const f = 1 / Math.sqrt(k); // labels grow slower than the zoom, so zooming in spreads them
-      const lit = hovered ? near.get(hovered)! : null;
+      const lit = litSet();
       const kept: Box[] = [];
       const boxes = new Map<Node, { box: Box; x: number; y: number; anchor: string }>();
       for (const d of nodes) {
@@ -187,14 +206,17 @@ export default function Graph(
         .attr("opacity", (d) => shown.get(d) ?? 0);
     };
     const paint = () => {
-      const lit = hovered ? near.get(hovered)! : null;
+      const lit = litSet();
       const touches = (d: Link) => d.source === hovered || d.target === hovered;
       node.attr("opacity", (d) => (!lit || lit.has(d) ? 1 : 0.15));
       logo.attr("opacity", (d) => (!lit || lit.has(d) ? 1 : 0.15));
       glyph.attr("opacity", (d) => (!lit || lit.has(d) ? 1 : 0.15));
       link
         .attr("stroke", (d) => (hovered && touches(d) ? HOT : LINE))
-        .attr("opacity", (d) => (!hovered || touches(d) ? 1 : 0.08));
+        .attr("opacity", (d) =>
+          hovered ? (touches(d) ? 1 : 0.08) : !lit || (lit.has(d.source) && lit.has(d.target)) ? 1 : 0.08
+        );
+      halo.attr("opacity", selected ? 1 : 0).attr("r", selected ? RADIUS[selected.kind] + 4 : 0);
       layoutLabels();
     };
 
@@ -223,6 +245,7 @@ export default function Graph(
       node.attr("cx", (d) => d.x!).attr("cy", (d) => d.y!);
       logo.attr("x", (d) => d.x! - RADIUS.project + 2).attr("y", (d) => d.y! - RADIUS.project + 2);
       glyph.attr("x", (d) => d.x!).attr("y", (d) => d.y!);
+      if (selected) halo.attr("cx", selected.x!).attr("cy", selected.y!);
       layoutLabels();
       for (const n of nodes) placed.set(n.id, { x: n.x!, y: n.y! });
     };
@@ -255,7 +278,7 @@ export default function Graph(
         paint();
         setTip(null);
       })
-      .on("click", (_e: MouseEvent, d) => d.kind === "card" && open.current.onOpen(d.sessionId))
+      .on("click", (_e: MouseEvent, d) => (d.kind === "card" ? open.current.onOpen(d.sessionId) : setPeek(d.id)))
       .on("dblclick", (_e: MouseEvent, d) => d.kind === "card" && open.current.onOpenFull(d.sessionId));
     node.call(
       drag<SVGCircleElement, Node>()
@@ -273,11 +296,77 @@ export default function Graph(
           d.fx = d.fy = null;
         }),
     );
+    svg.on("click", (e: MouseEvent) => {
+      if (e.target !== el) return;
+      setPeek(null);
+      open.current.onClose();
+    });
+
+    // glide so the selection sits in the middle of what the drawer and peek panel leave visible
+    let glide = 0;
+    const flyTo = (n: Node, ms = 500) => {
+      cancelAnimationFrame(glide);
+      const { width, height } = el.getBoundingClientRect();
+      const from = zoomTransform(el);
+      const to = { k: Math.max(from.k, n.kind === "card" ? 1.6 : 1.2), x: 0, y: 0 };
+      to.x = width / 2 + offset - n.x! * to.k;
+      to.y = height / 2 - n.y! * to.k;
+      const start = performance.now();
+      const step = (now: number) => {
+        const t = matchMedia("(prefers-reduced-motion: reduce)").matches ? 1 : Math.min(1, (now - start) / ms);
+        const e = t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+        const lerp = (a: number, b: number) => a + (b - a) * e;
+        svg.call(zoomer.transform, zoomIdentity.translate(lerp(from.x, to.x), lerp(from.y, to.y)).scale(lerp(from.k, to.k)));
+        if (t < 1) glide = requestAnimationFrame(step);
+      };
+      glide = requestAnimationFrame(step);
+    };
+    focusRef.current = (id, dx) => {
+      selected = id ? byId.get(id) ?? null : null;
+      chosen = selected && selection(selected);
+      offset = dx;
+      if (selected) halo.attr("cx", selected.x!).attr("cy", selected.y!);
+      paint();
+      if (selected) flyTo(selected);
+    };
+    // the drawer opening narrows the graph: keep the selection in view
+    let lastW = width;
+    const ro = new ResizeObserver(() => {
+      const w = el.getBoundingClientRect().width;
+      if (w !== lastW && selected) flyTo(selected, 250);
+      lastW = w;
+    });
+    ro.observe(el);
     return () => {
       sim.stop();
+      cancelAnimationFrame(glide);
+      ro.disconnect();
+      focusRef.current = null;
       setTip(null);
     };
   }, [shape]); // `shape` stands in for `graph`
+
+  const focus = openId ? `card:${openId}` : peek;
+  useEffect(() => focusRef.current?.(focus, peek ? -PEEK_W / 2 : 0), [focus, peek, shape]);
+  useEffect(() => {
+    if (!peek || openId) return; // the drawer handles its own Escape first
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setPeek(null);
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  }, [peek, openId]);
+
+  const peeked = peek ? graph.nodes.find((x) => x.id === peek) : undefined;
+  const below = (id: string): GraphNode[] =>
+    graph.links.filter((l) => l.source === id).flatMap((l) => {
+      const t = graph.nodes.find((x) => x.id === l.target)!;
+      return t.kind === "card" ? [t] : below(t.id);
+    });
+  const peekCards = peeked
+    ? below(peeked.id).flatMap((c) => (c.kind === "card" ? [c] : [])).sort((a, b) => b.touched.localeCompare(a.touched))
+    : [];
+  const peekProjects = peeked?.kind === "repo"
+    ? graph.links.filter((l) => l.target === peeked.id).map((l) => graph.nodes.find((x) => x.id === l.source)!.label)
+    : [];
 
   const n = tip?.node;
   return (
@@ -288,10 +377,69 @@ export default function Graph(
           No open cards match these filters.
         </div>
       )}
-      <div className="pointer-events-none absolute bottom-3 left-4 flex gap-4 text-[11px] text-ink-muted">
-        <span>Projects link to their repos, cards hang off their repo.</span>
-        <span>Scroll to zoom, drag to move, click a card to open it.</span>
-      </div>
+      {!peeked && (
+        <div className="pointer-events-none absolute bottom-3 left-4 flex gap-4 text-[11px] text-ink-muted">
+          <span>Projects link to their repos, cards hang off their repo.</span>
+          <span>Scroll to zoom, drag to move. Click a card to open it, a repo or project to list its cards.</span>
+        </div>
+      )}
+      {peeked && peeked.kind !== "card" && (
+        <aside
+          className="absolute bottom-0 right-0 top-0 flex flex-col gap-3 overflow-y-auto border-l border-line bg-sidebar px-4 py-4 shadow-[-16px_0_40px_rgba(0,0,0,0.35)]"
+          style={{ width: PEEK_W }}
+          aria-label={`Cards in ${peeked.label}`}
+        >
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <div className={`truncate text-[15px] font-semibold ${peeked.kind === "repo" ? "text-chart-7" : "text-ink"}`}>
+                {peeked.kind === "repo" ? `#${peeked.label}` : peeked.label}
+              </div>
+              <div className="text-xs text-ink-muted">
+                {peekCards.length} open card{peekCards.length === 1 ? "" : "s"}
+                {peekProjects.length > 0 && ` · in ${peekProjects.join(", ")}`}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPeek(null)}
+              aria-label="Close"
+              className="rounded-md px-1.5 text-base leading-none text-ink-muted hover:bg-hover hover:text-ink"
+            >
+              ×
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {board.statuses.filter((st) => !st.terminal).map((st) => {
+              const count = peekCards.filter((c) => c.kind === "card" && c.status === st.key).length;
+              return count > 0 && (
+                <span key={st.key} className="flex items-center gap-1.5 rounded-full border border-chipline px-2 py-px text-[11px] text-ink-soft">
+                  <StatusDot status={st.key} size={7} />
+                  {count} {st.label.toLowerCase()}
+                </span>
+              );
+            })}
+          </div>
+          <div className="flex flex-col">
+            {peekCards.map((c) =>
+              c.kind === "card" && (
+                <button
+                  type="button"
+                  key={c.id}
+                  onClick={() => onOpen(c.sessionId)}
+                  onDoubleClick={() => onOpenFull(c.sessionId)}
+                  className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] ${
+                    c.sessionId === openId ? "bg-active-row text-ink" : "text-ink-soft hover:bg-hover hover:text-ink"
+                  }`}
+                >
+                  <StatusDot status={c.status} size={7} />
+                  <span className="min-w-0 flex-1 truncate">{c.label}</span>
+                  <span className="shrink-0 text-[11px] text-ink-faint">{timeAgo(c.touched)}</span>
+                </button>
+              )
+            )}
+          </div>
+        </aside>
+      )}
       {n && (
         <div
           className="pointer-events-none absolute z-10 max-w-[280px] rounded-md border border-overlay-border bg-panel-modal px-2.5 py-1.5 text-xs text-ink shadow-lg"
