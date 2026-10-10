@@ -96,6 +96,38 @@ Deno.test("another project's same-titled story is not absorbed", async () => {
   assert(page_id && page_id !== theirStory, "B gets its own story, A's is off-limits");
 });
 
+// regression: a track with no project minted root stories that the sidebar listed as projects
+Deno.test("a track with no project files its story and card under a project", async (t) => {
+  const home = await resolveClient(APP_CTX, "Proj Home");
+  await upsertSession(APP_CTX, { title: "home repo", status: "active", client_id: home, repo_path: "/tmp/repo-home" });
+  const other = await resolveClient(APP_CTX, "Proj Other");
+  const theirs = await createPage(APP_CTX, { title: "Shared topic", kind: "story", parent_id: other, client_id: other });
+  const pg = await db();
+  for (
+    const [id, extra, story, parent, client] of [
+      ["new story goes to the repo's home project", {}, "Fresh home topic", home, home],
+      ["a story elsewhere is reused, card follows it", {}, "Shared topic", other, other],
+      ["explicit null project opts out", { client_id: null }, "Rootless topic", null, null],
+    ] as const
+  ) {
+    await t.step(id, async () => {
+      const sid = await upsertSession(APP_CTX, {
+        title: `home — ${story}`,
+        repo_path: "/tmp/repo-home/wt",
+        branch: id.replaceAll(" ", "-"),
+        story,
+        ...extra,
+      });
+      const row = (await pg.query(
+        `select s.client_id, p.parent_id, p.id as page from sessions s join pages p on p.id = s.page_id where s.id=$1`,
+        [sid],
+      )).rows[0] as { client_id: string | null; parent_id: string | null; page: string };
+      assertEquals([row.parent_id, row.client_id], [parent, client]);
+      if (story === "Shared topic") assertEquals(row.page, theirs);
+    });
+  }
+});
+
 Deno.test("spelling drift resolves to the same story", async () => {
   const clientId = await resolveClient(APP_CTX, "Proj Drift");
   const first = await resolveStory(APP_CTX, "Ship the Feature", clientId);
