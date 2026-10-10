@@ -23,6 +23,7 @@ const TITLES = [
   "Editor list inline e2e",
   "Editor table width e2e",
   "Editor file link e2e",
+  "Editor html height e2e",
 ];
 
 // retry-safe: wipe our fixture pages so a re-run starts clean
@@ -320,6 +321,19 @@ test("Ctrl+Z undoes a block delete and a typed run", async ({ page, request }) =
   await expect.poll(texts).toEqual(["alphaXYZ", "", "gamma"]);
   await page.keyboard.press("Control+z");
   await expect.poll(texts).toEqual(["alpha", "", "gamma"]);
+});
+
+test("an html doc sized to its frame keeps a steady height", async ({ page, request }) => {
+  const id = await newPage(request, "Editor html height e2e", [
+    { id: "h-h", type: "html", html: "<!doctype html><style>html,body{height:100%;margin:0}</style><body>app" },
+  ]);
+  await page.goto(`/?view=page&page=${id}`);
+  const frame = page.locator("iframe");
+  await expect(frame).toBeVisible();
+  const height = () => frame.evaluate((f) => f.getBoundingClientRect().height);
+  const first = await height();
+  await page.waitForTimeout(1000);
+  expect(await height()).toBe(first);
 });
 
 test("a page opening on an html block stays writable around it", async ({ page, request }) => {

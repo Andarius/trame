@@ -47,7 +47,10 @@ export function HtmlBlock(
       const m = e.data as { trame?: unknown; height?: unknown; data?: unknown };
       if (!m || typeof m !== "object") return;
       if (m.trame === "height" && typeof m.height === "number") {
-        setAutoH(Math.min(Math.max(Math.ceil(m.height) + 2, 48), 3000));
+        const h = Math.ceil(m.height);
+        // a doc sized to its frame (height: 100%, 100vh) reports the frame's own height: growing it would loop
+        if (h <= frame.current.clientHeight) return;
+        setAutoH(Math.min(Math.max(h + 2, 48), 3000));
       } else if (m.trame === "data") {
         let s: string | undefined;
         try {
