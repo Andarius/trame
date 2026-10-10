@@ -326,7 +326,7 @@ test("Ctrl+Z undoes a block delete and a typed run", async ({ page, request }) =
 
 test("an html doc sized to its frame keeps a steady height", async ({ page, request }) => {
   const id = await newPage(request, "Editor html height e2e", [
-    { id: "h-h", type: "html", html: "<!doctype html><style>html,body{height:100%;margin:0}</style><body>app" },
+    { id: "h-h", type: "html", html: "<!doctype html><style>body{height:100vh;margin:0}</style><body>app" },
   ]);
   await page.goto(`/?view=page&page=${id}`);
   const frame = page.locator("iframe");
