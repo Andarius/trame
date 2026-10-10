@@ -8,6 +8,7 @@ export type GraphNode =
     kind: "project";
     label: string;
     color: string | null;
+    icon: string | null;
     cards: number;
   }
   | { id: string; kind: "repo"; label: string; cards: number }
@@ -55,6 +56,7 @@ export function buildGraph(
         kind: "project",
         label: project?.name ?? "No project",
         color: project?.color ?? null,
+        icon: project?.icon ?? null,
         cards: 0,
       });
     }
