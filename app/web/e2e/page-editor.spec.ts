@@ -24,6 +24,7 @@ const TITLES = [
   "Editor table width e2e",
   "Editor file link e2e",
   "Editor html height e2e",
+  "Editor html wide e2e",
 ];
 
 // retry-safe: wipe our fixture pages so a re-run starts clean
@@ -334,6 +335,24 @@ test("an html doc sized to its frame keeps a steady height", async ({ page, requ
   const first = await height();
   await page.waitForTimeout(1000);
   expect(await height()).toBe(first);
+});
+
+test("an html block can break out of the text column", async ({ page, request }) => {
+  const id = await newPage(request, "Editor html wide e2e", [
+    { id: "w-h", type: "html", html: "<!doctype html><title>Wide</title><body>doc" },
+  ]);
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.goto(`/?view=page&page=${id}`);
+  const block = page.locator("div.group\\/html");
+  const width = async () => (await block.boundingBox())!.width;
+  const narrow = await width();
+  await block.getByRole("button", { name: "wide", exact: true }).click();
+  await expect.poll(width).toBeGreaterThan(narrow + 200);
+  const saved = async () =>
+    ((await (await request.get(`/api/pages/${id}`)).json()) as { content: { wide?: boolean }[] }).content[0].wide;
+  await expect.poll(saved).toBe(true);
+  await page.reload();
+  await expect.poll(width).toBeGreaterThan(narrow + 200);
 });
 
 test("a page opening on an html block stays writable around it", async ({ page, request }) => {

@@ -126,7 +126,10 @@ export function HtmlBlock(
     <div
       className={full
         ? "fixed inset-0 z-50 flex flex-col bg-block"
-        : "group/html my-1 overflow-hidden rounded-lg border border-line bg-block"}
+        : `group/html my-1 overflow-hidden rounded-lg border border-line bg-block ${
+          // not when full: the transform would anchor `fixed` to this box
+          block.wide ? "relative left-1/2 w-[min(1400px,100cqw_-_4rem)] -translate-x-1/2" : ""
+        }`}
     >
       <div className="flex shrink-0 items-center gap-2 border-b border-line-soft px-3 py-2">
         <span className="shrink-0 font-mono text-[11px] font-semibold text-copper">
@@ -159,6 +162,19 @@ export function HtmlBlock(
             className="shrink-0 rounded-md border border-chipline bg-panel px-2 py-[2px] text-[11px] font-medium text-ink-soft hover:border-copper hover:text-copper"
           >
             auto
+          </button>
+        )}
+        {!full && (
+          <button
+            type="button"
+            onClick={() => onPatch({ wide: block.wide ? undefined : true })}
+            title={block.wide ? "back to the text column" : "use the page's full width"}
+            aria-pressed={!!block.wide}
+            className={`shrink-0 rounded-md border bg-panel px-2 py-[2px] text-[11px] font-medium hover:border-copper hover:text-copper ${
+              block.wide ? "border-copper/50 text-copper" : "border-chipline text-ink-soft"
+            }`}
+          >
+            wide
           </button>
         )}
         <button

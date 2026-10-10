@@ -159,7 +159,10 @@ function HtmlFrame({ b }: { b: LinkBlock }) {
     const onMsg = (e: MessageEvent) => {
       if (frame.current?.contentWindow !== e.source) return;
       if (e.data?.trame === "height" && typeof e.data.height === "number") {
-        setHeight(Math.min(Math.ceil(e.data.height) + 2, 4000));
+        const h = Math.ceil(e.data.height);
+        // a doc sized to its frame (height: 100%, 100vh) reports the frame's own height: growing it would loop
+        if (h <= frame.current.clientHeight) return;
+        setHeight(Math.min(h + 2, 4000));
       }
     };
     addEventListener("message", onMsg);

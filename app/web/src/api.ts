@@ -571,6 +571,7 @@ export type Block =
     html: string;
     data?: unknown;
     height?: number;
+    wide?: boolean; // breaks out of the text column to the pane's width
     id?: string;
   };
 export type FolderEntry = {
