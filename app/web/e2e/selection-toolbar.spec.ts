@@ -9,6 +9,7 @@ const TITLES = [
   "Selection format e2e",
   "Selection shortcut e2e",
   "Selection comment e2e",
+  "Selection list comment e2e",
 ];
 
 // retry-safe: wipe our fixture pages so a re-run starts clean
@@ -118,4 +119,25 @@ test("selecting rendered text offers a comment anchored to the selection", async
       anchor: "pick out this fragment for review",
       body: "tighten this wording",
     }]);
+});
+
+test("drag-selecting inside a list item keeps it rendered and offers a comment", async ({ page, request }) => {
+  const id = await newPage(
+    request,
+    "Selection list comment e2e",
+    "- first item\n- msgspec migration fixed: convert rows instead of records",
+    "blk-list",
+  );
+  await page.goto(`/?view=page&page=${id}`);
+  const item = page.locator('[data-block-id="blk-list"] li', { hasText: "msgspec migration" });
+  const box = (await item.boundingBox())!;
+  await page.mouse.move(box.x + 30, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 220, box.y + box.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await expect(page.locator('[data-block-id="blk-list"] li textarea')).toHaveCount(0);
+  await expect(page.getByTitle("Comment on selection")).toBeVisible();
+  // a plain click still opens the line editor
+  await page.mouse.click(box.x + 60, box.y + box.height / 2);
+  await expect(page.locator('[data-block-id="blk-list"] li textarea')).toHaveCount(1);
 });

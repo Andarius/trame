@@ -9,6 +9,7 @@ import {
   Fragment,
   type ReactNode,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import { HL_ALIAS, highlightCode } from "./md-highlight";
@@ -55,6 +56,7 @@ function EditableItem(
 ) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(raw);
+  const pressed = useRef<{ x: number; y: number } | null>(null);
   // list items are index-keyed, so a split reuses a neighbor's instance for the
   // fresh item — open the editor on the prop flip, not just on mount
   useEffect(() => {
@@ -72,9 +74,13 @@ function EditableItem(
       <span
         data-item-edit=""
         className="min-w-0 cursor-text"
+        onMouseDown={(e) => (pressed.current = { x: e.clientX, y: e.clientY })}
         onClick={(e) => {
           if ((e.target as HTMLElement).closest("a,img,button")) return;
           e.stopPropagation();
+          // a drag-select ends in a click: leave the text rendered so it can be commented
+          const p = pressed.current;
+          if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 4) return;
           setVal(raw);
           setEditing(true);
         }}
