@@ -23,6 +23,8 @@ const TITLES = [
   "Editor list inline e2e",
   "Editor table width e2e",
   "Editor file link e2e",
+  "Editor html height e2e",
+  "Editor html wide e2e",
 ];
 
 // retry-safe: wipe our fixture pages so a re-run starts clean
@@ -320,6 +322,55 @@ test("Ctrl+Z undoes a block delete and a typed run", async ({ page, request }) =
   await expect.poll(texts).toEqual(["alphaXYZ", "", "gamma"]);
   await page.keyboard.press("Control+z");
   await expect.poll(texts).toEqual(["alpha", "", "gamma"]);
+});
+
+test("an html doc sized to its frame keeps a steady height", async ({ page, request }) => {
+  const id = await newPage(request, "Editor html height e2e", [
+    { id: "h-h", type: "html", html: "<!doctype html><style>body{height:100vh;margin:0}</style><body>app" },
+  ]);
+  await page.goto(`/?view=page&page=${id}`);
+  const frame = page.locator("iframe");
+  await expect(frame).toBeVisible();
+  const height = () => frame.evaluate((f) => f.getBoundingClientRect().height);
+  const first = await height();
+  await page.waitForTimeout(1000);
+  expect(await height()).toBe(first);
+});
+
+test("an html block can break out of the text column", async ({ page, request }) => {
+  const id = await newPage(request, "Editor html wide e2e", [
+    { id: "w-h", type: "html", html: "<!doctype html><title>Wide</title><body>doc" },
+  ]);
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.goto(`/?view=page&page=${id}`);
+  const block = page.locator("div.group\\/html");
+  const width = async () => (await block.boundingBox())!.width;
+  const narrow = await width();
+  await block.getByRole("button", { name: "wide", exact: true }).click();
+  await expect.poll(width).toBeGreaterThan(narrow + 200);
+  const saved = async () =>
+    ((await (await request.get(`/api/pages/${id}`)).json()) as { content: { wide?: boolean }[] }).content[0].wide;
+  await expect.poll(saved).toBe(true);
+  await page.reload();
+  await expect.poll(width).toBeGreaterThan(narrow + 200);
+
+  // the right-edge grip sets an exact width; double-click returns to the column
+  const grip = block.getByTitle(/drag to set width/);
+  await block.getByRole("button", { name: "wide", exact: true }).click();
+  await expect.poll(width).toBeLessThan(narrow + 2);
+  const g = (await grip.boundingBox())!;
+  await page.mouse.move(g.x + 3, g.y + g.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(g.x + 103, g.y + g.height / 2, { steps: 5 });
+  await page.mouse.up();
+  const savedW = async () =>
+    ((await (await request.get(`/api/pages/${id}`)).json()) as { content: { width?: number }[] }).content[0].width;
+  await expect.poll(savedW).toBeGreaterThan(narrow + 150);
+  await page.reload();
+  await expect.poll(width).toBeGreaterThan(narrow + 150);
+  await grip.dblclick();
+  await expect.poll(savedW).toBeUndefined();
+  await expect.poll(width).toBeLessThan(narrow + 2);
 });
 
 test("a page opening on an html block stays writable around it", async ({ page, request }) => {

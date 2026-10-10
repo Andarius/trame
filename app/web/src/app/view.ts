@@ -1,6 +1,7 @@
 export type View =
   | "board"
   | "list"
+  | "graph"
   | "agents"
   | "explore"
   | "database"

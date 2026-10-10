@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   applyUpdate,
   type AppStatus,
@@ -51,6 +51,8 @@ import { FRONTEND_PLUGINS } from "../plugins";
 import { PluginsModal } from "../plugins/PluginsModal";
 import { PluginSettingsModal } from "../plugins/PluginSettingsModal";
 import { DatabaseView } from "../udb/DatabaseTable";
+// d3-force/zoom only load when the graph tab opens
+const Graph = lazy(() => import("../sessions/Graph"));
 
 const post = (path: string, body: unknown) =>
   fetch(path, {
@@ -501,7 +503,7 @@ export function App() {
     return out;
   }, [currentPage, pages]);
 
-  const isSessions = view === "board" || view === "list";
+  const isSessions = view === "board" || view === "list" || view === "graph";
   const currentClient = view === "client"
     ? board?.projects.find((c) => c.id === clientId) ?? null
     : null;
@@ -587,7 +589,7 @@ export function App() {
             />
             {isSessions && (
               <div className="flex rounded-[7px] bg-panel p-[3px]">
-                {(["board", "list"] as const).map((v) => (
+                {(["board", "list", "graph"] as const).map((v) => (
                   <button
                     type="button"
                     key={v}
@@ -719,6 +721,20 @@ export function App() {
               onToggleSelect={toggleSelected}
               onSelectMany={selectMany}
             />
+          )
+          : view === "graph"
+          ? (
+            <Suspense fallback={<EmptyState page>Loading…</EmptyState>}>
+              <Graph
+                board={sortedBoard ?? board}
+                storyFilter={storyFilter}
+                noSpecs={noSpecs}
+                openId={openId}
+                onOpen={(id) => openSession(id)}
+                onOpenFull={(id) => openSession(id, true)}
+                onClose={() => setOpenId(null)}
+              />
+            </Suspense>
           )
           : view === "page"
           ? (pageId

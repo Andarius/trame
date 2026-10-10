@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { splitTagLabel, TAG_COLORS, tagKey } from "../../../../core/tags.ts";
 import { ensureTag, listTags, type Tag, updateTag } from "../api";
 import { MenuRow, Popover } from "./ui";
@@ -29,6 +29,7 @@ export function TagEditor(
   const [open, setOpen] = useState(false);
   const [known, setKnown] = useState<Tag[]>([]);
   const [query, setQuery] = useState("");
+  const [cursor, setCursor] = useState(0); // keyboard-highlighted row: matches, then "Create"
   const [busy, setBusy] = useState(false);
   // which half of which chip has its swatches open
   const [picking, setPicking] = useState<{ key: string; ns: boolean } | null>(
@@ -58,6 +59,12 @@ export function TagEditor(
   // never end up indistinguishable in the picker.
   const canCreate = trimmed.length > 1 &&
     !known.some((t) => t.label.toLowerCase() === trimmed.toLowerCase());
+  const options = [...matches.map((t) => t.label), ...(canCreate ? [trimmed] : [])];
+  const at = Math.min(cursor, options.length - 1);
+  const list = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    list.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+  }, [at, open]);
 
   const add = async (label: string) => {
     setBusy(true);
@@ -182,20 +189,32 @@ export function TagEditor(
             <input
               autoFocus
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setCursor(0);
+              }}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && canCreate && !busy) add(trimmed);
+                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                  e.preventDefault();
+                  if (options.length) setCursor((at + (e.key === "ArrowDown" ? 1 : -1) + options.length) % options.length);
+                } else if (e.key === "Enter" && at >= 0 && !busy) {
+                  e.preventDefault();
+                  add(options[at]);
+                }
               }}
               placeholder="Find or create a tag…"
               className="mb-1 w-full rounded-md border border-line bg-panel px-2 py-1 text-[11.5px] text-ink outline-none focus:border-chipline"
             />
-            <div className="max-h-48 overflow-y-auto">
-              {matches.map((t) => (
+            <div ref={list} className="max-h-48 overflow-y-auto">
+              {matches.map((t, i) => (
                 <MenuRow dense
                   key={t.id}
                   disabled={busy}
+                  active={i === at}
+                  aria-selected={i === at}
+                  onMouseEnter={() => setCursor(i)}
                   onClick={() => add(t.label)}
-                  className="gap-1.5 rounded px-1.5 text-[11.5px] disabled:opacity-50"
+                  className={`gap-1.5 rounded px-1.5 text-[11.5px] disabled:opacity-50 ${i === at ? "bg-panel" : ""}`}
                 >
                   <span
                     className="h-2 w-2 shrink-0 rounded-full"
@@ -207,8 +226,13 @@ export function TagEditor(
               {canCreate && (
                 <MenuRow dense
                   disabled={busy}
+                  active={at === matches.length}
+                  aria-selected={at === matches.length}
+                  onMouseEnter={() => setCursor(matches.length)}
                   onClick={() => add(trimmed)}
-                  className="gap-1.5 rounded px-1.5 text-[11.5px] text-ink-muted disabled:opacity-50"
+                  className={`gap-1.5 rounded px-1.5 text-[11.5px] text-ink-muted disabled:opacity-50 ${
+                    at === matches.length ? "bg-panel" : ""
+                  }`}
                 >
                   ＋ Create “{trimmed}”
                 </MenuRow>

@@ -72,3 +72,32 @@ test("invalid session tags return 400 without changing the card", async ({ reque
   expect(session.title).toBe("Keep me");
   expect(session.tags).toEqual(["priority-p1"]);
 });
+
+test("the tag picker takes Enter for the first match and arrows to move", async ({ page, request }) => {
+  const id = crypto.randomUUID();
+  const [a, b] = [`kbd-alpha:${id.slice(0, 8)}`, `kbd-beta:${id.slice(0, 8)}`];
+  const keys = [] as string[];
+  for (const label of [a, b]) keys.push(((await (await request.post("/api/tags", { data: { label } })).json()) as { key: string }).key);
+  expect((await request.post("/api/sessions", { data: { id, title: `Kbd tags ${id}`, no_event: true } })).ok()).toBeTruthy();
+  const tagsOf = async () => ((await (await request.get(`/api/sessions/${id}`)).json()) as { tags: string[] }).tags;
+
+  await page.goto(`/?session=${id}`);
+  const tags = page.getByRole("group", { name: "Session tags" });
+  // Enter takes the first match
+  await tags.getByTitle("add a tag").click();
+  await tags.getByPlaceholder("Find or create a tag…").fill(`kbd-alpha:${id.slice(0, 8)}`);
+  await page.keyboard.press("Enter");
+  await expect.poll(tagsOf).toEqual([keys[0]]);
+  // arrows move the highlight; Enter takes it, here the "Create" row after the one match
+  await tags.getByTitle("add a tag").click();
+  await tags.getByPlaceholder("Find or create a tag…").fill(`kbd-be`);
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect.poll(tagsOf).toEqual([keys[0], "kbd-be"]);
+  await tags.getByTitle("add a tag").click();
+  await tags.getByPlaceholder("Find or create a tag…").fill(`kbd-be`);
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("Enter");
+  await expect.poll(tagsOf).toEqual([keys[0], "kbd-be", keys[1]]);
+});
