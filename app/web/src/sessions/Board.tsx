@@ -13,8 +13,10 @@ import { useRef, useState } from "react";
 import type { BoardData, Session, Status } from "../api.ts";
 import {
   ClientChip,
+  daysSince,
   dblOpen,
   EntityIcon,
+  IDLE_DAYS,
   matchesSessionFilter,
   ObjectiveChip,
   pageGlyph,
@@ -23,6 +25,7 @@ import {
   sessionAnchor,
   sessionTagKeys,
   shiftRange,
+  shortAge,
   StatusDot,
   statusStyle,
   storyOf,
@@ -47,6 +50,15 @@ function TicketBody(
   // the chip shows the derived story; a story-less session shows its anchor page instead
   const chipPage = storyOf(s, byId) ?? sessionAnchor(s, byId);
   const done = statusStyle(s.status).terminal;
+  const idle = !done && !overlay && daysSince(s.last_touched) > IDLE_DAYS;
+  const age = (
+    <span
+      className={`shrink-0 text-[10.5px] tabular-nums ${idle ? "text-paused" : "text-ink-faint"}`}
+      title={`touched ${new Date(s.last_touched).toLocaleString()}`}
+    >
+      {shortAge(s.last_touched)}
+    </span>
+  );
   const badges = FRONTEND_PLUGINS.map((p) => p.CardBadge && <p.CardBadge key={p.id} sessionId={s.id} />);
   // one line: story icon, title, badges — the rest is a click away in the drawer
   if (dense) {
@@ -54,14 +66,15 @@ function TicketBody(
     return (
       <div
         className={`flex flex-col gap-1 rounded-md border bg-card px-2 py-1 ${
-          overlay ? "border-copper/60 shadow-xl shadow-black/40" : "border-line"
+          overlay ? "border-copper/60 shadow-xl shadow-black/40" : idle ? "border-dashed border-chipline" : "border-line"
         } ${done && !overlay ? "opacity-60" : ""}`}
       >
         <div className="flex items-center gap-1.5 text-[12px]">
-          <span className="min-w-0 flex-1 truncate" title={s.title}>{s.title}</span>
+          <span className={`min-w-0 flex-1 truncate ${idle ? "text-ink-muted" : ""}`} title={s.title}>{s.title}</span>
           <span className="flex shrink-0 items-center gap-1">
             {badges}
             {!done && !overlay && <StaleChip sessionId={s.id} prUrl={s.pr_url} short />}
+            {age}
           </span>
         </div>
         {((showObjective && chipPage) || tags.length > 0 || s.branch) && (
@@ -86,10 +99,10 @@ function TicketBody(
   return (
     <div
       className={`flex flex-col gap-1.5 rounded-lg border bg-card px-2.5 py-2 ${
-        overlay ? "border-copper/60 shadow-xl shadow-black/40" : "border-line"
+        overlay ? "border-copper/60 shadow-xl shadow-black/40" : idle ? "border-dashed border-chipline" : "border-line"
       } ${done && !overlay ? "opacity-60" : ""}`}
     >
-      <div className="text-[12.5px] font-medium leading-snug">
+      <div className={`text-[12.5px] leading-snug ${idle ? "text-ink-muted" : "font-medium"}`}>
         <span className="float-right ml-1.5 mt-px">
           {badges}
         </span>
@@ -120,6 +133,7 @@ function TicketBody(
         )}
         {s.branch && <span className="text-[10.5px] text-ink-muted">{s.branch}</span>}
         {!done && !overlay && <StaleChip sessionId={s.id} prUrl={s.pr_url} />}
+        <span className="ml-auto">{age}</span>
       </div>
       {s.next_step && !done && (
         <div className="text-[11px] leading-snug text-ink-soft">→ {s.next_step}</div>

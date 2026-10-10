@@ -113,6 +113,19 @@ export function timeAgo(iso: string): string {
   return `${(d / 7) | 0}w ago`;
 }
 
+// an open card untouched for longer reads as idle: faded on the board, ringed on the graph
+export const IDLE_DAYS = 14;
+export const daysSince = (iso: string) => (Date.now() - new Date(iso).getTime()) / 86_400_000;
+
+// compact age for a card's meta row: now, 5h, 3d, 6w
+export function shortAge(iso: string): string {
+  const d = daysSince(iso);
+  if (d * 24 < 1) return "now";
+  if (d < 1) return `${(d * 24) | 0}h`;
+  if (d < IDLE_DAYS) return `${d | 0}d`;
+  return `${(d / 7) | 0}w`;
+}
+
 // uuidv7 ids embed their creation time (first 48 bits = unix ms); null for other versions
 export function uuid7Time(id: string): Date | null {
   if (id[14] !== "7") return null;
