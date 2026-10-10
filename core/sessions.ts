@@ -378,6 +378,13 @@ export async function upsertSession(ctx: Ctx, s: Record<string, unknown>, out?: 
   if (s.claude_id && !s.agent) s.agent = "claude";
   // Accept human names (from the CLI/MCP) and resolve them to ids.
   if (typeof s.client === "string" && !s.client_id) s.client_id = await resolveClient(ctx, s.client);
+  // no project named (explicit null opts out): new stories and story cards file under the repo's project
+  const projectOmitted = s.client_id === undefined;
+  let home: Promise<string | null> | undefined;
+  const homeProject = () =>
+    projectOmitted && typeof s.repo_path === "string"
+      ? home ??= resolveHomeProject(ctx, s.repo_path)
+      : Promise.resolve(null);
   // One agent session + story = one card, whatever the branch or repo: new branches and
   // PRs attach to it. Without a story, the session's open card on this branch (or an
   // unbranched import) is the match. A done card is never resurrected.
@@ -446,13 +453,11 @@ export async function upsertSession(ctx: Ctx, s: Record<string, unknown>, out?: 
       : undefined;
     if (!cur?.page_id) {
       const tags = typeof s.repo_path === "string" ? (ctx.defaultTags?.(s.repo_path) ?? []) : [];
-      s.page_id = await resolveStory(ctx, s.story, (s.client_id as string) ?? null, tags, out);
+      const clientId = (s.client_id as string) ?? null;
+      // no project named: reuse a matching story from any project before minting one at home
+      const reused = clientId ? null : await matchStory(ctx, s.story, null, out);
+      s.page_id = reused ?? await resolveStory(ctx, s.story, clientId ?? await homeProject(), tags, out);
     }
-  }
-  // project = a page that has sessions: attaching promotes a plain page (one-way)
-  if (s.page_id) {
-    s.page_id = await storyAbove(ctx, s.page_id as string) ?? s.page_id;
-    await promoteToProject(ctx, s.page_id as string, (s.client_id as string) ?? null);
   }
   const id = (s.id as string) ?? crypto.randomUUID();
   // A matched card accumulates branches and PRs; an explicit id (the drawer) sets pr_url
@@ -463,6 +468,13 @@ export async function upsertSession(ctx: Ctx, s: Record<string, unknown>, out?: 
     : undefined;
   // a partial write (track --card) keeps what it omits; an explicit null still clears
   if (cur) for (const k of KEPT) if (s[k] === undefined) s[k] = cur[k];
+  if (s.page_id) s.page_id = await storyAbove(ctx, s.page_id as string) ?? s.page_id;
+  // a project-less card on a story takes the story's project, else the repo's home project
+  if (projectOmitted && !s.client_id && s.page_id) {
+    s.client_id = await projectAbove(ctx, s.page_id as string) ?? await homeProject();
+  }
+  // project = a page that has sessions: attaching promotes a plain page (one-way)
+  if (s.page_id) await promoteToProject(ctx, s.page_id as string, (s.client_id as string) ?? null);
   if (cur && !explicitId) {
     s.branch ??= cur.branch;
     s.pr_url = mergeLines(cur.pr_url, s.pr_url) || null;

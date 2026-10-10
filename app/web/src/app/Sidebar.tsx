@@ -226,7 +226,7 @@ export function Sidebar(
   const dragged = dragId ? byId.get(dragId) : undefined;
   const rootsOwn = splitArchived(
     (childrenOf.get(null) ?? []).filter((p) =>
-      (p.kind === "project" || p.kind === "story") && !isSharedIn(p, meId)
+      p.kind === "project" && !isSharedIn(p, meId)
     ),
     starred,
   );
@@ -533,7 +533,8 @@ export function Sidebar(
           UNFILED
         </div>
         {(childrenOf.get(null) ?? []).filter((p) =>
-          p.kind === "page" && !isSharedIn(p, meId)
+          // a story with no project is triage too: drag it onto a project to file it
+          (p.kind === "page" || p.kind === "story") && !isSharedIn(p, meId)
         ).map((
           p,
         ) => (
