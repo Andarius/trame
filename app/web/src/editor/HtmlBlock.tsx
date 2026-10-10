@@ -28,6 +28,7 @@ export function HtmlBlock(
   },
 ) {
   const frame = useRef<HTMLIFrameElement | null>(null);
+  const root = useRef<HTMLDivElement | null>(null);
   const patchRef = useRef(onPatch);
   patchRef.current = onPatch;
   const [autoH, setAutoH] = useState(180);
@@ -116,20 +117,54 @@ export function HtmlBlock(
     const up = () => {
       removeEventListener("mousemove", move);
       removeEventListener("mouseup", up);
+      if (frame.current) frame.current.style.pointerEvents = "";
       if (last !== null) onPatch({ height: last });
     };
+    // the iframe would swallow mousemoves that cross it
+    if (frame.current) frame.current.style.pointerEvents = "none";
+    addEventListener("mousemove", move);
+    addEventListener("mouseup", up);
+  };
+
+  // the block stays centred, so the edge moves half as fast as the width grows
+  const startWidthDrag = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const box = root.current;
+    const column = box?.parentElement?.getBoundingClientRect().width;
+    if (!box || !column) return;
+    const from = { x: e.clientX, w: box.getBoundingClientRect().width };
+    let last: number | null = null;
+    const move = (ev: MouseEvent) => {
+      last = Math.max(from.w + 2 * (ev.clientX - from.x), column);
+      box.style.width = `min(${last}px, 100cqw - 4rem)`;
+    };
+    const up = () => {
+      removeEventListener("mousemove", move);
+      removeEventListener("mouseup", up);
+      if (frame.current) frame.current.style.pointerEvents = "";
+      if (last === null) return;
+      const w = Math.min(last, box.getBoundingClientRect().width); // what the pane allowed
+      onPatch(w <= column + 4 ? { width: undefined, wide: undefined } : { width: Math.round(w), wide: undefined });
+    };
+    if (frame.current) frame.current.style.pointerEvents = "none";
     addEventListener("mousemove", move);
     addEventListener("mouseup", up);
   };
 
   return (
     <div
+      ref={root}
       className={full
         ? "fixed inset-0 z-50 flex flex-col bg-block"
-        : `group/html my-1 overflow-hidden rounded-lg border border-line bg-block ${
+        : `group/html relative my-1 overflow-hidden rounded-lg border border-line bg-block ${
           // not when full: the transform would anchor `fixed` to this box
-          block.wide ? "relative left-1/2 w-[min(1400px,100cqw_-_4rem)] -translate-x-1/2" : ""
+          block.wide
+            ? "left-1/2 w-[min(1400px,100cqw_-_4rem)] -translate-x-1/2"
+            : block.width
+            ? "left-1/2 min-w-full -translate-x-1/2"
+            : ""
         }`}
+      style={!full && !block.wide && block.width ? { width: `min(${block.width}px, 100cqw - 4rem)` } : undefined}
     >
       <div className="flex shrink-0 items-center gap-2 border-b border-line-soft px-3 py-2">
         <span className="shrink-0 font-mono text-[11px] font-semibold text-copper">
@@ -167,7 +202,7 @@ export function HtmlBlock(
         {!full && (
           <button
             type="button"
-            onClick={() => onPatch({ wide: block.wide ? undefined : true })}
+            onClick={() => onPatch({ wide: block.wide ? undefined : true, width: undefined })}
             title={block.wide ? "back to the text column" : "use the page's full width"}
             aria-pressed={!!block.wide}
             className={`shrink-0 rounded-md border bg-panel px-2 py-[2px] text-[11px] font-medium hover:border-copper hover:text-copper ${
@@ -270,6 +305,14 @@ export function HtmlBlock(
                 onMouseDown={startDrag}
                 title="drag to set height"
                 className="h-[5px] cursor-ns-resize bg-transparent transition-colors hover:bg-copper/30"
+              />
+            )}
+            {!full && (
+              <div
+                onMouseDown={startWidthDrag}
+                onDoubleClick={() => onPatch({ width: undefined, wide: undefined })}
+                title="drag to set width, double-click for the text column"
+                className="absolute bottom-0 right-0 top-0 w-[6px] cursor-ew-resize bg-transparent transition-colors hover:bg-copper/30"
               />
             )}
           </>

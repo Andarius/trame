@@ -353,6 +353,24 @@ test("an html block can break out of the text column", async ({ page, request })
   await expect.poll(saved).toBe(true);
   await page.reload();
   await expect.poll(width).toBeGreaterThan(narrow + 200);
+
+  // the right-edge grip sets an exact width; double-click returns to the column
+  const grip = block.getByTitle(/drag to set width/);
+  await block.getByRole("button", { name: "wide", exact: true }).click();
+  await expect.poll(width).toBeLessThan(narrow + 2);
+  const g = (await grip.boundingBox())!;
+  await page.mouse.move(g.x + 3, g.y + g.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(g.x + 103, g.y + g.height / 2, { steps: 5 });
+  await page.mouse.up();
+  const savedW = async () =>
+    ((await (await request.get(`/api/pages/${id}`)).json()) as { content: { width?: number }[] }).content[0].width;
+  await expect.poll(savedW).toBeGreaterThan(narrow + 150);
+  await page.reload();
+  await expect.poll(width).toBeGreaterThan(narrow + 150);
+  await grip.dblclick();
+  await expect.poll(savedW).toBeUndefined();
+  await expect.poll(width).toBeLessThan(narrow + 2);
 });
 
 test("a page opening on an html block stays writable around it", async ({ page, request }) => {
