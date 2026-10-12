@@ -316,7 +316,8 @@ pub async fn run(
                 scratch_path(&published)?;
             }
             refuse_live_port(&published)?;
-            if legacy.join("PG_VERSION").is_file() {
+            // macOS leaves pglite/ untouched: a new cluster starts empty and the hub sync refills it
+            if cfg!(target_os = "linux") && legacy.join("PG_VERSION").is_file() {
                 fs::create_dir_all(&config.root)?;
                 pg::migrate(&legacy, &config.root, &config.pg_bin)?;
             }

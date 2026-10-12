@@ -97,8 +97,8 @@ impl Pg {
                 .as_os_str()
                 .as_encoded_bytes()
                 .len()
-                <= 107,
-            "PostgreSQL Unix socket path exceeds Linux's 107-byte limit"
+                <= SOCKET_PATH_MAX,
+            "PostgreSQL Unix socket path exceeds the {SOCKET_PATH_MAX}-byte limit"
         );
         owned_directory(&root.join("socket"))?;
         let log = OpenOptions::new()
@@ -191,20 +191,53 @@ pub fn supervisor_args() -> Option<Result<()>> {
     })())
 }
 
+// sun_path holds 108 bytes on Linux and 104 on macOS, NUL included
+#[cfg(target_os = "macos")]
+const SOCKET_PATH_MAX: usize = 103;
+#[cfg(not(target_os = "macos"))]
+const SOCKET_PATH_MAX: usize = 107;
+
 fn owns_postmaster(root: &Path, supervisor: u32) -> Result<bool> {
     let pid: u32 = fs::read_to_string(root.join("postgres/postmaster.pid"))?
         .lines()
         .next()
         .context("missing postmaster pid")?
         .parse()?;
+    Ok(parent_pid(pid)? == supervisor)
+}
+
+#[cfg(target_os = "linux")]
+fn parent_pid(pid: u32) -> Result<u32> {
     let status = fs::read_to_string(format!("/proc/{pid}/stat"))?;
     let fields = status.rsplit_once(')').context("invalid process status")?.1;
-    let parent: u32 = fields
+    Ok(fields
         .split_whitespace()
         .nth(1)
         .context("missing parent pid")?
-        .parse()?;
-    Ok(parent == supervisor)
+        .parse()?)
+}
+
+#[cfg(target_os = "macos")]
+#[allow(
+    clippy::cast_possible_wrap,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "pid and struct size fit in i32"
+)]
+fn parent_pid(pid: u32) -> Result<u32> {
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
+    let read = unsafe {
+        libc::proc_pidinfo(
+            pid as i32,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            std::ptr::addr_of_mut!(info).cast(),
+            size,
+        )
+    };
+    ensure!(read == size, "cannot read process {pid}");
+    Ok(info.pbi_ppid)
 }
 
 fn reap_descendants() -> Result<()> {
@@ -247,6 +280,8 @@ fn supervise(root: &Path, bin: &Path, fd: i32, parent: u32) -> Result<()> {
     );
     unsafe {
         libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+        // macOS has no subreaper: orphaned grandchildren go to launchd, so only direct children are reaped
+        #[cfg(target_os = "linux")]
         ensure!(
             libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) == 0,
             "cannot enable process reaping"
@@ -281,9 +316,11 @@ fn supervise(root: &Path, bin: &Path, fd: i32, parent: u32) -> Result<()> {
         let supervisor = std::process::id();
         unsafe {
             initialize.pre_exec(move || {
-                if libc::setpgid(0, 0) != 0
-                    || libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0) != 0
-                {
+                if libc::setpgid(0, 0) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                #[cfg(target_os = "linux")]
+                if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0) != 0 {
                     return Err(std::io::Error::last_os_error());
                 }
                 if libc::getppid() as u32 != supervisor {
@@ -347,6 +384,8 @@ fn supervise(root: &Path, bin: &Path, fd: i32, parent: u32) -> Result<()> {
         ));
     unsafe {
         command.pre_exec(move || {
+            // macOS has no PDEATHSIG: the supervisor's getppid() poll below stops the postmaster instead
+            #[cfg(target_os = "linux")]
             if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGINT, 0, 0, 0) == -1 {
                 return Err(std::io::Error::last_os_error());
             }

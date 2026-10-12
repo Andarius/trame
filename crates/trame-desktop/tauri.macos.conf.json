@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "externalBin": ["../../.scratch/package/tramecli"],
+    "resources": {
+      "../../.scratch/package/pg/usr/lib/postgresql/18/": "postgres/lib/postgresql/18/",
+      "../../.scratch/package/pg/usr/share/postgresql/18/": null,
+      "../../app/web/dist/": "web/"
+    },
+    "macOS": {
+      "signingIdentity": "-",
+      "minimumSystemVersion": "12.0"
+    }
+  }
+}
