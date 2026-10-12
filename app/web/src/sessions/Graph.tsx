@@ -14,6 +14,8 @@ import { select } from "d3-selection";
 import { zoom, zoomIdentity, zoomTransform, type ZoomTransform } from "d3-zoom";
 import type { BoardData } from "../api.ts";
 import { daysSince, IDLE_DAYS, matchesSessionFilter, pagesById, StatusDot, statusStyle, timeAgo } from "../ui/ui";
+import { type CardFace, useCardFaces } from "../plugins";
+import { dueLabel, dueTone, useDue } from "../ui/due";
 import { buildGraph, type GraphNode } from "./graph-model.ts";
 
 type Node = GraphNode & SimulationNodeDatum;
@@ -36,6 +38,15 @@ const fill = (n: GraphNode) =>
 const idle = (n: GraphNode) => n.kind === "card" && daysSince(n.touched) > IDLE_DAYS;
 // a card drifts away from its repo as it ages: 1d ≈ 34, 14d ≈ 63, 6w ≈ 80
 const cardDistance = (n: GraphNode) => (n.kind === "card" ? 24 + 10 * Math.log2(1 + daysSince(n.touched)) : 32);
+// what follows a card's title: who assigned it to me, and its earliest due todo
+type Extras = { face?: CardFace; due?: string };
+const DUE_TONE = {
+  late: { fg: "var(--color-blocked)", bg: "var(--color-blocked)", line: "none" },
+  soon: { fg: "var(--color-wait)", bg: "var(--color-wait)", line: "none" },
+  later: { fg: "var(--color-ink-soft)", bg: "var(--color-panel)", line: "var(--color-chipline)" },
+} as const;
+const FACE = 13; // avatar diameter at base size
+const initials = (name: string) => name.split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 const short = (s: string, max = 34) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 const overlaps = (a: Box, b: Box) => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1];
 const hitsDot = (b: Box, n: Node) => {
@@ -73,9 +84,23 @@ export default function Graph(
       .filter((s) => !noSpecs || !s.specs_page_id || !byId.has(s.specs_page_id));
     return buildGraph(board, sessions);
   }, [board, storyFilter, noSpecs]);
+  const faces = useCardFaces();
+  const dues = useDue();
+  const extras = useMemo(() => {
+    const m = new Map<string, Extras>();
+    for (const [id, face] of Object.entries(faces)) m.set(id, { face });
+    // sorted by date: the first todo per card is its earliest
+    for (const d of dues) if (d.card_id && !m.get(d.card_id)?.due) m.set(d.card_id, { ...m.get(d.card_id), due: d.due });
+    return m;
+  }, [faces, dues]);
   // rebuild the simulation only when the shape changes, not on every board poll
   const shape = JSON.stringify([
-    graph.nodes.map((n) => [n.id, n.label, n.kind === "card" ? `${n.status}${idle(n) ? ":idle" : ""}` : n.kind === "project" ? n.color : ""]),
+    graph.nodes.map((n) => [
+      n.id,
+      n.label,
+      n.kind === "card" ? `${n.status}${idle(n) ? ":idle" : ""}` : n.kind === "project" ? n.color : "",
+      n.kind === "card" ? extras.get(n.sessionId) ?? null : null,
+    ]),
     graph.links.map((l) => `${l.source}>${l.target}`),
   ]);
 
@@ -149,6 +174,38 @@ export default function Graph(
     label.each(function (d) {
       textW.set(d, this.getComputedTextLength());
     });
+    // the face and due flag after a card's title, drawn at base size and scaled with the label
+    const extraW = new Map<Node, number>();
+    const extra = world.append("g").attr("pointer-events", "none").selectAll<SVGGElement, Node>("g")
+      .data(nodes.filter((d) => d.kind === "card" && extras.has(d.sessionId))).join("g");
+    extra.each(function (d) {
+      const { face, due } = extras.get((d as Node & { sessionId: string }).sessionId)!;
+      const g = select(this);
+      let x = 0;
+      if (face) {
+        g.append("title").text(`Assigned by ${face.name}`);
+        if (face.avatar) {
+          g.append("image").attr("href", face.avatar).attr("x", 0).attr("y", -FACE / 2).attr("width", FACE)
+            .attr("height", FACE).attr("preserveAspectRatio", "xMidYMid slice").attr("clip-path", "url(#graph-dot)");
+        } else {
+          g.append("circle").attr("cx", FACE / 2).attr("r", FACE / 2).attr("fill", "var(--color-chipline)");
+          g.append("text").attr("x", FACE / 2).attr("y", 2).attr("font-size", 5.5).attr("font-weight", 600)
+            .attr("text-anchor", "middle").attr("fill", "var(--color-ink)").text(initials(face.name));
+        }
+        x += FACE + 4;
+      }
+      if (due) {
+        const tone = DUE_TONE[dueTone(due)];
+        const pill = g.append("rect").attr("y", -6).attr("height", 12).attr("rx", 6).attr("x", x)
+          .attr("fill", tone.bg).attr("fill-opacity", tone.line === "none" ? 0.15 : 1).attr("stroke", tone.line);
+        const t = g.append("text").attr("x", x + 5).attr("y", 3).attr("font-size", 8.5).attr("fill", tone.fg)
+          .text(`⚑ ${dueLabel(due)}`);
+        const w = t.node()!.getComputedTextLength() + 10;
+        pill.attr("width", w);
+        x += w;
+      }
+      extraW.set(d, x);
+    });
 
     let k = 1;
     let hovered: Node | null = null;
@@ -170,20 +227,16 @@ export default function Graph(
       const f = 1 / Math.sqrt(k); // labels grow slower than the zoom, so zooming in spreads them
       const lit = litSet();
       const kept: Box[] = [];
-      const boxes = new Map<Node, { box: Box; x: number; y: number; anchor: string }>();
+      const boxes = new Map<Node, { box: Box; x: number; y: number; anchor: string; ex?: number }>();
       for (const d of nodes) {
         const size = FONT[d.kind] * f, w = textW.get(d)! * f, r = RADIUS[d.kind];
         const p = parent.get(d);
         if (d.kind === "card" && p) {
-          const right = d.x! >= p.x!;
-          const x = right ? d.x! + r + 3 * f : d.x! - r - 3 * f;
+          // title then extras, read left to right on either side of the dot
+          const ew = extraW.has(d) ? (extraW.get(d)! + 4) * f : 0;
+          const x = d.x! >= p.x! ? d.x! + r + 3 * f : d.x! - r - 3 * f - w - ew;
           const y = d.y! + size * 0.35;
-          boxes.set(d, {
-            box: [right ? x : x - w, y - size * 0.8, right ? x + w : x, y + size * 0.2],
-            x,
-            y,
-            anchor: right ? "start" : "end",
-          });
+          boxes.set(d, { box: [x, y - size * 0.8, x + w + ew, y + size * 0.2], x, y, anchor: "start", ex: x + w + 4 * f });
         } else {
           const y = d.y! + r + size;
           boxes.set(d, { box: [d.x! - w / 2, y - size * 0.8, d.x! + w / 2, y + size * 0.2], x: d.x!, y, anchor: "middle" });
@@ -209,6 +262,9 @@ export default function Graph(
         .attr("text-anchor", (d) => boxes.get(d)!.anchor)
         .attr("font-size", (d) => FONT[d.kind] * f)
         .attr("stroke-width", 3 * f)
+        .attr("opacity", (d) => shown.get(d) ?? 0);
+      extra
+        .attr("transform", (d) => `translate(${boxes.get(d)!.ex},${d.y!}) scale(${f})`)
         .attr("opacity", (d) => shown.get(d) ?? 0);
     };
     const paint = () => {
@@ -456,7 +512,12 @@ export default function Graph(
           <div className="font-medium">{n.kind === "repo" ? `#${n.label}` : n.label}</div>
           <div className="text-ink-muted">
             {n.kind === "card"
-              ? `${statusStyle(n.status).label} · ${timeAgo(n.touched)}`
+              ? [
+                statusStyle(n.status).label,
+                timeAgo(n.touched),
+                extras.get(n.sessionId)?.face && `assigned by ${extras.get(n.sessionId)!.face!.name}`,
+                extras.get(n.sessionId)?.due && `⚑ due ${dueLabel(extras.get(n.sessionId)!.due!)}`,
+              ].filter(Boolean).join(" · ")
               : `${n.cards} open card${n.cards === 1 ? "" : "s"}`}
           </div>
         </div>
