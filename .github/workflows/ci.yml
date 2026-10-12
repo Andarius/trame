@@ -4,16 +4,23 @@ on:
   push:
     branches: [master]
   pull_request:
+  workflow_call:
+    inputs:
+      commit:
+        description: Exact release commit to verify
+        required: true
+        type: string
+
+permissions:
+  contents: read
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
-          deno-version: "2.9"
+          ref: ${{ inputs.commit || github.sha }}
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -24,23 +31,54 @@ jobs:
       - name: Install frontend deps (pinned, from lockfile)
         run: cd app/web && npm ci
 
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: "2.9"
+
       - name: Public build composes no private plugin
-        run: cd app && deno run -A ../scripts/gen-plugins.ts && git diff --exit-code -- plugins/local.gen.ts web/src/plugins/ ../core/mark-roles.gen.ts
+        run: |
+          deno run -A --config app/deno.json scripts/gen-plugins.ts
+          git diff --exit-code -- app/plugins/local.gen.ts app/web/src/plugins/ core/mark-roles.gen.ts
 
-      - name: Build frontend (generates embed.ts)
-        run: cd app && deno task web:build
-
-      - name: Typecheck
-        run: cd app && deno check main.ts ../track/track.ts ../mcp/server.ts
+      - name: Build frontend and retained oracle assets
+        run: |
+          npm run build --prefix app/web
+          deno run --allow-read --allow-write=app/embed.ts scripts/gen-embed.ts
+          npm run build:link --prefix app/web
+          deno run --allow-read --allow-write=hub/api/link-embed.ts scripts/gen-link-embed.ts
 
       - name: Typecheck frontend (TS 7)
         run: cd app/web && npm run typecheck
 
-      - name: Unit tests
-        run: cd app && deno test -A
+      - name: Install native build libraries
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          rustup default 1.95.0
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
 
-      - name: Lint
-        run: cd app && deno lint && deno lint ../core ../track ../mcp
+      - name: Prepare PostgreSQL 18 resources
+        run: bash scripts/rust-package.sh prepare
+
+      - name: Rust format and tests
+        env:
+          TRAME_ISOLATED: "1"
+          TRAME_OFFLINE: "1"
+          TRAME_LOCAL_DIR: ${{ github.workspace }}/.scratch/test
+          TRAME_PG_BIN: ${{ github.workspace }}/.scratch/package/pg/usr/lib/postgresql/18/bin
+        run: cargo fmt --all -- --check && cargo test --workspace --locked
+
+      - name: Shared protocol and frontend unit tests
+        run: |
+          deno run --allow-read scripts/rust-protocol.ts --check
+          deno run --allow-read --allow-env --config app/deno.json scripts/rust-cli-contracts.ts --check
+          deno test --config app/deno.json app/web/src/
+
+      - name: Retained TypeScript backend, core and CLI oracle
+        run: bash scripts/rust-oracle-check.sh
+
+      - name: Legacy migration safety
+        run: deno test -A --config app/deno.json scripts/rust-db-export-test.ts scripts/rust-db-migrate-test.ts
 
       - name: Hub API typecheck + tests + lint
         run: cd hub/api && deno check main.ts && deno test -A && deno lint
@@ -54,8 +92,31 @@ jobs:
       - name: Install Playwright Chromium (pinned to @playwright/test)
         run: cd app/web && npm run e2e:install
 
-      - name: Run E2E tests
-        run: cd app/web && npm run test:e2e
+      - name: Run E2E tests through Rust
+        env:
+          TRAME_ISOLATED: "1"
+          TRAME_PG_BIN: ${{ github.workspace }}/.scratch/package/pg/usr/lib/postgresql/18/bin
+          TRAME_WEB_DIR: ${{ github.workspace }}/app/web/dist
+        run: cargo build -p trame-local --locked && bash scripts/rust-e2e.sh
+
+      - name: Synthetic migration, differential replay and lifecycle
+        env:
+          TRAME_ISOLATED: "1"
+          TRAME_OFFLINE: "1"
+          TRAME_PG_BIN: ${{ github.workspace }}/.scratch/package/pg/usr/lib/postgresql/18/bin
+          TRAME_DIFF_GROUPS: full
+        run: |
+          set -euo pipefail
+          bash scripts/rust-package.sh cli
+          dir="$(mktemp -d "$PWD/.scratch/cif.XXXXXX")"
+          trap 'rm -rf -- "$dir"' EXIT
+          export TRAME_CI_FIXTURE_DIR="$dir" TRAME_DIFF_SOURCE="$dir/native"
+          deno run -A --config app/deno.json scripts/rust-ci-fixture.ts
+          deno run -A --config app/deno.json scripts/rust-pages-diff.ts
+          python3 scripts/rust-db-lifecycle-test.py
+
+      - name: Build native deb
+        run: bash scripts/rust-package.sh deb && dpkg-deb -f dist/linux/trame.deb Version
 
       - name: Upload Playwright artifacts
         if: failure()

@@ -2,6 +2,7 @@
 // pointed at this in-process HTTP server. `deno task serve` runs it headless (open in a
 // browser) if you don't have the desktop subcommand yet.
 import { handleCoreApi } from "../core/api.ts";
+import { timingSafeEqual } from "node:crypto";
 
 
 import { APP_CTX } from "./ctx.ts";
@@ -14,6 +15,7 @@ import {
   CLAUDE_DIR,
   CODEX_DIR,
   DATA_DIR,
+  DEPLOYMENTS_FIXTURE,
   HOST,
   NODE_ID,
   PORT,
@@ -109,11 +111,21 @@ import { exportPage, importPage } from "./share.ts";
 
 
 import { AGENT_ID_RE, listPresence } from "../core/presence.ts";
+import deployments from "./plugins/deployments/mod.ts";
+import { getPluginSettings, isPluginEnabled } from "./plugins/settings.ts";
 
 
 
 
-const DESKTOP = Deno.env.get("TRACKER_DESKTOP") === "1";
+const SIDECAR_TOKEN = Deno.env.get("TRAME_SIDECAR_TOKEN");
+if (SIDECAR_TOKEN === "") throw new Error("TRAME_SIDECAR_TOKEN must not be empty");
+const sidecarTokenBytes = SIDECAR_TOKEN === undefined ? null : new TextEncoder().encode(SIDECAR_TOKEN);
+if (sidecarTokenBytes) {
+  // Rust owns stdin; EOF also shuts down the sidecar when its parent crashes.
+  Deno.stdin.readable.pipeTo(new WritableStream()).then(() => Deno.exit(0), () => Deno.exit(1));
+}
+const OFFLINE = Deno.env.get("TRAME_OFFLINE") === "1";
+const DESKTOP = !sidecarTokenBytes && Deno.env.get("TRACKER_DESKTOP") === "1";
 
 // Native file picker for the desktop webview (it can't show <input type=file> dialogs,
 // same as window.open — see /api/open). Returns the image as a data URI.
@@ -246,6 +258,7 @@ function pickOpenPath(): Promise<PickResult> {
 
 let lastSync: { at: string; pulled: number; pushed: number } | null = null;
 async function runSync() {
+  if (OFFLINE) return null;
   const r = await syncOnce();
   if (r) lastSync = { at: new Date().toISOString(), ...r };
   return r;
@@ -269,6 +282,7 @@ function logSyncFailure(e: unknown) {
 // Debounced so a burst of edits rides one pass.
 let syncSoonTimer: ReturnType<typeof setTimeout> | undefined;
 function syncSoon() {
+  if (OFFLINE) return;
   clearTimeout(syncSoonTimer);
   syncSoonTimer = setTimeout(() => runSync().catch(logSyncFailure), 1_500);
 }
@@ -680,13 +694,29 @@ createRoot(document.getElementById("root")).render(React.createElement(Excalidra
 }
 
 async function handler(req: Request): Promise<Response> {
+  if (sidecarTokenBytes) {
+    const supplied = new TextEncoder().encode(req.headers.get("x-trame-sidecar-token") ?? "");
+    if (supplied.length !== sidecarTokenBytes.length || !timingSafeEqual(supplied, sidecarTokenBytes)) {
+      return json({ error: "unauthorized" }, 401);
+    }
+  }
   const url = new URL(req.url);
   const { pathname } = url;
 
-  // CSRF: /api spawns terminals, opens files and approves deployments — a foreign page
-  // can't read the response but the side effect would still fire.
-  if (pathname.startsWith("/api/") && isCrossSite(req)) {
+  // Browser requests must not trigger local API or report-file side effects.
+  if (
+    (pathname.startsWith("/api/") || (pathname === "/report-file" && req.method === "POST")) &&
+    isCrossSite(req)
+  ) {
     return json({ error: "cross-origin request blocked" }, 403);
+  }
+  if (OFFLINE && (
+    pathname === "/api/hub/test" ||
+    (pathname === "/api/update" && req.method === "POST") ||
+    (pathname.startsWith("/api/plugins/") &&
+      !(DEPLOYMENTS_FIXTURE && pathname.startsWith("/api/plugins/deployments/")))
+  )) {
+    return json({ error: "unavailable in offline mode" }, 503);
   }
 
   // Raw report pages — targets for "open in system browser".
@@ -1023,7 +1053,7 @@ async function handler(req: Request): Promise<Response> {
   }
   if (pathname === "/api/update") {
     // opt-out for sandboxes/CI: no surprise calls to api.github.com
-    if (Deno.env.get("TRACKER_UPDATE_CHECK") === "0") {
+    if (OFFLINE || Deno.env.get("TRACKER_UPDATE_CHECK") === "0") {
       return json({
         current: VERSION,
         latest: null,
@@ -1254,7 +1284,7 @@ async function handler(req: Request): Promise<Response> {
 
 // Single-instance guard: PGlite is single-process — if another live instance holds the
 // data dir, exit with a pointer instead of aborting deep inside WASM initdb.
-try {
+if (!sidecarTokenBytes) try {
   const { port, pid } = JSON.parse(await Deno.readTextFile(PORT_FILE));
   if (pid !== Deno.pid) {
     const alive = await fetch(`http://127.0.0.1:${port}/api/status`, {
@@ -1272,13 +1302,20 @@ try {
 // Startup: pick up any offline CLI writes, sync once, then poll. The device→user
 // claim happens inside db() init (kept lazy — e2e wipes the data dir post-listen).
 await drainOutbox();
-runSync().catch(logSyncFailure);
-setInterval(() => runSync().catch(logSyncFailure), SYNC_INTERVAL_MS);
-// hub WS nudges (when a hub is configured): a nudge just runs the same sync early —
-// the poll above stays as the fallback when the socket is down
-startRealtime(() => runSync().catch(logSyncFailure));
-startPlugins();
-startDueNotifier();
+if (sidecarTokenBytes) await db();
+if (!OFFLINE) {
+  runSync().catch(logSyncFailure);
+  setInterval(() => runSync().catch(logSyncFailure), SYNC_INTERVAL_MS);
+  // Hub WS nudges run the same sync early; polling remains the fallback.
+  startRealtime(() => runSync().catch(logSyncFailure));
+  startPlugins();
+  startDueNotifier();
+} else if (DEPLOYMENTS_FIXTURE) {
+  deployments.start?.({
+    enabled: () => isPluginEnabled(deployments.id),
+    settings: () => getPluginSettings(deployments.id),
+  });
+}
 
 // Every successful mutating /api call schedules a debounced push (excluding /api/sync
 // itself — it IS the sync — and /api/presence, which writes only ephemeral in-memory
@@ -1300,12 +1337,12 @@ async function serveHandler(req: Request): Promise<Response> {
 // address the webview navigates to. Headless `serve` uses a fixed port so the browser
 // and the vite dev proxy know where to reach the API.
 let server: Deno.HttpServer<Deno.NetAddr>;
-if (Deno.env.get("TRACKER_DESKTOP") === "1") {
+if (DESKTOP) {
   console.log(`🧵 Trame (desktop)  local db: ${DATA_DIR}`);
   server = Deno.serve(serveHandler);
 } else {
   console.log(`🧵 Trame → http://localhost:${PORT}  (local db: ${DATA_DIR})`);
-  server = Deno.serve({ port: PORT, hostname: HOST }, serveHandler);
+  server = Deno.serve({ port: PORT, hostname: sidecarTokenBytes ? "127.0.0.1" : HOST }, serveHandler);
 }
 
 boundPort = server.addr.port;
@@ -1321,7 +1358,9 @@ await Deno.writeTextFile(
     pid: Deno.pid,
     startedAt: new Date().toISOString(),
   }),
+  sidecarTokenBytes ? { mode: 0o600 } : undefined,
 );
+if (sidecarTokenBytes) await Deno.chmod(PORT_FILE, 0o600);
 
 if (REPORT_PATHS.length) {
   console.log(`✦ Explore scans: ${REPORT_PATHS.join(" · ")}`);
@@ -1330,7 +1369,7 @@ if (REPORT_PATHS.length) {
 // Desktop window: adopt the auto-opened window, restore saved geometry, persist on change.
 // deno-lint-ignore no-explicit-any
 const BW = (Deno as any).BrowserWindow;
-if (Deno.env.get("TRACKER_DESKTOP") === "1" && BW) {
+if (DESKTOP && BW) {
   let geo: { width?: number; height?: number; x?: number; y?: number } = {};
   try {
     geo = JSON.parse(await Deno.readTextFile(WINDOW_FILE));

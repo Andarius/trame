@@ -1,0 +1,32 @@
+[package]
+name = "trame-local"
+version = "0.13.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow = "1"
+axum = "0.8"
+libc = "0.2"
+postgres = { version = "0.19.14", features = ["with-serde_json-1", "with-uuid-1", "with-chrono-0_4"] }
+reqwest = { version = "0.12", default-features = false, features = ["stream", "json", "rustls-tls"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time", "signal", "sync", "fs", "io-util"] }
+uuid = { version = "1", features = ["v4", "v5"] }
+
+trame-core = { path = "../trame-core" }
+bytes = "1"
+regex = "1"
+chrono = "0.4"
+base64 = "0.22"
+glob = "0.3.4"
+icu_collator = "2"
+sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+futures-util = { version = "0.3", features = ["sink"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pemfile = "2"
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

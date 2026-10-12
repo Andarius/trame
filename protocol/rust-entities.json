@@ -1,0 +1,254 @@
+{
+  "version": 8,
+  "entities": [
+    {
+      "name": "users",
+      "cols": [
+        "id",
+        "name",
+        "avatar",
+        "role",
+        "origin",
+        "updated_at",
+        "deleted"
+      ]
+    },
+    {
+      "name": "devices",
+      "cols": [
+        "id",
+        "node_id",
+        "user_id",
+        "origin",
+        "updated_at",
+        "deleted"
+      ]
+    },
+    {
+      "name": "tags",
+      "cols": [
+        "id",
+        "key",
+        "label",
+        "color",
+        "sort_key",
+        "origin",
+        "updated_at",
+        "deleted"
+      ]
+    },
+    {
+      "name": "pages",
+      "cols": [
+        "id",
+        "parent_id",
+        "kind",
+        "title",
+        "icon",
+        "brief",
+        "client_id",
+        "status",
+        "content",
+        "color",
+        "tags",
+        "sort_key",
+        "owner_id",
+        "origin",
+        "updated_at",
+        "deleted"
+      ]
+    },
+    {
+      "name": "page_shares",
+      "cols": [
+        "id",
+        "page_id",
+        "user_id",
+        "role",
+        "origin",
+        "updated_at",
+        "deleted"
+      ]
+    },
+    {
+      "name": "page_links",
+      "cols": [
+        "id",
+        "page_id",
+        "token_hash",
+        "origin",
+        "updated_at",
+        "deleted"
+      ]
+    },
+    {
+      "name": "page_comments",
+      "cols": [
+        "id",
+        "page_id",
+        "block_id",
+        "anchor",
+        "body",
+        "author",
+        "author_avatar",
+        "author_id",
+        "resolved",
+        "meta",
+        "origin",
+        "updated_at",
+        "deleted"
+      ]
+    },
+    {
+      "name": "comment_agent_status",
+      "cols": [
+        "id",
+        "comment_id",
+        "page_id",
+        "status",
+        "agent",
+        "body_hash",
+        "origin",
+        "updated_at",
+        "deleted"
+      ]
+    },
+    {
+      "name": "statuses",
+      "cols": [
+        "id",
+        "key",
+        "label",
+        "color",
+        "terminal",
+        "sort_key",
+        "origin",
+        "updated_at",
+        "deleted"
+      ]
+    },
+    {
+      "name": "sessions",
+      "cols": [
+        "id",
+        "title",
+        "status",
+        "client_id",
+        "page_id",
+        "repo_path",
+        "branch",
+        "branches",
+        "next_step",
+        "specs_page_id",
+        "tags",
+        "pr_url",
+        "summary",
+        "claude_id",
+        "agent",
+        "last_touched",
+        "origin",
+        "updated_at",
+        "deleted"
+      ]
+    },
+    {
+      "name": "session_links",
+      "cols": [
+        "id",
+        "session_id",
+        "page_id",
+        "block_id",
+        "anchor",
+        "origin",
+        "updated_at",
+        "deleted"
+      ]
+    },
+    {
+      "name": "session_events",
+      "cols": [
+        "id",
+        "session_id",
+        "at",
+        "summary",
+        "agent",
+        "model",
+        "tokens",
+        "cost_usd",
+        "agent_name",
+        "kind",
+        "origin",
+        "updated_at",
+        "deleted"
+      ]
+    },
+    {
+      "name": "reports",
+      "cols": [
+        "id",
+        "title",
+        "html",
+        "client_id",
+        "page_id",
+        "created_at",
+        "origin",
+        "updated_at",
+        "deleted"
+      ]
+    },
+    {
+      "name": "udb_databases",
+      "cols": [
+        "id",
+        "name",
+        "icon",
+        "page_id",
+        "sort_key",
+        "views",
+        "origin",
+        "updated_at",
+        "deleted"
+      ]
+    },
+    {
+      "name": "udb_properties",
+      "cols": [
+        "id",
+        "db_id",
+        "name",
+        "type",
+        "config",
+        "sort_key",
+        "width",
+        "origin",
+        "updated_at",
+        "deleted"
+      ]
+    },
+    {
+      "name": "udb_rows",
+      "cols": [
+        "id",
+        "db_id",
+        "icon",
+        "vals",
+        "sort_key",
+        "origin",
+        "updated_at",
+        "deleted"
+      ]
+    },
+    {
+      "name": "udb_links",
+      "cols": [
+        "id",
+        "prop_id",
+        "from_row",
+        "to_row",
+        "origin",
+        "updated_at",
+        "deleted"
+      ]
+    }
+  ]
+}

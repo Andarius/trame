@@ -2,9 +2,8 @@ name: trame
 adopt-info: trame
 summary: Local-first session tracker for Claude Code work
 description: |
-  Trame tracks parallel Claude Code sessions as a kanban board — sessions ladder
-  up to objectives, HTML exploration reports are searchable in-app. Local-first
-  (embedded Postgres via PGlite), built with Deno desktop and React.
+  Trame tracks parallel coding sessions as a kanban board and keeps local data
+  in a supervised PostgreSQL 18 cluster.
 license: MIT
 grade: stable
 confinement: classic
@@ -16,21 +15,32 @@ platforms:
 
 apps:
   trame:
-    command: opt/trame/trame
-  # exposed as `trame.tramecli`; snap-install-release.sh aliases it to bare `tramecli`
+    command: usr/bin/trame
+    desktop: usr/share/applications/trame.desktop
   tramecli:
-    command: opt/trame/tramecli
+    command: usr/bin/tramecli
 
 parts:
   trame:
-    plugin: dump
-    # Prebuilt by CI (deno task bundle:dir) before snapcraft runs — see release.yml
-    source: dist/linux/trame
+    plugin: nil
+    build-packages: [dpkg]
     override-pull: |
       craftctl default
       version="$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "${CRAFT_PROJECT_DIR}/app/deno.json" | head -n1)"
       craftctl set version="${version}"
-    organize:
-      "*": opt/trame/
+    override-build: |
+      craftctl default
+      dpkg-deb -x "${CRAFT_PROJECT_DIR}/dist/linux/trame.deb" "${CRAFT_PART_INSTALL}"
     stage-packages:
       - libwebkit2gtk-4.1-0
+      - libgtk-3-0t64
+      - libicu74
+      - liburing2
+      - libnuma1
+      - libxml2
+      - libldap2
+      - libpam0g
+      - libssl3t64
+      - libzstd1
+      - liblz4-1
+      - libpq5

@@ -50,72 +50,101 @@ psql host=env_var_or_default('TRACKER_HUB_HOST', 'hub'):
 plugins:
     cd app && deno run -A ../scripts/gen-plugins.ts
 
-# Run the desktop app (Deno 2.9+)
+# Run the native desktop app
 [group('dev')]
-dev:
-    cd app && deno task dev
+dev: web-build
+    bash scripts/rust-package.sh prepare
+    TRAME_ISOLATED=1 TRAME_OFFLINE=1 TRAME_LOCAL_DIR="$PWD/.scratch/dev" TRACKER_PORT=0 TRAME_PG_BIN="$PWD/.scratch/package/pg/usr/lib/postgresql/18/bin" TRAME_WEB_DIR="$PWD/app/web/dist" cargo run -p trame-desktop --locked
 
-# Run headless — open http://localhost:8787 in a browser
+# Run the native backend headlessly
 [group('dev')]
 serve:
-    cd app && deno task serve
+    bash scripts/rust-package.sh prepare
+    TRAME_ISOLATED=1 TRAME_OFFLINE=1 TRAME_LOCAL_DIR="$PWD/.scratch/dev" TRACKER_PORT=0 TRAME_PG_BIN="$PWD/.scratch/package/pg/usr/lib/postgresql/18/bin" cargo run -p trame-local --locked
 
-# Build a distributable desktop app (Linux .AppImage; .app/.dmg on macOS).
-# Depends on web-build: a stale embed.ts would silently ship an old UI.
+# Build the distributable Linux deb with the native backend and CLI.
 [group('dev')]
-bundle: web-build
-    cd app && deno task bundle
+bundle:
+    bash scripts/rust-package.sh deb
+
+# Best-effort standalone Linux AppImage.
+[group('dev')]
+bundle-appimage:
+    bash scripts/rust-package.sh appimage
 
 # Build the React frontend into app/web/dist
 [group('dev')]
 web-build:
-    cd app && deno task web:build
+    npm ci --prefix app/web
+    npm run build --prefix app/web
+    deno run --allow-read --allow-write=app/embed.ts scripts/gen-embed.ts
+    npm run build:link --prefix app/web
+    deno run --allow-read --allow-write=hub/api/link-embed.ts scripts/gen-link-embed.ts
 
-# Frontend dev server with HMR (proxies /api to :8787)
+# Frontend dev server with HMR
 [group('dev')]
 web-dev:
-    cd app && deno task web:dev
+    TRAME_ISOLATED=1 TRAME_LOCAL_DIR="$PWD/.scratch/dev" npm run dev --prefix app/web
 
-# Full hot-reload loop: backend --watch (real restarts, new routes included) + Vite HMR.
-# Open http://localhost:5173 — close the desktop app first (it holds the local db).
-[group('dev')]
-hack:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    trap 'kill 0' EXIT
-    (cd app && deno run --watch=.,../db --watch-exclude=web/test-results,web/dist,web/node_modules -A main.ts) &
-    (cd app/web && npm run dev) &
-    wait
-
-# Run one sync pass (local PGlite <-> hub Postgres)
-[group('dev')]
-sync:
-    cd app && deno task sync
-
-# Run the Deno unit tests (isolated PGlite in a temp dir)
+# Run the Rust unit tests
 [group('dev')]
 test *args:
-    cd app && deno test -A {{ args }}
+    bash scripts/rust-package.sh prepare
+    TRAME_ISOLATED=1 TRAME_OFFLINE=1 TRAME_LOCAL_DIR="$PWD/.scratch/test" TRAME_PG_BIN="$PWD/.scratch/package/pg/usr/lib/postgresql/18/bin" cargo test --workspace --locked {{ args }}
+    deno run --allow-read scripts/rust-protocol.ts --check
+    deno test --config app/deno.json app/web/src/
+    deno test -A --config app/deno.json scripts/rust-db-export-test.ts
+    deno test -A --config app/deno.json scripts/rust-db-migrate-test.ts
 
-# Run Playwright e2e tests (isolated backend in /tmp/trame-e2e)
+# Retained TypeScript backend/core/CLI oracle checks in a clean scratch environment
 [group('dev')]
-e2e *args:
-    cd app/web && npx playwright test {{ args }}
+oracle-check: web-build
+    bash scripts/rust-oracle-check.sh
 
-# Lint (TS + SQL schema)
+# Fresh synthetic migration and HTTP/CLI differential gate
+[group('dev')]
+differential: web-build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bash scripts/rust-package.sh prepare
+    bash scripts/rust-package.sh cli
+    cargo build -p trame-local --locked
+    dir="$(mktemp -d "$PWD/.scratch/cif.XXXXXX")"
+    trap 'rm -rf -- "$dir"' EXIT
+    export TRAME_CI_FIXTURE_DIR="$dir" TRAME_DIFF_SOURCE="$dir/native"
+    export TRAME_ISOLATED=1 TRAME_OFFLINE=1 TRAME_DIFF_GROUPS=full
+    export TRAME_PG_BIN="$PWD/.scratch/package/pg/usr/lib/postgresql/18/bin"
+    deno run -A --config app/deno.json scripts/rust-ci-fixture.ts
+    deno run -A --config app/deno.json scripts/rust-pages-diff.ts
+
+# PostgreSQL ownership, crash recovery and startup failure gate
+[group('dev')]
+lifecycle:
+    bash scripts/rust-package.sh prepare
+    cargo build -p trame-local --locked
+    TRAME_ISOLATED=1 TRAME_PG_BIN="$PWD/.scratch/package/pg/usr/lib/postgresql/18/bin" python3 scripts/rust-db-lifecycle-test.py
+
+# Run Playwright e2e tests against the native backend
+[group('dev')]
+e2e *args: web-build
+    bash scripts/rust-package.sh prepare
+    cargo build -p trame-local --locked
+    TRAME_PG_BIN="$PWD/.scratch/package/pg/usr/lib/postgresql/18/bin" TRAME_WEB_DIR="$PWD/app/web/dist" bash scripts/rust-e2e.sh {{ args }}
+
+# Check Rust formatting and SQL schema
 [group('dev')]
 lint: lint-sql
-    cd app && deno lint && deno lint ../core ../track ../mcp
+    cargo fmt --all -- --check
 
 # Lint the SQL schema (sqlfluff, via uvx — no install needed)
 [group('dev')]
 lint-sql:
     uvx {{ sqlfluff }} lint db/schema.sql
 
-# Format (TS + SQL schema, in place)
+# Format Rust and SQL schema in place
 [group('dev')]
 fmt: fmt-sql
-    cd app && deno fmt
+    cargo fmt --all
 
 # Format the SQL schema in place (sqlfluff)
 [group('dev')]
@@ -127,32 +156,31 @@ fmt-sql:
 fmt-check-sql:
     uvx {{ sqlfluff }} format - < db/schema.sql | diff -u db/schema.sql - && echo "schema.sql formatted ✓"
 
-# Type check the entry graphs
+# Type check the native workspace and frontend
 [group('dev')]
 check:
-    cd app && deno check main.ts ../track/track.ts ../track/page.ts ../track/comment.ts ../track/watch.ts ../track/cli.ts ../mcp/server.ts
+    bash scripts/rust-package.sh prepare
+    cargo check --workspace --locked
+    npm run typecheck --prefix app/web
 
 # The hub API is its own Deno project (own deps) — check/test/lint it too (matches CI)
 [group('dev')]
 check-hub:
     cd hub/api && deno check main.ts && deno test -A && deno lint
 
-# Lint + format-check + type check + unit tests (app + hub)
+# Native and hub checks
 [group('dev')]
-ci: lint fmt-check-sql check test check-hub
+ci: lint fmt-check-sql check test oracle-check check-hub e2e differential lifecycle
 
-# Compile tramecli into dist/tramecli — everything agent-facing lives in that binary
-# (track/page/comment/watch/answer/list/setup/mcp); dev checkouts without one on PATH
-# get it compiled by the install recipes below.
+# Build the native CLI into dist/tramecli.
 [group('track')]
 compile-cli:
-    cd app && deno task compile:cli
+    bash scripts/rust-package.sh cli
 
 # Install the agent skills from a fresh build (interactive picker;
 # or pass flags: `just setup --claude --codex --skills-dir ~/.gemini/skills`)
 [group('setup')]
-setup *args:
-    cd app && deno task compile:cli
+setup *args: compile-cli
     ./dist/tramecli setup "$@"
 
 # Wipe the local PGlite data + outbox (fresh local db)
@@ -169,20 +197,27 @@ hooks:
 
 # Seed + serve an isolated demo instance on :8799 (fictional data — the README screenshots)
 [group('docs')]
-demo:
+demo: web-build
     #!/usr/bin/env bash
     set -euo pipefail
-    dir=/tmp/trame-demo
-    rm -rf "$dir"; mkdir -p "$dir/claude-projects"
-    # blank hub API explicitly: just loads .env, and demo data must never reach a real hub
+    dir="$PWD/.scratch/demo"
+    bash scripts/rust-package.sh prepare
+    cargo build -p trame-local --locked
+    rm -rf -- "$dir"
+    mkdir -p "$dir/claude-projects"
     export TRACKER_HUB_API= TRACKER_HUB_API_TOKEN= TRACKER_NODE_ID=demo TRACKER_UPDATE_CHECK=0
-    export TRACKER_PORT=8799 TRACKER_HOST=127.0.0.1
-    export TRACKER_DATA_DIR="$dir/pglite" TRACKER_PORT_FILE="$dir/port.json"
-    export TRACKER_SETTINGS_FILE="$dir/settings.json" TRACKER_OUTBOX="$dir/outbox.jsonl"
+    export TRAME_ISOLATED=1 TRAME_OFFLINE=1 TRAME_LOCAL_DIR="$dir" TRAME_WEB_DIR="$PWD/app/web/dist"
+    export TRAME_PG_BIN="$PWD/.scratch/package/pg/usr/lib/postgresql/18/bin"
+    export TRACKER_PORT=8799 TRACKER_HOST=127.0.0.1 TRACKER_PORT_FILE="$dir/port.json"
+    export TRACKER_SETTINGS_FILE="$dir/settings.json"
     export TRACKER_CLAUDE_DIR="$dir/claude-projects"
-    trap 'kill 0' EXIT
-    (cd app && deno run -A main.ts) &
-    until curl -sf http://127.0.0.1:8799/api/status >/dev/null 2>&1; do sleep 1; done
+    ./target/debug/trame-local &
+    server_pid=$!
+    trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true' EXIT
+    until curl -sf http://127.0.0.1:8799/api/status >/dev/null 2>&1; do
+      if ! kill -0 "$server_pid" 2>/dev/null; then wait "$server_pid"; exit 1; fi
+      sleep 1
+    done
     DEMO_CLAUDE_DIR="$dir/claude-projects" TRAME_URL=http://127.0.0.1:8799 \
       deno run --config app/deno.json -A scripts/demo-seed.ts
     echo "demo → http://127.0.0.1:8799  (ctrl-c to stop)"

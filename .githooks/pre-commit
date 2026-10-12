@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
-# Pre-commit: run the project-wide checks CI runs (deno lint, deno check, tsc, sqlfluff),
-# but only BLOCK when an error touches a file you're committing — so an unrelated
-# work-in-progress file never blocks you. Bypass with `git commit --no-verify`.
-set -uo pipefail
+# DESCRIPTION: Check staged Rust, TypeScript and SQL changes before committing.
+# USAGE: Invoked by git pre-commit.
+set -euo pipefail
 
 staged=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^app/.*\.(ts|tsx)$' || true)
 staged_sql=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.sql$' || true)
-[ -z "$staged" ] && [ -z "$staged_sql" ] && exit 0
+staged_rust=$(git diff --cached --name-only --diff-filter=ACM | grep -E '(^Cargo\.(toml|lock)$|^crates/.*\.(rs|toml)$)' || true)
+[ -z "$staged" ] && [ -z "$staged_sql" ] && [ -z "$staged_rust" ] && exit 0
 
 fail=0
+if [ -n "$staged_rust" ]; then
+  cargo fmt --all --check || fail=1
+  cargo check --workspace --locked || fail=1
+fi
 gate() {                       # $1 label, $2 tool output
   local label="$1" out="$2"
   if echo "$out" | grep -iE "error|-->|warning" | grep -qE "$staged_re"; then

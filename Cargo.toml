@@ -1,0 +1,8 @@
+[workspace]
+members = ["crates/trame-core", "crates/trame-probe", "crates/trame-db-spike", "crates/trame-local", "crates/trame-desktop", "crates/trame-cli"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+publish = false
+

@@ -1,35 +1,50 @@
-// Local database = PGlite (embedded Postgres, persisted to DATA_DIR).
+// Local database: PGlite by default, Rust-owned PostgreSQL via a private socket.
 // Same SQL as the hub's Postgres — no dialect translation.
 import { PGlite } from "@electric-sql/pglite";
 import { APP_ROOT, DATA_DIR, OUTBOX } from "./config.ts";
 import { upsertSession } from "../core/sessions.ts";
 import { APP_CTX } from "./ctx.ts";
+import { type Database, socketPg } from "./pg.ts";
 
 // Memoize a single init PROMISE so concurrent callers all await the same fully-initialized
 // instance (waitReady + schema applied) — otherwise an early query races the schema exec
 // and hits "relation does not exist".
-let _pg: Promise<PGlite> | null = null;
+let _pg: Promise<Database> | null = null;
 
 const OK_MARKER = `${DATA_DIR}/.trame-ok`;
 
-async function openPg(): Promise<PGlite> {
-  const pg = new PGlite(DATA_DIR);
-  await pg.waitReady;
+async function initSchema(pg: Database): Promise<void> {
   // dev: schema from the repo; bundled installs: embedded copy
   const schema = await Deno.readTextFile(`${APP_ROOT}/../db/schema.sql`)
     .catch(async () => (await import("./embed.ts")).SCHEMA);
   await pg.exec(schema);
-  // claim the device→user mapping as part of init (with the handle — db() would deadlock
-  // on its own memoized promise) so any first db touch, not just server startup, claims.
+  // Use this handle: db() would await its own initialization promise.
   const { claimDevice } = await import("./identity.ts");
   await claimDevice(pg).catch(console.error);
+}
+
+async function openPg(): Promise<PGlite> {
+  const pg = new PGlite(DATA_DIR);
+  await pg.waitReady;
+  await initSchema(pg);
   await Deno.writeTextFile(OK_MARKER, "1"); // init completed — dir is real data from now on
   return pg;
 }
 
-export function db(): Promise<PGlite> {
+export function db(): Promise<Database> {
   if (!_pg) {
     _pg = (async () => {
+      const socket = Deno.env.get("TRAME_PG_SOCKET");
+      if (socket) {
+        const pg = socketPg(socket);
+        try {
+          await initSchema(pg);
+          return pg;
+        } catch (e) {
+          await pg.close();
+          throw e;
+        }
+      }
       // PGlite data dirs are not portable across major PG versions (0.5.x = PG 18).
       // Check BEFORE any open/recovery so an old dir is never opened in place or
       // mistaken for a half-initialized one and wiped.

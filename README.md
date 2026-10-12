@@ -9,15 +9,15 @@ comments (with agent reply threads), **sandboxed interactive HTML blocks**, per-
 Code or Codex. Opt-in **plugins** add side panels — the first one lists GitHub/GitLab
 **deployments waiting for approval**.
 
-Stack: **Deno-desktop** app → **local PGlite** (embedded Postgres, offline read+write) →
+Stack: **Tauri 2 + Rust** app → **bundled PostgreSQL 18** (offline read+write) →
 custom **changeset LWW sync over HTTPS** → a small **Deno API in front of Postgres** on a home
 server (the hub), with **WebSocket nudges** so edits propagate between machines in seconds.
 No PowerSync, no Electric. Everything is Postgres, so the SQL is identical on the laptop and
 the hub. (Design + migration story: `docs-site/src/content/docs/hub-api.md`.)
 
 ```
- laptop A (Deno app)                          laptop B (Deno app)
-   ├─ local PGlite  ◀── read/write offline ──▶  local PGlite
+ laptop A (Tauri app)                          laptop B (Tauri app)
+   ├─ local PG18    ◀── read/write offline ──▶  local PG18
    └─ sync ─┐  POST /sync (mutations ⇅ changes)  ┌─ sync
             ├──────────▶  Deno API @ hub  ◀──────┤   (auth boundary; Docker, home LAN)
             └── WSS ◀──  "changed, pull now"  ──▶┘        └─▶ Postgres (source of truth)
@@ -47,15 +47,16 @@ the hub. (Design + migration story: `docs-site/src/content/docs/hub-api.md`.)
 | [![reminders](docs/reminders.png)](docs/reminders.png) | |
 
 ## Requirements
-- **Deno 2.9+** on each laptop (for `deno desktop`). Install: `curl -fsSL https://deno.land/install.sh | sh`.
+- **Linux x64** packaged app (deb, snap, or AppImage); no installed Deno runtime is required.
+- Source builds use **Rust**, Tauri/WebKitGTK build libraries, **Node/npm**, and **Deno 2.9+** only for hub tooling, tests and compiling the one-shot legacy migration helper.
 - **Docker + openssl** on the hub machine (certs are generated there; the CA key never leaves it).
 - Laptops reach the hub's API over the **home LAN** (no Tailscale required;
   the hub binds to its LAN IP — install Tailscale there if you want sync away from home).
-- Node/npm is pulled in only to build the Vite frontend (via `deno task web:build`).
+- Node/npm builds the existing Vite frontend (`just web-build`).
 
 ## Layout
 ```
-db/schema.sql              shared schema (hub Postgres AND local PGlite) — idempotent; re-applying it IS the migration
+db/schema.sql              shared schema (hub AND local PostgreSQL) — idempotent; re-applying it IS the migration
 docs-site/                 Astro + Starlight docs (data model, hub API design, release notes) — `just docs`
 protocol/                  versioned sync protocol shared by app and hub (entities, LWW rule, html-block bridge)
 hub/docker-compose.yml     the hub: Postgres (docker-network only) + the Deno API in front of it
@@ -64,32 +65,18 @@ hub/deploy.sh              deploy the hub over ssh (~/Apps/trame) — `just db-d
 hub/gen-certs.sh           private CA + server certs, runs on the hub (called by deploy)
 hub/fetch-ca.sh            fetch the hub's ca.crt so this laptop trusts the API's TLS — `just hub-ca`
 hub/pg_hba.conf            Postgres auth rules: local + docker network only, anything else rejected
-app/                       Deno-desktop app
-  main.ts                  window + in-process HTTP (serves UI + /api), startup sync loop
-  db.ts                    local PGlite + queries + outbox drain
-  sync-api.ts              changeset push/pull against the hub API (cursor in sync_state)
-  realtime.ts              WSS client — hub nudges turn into a pull within seconds
-  identity.ts              users/devices — which user this laptop writes as
-  config.ts                env config (NODE_ID, data dir…)
-  share.ts                 export/import a page subtree as a portable *.trame.json bundle
-  csrf.ts                  same-origin guard for /api (it spawns terminals, opens files…)
-  plugins/                 opt-in in-tree plugins (deployments: GitHub/GitLab approvals)
-  settings-store.ts        single writer for the device-local settings JSON (0600, holds tokens)
-  agent-comments.ts        canonical Codex/Claude identities (branded SVG avatars) + block resolution
-  presence.ts              ephemeral "who's here" registry (viewers + active watchers; not synced)
-  web/                     React swimlane board (Vite)
-mcp/server.ts              Trame MCP server (stdio): board, pages, comments, html blocks, reports, sync
-track/cli.ts               tramecli — the compiled agent CLI (writers + list/answer/setup/mcp)
-track/help.ts              the agent contract strings: CLI --help, MCP capabilities, stub stamping
-track/track.ts             the $trame-track session writer (app or outbox)
-track/page.ts              the $trame-page writer (Markdown → atomic page create)
-track/comment.ts           agent page comments (title/quote resolution + attribution)
-track/watch.ts             the comment watcher — agents auto-answer human replies (`tramecli answer`)
-track/page-watch.ts        page-scoped poller behind `tramecli watch` — wakes a session on feedback
-track/claude-hook.ts       UserPromptSubmit hook: records cwd → Claude session id for track.ts
+crates/trame-desktop/       Tauri 2 shell, splash/readiness, window state, native packaging
+crates/trame-local/         axum API, supervised PostgreSQL, sync, plugins, files and migration
+crates/trame-core/          shared markdown/merge/todo logic, also compiled to Wasm
+crates/trame-cli/           native tramecli writers, setup, watcher and MCP stdio server
+app/web/                   existing React app (Vite)
+app/, track/, mcp/          original TS regression oracles; not the production backend or CLI
+scripts/rust-db-migrate.ts  one-shot legacy PGlite export helper, compiled into packages
 bin/quickstart.sh          curl-able laptop setup: clone + packaged app + agent integrations
 skills/trame-{track,page,watch}/ the agent skills (Claude Code, Codex & friends) — embedded in tramecli, installed by `tramecli setup`
 ```
+
+See [native runtime and migration](crates/trame-local/README.md) for isolated development, packaging, and the one-shot PGlite conversion.
 
 ## Setup
 
@@ -97,9 +84,8 @@ skills/trame-{track,page,watch}/ the agent skills (Claude Code, Codex & friends)
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Andarius/trame/master/bin/quickstart.sh | bash
 ```
-Clones to `~/trame` (override with `TRAME_DIR`), installs Deno if missing, installs the
-latest packaged app for the platform (snap or AppImage on Linux x64, dmg on Apple
-Silicon; `TRAME_APP=source` builds from the checkout instead, `TRAME_VERSION=v0.9.0`
+Clones to `~/trame` (override with `TRAME_DIR`), installs the
+latest packaged Linux x64 app (snap, deb or AppImage; `TRAME_APP=source` builds from the checkout instead, `TRAME_VERSION=v0.9.0`
 pins a release), and wires Claude Code and Codex (`TRAME_TARGETS=claude` or `codex`
 to pick one, `none` to skip; any other agent CLI that reads an Agent Skills directory
 → `TRAME_SKILL_DIRS=~/.gemini/skills`). The hub (step 1), device token (step 2), and
@@ -136,12 +122,13 @@ export TRACKER_CLIENTS="Acme,Globex"
 ```
 ### 3. Run the app
 ```bash
-cd app
-deno task web:build     # build the React frontend → web/dist
-deno task dev           # opens the desktop window (Deno 2.9+)
-# no desktop subcommand yet? →  deno task serve   then open http://localhost:8787
-# frontend dev with HMR:        deno task web:dev  (proxies /api to :8787)
+just web-build
+just dev                # isolated offline desktop; .scratch/dev data
+just serve              # isolated offline backend; .scratch/dev/port.json
 ```
+
+Development recipes use disposable worktree data. For an installed runtime and legacy-data cutover,
+follow the [native runtime guide](docs-site/src/content/docs/native-runtime.md); source builds do not attach to the live app.
 
 ### 4. Wire session tracking
 
@@ -182,7 +169,7 @@ to the current resumable session; no hook is needed.
 
 In Claude Code the same skills land in `~/.claude/skills/`: `/trame-track` records the
 current session as a card on the board — it reads the repo, branch, and a one-line note
-from the conversation and writes straight to your local PGlite (syncing to the hub when
+from the conversation and writes through the native local API (syncing to the hub when
 online, else queued in the outbox). From any repo: `/trame-track` to log the session, or
 `/trame-track paused|blocked|done "note"` to set its status with a note. `trame-page` is
 picked up automatically when you ask to save a document, note, or plan as a Trame page,
@@ -198,11 +185,12 @@ can't see their own session id, so a `UserPromptSubmit` hook records it per-cwd 
 "hooks": {
   "UserPromptSubmit": [{ "matcher": "", "hooks": [{
     "type": "command",
-    "command": "deno run -A /path/to/trame/track/claude-hook.ts",
+    "command": "tramecli hook",
     "timeout": 5
   }] }]
 }
 ```
+`tramecli setup --presence` installs this hook with the presence hooks.
 Without the hook `/trame-track` still works — the card just has no transcript link. Cards
 imported from the app's Claude Code + Codex dialog carry the UUID as their id and never need it.
 
@@ -295,9 +283,9 @@ until upgraded. Session tags require protocol 6.
 ```mermaid
 flowchart LR
     subgraph laptop [Laptop — each machine]
-        app[Deno desktop app] --> pgl[(local PGlite<br/>offline read/write)]
-        pgl <--> sync[sync-api.ts<br/>changeset push/pull]
-        rt[realtime.ts<br/>WSS client]
+        app[Tauri 2 desktop / Rust axum] --> pgl[(local Postgres 18<br/>offline read/write)]
+        pgl <--> sync[Rust changeset push/pull]
+        rt[Rust WSS client]
     end
     subgraph hub [Hub — home server, Docker]
         api[Deno API :8443<br/>device tokens + ACLs] --> pg[(Postgres 18<br/>docker-network only)]
@@ -311,17 +299,19 @@ flowchart LR
 
 ## Packaging & releases
 
-Push a `v*` tag (matching `app/deno.json` `version`) and GitHub Actions builds the desktop
-apps and attaches them to the [release](https://github.com/Andarius/trame/releases):
+Linux x64 packages contain the Tauri 2 desktop, native Rust backend and CLI, PostgreSQL 18,
+and React assets. The one-shot legacy PGlite migration helper is bundled separately; normal
+startup needs no Deno installation or TypeScript sidecar.
 
-| Platform | Assets | First launch |
-| :--- | :--- | :--- |
-| **Linux** | `Trame.AppImage`, `trame.deb`, `.snap` (classic), `tramecli-<tag>-linux-x64` | snap: `bin/snap-install-release.sh` → `snap install --dangerous --classic` (aliases `trame.tramecli` → `tramecli`) |
-| **macOS** | `Trame.dmg` (Apple Silicon), `tramecli-<tag>-macos-arm64` | ad-hoc signed — right-click → **Open**, or `xattr -dr com.apple.quarantine /Applications/Trame.app` |
+`just bundle` builds the deb, `snapcraft --destructive-mode` builds the classic snap, and
+`just bundle-appimage` builds the best-effort AppImage. Release publication requires a manual
+workflow dispatch for the exact `v*` tag with `allow_native_cutover=true`, after its full CI gate.
+Tag pushes alone cannot publish. Native AppImage assets use `native-x64.AppImage` names so
+legacy AppImage updaters cannot silently install a database-runtime migration.
 
-> Proper macOS signing/notarization needs an Apple Developer identity in
-> `desktop.macos.codesignIdentity`.
+macOS native PostgreSQL resources and packages are not implemented or qualified; the previous
+macOS release path remains a cutover blocker for those users. Snap installation and hosted
+release execution also need qualification before production cutover.
 
-Assets (`web/dist`, `db/schema.sql`) are **embedded into the binary** via raw imports
-(`scripts/gen-embed.ts`, regenerated by `just web-build`) — bundles run from anywhere with no
-disk layout. Local builds: `just bundle` (AppImage), `deno task bundle:mac` (on a Mac).
+See [native runtime and migration](crates/trame-local/README.md) for data paths, backup and
+rollback instructions, isolated tests, and package requirements.
