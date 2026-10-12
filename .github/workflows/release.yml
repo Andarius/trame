@@ -90,7 +90,8 @@ jobs:
           rustup toolchain install 1.95.0 --profile minimal
           rustup default 1.95.0
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev \
+            libicu74 liburing2 libnuma1 libxml2 libldap2 libpam0g libzstd1 liblz4-1 libpq5
       - name: Build deb
         run: bash scripts/rust-package.sh deb
       - name: Build AppImage (best effort)
