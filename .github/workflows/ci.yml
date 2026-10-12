@@ -157,4 +157,4 @@ jobs:
           TRAME_OFFLINE: "1"
           TRAME_LOCAL_DIR: ${{ github.workspace }}/.scratch/test
           TRAME_PG_BIN: ${{ github.workspace }}/.scratch/package/pg/usr/lib/postgresql/18/bin
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings && cargo test --workspace --locked
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings && cargo test --workspace --locked --no-fail-fast
