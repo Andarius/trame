@@ -35,12 +35,20 @@ fn transcript_dir(db: &Db, key: &str, fallback: &str) -> Result<PathBuf> {
 fn valid_uuid(id: &str) -> bool {
     id.len() == 36 && uuid::Uuid::parse_str(id).is_ok()
 }
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "values fit by construction (timestamps, ids, pids, JS-number parity)"
+)]
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64
 }
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "values fit by construction (timestamps, ids, pids, JS-number parity)"
+)]
 fn modified_ms(path: &Path) -> Result<i64> {
     Ok(fs::metadata(path)?
         .modified()?
@@ -98,8 +106,7 @@ fn cut(text: &str, n: usize) -> String {
 }
 fn repo_name(path: &str) -> &str {
     path.split('/')
-        .filter(|s| !s.is_empty())
-        .next_back()
+        .rfind(|s| !s.is_empty())
         .unwrap_or("unknown")
 }
 fn client_for(path: &str) -> String {
@@ -173,6 +180,10 @@ pub fn transcript_is_local(db: &Db, source: &str, id: &str) -> Result<bool> {
     }
     Ok(false)
 }
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "values fit by construction (timestamps, ids, pids, JS-number parity)"
+)]
 fn scan(db: &mut Db, days: f64) -> Result<Value> {
     let claude_dir = transcript_dir(db, "TRACKER_CLAUDE_DIR", "claude-projects")?;
     let codex_dir = transcript_dir(db, "TRACKER_CODEX_DIR", "codex-sessions")?;

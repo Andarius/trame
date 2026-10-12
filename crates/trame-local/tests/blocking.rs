@@ -5,6 +5,10 @@ use std::{sync::mpsc, time::Duration};
 use trame_local::{blocking, db::Db};
 
 #[test]
+#[allow(
+    clippy::async_yields_async,
+    reason = "the test deliberately returns a JoinHandle to abort/await it later"
+)]
 fn cancelled_awaiter_does_not_finish_drain_before_database_write() {
     let mut test = TestDb::new();
     let root = test.root.clone();

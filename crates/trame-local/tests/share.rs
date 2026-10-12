@@ -18,7 +18,7 @@ fn database(t: &mut TestDb, name: &str, page: &Value) -> Value {
 fn title_prop(t: &mut TestDb, id: &Value) -> Value {
     t.db.query(
         "select id from udb_properties where db_id=$1 and type='title'",
-        &[id.clone()],
+        std::slice::from_ref(id),
     )
     .unwrap()[0]["id"]
         .clone()
@@ -50,7 +50,7 @@ fn subtree_roundtrip_preserves_every_typescript_assertion() {
         .iter()
         .map(|p| p["title"].as_str().unwrap())
         .collect::<Vec<_>>();
-    titles.sort();
+    titles.sort_unstable();
     assert_eq!(titles, vec!["Child note", "Shared root"]);
     assert_eq!(
         bundle["databases"]
@@ -163,7 +163,7 @@ fn remapped_views_and_page_color_typescript_assertions() {
     let database =
         t.db.query(
             "select id,views from udb_databases where page_id=$1 and not deleted",
-            &[imported.clone()],
+            std::slice::from_ref(&imported),
         )
         .unwrap()
         .remove(0);

@@ -7,6 +7,10 @@ use trame_local::{comments, pages};
 
 const SEED_USER: &str = "00000000-0000-4000-8000-000000000101";
 
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "callers pass json! temporaries"
+)]
 fn page(t: &mut TestDb, title: &str, content: Value) -> String {
     pages::create(&mut t.db, &json!({"title": title, "content": content}))
         .unwrap()

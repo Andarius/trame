@@ -178,7 +178,7 @@ pub async fn write_page(input: &Value, target: &Target) -> Result<Value> {
 }
 
 pub async fn main(input: &Value, target: &Target) -> Result<()> {
-    let result = write_page(&input, target).await?;
+    let result = write_page(input, target).await?;
     let id = result["id"].as_str().unwrap_or("");
     let title = result["title"].as_str().unwrap_or("");
     if result["action"] == "created" {

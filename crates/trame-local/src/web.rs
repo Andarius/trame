@@ -24,6 +24,10 @@ fn safe_file(root: &Path, name: &str) -> Option<PathBuf> {
     let real = file.canonicalize().ok()?;
     real.starts_with(root).then_some(real)
 }
+#[allow(
+    clippy::case_sensitive_file_extension_comparisons,
+    reason = "case-sensitive match is intentional for parity"
+)]
 pub async fn serve(state: crate::routes::Native, req: Request<Body>) -> Response {
     let path = req.uri().path();
     let name = if path == "/" {

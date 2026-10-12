@@ -163,7 +163,7 @@ pub async fn add_comment(input: &Value, target: &Target) -> Result<Value> {
     Ok(json!({"id":res["id"],"agent":agent,"page":{"id":page["id"],"title":page["title"]}}))
 }
 pub async fn main(input: &Value, target: &Target) -> Result<()> {
-    let res = add_comment(&input, target).await?;
+    let res = add_comment(input, target).await?;
     let id = res["id"].as_str().unwrap_or("");
     let agent = res["agent"].as_str().unwrap_or("");
     let page = &res["page"];

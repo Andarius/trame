@@ -48,6 +48,11 @@ pub fn update(path: &Path, mutate: impl FnOnce(&mut Value) -> Result<()>) -> Res
     Ok(next)
 }
 
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "bounded() clamps to 1..=240 and is integral"
+)]
 pub fn normalize_agent_presence(raw: &Value) -> Value {
     fn bounded(v: &Value, default: f64, low: f64, high: f64) -> f64 {
         let n = v.as_f64().or_else(|| {

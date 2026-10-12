@@ -1,3 +1,5 @@
+#![allow(unsafe_code, reason = "tests mutate env vars (set_var/remove_var)")]
+
 mod common;
 use common::TestDb;
 use serde_json::{Value, json};
@@ -340,6 +342,10 @@ fn fixture_routes_preserve_gate_actions_ignores_and_redaction() {
 }
 
 #[test]
+#[allow(
+    clippy::async_yields_async,
+    reason = "the poller JoinHandle is aborted by the test, not awaited"
+)]
 fn boot_poll_starts_without_request_and_stops_before_database_shutdown() {
     let _guard = FIXTURE_ENV_LOCK.lock().unwrap();
     unsafe {

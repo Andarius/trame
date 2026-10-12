@@ -141,7 +141,7 @@ fn reviewed_api_errors_and_non_string_summaries_match_the_oracle() {
             &format!("/api/sessions/{}/events", session.as_str().unwrap()),
             json!({"summary":summary}),
         );
-        let rows = test.db.query("select summary from session_events where session_id=$1 and kind='log' order by at desc limit 1", &[session.clone()]).unwrap();
+        let rows = test.db.query("select summary from session_events where session_id=$1 and kind='log' order by at desc limit 1", std::slice::from_ref(&session)).unwrap();
         assert_eq!(rows[0]["summary"], expected);
     }
     let cwd = test.root.join("repo with space");

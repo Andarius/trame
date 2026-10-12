@@ -8,6 +8,10 @@ use std::{
 const HEAD: usize = 524_288;
 const TAIL: usize = 262_144;
 
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "values fit by construction (timestamps, ids, pids, JS-number parity)"
+)]
 pub fn read_chunks(path: &Path) -> std::io::Result<(String, String)> {
     let mut file = File::open(path)?;
     let size = file.metadata()?.len();

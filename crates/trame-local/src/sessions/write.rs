@@ -4,7 +4,7 @@ use anyhow::{Result, bail};
 use serde_json::{Map, Value, json};
 use std::collections::HashSet;
 
-const SPECS_WHEN: &str = r#"Write a spec page whenever the session produced knowledge worth keeping — planned
+const SPECS_WHEN: &str = r"Write a spec page whenever the session produced knowledge worth keeping — planned
 work (a goal paragraph, then scope and acceptance as `- [ ]` todos you check as you
 go, with `links` back to the TODO/plan item; anything left blocked or waiting stays an
 open todo with a `{{trame:due=YYYY-MM-DD}}` mark: when it unblocks, or when to check
@@ -12,7 +12,7 @@ again) and
 investigations (what broke, what was ruled out, what is still open) alike; the page is
 the only place that survives, `summary` is 1–3 lines. When the session's whole story
 is its diff, the spec page and the PR description are the same text — write it once on
-the page and reuse it for the PR: its goal is the PR's brief."#;
+the page and reuse it for the PR: its goal is the PR's brief.";
 
 fn slug(label: &str, fallback: &str) -> String {
     let mut out = String::new();
@@ -62,19 +62,24 @@ pub fn split_tag_label(label: &str) -> Value {
     }
 }
 
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    reason = "values fit by construction (timestamps, ids, pids, JS-number parity); values fit by construction (pids, small ids)"
+)]
 pub fn tag_color(key: &str) -> &'static str {
-    let mut hash: u32 = 2166136261;
+    let mut hash: u32 = 2_166_136_261;
     for c in key.encode_utf16() {
-        hash = (hash ^ c as u32).wrapping_mul(16777619);
+        hash = (hash ^ u32::from(c)).wrapping_mul(16_777_619);
     }
     let palette = [
         "#6b7280", "#c98a63", "#e3c567", "#7bd88f", "#5fc2b0", "#6aa9e0", "#a78bd8", "#dd8ab8",
         "#e06c75",
     ];
-    palette[(hash as i32 as i64).abs() as usize % palette.len()]
+    palette[i64::from(hash as i32).unsigned_abs() as usize % palette.len()]
 }
 
-pub fn ensure_tag(db: &mut Db, label: &str, color: Option<&Value>) -> Result<Value> {
+pub(super) fn ensure_tag(db: &mut Db, label: &str, color: Option<&Value>) -> Result<Value> {
     let key = slug(label, "tag");
     let id = uuid::Uuid::new_v5(
         &uuid::uuid!("3c9e0b71-2f45-4d18-a6c3-8e5417b9d0aa"),
@@ -109,7 +114,11 @@ fn status_key(db: &mut Db, wanted: &Value) -> Result<Value> {
     )
 }
 
-pub fn create_status(db: &mut Db, body: &Value) -> Result<Value> {
+#[allow(
+    clippy::maybe_infinite_iter,
+    reason = "iterator is bounded by its source"
+)]
+pub(super) fn create_status(db: &mut Db, body: &Value) -> Result<Value> {
     let base = slug(body["label"].as_str().unwrap_or(""), "status");
     let taken: HashSet<String> = db
         .query("select key from statuses where not deleted", &[])?
@@ -139,7 +148,11 @@ pub fn create_status(db: &mut Db, body: &Value) -> Result<Value> {
     Ok(json!(id))
 }
 
-pub fn status_route(
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "signature kept for parity with sibling handlers"
+)]
+pub(super) fn status_route(
     db: &mut Db,
     id: &str,
     action: Option<&str>,
@@ -291,7 +304,7 @@ fn upsert_mut(db: &mut Db, raw: &mut Value, note: Option<&mut String>) -> Result
         };
         if tags
             .iter()
-            .any(|t| !t.as_str().is_some_and(|s| !s.trim().is_empty()))
+            .any(|t| t.as_str().is_none_or(|s| s.trim().is_empty()))
         {
             bail!("tags must be an array of non-empty tag keys");
         }
@@ -495,7 +508,7 @@ fn upsert_mut(db: &mut Db, raw: &mut Value, note: Option<&mut String>) -> Result
     Ok(json!(id))
 }
 
-pub fn ensure_specs_page(db: &mut Db, id: &str) -> Result<Value> {
+pub(super) fn ensure_specs_page(db: &mut Db, id: &str) -> Result<Value> {
     let s = first(
         db,
         "select title,client_id,page_id,specs_page_id from sessions where id=$1 and not deleted",
@@ -534,7 +547,7 @@ pub fn ensure_specs_page(db: &mut Db, id: &str) -> Result<Value> {
     Ok(json!(pid))
 }
 
-pub fn create_route(db: &mut Db, body: &Value) -> Result<(u16, Value)> {
+pub(super) fn create_route(db: &mut Db, body: &Value) -> Result<(u16, Value)> {
     let mut body = body.clone();
     if let Some(card) = body.get("card") {
         let card = trame_core::js_string(card).to_lowercase();

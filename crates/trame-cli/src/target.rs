@@ -71,7 +71,7 @@ pub async fn resolve_target() -> Result<Target> {
         if let Ok(value) = serde_json::from_str::<Value>(&port_data) {
             if let Some(port) = value["port"]
                 .as_u64()
-                .filter(|p| *p > 0 && *p <= u16::MAX as u64)
+                .filter(|p| *p > 0 && u16::try_from(*p).is_ok())
             {
                 let base = format!("http://127.0.0.1:{port}");
                 let client = Client::builder()

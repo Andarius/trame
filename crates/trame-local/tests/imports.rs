@@ -141,7 +141,7 @@ fn scan_uses_only_scratch_transcripts_and_filters_windows_and_subagents() {
         ]),
     )
     .unwrap();
-    let old_time = SystemTime::now() - Duration::from_secs(20 * 86_400);
+    let old_time = SystemTime::now() - Duration::from_hours(480);
     fs::File::options()
         .write(true)
         .open(&old_path)

@@ -117,8 +117,11 @@ fn locale_cmp(a: &str, b: &str) -> std::cmp::Ordering {
         std::sync::OnceLock::new();
     COLLATOR
         .get_or_init(|| {
-            icu_collator::Collator::try_new(Default::default(), Default::default())
-                .expect("compiled collation data")
+            icu_collator::Collator::try_new(
+                icu_collator::CollatorPreferences::default(),
+                icu_collator::options::CollatorOptions::default(),
+            )
+            .expect("compiled collation data")
         })
         .compare(a, b)
 }
@@ -217,6 +220,10 @@ fn braces(pattern: &str) -> Vec<String> {
         .collect()
 }
 
+#[allow(
+    clippy::case_sensitive_file_extension_comparisons,
+    reason = "case-sensitive match is intentional for parity"
+)]
 fn walk(dir: &Path, depth: i32, out: &mut Vec<Value>, ignore: &Ignore) {
     if depth < 0 || out.len() >= 500 {
         return;
@@ -265,7 +272,12 @@ fn walk(dir: &Path, depth: i32, out: &mut Vec<Value>, ignore: &Ignore) {
     }
 }
 
+#[allow(
+    clippy::case_sensitive_file_extension_comparisons,
+    reason = "case-sensitive match is intentional for parity"
+)]
 fn is_report(hit: &Value) -> bool {
+    static ASSET: OnceLock<regex::Regex> = OnceLock::new();
     let name = hit["name"].as_str().unwrap_or("");
     if !name.ends_with(".html") || name.ends_with(".ai.html") {
         return true;
@@ -277,14 +289,13 @@ fn is_report(hit: &Value) -> bool {
     if file.take(6144).read_to_end(&mut bytes).is_err() {
         return false;
     }
-    static ASSET: OnceLock<regex::Regex> = OnceLock::new();
     !ASSET.get_or_init(||regex::Regex::new(r#"(?i)(?:src|href)\s*=\s*["'](?:\.\.?/|/[^/"'])[^"']*?\.(?:m?js|css|tsx?)(?:[?#][^"']*)?["']"#).unwrap()).is_match(&String::from_utf8_lossy(&bytes))
 }
 
 pub fn scan(settings: &Path, force: bool) -> Result<Value> {
     if !force {
         if let Some((at, hits)) = cache().lock().unwrap().get(settings) {
-            if at.elapsed() < Duration::from_secs(60) {
+            if at.elapsed() < Duration::from_mins(1) {
                 return Ok(hits.clone());
             }
         }
@@ -474,7 +485,7 @@ mod tests {
             .iter()
             .map(|v| v["name"].as_str().unwrap())
             .collect::<Vec<_>>();
-        names.sort();
+        names.sort_unstable();
         assert_eq!(
             names,
             vec!["cdn.html", "keep.ai.html", "one.html", "scene.excalidraw"]

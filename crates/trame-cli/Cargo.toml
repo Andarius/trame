@@ -23,3 +23,6 @@ uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 axum = "0.8"
+
+[lints]
+workspace = true

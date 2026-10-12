@@ -16,6 +16,10 @@ static UPDATER: Mutex<Updater> = Mutex::const_new(Updater {
     asset: None,
     applied: false,
 });
+#[allow(
+    clippy::float_cmp,
+    reason = "exact float comparison is intentional for parity"
+)]
 pub fn newer(a: &str, b: &str) -> bool {
     let a: Vec<_> = a
         .split('.')
@@ -43,7 +47,7 @@ impl Updater {
     ) -> Value {
         if !force {
             if let Some((at, info)) = &self.cache {
-                if at.elapsed() < Duration::from_secs(3600) {
+                if at.elapsed() < Duration::from_hours(1) {
                     return info.clone();
                 }
             }
@@ -109,7 +113,7 @@ impl Updater {
             use tokio::io::AsyncWriteExt;
             let response = reqwest::Client::new()
                 .get(asset)
-                .timeout(Duration::from_secs(120))
+                .timeout(Duration::from_mins(2))
                 .send()
                 .await
                 .map_err(|_| "download failed".to_owned())?;
@@ -190,7 +194,7 @@ mod tests {
             ("0.12.9", "0.13.0", false),
             ("x", "0.1.0", false),
         ] {
-            assert_eq!(newer(a, b), want)
+            assert_eq!(newer(a, b), want);
         }
     }
     #[tokio::test]

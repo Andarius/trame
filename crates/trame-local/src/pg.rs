@@ -1,3 +1,8 @@
+#![allow(
+    unsafe_code,
+    reason = "libc FFI (flock/kill/killpg/prctl/getppid/waitpid/gethostname/fcntl/pre_exec)"
+)]
+
 use anyhow::{Context, Result, bail, ensure};
 use postgres::{Client, NoTls};
 use serde_json::Value;
@@ -151,6 +156,10 @@ impl Pg {
 }
 
 impl Drop for Pg {
+    #[allow(
+        clippy::cast_possible_wrap,
+        reason = "values fit by construction (pids, small ids)"
+    )]
     fn drop(&mut self) {
         if matches!(self.supervisor.try_wait(), Ok(None)) {
             unsafe {
@@ -216,6 +225,11 @@ fn reap_descendants() -> Result<()> {
     }
 }
 
+#[allow(
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    reason = "values fit by construction (pids, small ids); values are non-negative by construction"
+)]
 fn supervise(root: &Path, bin: &Path, fd: i32, parent: u32) -> Result<()> {
     ensure!(fd >= 3, "invalid inherited lock fd");
     let lock = unsafe { File::from_raw_fd(fd) };

@@ -10,6 +10,10 @@ fn card(t: &mut TestDb, id: &str) -> Value {
         .remove(0)
 }
 
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "callers pass json! temporaries"
+)]
 fn create(t: &mut TestDb, body: Value) -> String {
     sessions::upsert(&mut t.db, &body, None)
         .unwrap()

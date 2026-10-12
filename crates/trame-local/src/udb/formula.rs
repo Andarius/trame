@@ -59,7 +59,7 @@ fn prop_sql(prop: &Value) -> String {
     }
 }
 
-pub fn rewrite(expr: &str, props: &[Value]) -> Result<String> {
+pub(crate) fn rewrite(expr: &str, props: &[Value]) -> Result<String> {
     if expr.trim().is_empty() {
         bail!("empty formula");
     }
@@ -137,6 +137,7 @@ pub fn rewrite(expr: &str, props: &[Value]) -> Result<String> {
     Ok(result)
 }
 
+#[allow(clippy::needless_pass_by_value, reason = "used as a map_err callback")]
 fn error(error: postgres::Error) -> anyhow::Error {
     anyhow::anyhow!(
         error
@@ -149,7 +150,7 @@ fn error(error: postgres::Error) -> anyhow::Error {
 pub(crate) fn ensure_role(db: &mut Db) -> Result<()> {
     db.client
         .batch_execute(
-            r#"
+            r"
         do $$ begin
           if not exists (select from pg_roles where rolname='trame_formula') then
             create role trame_formula login;
@@ -176,7 +177,7 @@ pub(crate) fn ensure_role(db: &mut Db) -> Result<()> {
             execute format('revoke execute on function %s from public', f);
           end loop;
         end $$;
-    "#,
+    ",
         )
         .map_err(error)?;
     Ok(())
@@ -244,7 +245,7 @@ fn run(db: &mut Db, sql: &str, id: Option<&str>) -> Result<Vec<Value>> {
     Ok(values)
 }
 
-pub fn validate(db: &mut Db, expr: &str, props: &[Value]) -> Result<String> {
+pub(crate) fn validate(db: &mut Db, expr: &str, props: &[Value]) -> Result<String> {
     let rewritten = rewrite(expr, props)?;
     let sql =
         format!("select to_jsonb(({rewritten})) as val from (select '{{}}'::jsonb as vals) r");
@@ -252,7 +253,7 @@ pub fn validate(db: &mut Db, expr: &str, props: &[Value]) -> Result<String> {
     Ok(rewritten)
 }
 
-pub fn values(
+pub(crate) fn values(
     db: &mut Db,
     prop: &Value,
     props: &[Value],
@@ -278,7 +279,7 @@ fn valid_uuid(id: &str) -> bool {
     uuid::Uuid::parse_str(id).is_ok() && id.len() == 36
 }
 
-pub fn rollup(db: &mut Db, prop: &Value, props: &[Value]) -> Result<HashMap<String, Value>> {
+pub(crate) fn rollup(db: &mut Db, prop: &Value, props: &[Value]) -> Result<HashMap<String, Value>> {
     let cfg = &prop["config"];
     let rel = props
         .iter()

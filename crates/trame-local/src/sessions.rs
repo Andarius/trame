@@ -52,6 +52,11 @@ fn ok() -> Value {
     json!({"ok":true})
 }
 
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    reason = "values fit by construction (timestamps, ids, pids, JS-number parity); JS-number (f64) semantics must be preserved"
+)]
 fn event_limit(query: &str) -> Result<i64> {
     let number = query_param(query, "events")
         .as_deref()
@@ -77,7 +82,7 @@ pub fn owns(method: &str, path: &str) -> bool {
             "board" | "search" | "due" | "agent-presence" | "presence" | "tags",
         ] => true,
         ["", "api", "stories"] => method == "POST",
-        ["", "api", "sessions"] | ["", "api", "statuses"] => method == "POST",
+        ["", "api", "sessions" | "statuses"] => method == "POST",
         ["", "api", "stories", "similar"] => true,
         ["", "api", "stories", id] => !id.is_empty() && method == "POST",
         ["", "api", "sessions", id] => !id.is_empty() && method == "GET",
@@ -161,7 +166,7 @@ fn route(db: &mut Db, method: &str, path: &str, query: &str, body: &Value) -> Re
         ["", "api", "statuses", id] => write::status_route(db,id,None,body)?,
         ["", "api", "statuses", id, action] => write::status_route(db,id,Some(action),body)?,
         ["", "api", "tags"] if method == "POST" => {
-            if !body["label"].as_str().is_some_and(|s| !s.trim().is_empty()) { (400,json!({"error":"label required"})) }
+            if body["label"].as_str().is_none_or(|s| s.trim().is_empty()) { (400,json!({"error":"label required"})) }
             else { (200, write::ensure_tag(db, body["label"].as_str().unwrap().trim(), body.get("color"))?) }
         }
         ["", "api", "tags"] => (200, json!(db.query("select id,key,label,color,sort_key from tags where not deleted order by sort_key,label", &[])?)),

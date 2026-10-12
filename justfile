@@ -131,10 +131,11 @@ e2e *args: web-build
     cargo build -p trame-local --locked
     TRAME_PG_BIN="$PWD/.scratch/package/pg/usr/lib/postgresql/18/bin" TRAME_WEB_DIR="$PWD/app/web/dist" bash scripts/rust-e2e.sh {{ args }}
 
-# Check Rust formatting and SQL schema
+# Check Rust formatting, clippy and SQL schema
 [group('dev')]
 lint: lint-sql
     cargo fmt --all -- --check
+    cargo clippy --workspace --all-targets --locked -- -D warnings
 
 # Lint the SQL schema (sqlfluff, via uvx — no install needed)
 [group('dev')]

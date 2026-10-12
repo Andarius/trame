@@ -95,7 +95,7 @@ pub fn mid_key(a: &str, b: &str) -> String {
             continue;
         }
         if cb > ca + 1 {
-            result.push(AB[(ca + cb) / 2] as char);
+            result.push(AB[usize::midpoint(ca, cb)] as char);
             return result;
         }
         result.push(AB[ca] as char);
@@ -103,7 +103,7 @@ pub fn mid_key(a: &str, b: &str) -> String {
         loop {
             let c = digit(a, i, 0);
             if AB.len() - c > 1 {
-                result.push(AB[(c + AB.len()) / 2] as char);
+                result.push(AB[usize::midpoint(c, AB.len())] as char);
                 return result;
             }
             result.push(AB[c] as char);
@@ -121,7 +121,7 @@ pub fn story_above(db: &mut Db, id: &Value) -> Result<Value> {
          from pages p join up on p.id=up.parent_id
         where not p.deleted and up.kind <> 'project' and not p.id=any(up.path)
      ) select id, kind, content from up order by cardinality(path)",
-        &[id.clone()],
+        std::slice::from_ref(id),
     )?;
     Ok(rows
         .iter()
@@ -142,7 +142,7 @@ pub fn project_above(db: &mut Db, id: &Value) -> Result<Value> {
          from pages p join up on p.id = up.parent_id
         where not p.deleted and not p.id = any(up.path)
      ) select id from up where kind='project' order by d limit 1",
-        &[id.clone()],
+        std::slice::from_ref(id),
     )?;
     Ok(rows.first().map(|r| r["id"].clone()).unwrap_or(Value::Null))
 }
@@ -157,7 +157,7 @@ fn check_story_parent(db: &mut Db, parent: &Value) -> Result<()> {
 }
 
 fn end_key(db: &mut Db, parent: &Value) -> Result<String> {
-    let rows = db.query("select max(sort_key) as k from pages where parent_id is not distinct from $1 and not deleted", &[parent.clone()])?;
+    let rows = db.query("select max(sort_key) as k from pages where parent_id is not distinct from $1 and not deleted", std::slice::from_ref(parent))?;
     Ok(mid_key(rows[0]["k"].as_str().unwrap_or(""), ""))
 }
 
@@ -619,9 +619,9 @@ pub fn handle(db: &mut Db, method: &str, path: &str, body: &Value) -> Option<Res
     }
     if method == "POST" {
         let result = match parts.as_slice() {
-            [_] => update(db, id, body).map(|_| json!({"ok":true})),
-            [_, "delete"] => delete(db, id).map(|_| json!({"ok":true})),
-            [_, "move"] => move_page(db, id, body).map(|_| json!({"ok":true})),
+            [_] => update(db, id, body).map(|()| json!({"ok":true})),
+            [_, "delete"] => delete(db, id).map(|()| json!({"ok":true})),
+            [_, "move"] => move_page(db, id, body).map(|()| json!({"ok":true})),
             [_, "story"] => story_from_page(db, id),
             [_, "session"] => session_from_page(db, id),
             _ => return None,

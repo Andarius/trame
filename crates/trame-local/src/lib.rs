@@ -1,3 +1,9 @@
+#![allow(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "CLI output is the product; stderr is the app log"
+)]
+
 pub mod assets;
 pub mod blocking;
 pub mod comments;
@@ -28,6 +34,7 @@ pub mod web;
 use anyhow::{Context, Result, bail};
 use std::{
     fs,
+    io::Write,
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
@@ -88,6 +95,11 @@ pub fn scratch_root(path: &Path) -> Result<PathBuf> {
     Ok(root)
 }
 
+#[allow(unsafe_code, reason = "libc::kill liveness probe")]
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "values fit by construction (timestamps, ids, pids, JS-number parity)"
+)]
 fn refuse_live_port(path: &Path) -> Result<()> {
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
@@ -98,7 +110,7 @@ fn refuse_live_port(path: &Path) -> Result<()> {
         .context("existing port file is invalid; inspect it before starting")?;
     let pid = owner["pid"]
         .as_i64()
-        .filter(|pid| *pid > 0 && *pid <= i32::MAX as i64)
+        .filter(|pid| *pid > 0 && *pid <= i64::from(i32::MAX))
         .context("existing port file has no valid PID; inspect it before starting")?
         as libc::pid_t;
     let result = unsafe { libc::kill(pid, 0) };
@@ -166,6 +178,10 @@ impl Drop for Sidecar {
     }
 }
 
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "values fit by construction (timestamps, ids, pids, JS-number parity)"
+)]
 fn sidecar(config: &Config, token: &str) -> Result<(Sidecar, u16)> {
     let root = &config.root;
     let ready = root.join("sidecar.json");
@@ -256,7 +272,7 @@ fn sidecar(config: &Config, token: &str) -> Result<(Sidecar, u16)> {
         }
         if let Ok(bytes) = fs::read(&ready) {
             if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                if value["pid"].as_u64() == Some(child.0.id() as u64) {
+                if value["pid"].as_u64() == Some(u64::from(child.0.id())) {
                     let port = value["port"]
                         .as_u64()
                         .filter(|p| *p > 0 && *p <= 65535)
@@ -331,7 +347,7 @@ pub async fn run(
         let probe = client
             .get(format!("http://127.0.0.1:{upstream}/api/board"))
             .header("x-trame-sidecar-token", &token)
-            .timeout(Duration::from_secs(60))
+            .timeout(Duration::from_mins(1))
             .send()
             .await?;
         if !probe.status().is_success() {
@@ -355,7 +371,6 @@ pub async fn run(
         .mode(0o600)
         .custom_flags(libc::O_NOFOLLOW)
         .open(&published)?;
-    use std::io::Write;
     write!(
         file,
         "{}",
@@ -408,7 +423,7 @@ pub async fn run(
         tokio::select! {
             _ = &mut stop => break Ok(()),
             outcome = &mut server => { server_done = true; break outcome.context("HTTP server task failed").and_then(|r| r.context("HTTP server failed")); },
-            _ = tokio::time::sleep(Duration::from_millis(200)) => {
+            () = tokio::time::sleep(Duration::from_millis(200)) => {
                 if !pg.is_running().unwrap_or(false) || child.as_mut().is_some_and(|child| !matches!(child.0.try_wait(),Ok(None))) {
                     break Err(anyhow::anyhow!("local child exited or could not be monitored"));
                 }
@@ -436,8 +451,8 @@ pub async fn run(
         .ok()
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
         .is_some_and(|value| {
-            value["pid"].as_u64() == Some(std::process::id() as u64)
-                && value["port"].as_u64() == Some(port as u64)
+            value["pid"].as_u64() == Some(u64::from(std::process::id()))
+                && value["port"].as_u64() == Some(u64::from(port))
         })
     {
         let _ = fs::remove_file(published);

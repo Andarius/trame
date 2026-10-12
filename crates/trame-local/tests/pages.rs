@@ -4,6 +4,10 @@ use common::TestDb;
 use serde_json::{Value, json};
 use trame_local::pages;
 
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "callers pass json! temporaries"
+)]
 fn create(t: &mut TestDb, body: Value) -> String {
     pages::create(&mut t.db, &body)
         .unwrap()
@@ -17,11 +21,18 @@ fn get(t: &mut TestDb, id: &str) -> Value {
 }
 
 fn card(t: &mut TestDb, id: &Value) -> Value {
-    t.db.query("select * from sessions where id=$1", &[id.clone()])
-        .unwrap()
-        .remove(0)
+    t.db.query(
+        "select * from sessions where id=$1",
+        std::slice::from_ref(id),
+    )
+    .unwrap()
+    .remove(0)
 }
 
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "callers pass json! temporaries"
+)]
 fn post(t: &TestDb, path: &str, body: Value) -> Value {
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         let response = reqwest::Client::builder()
@@ -53,7 +64,7 @@ fn roles() {
                 value: regex::Regex::new(r"^GEN-\d+$").unwrap(),
                 role: "ticket".into(),
             },
-        ])
+        ]);
     });
 }
 
@@ -111,6 +122,10 @@ fn creates_content_and_resolves_home_projects_and_links() {
 }
 
 #[test]
+#[allow(
+    clippy::many_single_char_names,
+    reason = "a/b/c/d are short fixture page names"
+)]
 fn moves_preserve_project_chips_and_reject_cycles_and_bad_anchors() {
     let mut t = TestDb::new();
     let a = create(&mut t, json!({"title":"Proj A","kind":"project"}));
@@ -510,7 +525,7 @@ fn updates_routes_story_conversion_events_and_recursive_deletion() {
     .unwrap();
     t.db.query(
         "insert into session_events(session_id,summary) values($1,'work')",
-        &[id.clone()],
+        std::slice::from_ref(&id),
     )
     .unwrap();
     let events = pages::events(&mut t.db, &child).unwrap();

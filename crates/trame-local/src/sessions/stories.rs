@@ -3,6 +3,7 @@ use crate::{db::Db, pages};
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
 use std::collections::HashSet;
+use std::fmt::Write as _;
 
 const STOPWORDS: &[&str] = &[
     "a", "an", "and", "au", "aux", "d", "de", "des", "du", "en", "et", "for", "in", "l", "la",
@@ -42,7 +43,11 @@ fn trigrams(words: &[String]) -> HashSet<String> {
         .collect()
 }
 
-pub fn similarity(a: &str, b: &str) -> f64 {
+#[allow(
+    clippy::cast_precision_loss,
+    reason = "JS-number (f64) semantics must be preserved"
+)]
+pub(super) fn similarity(a: &str, b: &str) -> f64 {
     let wa = words(a);
     let wb = words(b);
     let sa: HashSet<_> = wa.iter().collect();
@@ -92,7 +97,7 @@ fn clean(title: &str) -> String {
     title.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-pub fn find_story(db: &mut Db, title: &str, client: &Value) -> Result<Value> {
+pub(super) fn find_story(db: &mut Db, title: &str, client: &Value) -> Result<Value> {
     let title = clean(title);
     if title.is_empty() {
         return Ok(Value::Null);
@@ -101,10 +106,10 @@ pub fn find_story(db: &mut Db, title: &str, client: &Value) -> Result<Value> {
 }
 
 fn open_stories(db: &mut Db, client: &Value) -> Result<Vec<Value>> {
-    db.query("select id,title from pages where kind='story' and status='open' and not deleted and ($1::uuid is null or client_id=$1)",&[client.clone()])
+    db.query("select id,title from pages where kind='story' and status='open' and not deleted and ($1::uuid is null or client_id=$1)",std::slice::from_ref(client))
 }
 
-pub fn match_story(
+pub(super) fn match_story(
     db: &mut Db,
     title: &str,
     client: &Value,
@@ -150,7 +155,7 @@ pub fn resolve_story(
         .into_iter()
         .take(3)
         .collect::<Vec<_>>();
-    if let Some(note) = note.as_deref_mut() {
+    if let Some(note) = note {
         if !near.is_empty() {
             *note = format!(
                 "similar open stories: {}; re-track with one of them if it is the same topic",
@@ -169,7 +174,11 @@ pub fn resolve_story(
             if !note.is_empty() {
                 note.push_str("; ");
             }
-            note.push_str(&format!("a page named '{}' exists ({}) and was left as is; use \"Convert to user story\" on it (or `tramecli convert --story {}`) if it should be this story",title,nested["id"],nested["id"]));
+            let _ = write!(
+                note,
+                "a page named '{}' exists ({}) and was left as is; use \"Convert to user story\" on it (or `tramecli convert --story {}`) if it should be this story",
+                title, nested["id"], nested["id"]
+            );
         }
     }
     if !client.is_null() && !pages::story_above(db, client)?.is_null() {
@@ -218,7 +227,7 @@ pub fn find_similar_stories(db: &mut Db, query: &str) -> Result<Value> {
     Ok(json!(hits))
 }
 
-pub fn create_story(db: &mut Db, body: &Value) -> Result<Value> {
+pub(super) fn create_story(db: &mut Db, body: &Value) -> Result<Value> {
     let client = if let Some(name) = body["client"].as_str().filter(|s| !s.is_empty()) {
         pages::resolve_client(db, name)?
     } else {
