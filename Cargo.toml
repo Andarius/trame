@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/trame-core", "crates/trame-probe", "crates/trame-db-spike", "crates/trame-local", "crates/trame-desktop", "crates/trame-cli"]
+members = ["crates/trame-core", "crates/trame-local", "crates/trame-desktop", "crates/trame-cli"]
 resolver = "2"
 
 [workspace.package]

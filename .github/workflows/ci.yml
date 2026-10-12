@@ -52,8 +52,7 @@ jobs:
 
       - name: Install native build libraries
         run: |
-          rustup toolchain install 1.95.0 --profile minimal --component rustfmt
-          rustup default 1.95.0
+          rustup toolchain install  # reads rust-toolchain.toml
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev \
             libicu74 liburing2 libnuma1 libxml2 libldap2 libpam0g libzstd1 liblz4-1 libpq5

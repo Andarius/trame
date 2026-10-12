@@ -106,7 +106,8 @@ test("import creates the card, the auto project, and the worklog event", async (
   // card lands on the board; the auto-created "alpha" story nests under its "Side-projects" project
   await expect(page.getByText("alpha — Ship the import feature")).toBeVisible();
   await expect(page.locator("aside div.group").getByRole("button", { name: /Side-projects/ })).toBeVisible();
-  // drawer carries the import event
+  // drawer carries the import event; click the board card only once the modal is gone
+  await expect(page.getByText("IMPORT FROM CLAUDE CODE + CODEX", { exact: true })).toBeHidden();
   await page.getByText("alpha — Ship the import feature").click();
   await expect(page.getByText("Imported from Claude Code · e2e")).toBeVisible(); // stamps the node
   await page.keyboard.press("Escape");

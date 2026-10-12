@@ -799,7 +799,7 @@ checksum = "fac5fca71e65e94cc718a6e2af65d6e0f9c6027751c2aa562fbb5087fda639bc"
 dependencies = [
  "bit-set",
  "cssparser",
- "foldhash 0.2.0",
+ "foldhash",
  "html5ever",
  "precomputed-hash",
  "selectors",
@@ -896,18 +896,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4443176a9f2c162692bd3d352d745ef9413eec5782a80d8fd6f8a1ac692a07f7"
 
 [[package]]
-name = "fallible-iterator"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
-
-[[package]]
-name = "fallible-streaming-iterator"
-version = "0.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
-
-[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -954,12 +942,6 @@ name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
-
-[[package]]
-name = "foldhash"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
 name = "foldhash"
@@ -1395,39 +1377,9 @@ checksum = "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888"
 
 [[package]]
 name = "hashbrown"
-version = "0.15.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
-dependencies = [
- "foldhash 0.1.5",
-]
-
-[[package]]
-name = "hashbrown"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
-dependencies = [
- "foldhash 0.2.0",
-]
-
-[[package]]
-name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
-dependencies = [
- "foldhash 0.2.0",
-]
-
-[[package]]
-name = "hashlink"
-version = "0.12.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a596f1b20ed2cc5ecac41a164aaebc7258057060f06c0cf7a2ba3991ee7990fb"
-dependencies = [
- "hashbrown 0.17.1",
-]
 
 [[package]]
 name = "heck"
@@ -1984,12 +1936,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "leb128fmt"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
-
-[[package]]
 name = "libappindicator"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2039,29 +1985,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "libm"
-version = "0.2.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
-
-[[package]]
 name = "libredox"
 version = "0.1.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61ff90caf6077a803a240f62fdbe88645a890bbca49ef8174c3cb0404362171d"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "libsqlite3-sys"
-version = "0.38.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1d20bef17f513b9b3004532233187769cd072d790971f4e4da0e346eb6401e8"
-dependencies = [
- "cc",
- "pkg-config",
- "vcpkg",
 ]
 
 [[package]]
@@ -2667,7 +2596,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33ad20e0aa0b24f5a394eab4f78c781d248982b22b25cecc7e3aa46a681605bd"
 dependencies = [
  "bytes",
- "fallible-iterator 0.2.0",
+ "fallible-iterator",
  "futures-util",
  "log",
  "tokio",
@@ -2683,7 +2612,7 @@ dependencies = [
  "base64 0.22.1",
  "byteorder",
  "bytes",
- "fallible-iterator 0.2.0",
+ "fallible-iterator",
  "hmac",
  "md-5",
  "memchr",
@@ -2700,7 +2629,7 @@ checksum = "851ca9db4932932d69f3ea811b1abe63087a0f740a47692619dd40d4899b68be"
 dependencies = [
  "bytes",
  "chrono",
- "fallible-iterator 0.2.0",
+ "fallible-iterator",
  "postgres-protocol",
  "serde_core",
  "serde_json",
@@ -3101,31 +3030,6 @@ dependencies = [
  "quote",
  "serde_json",
  "syn 3.0.7",
-]
-
-[[package]]
-name = "rsqlite-vfs"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c51c9ae4df8a7fba42103df5c621fa3c37eccf3a3c650879e90fc48b11cc192c"
-dependencies = [
- "hashbrown 0.16.1",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "rusqlite"
-version = "0.40.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23f2a97da3e3873c73cb2a2e71b35c40ff95e0b1eefa8d72d8499a6928c3b5b3"
-dependencies = [
- "bitflags 2.13.2",
- "fallible-iterator 0.3.0",
- "fallible-streaming-iterator",
- "hashlink",
- "libsqlite3-sys",
- "smallvec",
- "sqlite-wasm-rs",
 ]
 
 [[package]]
@@ -3640,38 +3544,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "spin"
-version = "0.9.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3763264f6b73151db08c50ff20d7d8a0b8796e021cdea7ceedad07b80155fa0e"
-
-[[package]]
-name = "sqlite-wasm-rs"
-version = "0.5.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc3efc0da82635d7e1ced0053bbbfa8c7ab9645d0bf36ceb4f7127bb85315d75"
-dependencies = [
- "cc",
- "js-sys",
- "rsqlite-vfs",
- "wasm-bindgen",
-]
-
-[[package]]
 name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
-
-[[package]]
-name = "string-interner"
-version = "0.19.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23de088478b31c349c9ba67816fa55d9355232d63c3afea8bf513e31f0f1d2c0"
-dependencies = [
- "hashbrown 0.15.5",
- "serde",
-]
 
 [[package]]
 name = "string_cache"
@@ -4229,7 +4105,7 @@ dependencies = [
  "async-trait",
  "byteorder",
  "bytes",
- "fallible-iterator 0.2.0",
+ "fallible-iterator",
  "futures-channel",
  "futures-util",
  "log",
@@ -4488,18 +4364,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "trame-db-spike"
-version = "0.0.0"
-dependencies = [
- "postgres",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "wasmi",
-]
-
-[[package]]
 name = "trame-desktop"
 version = "0.13.0"
 dependencies = [
@@ -4538,23 +4402,6 @@ dependencies = [
  "tower",
  "trame-core",
  "uuid",
-]
-
-[[package]]
-name = "trame-probe"
-version = "0.0.0"
-dependencies = [
- "axum",
- "futures-util",
- "reqwest 0.12.28",
- "rustls",
- "rustls-pemfile",
- "serde",
- "serde_json",
- "tauri",
- "tokio",
- "tokio-tungstenite",
- "trame-core",
 ]
 
 [[package]]
@@ -4649,12 +4496,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
 
 [[package]]
-name = "unicode-width"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
-
-[[package]]
 name = "untrusted"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4709,12 +4550,6 @@ dependencies = [
  "sha1_smol",
  "wasm-bindgen",
 ]
-
-[[package]]
-name = "vcpkg"
-version = "0.2.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "version-compare"
@@ -4857,16 +4692,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasm-encoder"
-version = "0.261.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2608e8bb6d67fd68f5a8d0eb1363d6e7bcbc1f8ded5a0bd3a1e382462b876b22"
-dependencies = [
- "leb128fmt",
- "wasmparser 0.261.0",
-]
-
-[[package]]
 name = "wasm-streams"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4890,89 +4715,6 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
-]
-
-[[package]]
-name = "wasmi"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78693fcdd618e0fc34af59c6b8efa9ac5d58c68df940beff4bedddb6acfe7c27"
-dependencies = [
- "spin",
- "wasmi_collections",
- "wasmi_core",
- "wasmi_ir",
- "wasmparser 0.228.0",
- "wat",
-]
-
-[[package]]
-name = "wasmi_collections"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a8be2aa467cf2d29e96ff759472c36eeb44a3c81c67fc9cb76c9a24c519c557"
-dependencies = [
- "string-interner",
-]
-
-[[package]]
-name = "wasmi_core"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69372d5fda3ea3d1e0aa6603c7888110e0187e88ea17cd8fc2e2df0a0e1f37fa"
-dependencies = [
- "libm",
-]
-
-[[package]]
-name = "wasmi_ir"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f17b774caa13c618c7244f1ee51fe23c5e7b8538a471fa46d9949779758aed6"
-dependencies = [
- "wasmi_core",
-]
-
-[[package]]
-name = "wasmparser"
-version = "0.228.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4abf1132c1fdf747d56bbc1bb52152400c70f336870f968b85e89ea422198ae3"
-dependencies = [
- "bitflags 2.13.2",
- "indexmap 2.14.2",
-]
-
-[[package]]
-name = "wasmparser"
-version = "0.261.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f20f20e44f7e8aeb6744823ea9d869ede51e51be4fdaedede2852282e54d2d8"
-dependencies = [
- "bitflags 2.13.2",
- "indexmap 2.14.2",
-]
-
-[[package]]
-name = "wast"
-version = "261.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "776443145731a4062e5b0d392892a2005909b6ab72d9fdc3cad53dd1a714e44a"
-dependencies = [
- "bumpalo",
- "leb128fmt",
- "memchr",
- "unicode-width",
- "wasm-encoder",
-]
-
-[[package]]
-name = "wat"
-version = "1.261.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7b4d1a49ea73a8f3326e74e3a05db667001b16bd1035ed3356fc1a0ed05ca7f"
-dependencies = [
- "wast",
 ]
 
 [[package]]
