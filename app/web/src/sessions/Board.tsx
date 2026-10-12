@@ -9,7 +9,7 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
-import { useRef, useState } from "react";
+import { type UIEvent, useRef, useState } from "react";
 import type { BoardData, Session, Status } from "../api.ts";
 import {
   ClientChip,
@@ -198,6 +198,9 @@ function DraggableTicket(
   );
 }
 
+// done columns open on the last week; older cards load a week at a time
+const DONE_WINDOW_DAYS = 7;
+
 function Column(
   { status, sessions, board, dropId, dense, showObjective, onOpen, onOpenFull, compact = false, storyFilter, onFilterStory, selected, onToggleSelect, onSelectMany, anchorId, onAnchor }: {
     status: Status;
@@ -219,9 +222,23 @@ function Column(
   },
 ) {
   const { setNodeRef, isOver } = useDroppable({ id: dropId });
+  const terminal = statusStyle(status).terminal;
+  const [windowDays, setWindowDays] = useState(DONE_WINDOW_DAYS);
+  const shown = terminal ? sessions.filter((s) => daysSince(s.last_touched) <= windowDays) : sessions;
+  const older = sessions.length - shown.length;
+  // widen to the next week that holds a hidden card, so a gap never stalls the scroll
+  const loadOlder = () => {
+    const next = Math.min(...sessions.map((s) => daysSince(s.last_touched)).filter((d) => d > windowDays));
+    setWindowDays(Math.ceil(next / DONE_WINDOW_DAYS) * DONE_WINDOW_DAYS);
+  };
+  // scrolling to the column's end loads more; a column that does not overflow uses the button
+  const onScroll = (e: UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    if (older > 0 && el.scrollTop > 0 && el.scrollTop + el.clientHeight >= el.scrollHeight - 40) loadOlder();
+  };
   // shift-click ranges span this column only (anchor outside it falls back to a toggle)
   const toggle = (id: string, shift: boolean) => {
-    const range = shift && onSelectMany ? shiftRange(sessions.map((x) => x.id), anchorId ?? null, id) : null;
+    const range = shift && onSelectMany ? shiftRange(shown.map((x) => x.id), anchorId ?? null, id) : null;
     if (range) onSelectMany!(range, !(selected?.has(id) ?? false));
     else onToggleSelect?.(id);
     onAnchor?.(id);
@@ -229,6 +246,7 @@ function Column(
   return (
     <div
       ref={setNodeRef}
+      onScroll={onScroll}
       className={`flex min-w-0 max-w-[380px] flex-1 flex-col ${dense ? "gap-1" : "gap-2"} rounded-[10px] border bg-panel p-2 transition-colors ${
         isOver ? "border-copper/50" : "border-line"
       } ${compact ? "min-h-[72px]" : "min-h-0 overflow-y-auto"}`}
@@ -238,7 +256,7 @@ function Column(
         <span className="text-[12.5px] font-semibold text-ink">{statusStyle(status).label}</span>
         <span className="text-[11.5px] font-medium text-ink-muted">{sessions.length}</span>
       </div>
-      {sessions.map((s) => (
+      {shown.map((s) => (
         <DraggableTicket
           key={s.id}
           s={s}
@@ -253,6 +271,15 @@ function Column(
           onToggleSelect={onToggleSelect && toggle}
         />
       ))}
+      {older > 0 && (
+        <button
+          type="button"
+          onClick={loadOlder}
+          className="px-1 py-1 text-left text-[11px] text-ink-muted hover:text-ink"
+        >
+          {older} older…
+        </button>
+      )}
     </div>
   );
 }

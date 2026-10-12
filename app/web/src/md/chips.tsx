@@ -35,6 +35,29 @@ export const getPrInfo = (url: string): Promise<PrInfo> => {
   return p;
 };
 
+// mounted chips refetch each TTL while the PR can still change and the tab is visible
+function usePrInfo(url: string | null): PrInfo | undefined {
+  const [info, setInfo] = useState(url ? prInfoCache.get(url)?.info : undefined);
+  useEffect(() => {
+    if (!url) return;
+    let alive = true;
+    let timer: number | undefined;
+    const poll = () =>
+      getPrInfo(url).then((i) => {
+        if (!alive) return;
+        setInfo(i);
+        if (i.state !== "merged" && i.state !== "closed") timer = setTimeout(tick, PR_INFO_TTL_MS);
+      });
+    const tick = () => document.hidden ? (timer = setTimeout(tick, PR_INFO_TTL_MS)) : poll();
+    poll();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [url]);
+  return info;
+}
+
 // repo#42 for GitHub, proj!39 for GitLab; null when the URL has no PR/MR number
 function prChipLabel(url: string): string | null {
   try {
@@ -88,15 +111,7 @@ function MergeMark() {
 export function StaleChip(
   { sessionId, prUrl, short = false }: { sessionId: string; prUrl: string | null; short?: boolean },
 ) {
-  const [state, setState] = useState(prUrl ? prInfoCache.get(prUrl)?.info.state : undefined);
-  useEffect(() => {
-    if (!prUrl) return;
-    let alive = true;
-    getPrInfo(prUrl).then((i) => alive && setState(i.state));
-    return () => {
-      alive = false;
-    };
-  }, [prUrl]);
+  const state = usePrInfo(prUrl)?.state;
   if (state !== "merged" && state !== "closed") return null;
   return (
     <span
@@ -198,16 +213,7 @@ export function SentryChip({ url, label }: { url: string; label?: string }) {
 }
 
 export function PrChip({ url, label }: { url: string; label?: string }) {
-  const [info, setInfo] = useState<PrInfo>(
-    prInfoCache.get(url)?.info ?? { state: "unknown" },
-  );
-  useEffect(() => {
-    let alive = true;
-    getPrInfo(url).then((i) => alive && setInfo(i));
-    return () => {
-      alive = false;
-    };
-  }, [url]);
+  const info = usePrInfo(url) ?? { state: "unknown" };
   const parsed = prChipLabel(url);
   const name = label ?? parsed ?? url.replace(/^https?:\/\//, "");
   const color = PR_STATE_COLOR[info.state] ?? PR_STATE_COLOR.unknown;
