@@ -15,12 +15,17 @@ and `port.json`. An exclusive owner lock prevents two app instances from opening
 same database. PostgreSQL listens on a private Unix socket and stops with the app.
 
 Packaged deb, classic snap and AppImage builds include PostgreSQL, React assets and the
-native CLI. No installed Deno runtime is needed. Linux x64 is the current package target.
-macOS PostgreSQL bundling and package installation remain unimplemented and unverified.
+native CLI. No installed Deno runtime is needed. On macOS arm64, an ad-hoc signed DMG bundles a
+relocatable PostgreSQL 18 (theseus-rs/postgresql-binaries) and the native CLI; install it with the
+quickstart, which does not quarantine the download. A DMG downloaded through a browser needs
+right-click → Open the first time.
 
 ## Legacy migration and rollback
 
-On first launch with legacy `pglite/` data and no PostgreSQL cluster, Trame checks that the
+On macOS, legacy `pglite/` data is left untouched: run a final sync from the old app, quit it,
+and the native app starts with an empty cluster that the hub sync refills.
+
+On Linux, on first launch with legacy `pglite/` data and no PostgreSQL cluster, Trame checks that the
 source is stopped, copies it, exports the copy, imports it into a new PostgreSQL cluster,
 and verifies it before installing it. The bundled one-shot migration helper retains the
 PGlite JavaScript/Wasm runtime; the running backend uses Rust exclusively.
@@ -60,5 +65,4 @@ cannot publish. The release verifies the resolved tag commit through the complet
 before building and publishing that same commit. Native AppImage assets omit `linux` from their
 names to prevent selection by the legacy updater. Keep legacy updates pinned during rollout,
 stop the old app, retain a stopped-source backup, and validate the new installation before
-allowing production sync. macOS resources/packages and target-host Snap installation remain
-cutover blockers until independently qualified.
+allowing production sync. Target-host Snap installation remains unqualified.

@@ -309,9 +309,9 @@ workflow dispatch for the exact `v*` tag with `allow_native_cutover=true`, after
 Tag pushes alone cannot publish. Native AppImage assets use `native-x64.AppImage` names so
 legacy AppImage updaters cannot silently install a database-runtime migration.
 
-macOS native PostgreSQL resources and packages are not implemented or qualified; the previous
-macOS release path remains a cutover blocker for those users. Snap installation and hosted
-release execution also need qualification before production cutover.
+macOS arm64 ships an ad-hoc signed DMG (`scripts/rust-package.sh dmg`); Macs move their data by
+re-pulling from the hub rather than converting `pglite/`. Snap installation and hosted release
+execution still need qualification.
 
 See [native runtime and migration](crates/trame-local/README.md) for data paths, backup and
 rollback instructions, isolated tests, and package requirements.
