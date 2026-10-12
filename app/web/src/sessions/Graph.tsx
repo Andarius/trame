@@ -13,7 +13,7 @@ import {
 import { select } from "d3-selection";
 import { zoom, zoomIdentity, zoomTransform, type ZoomTransform } from "d3-zoom";
 import type { BoardData } from "../api.ts";
-import { matchesSessionFilter, pagesById, StatusDot, statusStyle, timeAgo } from "../ui/ui";
+import { daysSince, IDLE_DAYS, matchesSessionFilter, pagesById, StatusDot, statusStyle, timeAgo } from "../ui/ui";
 import { buildGraph, type GraphNode } from "./graph-model.ts";
 
 type Node = GraphNode & SimulationNodeDatum;
@@ -33,6 +33,9 @@ const fill = (n: GraphNode) =>
     : n.kind === "repo"
     ? "var(--color-chart-7)"
     : statusStyle(n.status).color;
+const idle = (n: GraphNode) => n.kind === "card" && daysSince(n.touched) > IDLE_DAYS;
+// a card drifts away from its repo as it ages: 1d ≈ 34, 14d ≈ 63, 6w ≈ 80
+const cardDistance = (n: GraphNode) => (n.kind === "card" ? 24 + 10 * Math.log2(1 + daysSince(n.touched)) : 32);
 const short = (s: string, max = 34) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 const overlaps = (a: Box, b: Box) => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1];
 const hitsDot = (b: Box, n: Node) => {
@@ -72,7 +75,7 @@ export default function Graph(
   }, [board, storyFilter, noSpecs]);
   // rebuild the simulation only when the shape changes, not on every board poll
   const shape = JSON.stringify([
-    graph.nodes.map((n) => [n.id, n.label, n.kind === "card" ? n.status : n.kind === "project" ? n.color : ""]),
+    graph.nodes.map((n) => [n.id, n.label, n.kind === "card" ? `${n.status}${idle(n) ? ":idle" : ""}` : n.kind === "project" ? n.color : ""]),
     graph.links.map((l) => `${l.source}>${l.target}`),
   ]);
 
@@ -108,9 +111,12 @@ export default function Graph(
       .attr("vector-effect", "non-scaling-stroke").attr("pointer-events", "none").attr("opacity", 0);
     const node = world.append("g").selectAll<SVGCircleElement, Node>("circle").data(nodes).join("circle")
       .attr("r", (d) => RADIUS[d.kind])
-      .attr("fill", fill)
-      .attr("stroke", (d) => (d.kind === "project" && d.icon ? d.color ?? "var(--color-ink-soft)" : "var(--color-canvas)"))
-      .attr("stroke-width", (d) => (d.kind === "card" ? 1 : 2))
+      // an idle card is a hollow ring in its status colour
+      .attr("fill", (d) => (idle(d) ? "var(--color-canvas)" : fill(d)))
+      .attr("stroke", (d) =>
+        idle(d) ? fill(d) : d.kind === "project" && d.icon ? d.color ?? "var(--color-ink-soft)" : "var(--color-canvas)"
+      )
+      .attr("stroke-width", (d) => (idle(d) ? 1.5 : d.kind === "card" ? 1 : 2))
       .attr("fill-opacity", (d) => (d.kind === "project" && d.icon ? 0.18 : 1))
       .style("cursor", (d) => (d.kind === "card" ? "pointer" : "grab"));
     // project logos sit inside their dot, ringed in the project colour
@@ -231,7 +237,9 @@ export default function Graph(
       .force(
         "link",
         forceLink<Node, Link>(links)
-          .distance((l) => (l.source.kind === "project" ? (l.target.kind === "repo" ? 90 : 40) : 32))
+          .distance((l) =>
+            l.source.kind === "project" && l.target.kind === "repo" ? 90 : cardDistance(l.target) + (l.source.kind === "project" ? 8 : 0)
+          )
           .strength((l) => (l.source.kind === "project" && l.target.kind === "repo" ? 0.5 : 0.9)),
       )
       .force("charge", forceManyBody<Node>().strength((d) => (d.kind === "project" ? -420 : d.kind === "repo" ? -140 : -36)))
