@@ -4,6 +4,9 @@ import { countDue } from './register'
 
 const CARD = 'cc31da19-4411-4da3-899e-e51d8169e971'
 const json = (status: number, body: unknown) => ({ status, ok: status < 300, headers: {}, text: JSON.stringify(body) })
+const BOARD = json(200, { statuses: [{ key: 'active', color: '#7bd88f' }, { key: 'blocked', color: '#e06c75' }] })
+const fetched = (url: string, card: ReturnType<typeof json> | null, due = json(200, [])) =>
+  url.endsWith('/api/due') ? due : url.endsWith('/api/board') ? BOARD : card
 
 for (
   const [id, port, response, shown] of [
@@ -21,7 +24,7 @@ for (
       if (port === null) throw new Error('ENOENT')
       return { value: JSON.stringify({ port }) }
     })
-    on('http.fetch', async (_$, e) => ({ value: e.url.endsWith('/api/due') ? json(200, []) : response }))
+    on('http.fetch', async (_$, e) => ({ value: fetched(e.url, response) }))
     await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
     const ui = await $.ui.mount({ plugin: 'trame', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false } as never })
     expect(await ui.find(shown)).toBeDefined()
@@ -45,7 +48,7 @@ for (
     on('session.start', async (_$, e) => ({ cwd: e.cwd }))
     on('session.id', async () => ({ value: 'a-claude-session' }))
     on('fs.read', async () => ({ value: JSON.stringify({ port: 8787 }) }))
-    on('http.fetch', async (_$, e) => ({ value: e.url.endsWith('/api/due') ? json(200, []) : json(200, { id: CARD, title: 'x' }) }))
+    on('http.fetch', async (_$, e) => ({ value: fetched(e.url, json(200, { id: CARD, title: 'x', status: 'active' })) }))
     on('process.run', async (_$, e) => {
       const cmd = e.argv[0] as keyof typeof exits
       ran.push(cmd)
@@ -74,9 +77,11 @@ test('the band shows late and due todos next to the card', async ($, on) => {
   on('session.id', async () => ({ value: 'a-claude-session' }))
   on('fs.read', async () => ({ value: JSON.stringify({ port: 8787 }) }))
   on('http.fetch', async (_$, e) => ({
-    value: e.url.endsWith('/api/due')
-      ? json(200, [{ due: '2026-10-06' }, { due: '2026-10-11' }, { due: '2026-10-13' }, { due: '2026-12-01' }])
-      : json(200, { id: CARD, title: 'x' }),
+    value: fetched(
+      e.url,
+      json(200, { id: CARD, title: 'x', status: 'active' }),
+      json(200, [{ due: '2026-10-06' }, { due: '2026-10-11' }, { due: '2026-10-13' }, { due: '2026-12-01' }]),
+    ),
   }))
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount({ plugin: 'trame', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false } as never })
@@ -84,6 +89,26 @@ test('the band shows late and due todos next to the card', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: /2 due/ })).toBeDefined()
   await ui.unmount()
 })
+
+for (
+  const [id, status, color] of [
+    ['board status color', 'blocked', '#e06c75'],
+    ['unknown status: gray', 'gone', 'gray'],
+  ] as const
+) {
+  test(`band dot: ${id}`, async ($, on) => {
+    mock.clock(on)
+    mock.env(on, { HOME: '/home/me' })
+    on('session.start', async (_$, e) => ({ cwd: e.cwd }))
+    on('session.id', async () => ({ value: 'a-claude-session' }))
+    on('fs.read', async () => ({ value: JSON.stringify({ port: 8787 }) }))
+    on('http.fetch', async (_$, e) => ({ value: fetched(e.url, json(200, { id: CARD, title: 'x', status })) }))
+    await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+    const ui = await $.ui.mount({ plugin: 'trame', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false } as never })
+    expect((await ui.find({ type: 'Text', text: /●/ }))?.props.color).toBe(color)
+    await ui.unmount()
+  })
+}
 
 test('countDue: late is before today, due is today up to a week out', () => {
   expect(countDue(['2026-10-08', '2026-10-09', '2026-10-16', '2026-10-17'], '2026-10-09')).toEqual({ late: 1, soon: 2 })

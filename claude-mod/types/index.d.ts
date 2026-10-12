@@ -1,5 +1,5 @@
-// tracked: the card; untracked: app up, no card; offline: app unreachable
-export type Link = { kind: 'tracked'; url: string; title: string } | { kind: 'untracked' } | { kind: 'offline' }
+// tracked: the card, color = its status color; untracked: app up, no card; offline: app unreachable
+export type Link = { kind: 'tracked'; url: string; title: string; color: string } | { kind: 'untracked' } | { kind: 'offline' }
 
 // todos late, and due within the next 7 days, across all of Trame
 export type Due = { late: number; soon: number }

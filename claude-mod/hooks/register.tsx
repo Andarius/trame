@@ -6,6 +6,8 @@ import type { Due, Link } from '../types'
 const link = atom({ plugin: 'trame', key: 'link' } as const, null)
 const dueAtom = atom({ plugin: 'trame', key: 'due' } as const, { late: 0, soon: 0 })
 const DAY_MS = 86_400_000
+// status key -> board color; refetched only when an unknown key shows up (the board is large)
+let statusColors: Record<string, string> = {}
 
 // late = before today, soon = today .. +7 days (the sidebar's DUE window)
 export function countDue(dates: string[], today: string): Due {
@@ -41,7 +43,15 @@ async function refresh($: EngineInterface): Promise<void> {
       const r = await $.http.fetch(`${base}/api/sessions/${await $.session.id()}?events=1`)
       if (r.ok) {
         const card = JSON.parse(r.text)
-        next = { kind: 'tracked', url: `${base}/?view=card&card=${card.id}`, title: card.title }
+        if (!(card.status in statusColors)) {
+          const b = await $.http.fetch(`${base}/api/board`)
+          if (b.ok) {
+            const { statuses } = JSON.parse(b.text) as { statuses: { key: string; color: string }[] }
+            statusColors = Object.fromEntries(statuses.map(x => [x.key, x.color]))
+          }
+          statusColors[card.status] ??= 'gray'
+        }
+        next = { kind: 'tracked', url: `${base}/?view=card&card=${card.id}`, title: card.title, color: statusColors[card.status] }
       }
       else if (r.status === 404) next = { kind: 'untracked' }
       const d = await $.http.fetch(`${base}/api/due`)
@@ -122,7 +132,7 @@ export const register: Register = on => {
     }
     return (
       <Box marginBottom={1} paddingLeft={1}>
-        <Text color="green">● </Text>
+        <Text color={l.color}>● </Text>
         <Text>{l.title.length > 48 ? `${l.title.slice(0, 47)}…` : l.title}</Text>
         <Text> </Text>
         <Button key="open" label="open" onPress={press => openCard($, l.url, press.surface)} />
