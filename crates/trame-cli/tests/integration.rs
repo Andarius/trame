@@ -1315,7 +1315,8 @@ async fn timed_out_agent_and_its_child_are_killed() {
         scratch
             .command(Some(port))
             .env("TRAME_WATCH_GLM_CMD", &stub)
-            .env("TRAME_WATCH_TIMEOUT", "0.05")
+            // long enough for the stub to record its pids before the kill, even on a loaded runner
+            .env("TRAME_WATCH_TIMEOUT", "0.5")
             .args(["answer", "--once", "--force-agent", "glm"])
             .output(),
     )
