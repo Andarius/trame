@@ -56,7 +56,8 @@ if [[ "$platform" == Darwin/arm64 ]]; then
     cargo build -p trame-cli --release --locked
     cp target/release/tramecli "$package/tramecli-$triple"
     cd crates/trame-desktop
-    npx --yes @tauri-apps/cli@2.12.2 build --ci --bundles dmg
+    # CI=true skips the Finder AppleScript window styling, which fails without a GUI session (ssh)
+    CI=true npx --yes @tauri-apps/cli@2.12.2 build --ci --bundles dmg
     cd ../..
     mkdir -p dist/macos
     find target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -exec cp '{}' dist/macos/Trame.dmg \;
