@@ -8,9 +8,7 @@ async fn get(client: &reqwest::Client, base: &str, auth: &auth::Auth, path: &str
     if auth.source == "cli" {
         let host = auth::hostname(base)?;
         let path = path.to_owned();
-        return Ok(
-            crate::blocking::spawn(move || auth::glab_api(&host, &path, None, None)).await??,
-        );
+        return crate::blocking::spawn(move || auth::glab_api(&host, &path, None, None)).await?;
     }
     let response = client
         .get(format!("{base}/api/v4/{path}"))

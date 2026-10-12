@@ -13,3 +13,6 @@ serde_json = "1"
 tauri = { version = "2", features = [] }
 tokio = { version = "1", features = ["rt-multi-thread", "signal", "sync", "time"] }
 trame-local = { path = "../trame-local" }
+
+[lints]
+workspace = true

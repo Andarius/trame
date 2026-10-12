@@ -59,6 +59,7 @@ fn uuid() -> Result<String, String> {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
+        use std::fmt::Write as _;
         use std::io::Read;
         let mut bytes = [0u8; 16];
         std::fs::File::open("/dev/urandom")
@@ -66,7 +67,10 @@ fn uuid() -> Result<String, String> {
             .map_err(|e| e.to_string())?;
         bytes[6] = bytes[6] & 0x0f | 0x40;
         bytes[8] = bytes[8] & 0x3f | 0x80;
-        let hex = bytes.iter().map(|v| format!("{v:02x}")).collect::<String>();
+        let hex = bytes.iter().fold(String::new(), |mut acc, v| {
+            let _ = write!(acc, "{v:02x}");
+            acc
+        });
         Ok(format!(
             "{}-{}-{}-{}-{}",
             &hex[..8],
@@ -210,9 +214,15 @@ pub fn page_blocks_to_markdown(blocks: &[Value]) -> Result<String, String> {
             if indent < 0.0 || !indent.is_finite() || indent > 1_000_000.0 {
                 return Err("invalid indentation repeat count".into());
             }
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "range-checked to 0..=1_000_000 above"
+            )]
+            let indent_count = indent as usize;
             let line = format!(
                 "{}- [{}] {}",
-                "  ".repeat(indent as usize),
+                "  ".repeat(indent_count),
                 if b.get("done").is_some_and(truthy) {
                     "x"
                 } else {
@@ -221,7 +231,9 @@ pub fn page_blocks_to_markdown(blocks: &[Value]) -> Result<String, String> {
                 text()
             );
             if prev_todo {
-                parts.last_mut().unwrap().push_str(&format!("\n{line}"));
+                let last = parts.last_mut().unwrap();
+                last.push('\n');
+                last.push_str(&line);
             } else {
                 parts.push(line);
             }

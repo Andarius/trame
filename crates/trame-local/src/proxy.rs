@@ -45,7 +45,7 @@ fn allowed(headers: &HeaderMap, path: &str, port: u16) -> bool {
     }
     if path == "/api" || path.starts_with("/api/") || path == "/report-file" {
         if let Some(site) = headers.get("sec-fetch-site") {
-            if site != "same-origin" && site != "none" && site != "" {
+            if site != "same-origin" && site != "none" && !site.is_empty() {
                 return false;
             }
         }
@@ -149,7 +149,7 @@ async fn forward(State(state): State<Proxy>, req: Request<Body>) -> Response {
         parts
             .uri
             .path_and_query()
-            .map(|v| v.as_str())
+            .map(axum::http::uri::PathAndQuery::as_str)
             .unwrap_or("/")
     );
     let result = state

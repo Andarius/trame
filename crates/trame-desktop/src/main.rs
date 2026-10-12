@@ -1,3 +1,9 @@
+#![allow(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "CLI output is the product; stderr is the app log"
+)]
+
 mod geometry;
 
 use std::sync::{
@@ -6,6 +12,10 @@ use std::sync::{
 };
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
+#[allow(
+    clippy::exit,
+    reason = "tauri::generate_context! expands to process::exit"
+)]
 fn main() -> anyhow::Result<()> {
     if let Some(result) = trame_local::pg::supervisor_args() {
         return result;
@@ -78,7 +88,7 @@ fn main() -> anyhow::Result<()> {
                         backend_exit_code.store(1, Ordering::SeqCst);
                         eprintln!("Local backend failed: {error:#}");
                         let message = serde_json::to_string(&format!("Unable to open workspace: {error}. Check the application log before retrying.")).unwrap();
-                        let _ = error_window.eval(&format!("document.querySelector('[role=status]').textContent={message}"));
+                        let _ = error_window.eval(format!("document.querySelector('[role=status]').textContent={message}"));
                     }
                     result
                 });

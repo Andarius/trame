@@ -1,3 +1,9 @@
+#![allow(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "CLI output is the product; stderr is the app log"
+)]
+
 pub mod board;
 pub mod claude_hook;
 pub mod cli;

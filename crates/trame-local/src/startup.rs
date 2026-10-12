@@ -1,3 +1,8 @@
+#![allow(
+    unsafe_code,
+    reason = "libc FFI (flock/kill/killpg/prctl/getppid/waitpid/gethostname/fcntl/pre_exec)"
+)]
+
 use crate::db::Db;
 use anyhow::{Context, Result, ensure};
 use serde_json::{Value, json};
@@ -108,15 +113,12 @@ pub fn drain_outbox(db: &mut Db, path: &Path) -> Result<usize> {
                 }
                 Ok(inserted)
             })();
-            match result {
-                Ok(inserted) => {
-                    db.batch_execute("commit")?;
-                    count += usize::from(inserted);
-                }
-                Err(_) => {
-                    db.batch_execute("rollback")?;
-                    pending.push(line.clone());
-                }
+            if let Ok(inserted) = result {
+                db.batch_execute("commit")?;
+                count += usize::from(inserted);
+            } else {
+                db.batch_execute("rollback")?;
+                pending.push(line.clone());
             }
         }
         Ok((pending, count))

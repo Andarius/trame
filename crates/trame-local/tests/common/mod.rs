@@ -7,13 +7,13 @@ use std::{
 };
 use trame_local::db::Db;
 
-pub struct TestDb {
+pub(crate) struct TestDb {
     pub db: Db,
     pub root: PathBuf,
     child: Child,
 }
 impl TestDb {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let root = trame_local::workspace().join(format!(
             ".scratch/t2-{}",
             &uuid::Uuid::new_v4().simple().to_string()[..8]
@@ -50,17 +50,26 @@ impl TestDb {
         .unwrap();
         Self { db, root, child }
     }
-    pub fn base_url(&self) -> String {
+    pub(crate) fn base_url(&self) -> String {
         let p: Value =
             serde_json::from_slice(&std::fs::read(self.root.join("port.json")).unwrap()).unwrap();
         format!("http://127.0.0.1:{}", p["port"])
     }
-    pub fn request(&mut self, method: &str, path: &str, body: Value) -> (u16, Value) {
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "callers pass json! temporaries"
+    )]
+    pub(crate) fn request(&mut self, method: &str, path: &str, body: Value) -> (u16, Value) {
         let (path, query) = path.split_once('?').unwrap_or((path, ""));
         trame_local::routes::handle(&mut self.db, method, path, query, &body).unwrap()
     }
 }
 impl Drop for TestDb {
+    #[allow(
+        unsafe_code,
+        clippy::cast_possible_wrap,
+        reason = "libc::kill on a child pid that fits i32"
+    )]
     fn drop(&mut self) {
         unsafe {
             libc::kill(self.child.id() as i32, libc::SIGTERM);

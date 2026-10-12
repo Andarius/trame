@@ -17,23 +17,29 @@ fn pair(t: &mut TestDb) -> (Change, Change) {
         json!({"summary":"first log"}),
     );
     let session =
-        t.db.query("select * from sessions where id=$1", &[id.clone()])
-            .unwrap()
-            .remove(0);
+        t.db.query(
+            "select * from sessions where id=$1",
+            std::slice::from_ref(&id),
+        )
+        .unwrap()
+        .remove(0);
     let event =
         t.db.query(
             "select * from session_events where session_id=$1 order by at",
-            &[id.clone()],
+            std::slice::from_ref(&id),
         )
         .unwrap()
         .remove(0);
     t.db.query(
         "delete from session_events where session_id=$1",
-        &[id.clone()],
+        std::slice::from_ref(&id),
     )
     .unwrap();
-    t.db.query("delete from sessions where id=$1", &[id.clone()])
-        .unwrap();
+    t.db.query(
+        "delete from sessions where id=$1",
+        std::slice::from_ref(&id),
+    )
+    .unwrap();
     (
         Change {
             rev: 1,
@@ -102,7 +108,7 @@ fn identity_schema_wire_assertions_and_lww_boundaries() {
         .1["id"]
         .clone();
     let mut row =
-        t.db.query("select * from pages where id=$1", &[id.clone()])
+        t.db.query("select * from pages where id=$1", std::slice::from_ref(&id))
             .unwrap()
             .remove(0);
     row["updated_at"] = json!("2000-01-01T00:00:00.000Z");

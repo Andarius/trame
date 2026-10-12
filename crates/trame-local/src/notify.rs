@@ -120,7 +120,7 @@ pub async fn background(state: Native) {
             Ok(())
         })
         .await;
-        tokio::time::sleep(std::time::Duration::from_secs(600)).await;
+        tokio::time::sleep(std::time::Duration::from_mins(10)).await;
     }
 }
 

@@ -7,12 +7,17 @@ use axum::{
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use std::fmt::Write as _;
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 
 const MAX_BYTES: usize = 10 * 1024 * 1024;
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "callers pass json! temporaries"
+)]
 fn json_response(status: u16, value: Value) -> Response {
     (
         StatusCode::from_u16(status).unwrap(),
@@ -195,37 +200,22 @@ fn s3_blocked_offline(state: &Native, s3: &S3) -> bool {
             })
             .is_some_and(|ip| ip.is_loopback())
 }
-#[cfg(test)]
-mod tests {
-    use super::{aws_uri, hex, hmac};
-    #[test]
-    fn s3_signature_primitives_match_known_vector() {
-        assert_eq!(
-            hex(&hmac(
-                b"key",
-                b"The quick brown fox jumps over the lazy dog"
-            )),
-            "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"
-        );
-        assert_eq!(
-            aws_uri("/bucket/images/a b+é.png"),
-            "/bucket/images/a%20b%2B%C3%A9.png"
-        );
-    }
-}
 fn aws_uri(path: &str) -> String {
     let mut out = String::new();
     for byte in path.bytes() {
         if byte.is_ascii_alphanumeric() || b"-._~/".contains(&byte) {
-            out.push(byte as char)
+            out.push(byte as char);
         } else {
-            out.push_str(&format!("%{byte:02X}"));
+            let _ = write!(out, "%{byte:02X}");
         }
     }
     out
 }
 fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    bytes.iter().fold(String::new(), |mut acc, b| {
+        let _ = write!(acc, "{b:02x}");
+        acc
+    })
 }
 fn hmac(key: &[u8], message: &[u8]) -> [u8; 32] {
     let mut keyblock = [0u8; 64];
@@ -268,7 +258,7 @@ fn excalidraw_page(scene: &str, path: &str) -> String {
     let name = path.rsplit('/').next().unwrap_or("").replace('<', "&lt;");
     let scene = scene.replace("</", "<\\/");
     format!(
-        r##"<!doctype html><meta charset="utf-8"><title>{name}</title>
+        r#"<!doctype html><meta charset="utf-8"><title>{name}</title>
 <link rel="stylesheet" href="https://esm.sh/@excalidraw/excalidraw@0.18.1/dist/prod/index.css">
 <body style="margin:0">
 <div id="root" style="position:fixed;inset:0"></div>
@@ -298,7 +288,7 @@ createRoot(document.getElementById("root")).render(React.createElement(Excalidra
   excalidrawAPI: (a) => {{ api = a; }},
   onChange: () => {{ clearTimeout(timer); timer = setTimeout(save, 800); }},
 }}));
-</script></body>"##
+</script></body>"#
     )
 }
 pub async fn serve(state: Native, req: Request<Body>) -> Response {
@@ -315,9 +305,8 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
         if !mime.starts_with("image/") {
             return json_response(400, json!({"error":"images only"}));
         }
-        let bytes = match axum::body::to_bytes(req.into_body(), MAX_BYTES + 1).await {
-            Ok(b) => b,
-            Err(_) => return json_response(413, json!({"error":"too large (10 MB max)"})),
+        let Ok(bytes) = axum::body::to_bytes(req.into_body(), MAX_BYTES + 1).await else {
+            return json_response(413, json!({"error":"too large (10 MB max)"}));
         };
         if bytes.len() > MAX_BYTES {
             return json_response(413, json!({"error":"too large (10 MB max)"}));
@@ -343,9 +332,8 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
             }
         })
         .await;
-        let id = match id {
-            Ok(Ok(id)) => id,
-            _ => return text(500, "Internal Server Error"),
+        let Ok(Ok(id)) = id else {
+            return text(500, "Internal Server Error");
         };
         let name = id_path(&id, &mime);
         let object = if let Some(s3) = &s3 {
@@ -356,9 +344,8 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
         let write = if let Some(s3) = s3 {
             s3.put(&object, bytes.to_vec()).await
         } else {
-            let dir = match assets_dir(&state.root) {
-                Ok(d) => d,
-                Err(_) => return text(500, "Internal Server Error"),
+            let Ok(dir) = assets_dir(&state.root) else {
+                return text(500, "Internal Server Error");
             };
             let data = bytes.to_vec();
             crate::blocking::spawn(move || -> Result<()> {
@@ -410,7 +397,7 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
         let path = row["path"].as_str().unwrap_or("");
         if path.is_empty() || path.contains("..") {
             return text(404, "not found");
-        };
+        }
         let bytes = if row["store"] == "s3" {
             if let Some(s3) = S3::config() {
                 if s3_blocked_offline(&state, &s3) {
@@ -424,9 +411,8 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
             let Some(name) = local_name(path) else {
                 return text(404, "not found");
             };
-            let dir = match assets_dir(&state.root) {
-                Ok(d) => d,
-                Err(_) => return text(404, "not found"),
+            let Ok(dir) = assets_dir(&state.root) else {
+                return text(404, "not found");
             };
             fs::read(dir.join(name)).ok()
         };
@@ -465,9 +451,8 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
     if path == "/report-file" {
         let file = query_path(&query);
         if method == "POST" {
-            let bytes = match axum::body::to_bytes(req.into_body(), usize::MAX).await {
-                Ok(b) => b,
-                Err(_) => return text(500, "Internal Server Error"),
+            let Ok(bytes) = axum::body::to_bytes(req.into_body(), usize::MAX).await else {
+                return text(500, "Internal Server Error");
             };
             let body = String::from_utf8_lossy(&bytes).into_owned();
             let parsed = serde_json::from_str::<Value>(&body);
@@ -476,7 +461,7 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
             };
             if parsed["type"] != "excalidraw" {
                 return json_response(400, json!({"error":"not an excalidraw scene"}));
-            };
+            }
             return match files::write_report(&state.settings, &file, &body) {
                 Ok(true) => json_response(200, json!({"ok":true})),
                 Ok(false) => json_response(404, json!({"error":"not allowed or not found"})),
@@ -497,4 +482,22 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
         };
     }
     text(404, "not found")
+}
+#[cfg(test)]
+mod tests {
+    use super::{aws_uri, hex, hmac};
+    #[test]
+    fn s3_signature_primitives_match_known_vector() {
+        assert_eq!(
+            hex(&hmac(
+                b"key",
+                b"The quick brown fox jumps over the lazy dog"
+            )),
+            "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"
+        );
+        assert_eq!(
+            aws_uri("/bucket/images/a b+é.png"),
+            "/bucket/images/a%20b%2B%C3%A9.png"
+        );
+    }
 }

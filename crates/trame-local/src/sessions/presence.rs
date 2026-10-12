@@ -7,6 +7,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "values fit by construction (timestamps, ids, pids, JS-number parity)"
+)]
 fn now() -> i64 {
     #[cfg(debug_assertions)]
     if let Some(path) = std::env::var_os("TRAME_REPLAY_CLOCK") {
@@ -193,6 +197,11 @@ pub fn list_agent_presence(db: &mut Db) -> Result<Value> {
     }).collect::<Vec<_>>()))
 }
 
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    reason = "values fit by construction (timestamps, ids, pids, JS-number parity); JS-number (f64) semantics must be preserved"
+)]
 fn journal(db: &mut Db, id: &str, p: &Value, ended: bool) -> Result<()> {
     let last = first(
         db,
@@ -240,7 +249,7 @@ fn journal(db: &mut Db, id: &str, p: &Value, ended: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn presence_route(db: &mut Db, id: &str, body: &Value) -> Result<(u16, Value)> {
+pub(super) fn presence_route(db: &mut Db, id: &str, body: &Value) -> Result<(u16, Value)> {
     let id = id.to_lowercase();
     if !crate::routes::valid_uuid(&id) {
         return Ok((400, json!({"error":"invalid session id"})));

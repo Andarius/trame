@@ -144,6 +144,7 @@ fn db_help_tracks_ui_column_and_chart_vocabulary() {
             assert!(contract.contains(&word[1]), "missing {}", &word[1]);
         }
     }
+    let keys = regex::Regex::new(r"(?m)^  (\w+)\??:").unwrap();
     for (source, pattern) in [
         (&api, r"(?s)export type PropConfig = \{(.+?)\n\};"),
         (&chart, r"(?s)export type ChartConfig = \{(.+?)\n\};"),
@@ -153,7 +154,6 @@ fn db_help_tracks_ui_column_and_chart_vocabulary() {
             .captures(source)
             .unwrap()[1]
             .to_owned();
-        let keys = regex::Regex::new(r"(?m)^  (\w+)\??:").unwrap();
         for key in keys.captures_iter(&section) {
             assert!(contract.contains(&key[1]), "missing {}", &key[1]);
         }
@@ -414,7 +414,7 @@ fn presence_hooks_usage_provider_and_state() {
     let codex = "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-5.5-codex\"}}\n{\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"last_token_usage\":{\"input_tokens\":131904},\"model_context_window\":272000}}}";
     assert_eq!(
         presence::usage_of(codex),
-        json!({"model":"gpt-5.5-codex","tokens":131904,"context_max":272000})
+        json!({"model":"gpt-5.5-codex","tokens":131_904,"context_max":272_000})
     );
     assert_eq!(presence::usage_of("junk\n{\"type\":\"user\"}"), json!({}));
     for (url, want) in [

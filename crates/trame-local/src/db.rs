@@ -5,6 +5,7 @@ use postgres::{
     types::{Format, IsNull, ToSql, Type, to_sql_checked},
 };
 use serde_json::{Map, Value, json};
+use std::fmt::Write as _;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -231,11 +232,17 @@ fn inferred_type(value: &Value) -> Type {
 
 struct Numeric(String);
 impl<'a> postgres::types::FromSql<'a> for Numeric {
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        clippy::cast_sign_loss,
+        reason = "values fit by construction (timestamps, ids, pids, JS-number parity); values fit by construction (pids, small ids); values are non-negative by construction"
+    )]
     fn from_sql(
         _: &Type,
         bytes: &'a [u8],
     ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
-        if bytes.len() < 8 || bytes.len() % 2 != 0 {
+        if bytes.len() < 8 || !bytes.len().is_multiple_of(2) {
             return Err("invalid numeric header".into());
         }
         let fields: Vec<_> = bytes
@@ -277,13 +284,13 @@ impl<'a> postgres::types::FromSql<'a> for Numeric {
             String::new()
         };
         if weight < 0 {
-            text.push('0')
+            text.push('0');
         } else {
             for power in (0..=weight).rev() {
                 if power == weight {
-                    text.push_str(&digit(power).to_string())
+                    text.push_str(&digit(power).to_string());
                 } else {
-                    text.push_str(&format!("{:04}", digit(power)))
+                    let _ = write!(text, "{:04}", digit(power));
                 }
             }
         }
@@ -291,7 +298,7 @@ impl<'a> postgres::types::FromSql<'a> for Numeric {
             text.push('.');
             let start = text.len();
             for i in 1..=scale.div_ceil(4) {
-                text.push_str(&format!("{:04}", digit(-(i as i32))))
+                let _ = write!(text, "{:04}", digit(-(i as i32)));
             }
             text.truncate(start + scale);
         }

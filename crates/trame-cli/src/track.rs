@@ -1,3 +1,8 @@
+#![allow(
+    unsafe_code,
+    reason = "libc FFI (flock/kill/killpg/prctl/getppid/waitpid/gethostname/fcntl/pre_exec)"
+)]
+
 use crate::{
     presence::{read_tail, usage_of},
     refs::{RefKind, parse_session_ref},
@@ -88,8 +93,7 @@ fn queue(input: &Value, error: &str, json_out: bool) -> Result<()> {
     }
     writeln!(
         OpenOptions::new().create(true).append(true).open(path)?,
-        "{}",
-        input
+        "{input}"
     )?;
     if json_out {
         println!("{}", json!({"queued":true,"error":error}));

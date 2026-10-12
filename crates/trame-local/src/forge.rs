@@ -43,7 +43,7 @@ fn encoded(value: &str) -> String {
         })
         .collect()
 }
-fn stacked(refs: Vec<String>) -> String {
+fn stacked(refs: &[String]) -> String {
     let more = if refs.len() > 3 {
         format!(" +{} more", refs.len() - 3)
     } else {
@@ -178,13 +178,14 @@ fn lookup(url: &str) -> Option<Value> {
                 .filter(|v| !v.is_empty())
             {
                 info["stack"] = json!(stacked(
-                    deps.iter()
+                    &deps
+                        .iter()
                         .map(|v| format!(
                             "{}{}",
                             if github { "#" } else { "!" },
                             v[if github { "number" } else { "iid" }]
                         ))
-                        .collect()
+                        .collect::<Vec<String>>()
                 ));
             }
         }
@@ -197,7 +198,7 @@ pub fn pr_info(url: &str, offline: bool) -> Value {
     }
     let cache = CACHE.get_or_init(Default::default);
     if let Some((at, value)) = cache.lock().unwrap().get(url) {
-        if at.elapsed() < Duration::from_secs(60) {
+        if at.elapsed() < Duration::from_mins(1) {
             return value.clone();
         }
     }
@@ -218,7 +219,7 @@ mod tests {
             json!({"state":"unknown"})
         );
         assert_eq!(
-            stacked(vec!["#1".into(), "#2".into(), "#3".into(), "#4".into()]),
+            stacked(&["#1".into(), "#2".into(), "#3".into(), "#4".into()]),
             "#1, #2, #3 +1 more stacked on top"
         );
         assert_eq!(

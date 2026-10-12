@@ -77,6 +77,10 @@ fn open(target: &str) -> Result<()> {
     Ok(())
 }
 
+#[allow(
+    clippy::case_sensitive_file_extension_comparisons,
+    reason = "case-sensitive match is intentional for parity"
+)]
 pub fn handle(db: &mut Db, port: u16, path: &str, body: &Value) -> Result<(u16, Value)> {
     let result = match path {
         "/api/open" => {
@@ -100,12 +104,11 @@ pub fn handle(db: &mut Db, port: u16, path: &str, body: &Value) -> Result<(u16, 
             let Some(path) = picked.as_str() else {
                 return Ok((200, picked));
             };
-            let bundle = match fs::read(path)
+            let Some(bundle) = fs::read(path)
                 .ok()
                 .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-            {
-                Some(v) => v,
-                None => return Ok((400, json!({"error":"cannot read file"}))),
+            else {
+                return Ok((400, json!({"error":"cannot read file"})));
             };
             return Ok(match share::import(db, &bundle, &body["parent_id"]) {
                 Ok(id) => {
@@ -364,6 +367,10 @@ fn resume(db: &mut Db, body: &Value) -> Result<(u16, Value)> {
     result["mode"] = json!(mode);
     Ok((200, result))
 }
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "signature kept for parity with sibling handlers"
+)]
 fn resume_all(body: &Value) -> Result<(u16, Value)> {
     let Some(items) = body["sessions"]
         .as_array()

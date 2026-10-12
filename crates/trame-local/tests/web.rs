@@ -2,6 +2,10 @@ mod common;
 use common::TestDb;
 
 #[test]
+#[allow(
+    clippy::case_sensitive_file_extension_comparisons,
+    reason = "build output names are lowercase; exact match intended"
+)]
 fn built_frontend_uses_source_mime_cache_and_missing_asset_contract() {
     let t = TestDb::new();
     let base = t.base_url();

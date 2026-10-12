@@ -1,3 +1,8 @@
+#![allow(
+    unsafe_code,
+    reason = "libc FFI (flock/kill/killpg/prctl/getppid/waitpid/gethostname/fcntl/pre_exec)"
+)]
+
 use crate::target::{Target, resolve_target};
 use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
@@ -167,9 +172,8 @@ pub fn tokenize(command: &str) -> Vec<String> {
             for next in chars.by_ref() {
                 if next == ch {
                     break;
-                } else {
-                    current.push(next)
                 }
+                current.push(next);
             }
         } else if ch.is_whitespace() {
             if started || !current.is_empty() {
@@ -351,6 +355,11 @@ pub fn parse_agent_output(
     }
     json!({"body":output,"meta":{"model":fallback_model.unwrap_or(agent),"ms":ms}})
 }
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    reason = "values fit by construction (timestamps, ids, pids, JS-number parity); values fit by construction (pids, small ids)"
+)]
 async fn run_agent(
     agent: &str,
     prompt: &str,
@@ -723,6 +732,10 @@ async fn last_human_activity(target: &Target, pages: &[String]) -> Result<i64> {
     }
     Ok(newest)
 }
+#[allow(
+    clippy::cast_precision_loss,
+    reason = "JS-number (f64) semantics must be preserved"
+)]
 pub async fn watch_main(args: &[String]) -> Result<()> {
     if args.iter().any(|a| a == "-h" || a == "--help") {
         println!("{WATCH_USAGE}");

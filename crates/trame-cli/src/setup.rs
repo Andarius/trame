@@ -339,8 +339,8 @@ pub fn run(args: &[String]) -> Result<i32> {
                     eprintln!("--skills-dir needs a directory");
                     return Ok(2);
                 };
-                dirs.push(if dir.starts_with("~/") {
-                    format!("{home}/{}", &dir[2..])
+                dirs.push(if let Some(rest) = dir.strip_prefix("~/") {
+                    format!("{home}/{rest}")
                 } else {
                     dir.clone()
                 });

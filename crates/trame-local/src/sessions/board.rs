@@ -3,7 +3,7 @@ use crate::db::Db;
 use anyhow::Result;
 use serde_json::{Value, json};
 
-pub fn board(db: &mut Db, deleted: bool) -> Result<Value> {
+pub(super) fn board(db: &mut Db, deleted: bool) -> Result<Value> {
     let projects = db.query("select id,title as name,color,icon from pages where kind='project' and not deleted order by title", &[])?;
     let stories = db.query("select *,null::text as mark_role from pages where kind='story' and not deleted order by title", &[])?;
     let sessions = db.query(
@@ -40,7 +40,7 @@ pub fn search(db: &mut Db, q: &str) -> Result<Value> {
      ) hits order by at desc limit 20", &[json!(pat)])?))
 }
 
-pub fn list_events(db: &mut Db, id: &str, limit: Option<i64>) -> Result<Value> {
+pub(super) fn list_events(db: &mut Db, id: &str, limit: Option<i64>) -> Result<Value> {
     let sql = "select id,at,summary,kind,agent,model,tokens,cost_usd,agent_name from session_events where session_id=$1 and not deleted order by at desc,id desc";
     let rows = if let Some(limit) = limit {
         db.query(&format!("{sql} limit $2"), &[json!(id), json!(limit)])?
@@ -54,7 +54,7 @@ pub fn add_event(db: &mut Db, id: &str, summary: &str, kind: &str, body: &Value)
     add_event_value(db, id, &json!(summary), kind, body)
 }
 
-pub fn add_event_value(
+pub(super) fn add_event_value(
     db: &mut Db,
     id: &str,
     summary: &Value,
@@ -95,7 +95,7 @@ pub fn add_event_value(
     Ok(())
 }
 
-pub fn add_track_event(db: &mut Db, id: &str, summary: &str, body: &Value) -> Result<()> {
+pub(super) fn add_track_event(db: &mut Db, id: &str, summary: &str, body: &Value) -> Result<()> {
     let agent = body["agent"].as_str();
     let last = first(
         db,
@@ -111,11 +111,17 @@ pub fn add_track_event(db: &mut Db, id: &str, summary: &str, body: &Value) -> Re
     add_event(db, id, summary, "track", body)
 }
 
-pub fn links(db: &mut Db, id: &str) -> Result<Value> {
+pub(super) fn links(db: &mut Db, id: &str) -> Result<Value> {
     Ok(json!(db.query("select l.id,l.page_id,l.block_id,l.anchor,p.title as page_title from session_links l join pages p on p.id=l.page_id and not p.deleted where l.session_id=$1 and not l.deleted order by l.updated_at", &[json!(id)])?))
 }
 
-pub fn add_link(db: &mut Db, id: &str, page: &Value, block: &Value, anchor: &str) -> Result<Value> {
+pub(super) fn add_link(
+    db: &mut Db,
+    id: &str,
+    page: &Value,
+    block: &Value,
+    anchor: &str,
+) -> Result<Value> {
     let from = origin(db);
     Ok(first(db,"insert into session_links(session_id,page_id,block_id,anchor,origin) values($1,$2,$3,$4,$5) returning id",&[json!(id),page.clone(),block.clone(),json!(anchor),from])?["id"].clone())
 }
@@ -195,7 +201,7 @@ pub fn get_session(db: &mut Db, id: &str, limit: i64) -> Result<Value> {
     )
 }
 
-pub fn open_todos_note(db: &mut Db, id: &str) -> Result<Option<String>> {
+pub(super) fn open_todos_note(db: &mut Db, id: &str) -> Result<Option<String>> {
     let open = db.query("select b->>'text' as text from sessions s join pages p on p.id=s.specs_page_id,jsonb_array_elements(case when jsonb_typeof(p.content)='array' then p.content else '[]' end) b where s.id=$1 and s.status in (select key from statuses where terminal and not deleted) and b->>'type'='todo' and coalesce((b->>'done')::boolean,false)=false",&[json!(id)])?;
     if open.is_empty() {
         return Ok(None);

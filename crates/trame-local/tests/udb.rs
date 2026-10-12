@@ -4,6 +4,10 @@ use common::TestDb;
 use serde_json::{Value, json};
 use trame_local::udb;
 
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "callers pass json! temporaries"
+)]
 fn call(t: &mut TestDb, method: &str, path: &str, body: Value) -> (u16, Value) {
     udb::handle(&mut t.db, method, path, "", &body)
         .unwrap()
@@ -15,6 +19,10 @@ fn id(t: &mut TestDb, name: &str) -> String {
         .unwrap()
         .to_owned()
 }
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "callers pass json! temporaries"
+)]
 fn prop(t: &mut TestDb, db: &str, name: &str, kind: &str, config: Value) -> String {
     call(
         t,
@@ -27,6 +35,10 @@ fn prop(t: &mut TestDb, db: &str, name: &str, kind: &str, config: Value) -> Stri
         .unwrap()
         .to_owned()
 }
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "callers pass json! temporaries"
+)]
 fn row(t: &mut TestDb, db: &str, vals: Value) -> String {
     call(
         t,

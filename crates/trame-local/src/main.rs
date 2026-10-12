@@ -1,3 +1,9 @@
+#![allow(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "CLI output is the product; stderr is the app log"
+)]
+
 fn main() -> anyhow::Result<()> {
     if let Some(result) = trame_local::pg::supervisor_args() {
         return result;

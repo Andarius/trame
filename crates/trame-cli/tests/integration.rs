@@ -1,3 +1,5 @@
+#![allow(unsafe_code, reason = "tests mutate env vars / probe pids via libc")]
+
 use axum::{
     Router,
     body::{Body, to_bytes},
@@ -125,23 +127,21 @@ async fn fixture(
         _ => json!({"error":"missing fixture"}),
     };
     let mut headers = HeaderMap::new();
-    let status = if path == "/api/sessions" && state.redirect_to.is_some() {
-        headers.insert(
-            header::LOCATION,
-            state.redirect_to.as_ref().unwrap().parse().unwrap(),
-        );
-        StatusCode::TEMPORARY_REDIRECT
-    } else if path == "/api/comments"
-        && method == "GET"
-        && state.comments_fail_once
-        && state.comment_polls == 1
-    {
-        StatusCode::SERVICE_UNAVAILABLE
-    } else if path == "/api/sessions" {
-        state.sessions_status.unwrap_or(StatusCode::OK)
-    } else {
-        StatusCode::OK
-    };
+    let status =
+        if let (true, Some(redirect)) = (path == "/api/sessions", state.redirect_to.as_ref()) {
+            headers.insert(header::LOCATION, redirect.parse().unwrap());
+            StatusCode::TEMPORARY_REDIRECT
+        } else if path == "/api/comments"
+            && method == "GET"
+            && state.comments_fail_once
+            && state.comment_polls == 1
+        {
+            StatusCode::SERVICE_UNAVAILABLE
+        } else if path == "/api/sessions" {
+            state.sessions_status.unwrap_or(StatusCode::OK)
+        } else {
+            StatusCode::OK
+        };
     let body = if path == "/api/sessions" && state.sessions_invalid_json {
         Body::from("not-json")
     } else if path == "/api/sessions"
@@ -219,25 +219,26 @@ async fn page_update_keeps_ids_and_posts_only_changed_content() {
     assert_eq!(result["action"], "updated");
     assert_eq!(result["kept"], 1);
     assert_eq!(result["total"], 2);
-    let state = state.lock().unwrap();
-    let post = state
-        .hits
-        .iter()
-        .find(|h| h.method == "POST" && h.path == "/api/pages/page1")
-        .unwrap();
-    assert_eq!(
-        post.body.as_object().unwrap().keys().collect::<Vec<_>>(),
-        vec!["content"]
-    );
-    assert_eq!(post.body["content"][0]["id"], "keep0001");
-    assert_eq!(post.body["content"][0]["text"], "Checklist");
-    assert_eq!(
-        post.body["content"][1],
-        json!({"id":"html0001","type":"html","html":"<b>picker</b>"})
-    );
-    assert_eq!(post.body["content"][2]["text"], "New paragraph.");
-    assert!(uuid::Uuid::parse_str(post.body["content"][2]["id"].as_str().unwrap()).is_ok());
-    drop(state);
+    {
+        let state = state.lock().unwrap();
+        let post = state
+            .hits
+            .iter()
+            .find(|h| h.method == "POST" && h.path == "/api/pages/page1")
+            .unwrap();
+        assert_eq!(
+            post.body.as_object().unwrap().keys().collect::<Vec<_>>(),
+            vec!["content"]
+        );
+        assert_eq!(post.body["content"][0]["id"], "keep0001");
+        assert_eq!(post.body["content"][0]["text"], "Checklist");
+        assert_eq!(
+            post.body["content"][1],
+            json!({"id":"html0001","type":"html","html":"<b>picker</b>"})
+        );
+        assert_eq!(post.body["content"][2]["text"], "New paragraph.");
+        assert!(uuid::Uuid::parse_str(post.body["content"][2]["id"].as_str().unwrap()).is_ok());
+    }
     let scratch = Scratch::new();
     let input = json!({"page_title":"Release plan","markdown":"## Checklist\n\nNew paragraph."})
         .to_string();
@@ -342,9 +343,12 @@ async fn cli_track_uses_port_file_and_outbox_on_failure() {
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(response["id"], "session-1");
     assert_eq!(response["specs_page_id"], "spec-1");
-    let hits = &state.lock().unwrap().hits;
     assert!(
-        hits.iter()
+        state
+            .lock()
+            .unwrap()
+            .hits
+            .iter()
             .any(|h| h.method == "POST" && h.path == "/api/sessions" && h.body["title"] == "Ship")
     );
     server.abort();
@@ -607,7 +611,7 @@ async fn list_stories_and_convert_keep_cli_query_and_wire_contracts() {
     let (base, state, server) = self::server().await;
     let target = Target::local(base);
     assert!(
-        trame_cli::board::list(&["-q".into(), "".into()], false, &target)
+        trame_cli::board::list(&["-q".into(), String::new()], false, &target)
             .await
             .unwrap_err()
             .to_string()
@@ -1311,7 +1315,8 @@ async fn timed_out_agent_and_its_child_are_killed() {
         scratch
             .command(Some(port))
             .env("TRAME_WATCH_GLM_CMD", &stub)
-            .env("TRAME_WATCH_TIMEOUT", "0.05")
+            // long enough for the stub to record its pids before the kill, even on a loaded runner
+            .env("TRAME_WATCH_TIMEOUT", "0.5")
             .args(["answer", "--once", "--force-agent", "glm"])
             .output(),
     )

@@ -216,7 +216,7 @@ pub fn import(db: &mut Db, bundle: &Value, parent: &Value) -> Result<Value> {
         .collect::<Vec<_>>();
     let prop_map = mapping(&props);
     let row_map = mapping(rows);
-    let last=db.query("select max(sort_key) as k from pages where parent_id is not distinct from $1 and not deleted",&[parent.clone()])?;
+    let last=db.query("select max(sort_key) as k from pages where parent_id is not distinct from $1 and not deleted",std::slice::from_ref(parent))?;
     let root_key = pages::mid_key(last[0]["k"].as_str().unwrap_or(""), "");
     let owner = db.identity()?["userId"].clone();
     db.batch_execute("begin")?;

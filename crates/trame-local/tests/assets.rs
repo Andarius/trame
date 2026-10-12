@@ -1,3 +1,5 @@
+#![allow(unsafe_code, reason = "tests mutate env vars (set_var/remove_var)")]
+
 mod common;
 use common::TestDb;
 use serde_json::{Value, json};
@@ -94,7 +96,7 @@ fn native_assets_reports_and_report_files_preserve_http_contract() {
                 .unwrap()
                 .status(),
             404
-        )
+        );
     });
     let report_id = sessions::create_report(
         &mut t.db,
@@ -302,7 +304,7 @@ fn s3_assets_use_local_mock_and_preserve_metadata() {
             .await
             .unwrap();
         assert_eq!(got.status(), 200);
-        assert_eq!(got.bytes().await.unwrap().to_vec(), bytes)
+        assert_eq!(got.bytes().await.unwrap().to_vec(), bytes);
     });
     assert_eq!(*stored.lock().unwrap(), bytes);
     redirect.store(true, Ordering::SeqCst);

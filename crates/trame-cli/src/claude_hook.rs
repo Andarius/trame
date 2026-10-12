@@ -1,3 +1,8 @@
+#![allow(
+    unsafe_code,
+    reason = "libc FFI (flock/kill/killpg/prctl/getppid/waitpid/gethostname/fcntl/pre_exec)"
+)]
+
 use crate::target::data_file;
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};

@@ -31,7 +31,7 @@ pub fn owns(method: &str, path: &str) -> bool {
     }
     let p: Vec<_> = path.split('/').collect();
     match p.as_slice() {
-        ["", "api", "pages"] | ["", "api", "comments"] | ["", "api", "comments", "inbox"] => true,
+        ["", "api", "pages" | "comments"] | ["", "api", "comments", "inbox"] => true,
         ["", "api", "pages", id] => !id.is_empty() && *id != "import",
         ["", "api", "pages", id, "delete" | "move"] => !id.is_empty(),
         ["", "api", "pages", id, "story" | "session"] => !id.is_empty() && method == "POST",
@@ -157,9 +157,8 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
     let path = parts.uri.path().to_owned();
     let query = parts.uri.query().unwrap_or("").to_owned();
     let method = parts.method.to_string();
-    let bytes = match axum::body::to_bytes(body, usize::MAX).await {
-        Ok(b) => b,
-        Err(_) => return (StatusCode::BAD_REQUEST, "body unavailable").into_response(),
+    let Ok(bytes) = axum::body::to_bytes(body, usize::MAX).await else {
+        return (StatusCode::BAD_REQUEST, "body unavailable").into_response();
     };
     let body = if parses_json(&method, &path) {
         match serde_json::from_slice(&bytes) {
@@ -229,6 +228,10 @@ fn parses_json(method: &str, path: &str) -> bool {
         _ => false,
     }
 }
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "callers pass json! temporaries"
+)]
 pub(crate) fn json_response(status: u16, value: Value) -> Response {
     (
         StatusCode::from_u16(status).unwrap(),
@@ -325,6 +328,30 @@ fn json_error(bytes: &[u8], error: &serde_json::Error) -> String {
     format!("Unexpected token '{token}', \"{input}\" is not valid JSON")
 }
 
+#[allow(
+    clippy::cast_precision_loss,
+    reason = "JS-number (f64) semantics must be preserved"
+)]
+pub(crate) fn number(value: &str) -> Option<f64> {
+    let value = trame_core::trim(value);
+    if value.is_empty() {
+        return Some(0.0);
+    }
+    for (prefix, radix) in [
+        ("0x", 16),
+        ("0X", 16),
+        ("0o", 8),
+        ("0O", 8),
+        ("0b", 2),
+        ("0B", 2),
+    ] {
+        if let Some(digits) = value.strip_prefix(prefix) {
+            return u64::from_str_radix(digits, radix).ok().map(|n| n as f64);
+        }
+    }
+    value.parse().ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -368,24 +395,4 @@ mod tests {
             assert_eq!(json_error(input.as_bytes(), &err), wanted, "{input}");
         }
     }
-}
-
-pub(crate) fn number(value: &str) -> Option<f64> {
-    let value = trame_core::trim(value);
-    if value.is_empty() {
-        return Some(0.0);
-    }
-    for (prefix, radix) in [
-        ("0x", 16),
-        ("0X", 16),
-        ("0o", 8),
-        ("0O", 8),
-        ("0b", 2),
-        ("0B", 2),
-    ] {
-        if let Some(digits) = value.strip_prefix(prefix) {
-            return u64::from_str_radix(digits, radix).ok().map(|n| n as f64);
-        }
-    }
-    value.parse().ok()
 }

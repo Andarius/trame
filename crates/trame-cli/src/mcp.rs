@@ -188,7 +188,7 @@ fn text(value: &Value) -> CallToolResponse {
     let rendered = value
         .serialize(&mut serializer)
         .ok()
-        .and_then(|_| String::from_utf8(bytes).ok())
+        .and_then(|()| String::from_utf8(bytes).ok())
         .unwrap_or_else(|| "null".into());
     CallToolResult::success(vec![ContentBlock::text(rendered)]).into()
 }
@@ -354,6 +354,10 @@ pub async fn execute(name: &str, args: &Value) -> Result<Value> {
         _ => bail!("unknown tool: {name}"),
     }
 }
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "values fit by construction (timestamps, ids, pids, JS-number parity)"
+)]
 async fn html(args: &Value, target: &Target) -> Result<Value> {
     let html = required(args, "html")?;
     if html.len()

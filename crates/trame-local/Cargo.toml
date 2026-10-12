@@ -30,3 +30,6 @@ tokio-tungstenite = { version = "0.30", default-features = false, features = ["c
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+
+[lints]
+workspace = true

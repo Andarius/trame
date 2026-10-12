@@ -105,24 +105,22 @@ pub fn apply_changes(
         let before = pending.len();
         let mut failed = Vec::new();
         for change in pending {
-            let (sql, params) = match &change.value {
-                Some(row) => lww_upsert(&change.entity, row)?,
-                None => {
-                    let e = entity(&change.entity)?;
-                    (
-                        format!(
-                            "update {} set deleted=true, updated_at=$2 where id=$1 and updated_at < $2",
-                            e.name
+            let (sql, params) = if let Some(row) = &change.value {
+                lww_upsert(&change.entity, row)?
+            } else {
+                let e = entity(&change.entity)?;
+                (
+                    format!(
+                        "update {} set deleted=true, updated_at=$2 where id=$1 and updated_at < $2",
+                        e.name
+                    ),
+                    vec![
+                        json!(change.id),
+                        json!(
+                            chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
                         ),
-                        vec![
-                            json!(change.id),
-                            json!(
-                                chrono::Utc::now()
-                                    .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
-                            ),
-                        ],
-                    )
-                }
+                    ],
+                )
             };
             match db.query(&sql, &params) {
                 Ok(_) => applied += 1,
@@ -131,7 +129,7 @@ pub fn apply_changes(
                         .and_then(|e| e.code())
                         .is_some_and(|c| c.code() == "23503") =>
                 {
-                    failed.push(change)
+                    failed.push(change);
                 }
                 Err(e) => return Err(e),
             }
@@ -177,7 +175,7 @@ fn assemble_inner(db: &mut Db) -> Result<(Value, Vec<Value>, String, String)> {
                 .as_str()
                 .ok_or_else(|| anyhow::anyhow!("row timestamp missing"))?;
             if updated > max.as_str() {
-                max = updated.to_owned()
+                updated.clone_into(&mut max);
             }
             mutations.push(json!({"mutationId":format!("{}:{}:{}:{}",db.origin,e.name,row["id"].as_str().unwrap_or(""),updated),"entity":e.name,"id":row["id"],"op":"upsert","value":row}));
         }
@@ -232,7 +230,7 @@ impl Sync {
     }
     pub fn client(&self) -> Result<reqwest::Client> {
         let mut builder = reqwest::Client::builder()
-            .timeout(Duration::from_secs(60))
+            .timeout(Duration::from_mins(1))
             .redirect(reqwest::redirect::Policy::none());
         if let Ok(pem) = std::fs::read(self.tls_dir.join("ca.crt")) {
             if let Ok(ca) = reqwest::Certificate::from_pem(&pem) {
@@ -359,7 +357,7 @@ impl Sync {
             bail!("hub answered {}", res.status().as_u16())
         }
         let health: Value = res.json().await.unwrap_or(Value::Null);
-        if health["protocol"].as_u64() != Some(registry().version as u64) {
+        if health["protocol"].as_u64() != Some(u64::from(registry().version)) {
             bail!(
                 "protocol mismatch: hub speaks {}, this app {}",
                 health
@@ -387,17 +385,23 @@ impl Sync {
                 eprintln!("sync: pass failed; cursors retained for retry");
             }
             tokio::select! {
-                _=tokio::time::sleep(Duration::from_millis(std::env::var("TRACKER_SYNC_MS").ok().and_then(|v|v.parse::<u64>().ok()).unwrap_or(15000).max(1)))=>{},
-                _=self.nudge.notified()=>{},
-                _=self.dirty.notified()=>{loop{tokio::select!{
-                    _=tokio::time::sleep(Duration::from_millis(1500))=>break,
-                    _=self.nudge.notified()=>break,
-                    _=self.dirty.notified()=>{},
+                ()=tokio::time::sleep(Duration::from_millis(std::env::var("TRACKER_SYNC_MS").ok().and_then(|v|v.parse::<u64>().ok()).unwrap_or(15000).max(1)))=>{},
+                ()=self.nudge.notified()=>{},
+                ()=self.dirty.notified()=>{loop{tokio::select!{
+                    ()=tokio::time::sleep(Duration::from_millis(1500))=>break,
+                    ()=self.nudge.notified()=>break,
+                    ()=self.dirty.notified()=>{},
                 }}},
             }
         }
     }
 
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss,
+        reason = "values fit by construction (timestamps, ids, pids, JS-number parity); JS-number (f64) semantics must be preserved; values are non-negative by construction"
+    )]
     pub async fn realtime(self) {
         if self.offline {
             return;
@@ -413,8 +417,8 @@ impl Sync {
                 .saturating_mul(1u64.checked_shl(attempt).unwrap_or(u64::MAX))
                 .min(60_000);
             attempt = attempt.saturating_add(1);
-            let jitter =
-                0.75 + (uuid::Uuid::new_v4().as_u128() as u16 as f64 / u16::MAX as f64) * 0.5;
+            let jitter = 0.75
+                + (f64::from(uuid::Uuid::new_v4().as_u128() as u16) / f64::from(u16::MAX)) * 0.5;
             tokio::time::sleep(Duration::from_millis((cap as f64 * jitter) as u64)).await;
         }
     }
@@ -444,7 +448,7 @@ impl Sync {
         let mut url = reqwest::Url::parse(base)?;
         let scheme = if url.scheme() == "https" { "wss" } else { "ws" };
         url.set_scheme(scheme)
-            .map_err(|_| anyhow::anyhow!("invalid websocket URL"))?;
+            .map_err(|()| anyhow::anyhow!("invalid websocket URL"))?;
         url.set_path(&format!("{}/ws", url.path().trim_end_matches('/')));
         url.query_pairs_mut().append_pair("token", token);
         let connector = self.ws_connector();
@@ -475,7 +479,7 @@ impl Sync {
             tokio::select! {
                 _=heartbeat.tick()=>ws.send(Message::Text("{\"type\":\"ping\"}".into())).await?,
                 message=ws.next()=>match message {
-                    Some(Ok(Message::Text(text)))=>{if serde_json::from_str::<Value>(&text).is_ok_and(|v|v["type"]=="changed"){self.nudge.notify_one();}},
+                    Some(Ok(Message::Text(text)))if serde_json::from_str::<Value>(&text).is_ok_and(|v|v["type"]=="changed")=> {self.nudge.notify_one();},
                     Some(Ok(Message::Ping(bytes)))=>ws.send(Message::Pong(bytes)).await?,
                     Some(Ok(Message::Close(_)))|None=>return Ok(()),
                     Some(Err(_))=>bail!("websocket disconnected"),

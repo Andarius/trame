@@ -25,6 +25,10 @@ pub fn encode(value: &str) -> String {
 
 static STATE: LazyLock<Mutex<Value>> = LazyLock::new(|| Mutex::new(empty_state()));
 static FIXTURE_POLL: Mutex<()> = Mutex::new(());
+#[allow(
+    clippy::cast_sign_loss,
+    reason = "values are non-negative by construction"
+)]
 pub fn start(state: Native) -> Option<tokio::task::JoinHandle<()>> {
     *STATE.lock().unwrap() = empty_state();
     if state.sync.offline && fixture().ok().flatten().is_none() {
@@ -70,8 +74,8 @@ pub fn start(state: Native) -> Option<tokio::task::JoinHandle<()>> {
                 }
             }
             tokio::select! {
-                _ = tokio::time::sleep(std::time::Duration::from_millis(delay.max(1) as u64)) => {},
-                _ = state.sync.plugin_poll.notified() => {
+                () = tokio::time::sleep(std::time::Duration::from_millis(delay.max(1) as u64)) => {},
+                () = state.sync.plugin_poll.notified() => {
                     tokio::time::sleep(std::time::Duration::from_secs(4)).await;
                 }
             }
@@ -119,6 +123,10 @@ fn base_url(slice: &Value) -> String {
         .trim_end_matches('/')
         .to_owned()
 }
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "values fit by construction (timestamps, ids, pids, JS-number parity)"
+)]
 fn clamp_idle(raw: &Value) -> Option<i64> {
     let n = raw
         .as_f64()
@@ -286,6 +294,10 @@ fn hostname(base: &str) -> Result<String> {
         .context("missing host")?
         .to_owned())
 }
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "callers pass json! temporaries"
+)]
 fn json_response(status: u16, value: Value) -> Response {
     (
         StatusCode::from_u16(status).unwrap(),
@@ -434,9 +446,8 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
     {
         return json_response(503, json!({"error":"unavailable in offline mode"}));
     }
-    let bytes = match axum::body::to_bytes(req.into_body(), usize::MAX).await {
-        Ok(b) => b,
-        Err(_) => return json_response(500, json!({"error":"body unavailable"})),
+    let Ok(bytes) = axum::body::to_bytes(req.into_body(), usize::MAX).await else {
+        return json_response(500, json!({"error":"body unavailable"}));
     };
     let body = serde_json::from_slice::<Value>(&bytes).unwrap_or_else(|_| json!({}));
     if !fixture {
