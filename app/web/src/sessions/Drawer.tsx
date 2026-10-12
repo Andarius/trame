@@ -88,12 +88,19 @@ export function Drawer(
   };
   const [status, setStatus] = useState<Status>(session.status);
   const [client, setClient] = useState(board.projects.find((c) => c.id === session.client_id)?.name ?? "");
+  useEffect(() => setClient(board.projects.find((c) => c.id === session.client_id)?.name ?? ""), [session.client_id]);
   const [pageId, setPageId] = useState(session.page_id ?? "");
   const [tags, setTags] = useState(session.tags ?? []);
   useEffect(() => setTags(session.tags ?? []), [session.tags]);
   const [branch, setBranch] = useState(session.branch ?? "");
   const [nextStep, setNextStep] = useState(session.next_step ?? "");
   const [prUrl, setPrUrl] = useState(session.pr_url ?? "");
+  // follow the board poll, so an agent's edits show up without reopening the card
+  useEffect(() => setTitle(session.title), [session.title]);
+  useEffect(() => setStatus(session.status), [session.status]);
+  useEffect(() => setPageId(session.page_id ?? ""), [session.page_id]);
+  useEffect(() => setBranch(session.branch ?? ""), [session.branch]);
+  useEffect(() => setPrUrl(session.pr_url ?? ""), [session.pr_url]);
   const [prNew, setPrNew] = useState("");
   const [prOpen, setPrOpen] = useState(false);
   // JS auto-grow: field-sizing:content isn't supported in the desktop WebKitGTK webview,
@@ -108,6 +115,9 @@ export function Drawer(
   }, [expanded]);
   const nsRef = useRef<HTMLTextAreaElement>(null);
   const [nsEditing, setNsEditing] = useState(false);
+  useEffect(() => {
+    if (!nsEditing) setNextStep(session.next_step ?? "");
+  }, [session.next_step]);
   const growNs = () => {
     const el = nsRef.current;
     if (!el) return;
@@ -125,7 +135,8 @@ export function Drawer(
       // guard: a stale backend may answer an error object instead of an array
       if (!Array.isArray(own)) return;
       const others = (Array.isArray(linked) ? linked : []).filter((e) => e.session_id !== session.id);
-      setEvents([...own, ...others].sort((a, b) => b.at.localeCompare(a.at)));
+      const next = [...own, ...others].sort((a, b) => b.at.localeCompare(a.at));
+      setEvents((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
     }).catch(() => {});
   // page-item links ("this session works on that TODO line")
   const [links, setLinks] = useState<SessionLink[]>([]);
@@ -182,7 +193,6 @@ export function Drawer(
   };
 
   useEffect(() => {
-    loadJournal();
     return () => {
       clearTimeout(flashTimer.current);
       clearTimeout(resumeTimer.current);
@@ -278,6 +288,16 @@ export function Drawer(
   const cardAgents = live.filter(({ a }) =>
     a.session_id === session.id || (!!session.specs_page_id && a.page_id === session.specs_page_id)
   );
+  const active = cardAgents.length > 0;
+  useEffect(() => {
+    loadJournal();
+  }, [session.last_touched]);
+  // linked sessions' entries don't touch this card, so poll the journal while an agent works on it
+  useEffect(() => {
+    if (!active) return;
+    const t = setInterval(loadJournal, 5000);
+    return () => clearInterval(t);
+  }, [active, session.id]);
   const titleInput = (
     <div className="flex items-start gap-1.5">
       {specIcon && <EntityIcon icon={specIcon} className="mt-1 text-[17px]" />}
