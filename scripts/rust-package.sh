@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
-# DESCRIPTION: Build the native Linux desktop packages with pinned PostgreSQL 18 resources.
-# USAGE: scripts/rust-package.sh [prepare|cli|deb|appimage]
+# DESCRIPTION: Build the native desktop packages (Linux x86_64, macOS arm64) with pinned PostgreSQL 18 resources.
+# USAGE: scripts/rust-package.sh [prepare|cli|deb|appimage|dmg]
 # EXAMPLES: scripts/rust-package.sh deb
+#           scripts/rust-package.sh dmg   # on macOS arm64
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 mode="${1:-deb}"
-case "$mode" in prepare|cli|deb|appimage) ;; *) echo "expected prepare, cli, deb, or appimage" >&2; exit 2 ;; esac
-[[ "$(uname -s)/$(uname -m)" == Linux/x86_64 ]] || { echo "Linux x86_64 required" >&2; exit 1; }
+platform="$(uname -s)/$(uname -m)"
+case "$platform/$mode" in
+    Linux/x86_64/prepare|Linux/x86_64/cli|Linux/x86_64/deb|Linux/x86_64/appimage) ;;
+    Darwin/arm64/prepare|Darwin/arm64/cli|Darwin/arm64/dmg) ;;
+    *) echo "unsupported: $mode on $platform (Linux x86_64: prepare|cli|deb|appimage, macOS arm64: prepare|cli|dmg)" >&2; exit 2 ;;
+esac
 
 deno run --allow-read --allow-env --config app/deno.json scripts/rust-cli-contracts.ts --check
 sha="$(git rev-parse --short HEAD 2>/dev/null || printf src)"
@@ -24,6 +29,42 @@ fi
 package="$PWD/.scratch/package"
 pg="$package/pg"
 mkdir -p "$package"
+if [[ "$platform" == Darwin/arm64 ]]; then
+    # relocatable build: bin/, lib/ and share/ must stay siblings
+    name=postgresql-18.6.0-aarch64-apple-darwin
+    sum=a257bcdb8aa3301a13d6a5bcec48f8c9517045b7cbae71e50788b2615539e95b
+    if [[ ! -x "$pg/usr/lib/postgresql/18/bin/postgres" ]]; then
+        mkdir -p "$package/download" "$pg/usr/lib/postgresql/18"
+        file="$package/download/$name.tar.gz"
+        if [[ ! -f "$file" ]] || ! printf '%s  %s\n' "$sum" "$file" | shasum -a 256 -c - --status; then
+            curl -fL --retry 3 "https://github.com/theseus-rs/postgresql-binaries/releases/download/18.6.0/$name.tar.gz" -o "$file"
+        fi
+        printf '%s  %s\n' "$sum" "$file" | shasum -a 256 -c - --status
+        tar -xzf "$file" -C "$pg/usr/lib/postgresql/18" --strip-components 1
+    fi
+    [[ "$($pg/usr/lib/postgresql/18/bin/postgres --version)" == 'postgres (PostgreSQL) 18.6'* ]]
+    [[ -f "$pg/usr/lib/postgresql/18/share/postgres.bki" ]]
+    triple=aarch64-apple-darwin
+    [[ "$(rustc -vV | sed -n 's/^host: //p')" == "$triple" ]]
+    if [[ "$mode" == prepare ]]; then
+        cargo build -p trame-cli --locked
+        cp target/debug/tramecli "$package/tramecli-$triple"
+        exit 0
+    fi
+    npm ci --prefix app/web
+    npm run build --prefix app/web
+    cargo build -p trame-cli --release --locked
+    cp target/release/tramecli "$package/tramecli-$triple"
+    cd crates/trame-desktop
+    # CI=true skips the Finder AppleScript window styling, which fails without a GUI session (ssh)
+    CI=true npx --yes @tauri-apps/cli@2.12.2 build --ci --bundles dmg
+    cd ../..
+    mkdir -p dist/macos
+    find target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -exec cp '{}' dist/macos/Trame.dmg \;
+    [[ -f dist/macos/Trame.dmg ]]
+    cp target/release/tramecli dist/macos/tramecli
+    exit 0
+fi
 if [[ ! -x "$pg/usr/lib/postgresql/18/bin/postgres" ]]; then
     if [[ -x .scratch/stage0/pg18/usr/lib/postgresql/18/bin/postgres ]]; then
         cp -a .scratch/stage0/pg18 "$pg"

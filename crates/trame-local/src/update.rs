@@ -208,6 +208,8 @@ mod tests {
             json!({"current":crate::runtime::version(),"latest":null,"available":false,"releaseUrl":"","canSelfUpdate":false})
         );
     }
+    // self-update is AppImage-only
+    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn updater_download_is_atomic_and_preserves_existing_files() {
         use axum::{Router, routing::get};

@@ -381,8 +381,8 @@ impl Sync {
             return;
         }
         loop {
-            if self.once().await.is_err() {
-                eprintln!("sync: pass failed; cursors retained for retry");
+            if let Err(error) = self.once().await {
+                eprintln!("sync: pass failed ({error:#}); cursors retained for retry");
             }
             tokio::select! {
                 ()=tokio::time::sleep(Duration::from_millis(std::env::var("TRACKER_SYNC_MS").ok().and_then(|v|v.parse::<u64>().ok()).unwrap_or(15000).max(1)))=>{},

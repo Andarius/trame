@@ -68,6 +68,7 @@ detect_flavor() {
     case "$(uname -s)/$(uname -m)" in
         Linux/x86_64)
             if command -v snap >/dev/null; then echo snap; else echo deb; fi ;;
+        Darwin/arm64) echo dmg ;;
         *) echo unsupported ;;
     esac
 }
@@ -101,12 +102,27 @@ install_release() { # flavor
             integrate_appimage "$HOME/.local/bin/trame"
             RUN_HINT="$HOME/.local/bin/trame"
             ;;
-        unsupported|dmg)
-            echo "Native Trame packages currently support Linux x86_64 only" >&2
+        dmg)
+            if pgrep -xq Trame; then
+                echo "Quit the running Trame app first (its data stays in ~/.local/share/trame)" >&2
+                return 1
+            fi
+            fetch_asset "$tag" "Trame-${tag}-native-arm64.dmg" "$tmp/Trame.dmg"
+            hdiutil attach -nobrowse -readonly -mountpoint "$tmp/mnt" "$tmp/Trame.dmg" >/dev/null
+            rm -rf /Applications/Trame.app
+            ditto "$tmp/mnt/Trame.app" /Applications/Trame.app
+            hdiutil detach "$tmp/mnt" >/dev/null
+            mkdir -p "$HOME/.local/bin"
+            fetch_asset "$tag" "tramecli-${tag}-macos-arm64" "$HOME/.local/bin/tramecli"
+            chmod +x "$HOME/.local/bin/tramecli"
+            RUN_HINT="open -a Trame"
+            ;;
+        unsupported)
+            echo "Native Trame packages support Linux x86_64 and macOS arm64" >&2
             return 1
             ;;
         *)
-            echo "unknown TRAME_APP flavor: $flavor (expected release, snap, deb, appimage, source, or none)" >&2
+            echo "unknown TRAME_APP flavor: $flavor (expected release, snap, deb, appimage, dmg, source, or none)" >&2
             return 1
             ;;
     esac
