@@ -25,6 +25,7 @@ import { clearSelection, MenuRow, enumCodec, useLocalStorage, appConfirm, client
 import { AgentIcon, AgentsSummary, EventMeta, PresencePill, useAgents } from "../agents/agents";
 import { summarizeAgents } from "../agents/agent-summary";
 import { PrChip, RepoLink } from "../md/chips";
+import { renderInline } from "../md/md-inline";
 import { SpecsEditor } from "../page/SpecsEditor";
 import { TagEditor } from "../ui/TagEditor";
 
@@ -651,7 +652,7 @@ export function Drawer(
             : (
               <>
                 {e.summary && (
-                  <p className="whitespace-pre-wrap text-xs leading-relaxed text-ink-soft">{e.summary}</p>
+                  <p className="whitespace-pre-wrap text-xs leading-relaxed text-ink-soft">{renderInline(e.summary)}</p>
                 )}
                 {/* the entry's own agent wins; older track/import rows predate the
                     column and fall back to the session's agent. Manual logs stay bare. */}
