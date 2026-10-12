@@ -24,6 +24,8 @@ app/web/playwright-report/
 # local runtime state / secrets
 .env
 .scratch/
+/target/
+/crates/trame-desktop/gen/
 hub/certs/
 hub/ca/
 

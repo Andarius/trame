@@ -2,171 +2,143 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*"
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing git tag to publish, for example v0.1.0
+        description: Existing git tag to publish, for example v0.13.0
         required: true
         type: string
+      allow_native_cutover:
+        description: Acknowledge native migration, rollback backup, and unqualified macOS support
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
 
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       tag: ${{ steps.tag.outputs.value }}
+      commit: ${{ steps.tag.outputs.commit }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
-
       - name: Resolve release tag
         id: tag
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+          ALLOW_NATIVE_CUTOVER: ${{ inputs.allow_native_cutover }}
         shell: bash
         run: |
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            tag="${{ inputs.tag }}"
-            tag="${tag#refs/tags/}"
-            [[ "${tag}" != v* ]] && tag="v${tag}"
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" != workflow_dispatch || "${ALLOW_NATIVE_CUTOVER}" != true ]]; then
+            echo "Native runtime cutover requires a manual release with allow_native_cutover; tag pushes cannot publish it." >&2
+            exit 1
+          fi
+          if [[ "${GITHUB_EVENT_NAME}" == workflow_dispatch ]]; then
+            tag="${REQUESTED_TAG#refs/tags/}"
+            [[ "${tag}" == v* ]] || tag="v${tag}"
           else
             tag="${GITHUB_REF_NAME}"
           fi
-          [[ -z "${tag}" ]] && { echo "Release tag is required" >&2; exit 1; }
           git fetch --tags --force
-          git rev-parse "${tag}^{commit}" >/dev/null
+          commit="$(git rev-parse "${tag}^{commit}")"
+          echo "commit=${commit}" >> "${GITHUB_OUTPUT}"
           echo "value=${tag}" >> "${GITHUB_OUTPUT}"
-
-      - name: Checkout release tag
-        run: git checkout "${{ steps.tag.outputs.value }}"
-
-      - name: Verify tag matches app version
-        env:
-          RELEASE_TAG: ${{ steps.tag.outputs.value }}
-        run: |
-          version="$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' app/deno.json | head -n1)"
-          if [ "${RELEASE_TAG}" != "v${version}" ]; then
-            echo "Tag ${RELEASE_TAG} does not match app/deno.json version v${version}" >&2
-            exit 1
-          fi
-
-      - name: Create draft release
+      - name: Verify version and create draft
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ steps.tag.outputs.value }}
         run: |
-          if gh release view "${RELEASE_TAG}" --repo "${GH_REPO}" >/dev/null 2>&1; then
-            echo "Release ${RELEASE_TAG} already exists"
-          else
-            gh release create "${RELEASE_TAG}" --repo "${GH_REPO}" --draft --generate-notes --title "${RELEASE_TAG}"
-          fi
+          git checkout --detach "${{ steps.tag.outputs.commit }}"
+          version="$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' app/deno.json | head -n1)"
+          test "${RELEASE_TAG}" = "v${version}"
+          test "${version}" = "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' crates/trame-desktop/tauri.conf.json | head -n1)"
+          gh release view "${RELEASE_TAG}" --repo "${GH_REPO}" >/dev/null 2>&1 || gh release create "${RELEASE_TAG}" --repo "${GH_REPO}" --draft --generate-notes --title "${RELEASE_TAG}"
+
+  verify:
+    needs: prepare
+    uses: ./.github/workflows/ci.yml
+    with:
+      commit: ${{ needs.prepare.outputs.commit }}
+    permissions:
+      contents: read
 
   build:
-    needs: prepare
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-latest
-            target: linux-x64
-            tasks: "bundle bundle:deb compile:cli"
-            assets: "dist/linux/Trame.AppImage dist/linux/trame.deb dist/tramecli"
-          # pinned: macos-latest flips to macOS 26 from 2026-06 — repin deliberately
-          - runner: macos-15
-            target: macos-arm64
-            tasks: "bundle:mac compile:cli"
-            assets: "dist/macos/Trame.dmg dist/tramecli"
-          # macos-x64 (Intel) dropped: modern Macs are Apple Silicon, and the
-          # macos-15-intel runner hits a flaky hdiutil ENOSPC (APFS container quirk,
-          # runner being deprecated). Re-add a matrix entry if Intel support is needed.
-    runs-on: ${{ matrix.runner }}
+    needs: [prepare, verify]
+    runs-on: ubuntu-24.04
     env:
       RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ needs.prepare.outputs.tag }}
-
+          ref: ${{ needs.prepare.outputs.commit }}
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
           deno-version: "2.9"
-
-      - name: Build frontend
-        run: cd app && deno task web:build
-
-      - name: Build bundles
-        shell: bash
+      - name: Install Rust and native build libraries
         run: |
-          cd app
-          for task in ${{ matrix.tasks }}; do
-            deno task "${task}"
-          done
-
-      - name: Upload release assets
-        shell: bash
+          rustup toolchain install 1.95.0 --profile minimal
+          rustup default 1.95.0
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev \
+            libicu74 liburing2 libnuma1 libxml2 libldap2 libpam0g libzstd1 liblz4-1 libpq5
+      - name: Build deb
+        run: bash scripts/rust-package.sh deb
+      - name: Build AppImage (best effort)
+        continue-on-error: true
+        run: bash scripts/rust-package.sh appimage
+      - name: Upload native assets
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          for asset in ${{ matrix.assets }}; do
-            base="$(basename "${asset}")"
-            if [[ "${base}" == *.* ]]; then
-              named="${base%.*}-${RELEASE_TAG}-${{ matrix.target }}.${base##*.}"
-            else
-              named="${base}-${RELEASE_TAG}-${{ matrix.target }}"
-            fi
-            cp "${asset}" "${named}"
-            gh release upload "${RELEASE_TAG}" "${named}" --repo "${GH_REPO}" --clobber
-          done
+          cp dist/linux/trame.deb "trame-${RELEASE_TAG}-linux-x64.deb"
+          cp target/release/tramecli "tramecli-${RELEASE_TAG}-linux-x64"
+          gh release upload "${RELEASE_TAG}" "trame-${RELEASE_TAG}-linux-x64.deb" "tramecli-${RELEASE_TAG}-linux-x64" --repo "${GH_REPO}" --clobber
+          if [[ -f dist/linux/Trame.AppImage ]]; then
+            cp dist/linux/Trame.AppImage "Trame-${RELEASE_TAG}-native-x64.AppImage"
+            gh release upload "${RELEASE_TAG}" "Trame-${RELEASE_TAG}-native-x64.AppImage" --repo "${GH_REPO}" --clobber
+          fi
 
   snap:
-    needs:
-      - prepare
-      - build
-    runs-on: ubuntu-latest
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
     env:
       RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ needs.prepare.outputs.tag }}
-
-      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
-        with:
-          deno-version: "2.9"
-
-      - name: Build frontend
-        run: cd app && deno task web:build
-
-      - name: Build app bundle
-        run: cd app && deno task bundle:dir
-
-      - name: Build tramecli into the bundle
-        run: cd app && deno task compile:cli && cp ../dist/tramecli ../dist/linux/trame/tramecli
-
+          ref: ${{ needs.prepare.outputs.commit }}
+      - name: Download deb
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mkdir -p dist/linux
+          gh release download "${RELEASE_TAG}" --repo "${GH_REPO}" --pattern "trame-${RELEASE_TAG}-linux-x64.deb" --dir dist/linux
+          mv "dist/linux/trame-${RELEASE_TAG}-linux-x64.deb" dist/linux/trame.deb
       - name: Build snap
         uses: snapcore/action-build@3bdaa03e1ba6bf59a65f84a751d943d549a54e79 # v1.3.0
         id: snapcraft
-
-      - name: Upload snap to release
+      - name: Upload snap
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: gh release upload "${RELEASE_TAG}" "${{ steps.snapcraft.outputs.snap }}" --repo "${GH_REPO}" --clobber
 
   publish:
-    needs:
-      - prepare
-      - build
-      - snap
-    runs-on: ubuntu-latest
+    needs: [prepare, verify, build, snap]
+    runs-on: ubuntu-24.04
     steps:
       - name: Publish draft release
         env:

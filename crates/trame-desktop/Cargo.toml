@@ -1,0 +1,16 @@
+[package]
+name = "trame-desktop"
+version = "0.13.0"
+edition.workspace = true
+publish.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow = "1"
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tauri-plugin-window-state = "=2.5.0"
+tokio = { version = "1", features = ["rt-multi-thread", "signal", "sync"] }
+trame-local = { path = "../trame-local" }

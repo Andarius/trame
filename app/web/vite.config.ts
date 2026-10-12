@@ -1,24 +1,24 @@
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
-// Resolve the running Trame instance (desktop mode binds a random port and
-// publishes it to the port file). The file survives crashes/quits, so probe the
-// instance before trusting it. Falls back to the fixed `just serve` port.
+// Frontend development follows the isolated native backend's private readiness file.
 async function apiTarget(): Promise<string> {
-  try {
-    const dataHome = process.env.XDG_DATA_HOME ?? `${homedir()}/.local/share`;
-    const { port } = JSON.parse(readFileSync(`${dataHome}/trame/port.json`, "utf8"));
-    const alive = await fetch(`http://127.0.0.1:${port}/api/status`, {
-      signal: AbortSignal.timeout(800),
-    }).then((r) => r.ok).catch(() => false);
-    if (alive) return `http://127.0.0.1:${port}`;
-    console.warn(`port.json points at :${port} but nothing answers — proxying to :8787 (just serve / just hack)`);
-  } catch { /* no port file */ }
-  return "http://localhost:8787";
+  const scratch = realpathSync(resolve("../../.scratch"));
+  const file = realpathSync(process.env.TRACKER_PORT_FILE ??
+    resolve(process.env.TRAME_LOCAL_DIR ?? "../../.scratch/dev", "port.json"));
+  if (!file.startsWith(`${scratch}/`)) throw new Error("Vite requires a scratch backend port file");
+  const { port } = JSON.parse(readFileSync(file, "utf8"));
+  if (!Number.isInteger(port) || port < 1 || port > 65535 || port === 8787 || port === 5181) {
+    throw new Error("Invalid isolated backend port");
+  }
+  const base = `http://127.0.0.1:${port}`;
+  const alive = await fetch(`${base}/api/status`, { signal: AbortSignal.timeout(800) })
+    .then(async (r) => { await r.body?.cancel(); return r.ok; }).catch(() => false);
+  if (!alive) throw new Error("Isolated backend is unavailable; start just serve first");
+  return base;
 }
 
 // out-of-tree plugin checkouts (scripts/gen-plugins.ts): the dev server may serve their files
@@ -29,9 +29,8 @@ function localPlugins(): string[] {
   } catch { return []; }
 }
 
-// `npm run dev` serves on :5173 with React HMR and proxies /api to the running app.
-// `npm run build` emits ./dist, which the Deno server serves in the desktop window.
-export default defineConfig(async () => ({
+// Builds read no runtime discovery files; Vite HMR uses only the scratch backend.
+export default defineConfig(async ({ command }) => ({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: { "@trame/web-api": resolve("src/plugin-api.ts") },
@@ -45,5 +44,5 @@ export default defineConfig(async () => ({
     rollupOptions: { external: [/@excalidraw\/mermaid-to-excalidraw/] },
   },
   // the editor shares app/todo-marks.ts with the Deno side
-  server: { fs: { allow: ["..", "../../core", ...localPlugins()] }, proxy: { "/api": await apiTarget() } },
+  server: { fs: { allow: ["..", "../../core", ...localPlugins()] }, proxy: command === "serve" ? { "/api": await apiTarget() } : undefined },
 }));

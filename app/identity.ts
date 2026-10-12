@@ -1,7 +1,7 @@
 // Device→user identity (hub-API migration, phase 1). A device (NODE_ID) maps to a
 // users row through the synced devices table; writes stamp the resolved user id.
 import { v5 } from "@std/uuid";
-import type { PGlite } from "@electric-sql/pglite";
+import type { Q } from "../core/ctx.ts";
 import { type Identity, identityOf } from "../core/identity.ts";
 import { APP_CTX } from "./ctx.ts";
 import { db } from "./db.ts";
@@ -20,7 +20,7 @@ export const deviceId = (nodeId: string) =>
 // When API sync is configured the claim is SKIPPED entirely: the hub binds devices
 // at mint/invite time and the row syncs down — a fresh replica claiming locally
 // would bind to the seeded user before the first pull brings the real user set.
-export async function claimDevice(handle?: PGlite): Promise<void> {
+export async function claimDevice(handle?: Q): Promise<void> {
   if (await getHubApi().catch(() => null)) return;
   const pg = handle ?? await db();
   const claimed = (await pg.query(

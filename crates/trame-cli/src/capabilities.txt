@@ -1,0 +1,257 @@
+# Trame — capabilities for agents
+
+Trame is a local-first tracker (sessions, pages, databases) that syncs to a shared hub.
+As an agent you can:
+
+## Review comments (conversational)
+- Leave inline comments on a page block with **trame_add_comment** (page by id/title,
+  block by id or a unique text quote).
+- **Attribution**: set `agent` to the id of the model ACTUALLY writing (codex, claude,
+  glm, gemini, …) — not the harness seat. codex/claude get a branded avatar; any other
+  id gets a generated one. Never post as a human.
+- **`meta.model` is required** — the exact model id you run as; it shows as a footer.
+  Running as claude or codex, `in`/`out`/`ms` are required too — both harnesses
+  report their own usage, so read it there. Other agents omit what they can't measure;
+  never guess a number (a footer must be real).
+- **The watcher loop**: a human may reply to your comment. If the human runs `tramecli answer`,
+  YOUR agent is invoked to answer that reply — so a thread is a back-and-forth, not a
+  one-shot. Your answer posts as the next comment; the watcher fills its meta for you.
+
+## Pages & reports
+- **trame_create_page** — create a page from Markdown (not a session card). It files
+  itself under the project owning `repo_path` (pass your working directory); pass
+  parent_id only to nest it elsewhere.
+- **trame_update_page** — replace a page's content from Markdown IN PLACE; unchanged
+  blocks keep their ids so inline comments stay anchored. Reply to comments before updating.
+- **trame_move_page** — reparent/reorder an existing page (fix a wrong parent, nest under another page).
+- **trame_html** — embed an interactive HTML doc on a page (sandboxed iframe, scripts run).
+  The doc calls `window.trame.send(data)` to persist structured results on the block;
+  **trame_html_data** reads them back. Use this to ASK the user something visual
+  (option pickers, forms) — they click in Trame, you read the answer. Prefer it over
+  trame_report when you want an answer back.
+- **trame_report** — publish a self-contained HTML report to the Explore view.
+
+## Page Markdown dialect
+GFM plus: `## Title {{tab}}` headings group the blocks below into a tab strip
+(consecutive markers = one strip) and `## Title {{fold}}` into a collapsible section;
+`- [ ]`/`- [x]` become checkable todos (2 spaces per nesting level, max 4);
+bullets under a Completed/Done/Shipped heading render as checks, under
+Open/Todo/Next/Pending/Remaining/In progress/Blocked as open rings, with a one-click
+toggle between the two; `{{text}}` is a pill (`{{green:…}}` tints it:
+green|yellow|red|copper|gray); a `graph` fence draws an architecture diagram
+(see below) and a `mermaid` fence a mermaid one; a `cards` fence renders a KPI
+row, one `value | label` per line with an optional trailing
+`| green|yellow|red|copper|gray` to tint a card; other fences highlight
+python/ts/js/bash/json/sql; PR/MR links become live PR chips,
+`#123` an issue ref, `![alt](url)` an inline image; GFM tables render as
+interactive cards; a line that is only `{{trame:folder=<path>}}` becomes a live
+listing of that directory (`{{trame:view=gallery}}` after it shows HTML files as
+thumbnails) — the path must sit under one of Trame's Explore roots, or the block
+lists nothing. A leading `# Title` equal to the page title is dropped. No raw
+HTML or HTML entities — `&middot;` renders literally; write Unicode characters
+(·, —, …) directly.
+
+## Graph fences
+A `graph` fence is one edge per line, left to right; columns come from the edges
+(a node sits one column right of its furthest source), so only write the flow:
+
+  ```graph
+  web[Web app|SPA · REST] -> api[API|granian] : REST + SSE
+  cli[CLI] -> api : REST
+  api -> pg[PostgreSQL|queue · events] : NOTIFY
+  pg -> worker[Workers ×N] : LISTEN
+  worker -> vm[Sandbox VM|no network] : sbx exec
+
+  step Create: web>api, api>pg
+    Alice submits the task.
+
+    The API inserts it and NOTIFYs a worker, which claims it and starts.
+    > What the console shows while it happens.
+  step Stream: pg>worker, worker>vm
+    The worker streams the agent's output back over SSE.
+  ```
+
+`id[Title|subtitle]` names a node the first time it appears (bare `id` after that);
+`: text` after the target labels the edge. A `step` line is one beat of a lifecycle:
+clicking it dims everything but the nodes and `from>to` edges it lists (a bare id
+lights a node on its own). Lines indented under a step are that beat's prose, shown in
+a card under the diagram and driven by the same selection: the first paragraph is the
+scenario line, the rest the detail, and `> …` lines become the card's side panel
+(inline markdown works throughout). The card carries ← Previous / Next → nav, so the
+steps read as a lifecycle. A lifecycle with prose opens on beat 1; without prose the
+whole diagram shows. Steps are optional — leave them out for a plain diagram.
+Lines starting with `//` are comments.
+
+## Todo lines
+A todo carries its own dates inline, as `{{trame:<key>=<value>}}` marks at the end
+of the line:
+
+  - [ ] Rotate the reader keys {{trame:created_at=2026-08-20}}
+  - [x] Ship the writers {{trame:created_at=2026-08-19}} {{trame:completed_at=2026-08-28}}
+
+Keys, all plain `YYYY-MM-DD`:
+  due           when it must be done, or rechecked   → pill "⚑ in 2 days" / "⚑ 3 days late"
+  created_at    the day the item was raised          → chip "added 2026-08-20"
+  completed_at  the day it was finished              → chip "done 2026-08-28"
+  updated_at    comma-separated days the line changed → chip "edited 2026-08-30 ×3"
+
+`due` is the one date Trame never stamps: write it when an open item waits on a date
+(an expiry, a cooldown) or on someone else (a release, a review) — then it is the day to
+check again. Open todos late or due within 7 days show in the sidebar's DUE section,
+in a 9:00 desktop digest and in the Claude Code band.
+
+`updated_at` is the one list: days are deduped and sorted, only the 5 most recent are
+kept, and a day equal to created_at is dropped. The editor appends to it when the text
+of a todo changes and when a checked todo is re-opened — re-opening clears
+`completed_at`, so nothing else would record it.
+
+Write a mark yourself whenever you know the real date (an item raised last week, a
+task finished before it was recorded). Otherwise leave it out: Trame stamps what is
+missing on write, and the editor stamps `completed_at` when the checkbox is ticked
+and drops it when the box is unticked, so `completed_at` is present exactly when the
+todo is checked.
+
+A mark you write is never overwritten, and marks survive a full-page rewrite that
+omits them — so a page update does not have to repeat the dates it did not change
+(`updated_at` unions both sides rather than picking one).
+Quote a block by its visible text when commenting; the marks are not part of it.
+
+A session's specs are a page too (a subpage of the card's story) — write them with
+`trame_update_page` passing `{session_id}`. Write a spec page whenever the session produced knowledge worth keeping — planned
+work (a goal paragraph, then scope and acceptance as `- [ ]` todos you check as you
+go, with `links` back to the TODO/plan item; anything left blocked or waiting stays an
+open todo with a `{{trame:due=YYYY-MM-DD}}` mark: when it unblocks, or when to check
+again) and
+investigations (what broke, what was ruled out, what is still open) alike; the page is
+the only place that survives, `summary` is 1–3 lines. When the session's whole story
+is its diff, the spec page and the PR description are the same text — write it once on
+the page and reuse it for the PR: its goal is the PR's brief.
+
+## Databases and chart views
+Databases (the Notion-style tables in Trame) are plain REST on the running app (the
+port is in ~/.local/share/trame/port.json) or the hub; nothing is queued when both are
+down. Rows have a command — JSON on stdin, one row or an array:
+
+  tramecli db rows <db> [--json] <<< '[{"vals":{"Name":"Q3","Cost":120}},
+                                       {"id":"<row>","vals":{"Cost":null}}]'
+
+A row with an `id` merges into it, one without is created; `vals` keys are column
+names or property ids, cells shaped as below (relation/formula/rollup refused).
+
+  POST /api/udb               {name}                    → {id}, with a "Name" title column
+  POST /api/udb/<db>          {name?, icon?, page_id?}  rename, icon, show it on a page
+  POST /api/udb/<db>/props    {name, type, config}      → {id}
+  POST /api/udb/props/<prop>  {name?, config?, width?}  config MERGES into the stored one
+  POST /api/udb/<db>/rows     {vals, icon?}             → {id}; vals keyed by PROPERTY id
+  POST /api/udb/rows/<row>    {vals, icon?}             merges; a null value clears a cell
+  POST /api/udb/links         {prop_id, from_row, to_row, remove?}    relation cells
+  POST /api/udb/<db>/delete, /api/udb/props/<prop>/delete, /api/udb/rows/<row>/delete
+  GET  /api/udb, GET /api/udb/<db> → {db, properties, rows}: rows[].vals keyed by property
+       id, rows[].derived the formula/rollup values, rows[].relations the linked rows
+
+`config` is stored exactly as sent and every key is optional — a column created with
+`{}` renders bare (plain number, no unit, no color), which is never what the user
+wants. Compose the presentation when you create the column. A column's `type` is
+fixed at creation (name, config and width are patchable); `config.icon` (emoji or
+image data-uri) replaces the type glyph in the header, and a row's `icon` is its
+avatar.
+
+Column types — the config they read, then the cell shape in `vals`:
+
+  title         —                            "text"  · exactly one, created with the db
+  text          —                            "text"
+  url           —                            "https://…"
+  checkbox      —                            true
+  date          end: true for a range        {"start":"2026-09-21","end":"2026-09-30"}
+  select        options: [{id,name,color}]   "<option id>"   (you mint the 8-char ids)
+  multi_select  the same options             ["<option id>", …]
+  number        the number block below       12.5
+  relation      target_db, reverse_name?     not in vals — link rows via /api/udb/links
+  formula       expr                         read-only, in rows[].derived
+  rollup        relation_prop, agg, …        read-only, in rows[].derived
+
+The number block — honoured by number columns and by formula/rollup results alike:
+
+  format       plain|euro|dollar|percent   (€ / $ / % suffix; a unit replaces it)
+  unit         free text after the value ("GB/s", "s"), muted
+  unit_prop    id of a sibling select|text column giving a PER-ROW unit (unit is the
+               fallback) — the select's option NAME is what shows
+  precision    decimals; unset = the number as stored
+  show_as      number|bar|ring · max = the value that reads 100% (default 100) ·
+               show_value: false drops the figure beside the bar/ring
+  color_mode   fixed  → color "#7bd88f"
+               scale  → good low|high (which end is green, default low), scale_min /
+                        scale_max (unset = auto over the column's visible values)
+               rules  → rules: [{lt, color}] — first rule with value < lt wins, an
+                        entry with no lt is the fallback
+  color_apply  none|text|pill|dot|cell — where the color lands on a plain number
+               (bar and ring always wear it)
+  colors       hex; the option palette is #7a9ee7 #b590e7 #c98a63 #7bd88f #e3c567
+               #e06c75 #6b7280
+
+relation: `{target_db, reverse_name?}` — creates the paired column in the target
+database (reverse_name defaults to this database's name), so never create both sides.
+Cells live in their own table: POST /api/udb/links with the property and the two row
+ids (remove: true unlinks). The server stamps `pair` and `owner` on both columns —
+read them, never send them.
+
+formula: `{expr}` — raw SQL over column NAMES, bare (case-insensitive, an underscore
+matches a space) or quoted for anything else ("36-mo total €"). SQL keywords and
+functions pass through (round, nullif, coalesce, case … end); ';' is refused; only
+stored columns are referencable (not another formula, rollup or relation). Validated
+on write — a bad expression is a 400, never a broken column.
+
+rollup: `{relation_prop, agg, target_prop, date_prop?}` — relation_prop is a relation
+column of THIS database, agg is count|sum|avg|min|max|latest, target_prop a column of
+the target database (required unless count), date_prop the target's date column that
+orders "latest" (default: last edited).
+
+Example — a euro column that reddens as it grows:
+
+  T=http://127.0.0.1:$(jq -r .port ~/.local/share/trame/port.json)
+  curl -s -XPOST $T/api/udb/$DB/props -d '{"name":"36-mo total","type":"number",
+    "config":{"format":"euro","precision":0,"color_mode":"scale","good":"low",
+              "color_apply":"text"}}'
+
+Views — the tabs above the grid (Table / Summary / Chart), stored whole in the
+`views` column and returned as `db.views` by the GET. Send the bundle, never a
+fragment:
+
+  POST /api/udb/<db>  {"views":{"active":"<tab id>","tabs":[
+                       {"id":"<tab id>","name":"Cost","config":{…}}]}}
+
+A config is `{sorts:[], filters:[]}` — the same filters and sorts the toolbar
+writes — plus one optional mode. `summary: true` with `groupBy` is the read-only
+aggregate table; `chart` draws those same aggregates instead:
+
+  kind    bar | line | pie · plus stacked (bar), donut (pie), labels: true
+  x       property id to group by — null for one mark per row
+  series  [{"propId":"<number|formula|rollup id>","agg":"sum|avg|min|max"}], or
+          {"propId":null,"agg":"count"} for the row count. The order is the
+          legend and the colour order, and it caps at 8.
+
+Example — total cost per status, as bars:
+
+  curl -s -XPOST $T/api/udb/$DB -d '{"views":{"active":"v1","tabs":[{"id":"v1",
+    "name":"Cost","config":{"sorts":[],"filters":[],"chart":{"kind":"bar",
+    "x":"'$STATUS_PROP'","series":[{"propId":"'$COST_PROP'","agg":"sum"}]}}}]}}'
+
+A chart view is read-only and live: filters narrow what it draws, numbers wear
+their column's format, and a config it cannot read degrades to a plain table
+rather than failing.
+
+## Sessions (the board)
+- **trame_session** — read ONE card the way the user sees it: project and story by name,
+  branch, PR, next step, specs, backlinks and the activity worklog. Takes a session id or
+  a Trame URL the user pasted — when someone gives you a link, read it with this rather
+  than guessing what is on it. `trame_board` returns raw ids and no worklog.
+- **trame_track** — create/update a work session (upsert by repo_path+branch).
+- **trame_set_status** — move a card between columns.
+- **trame_new_story** — create the story/epic sessions ladder up to.
+
+## Read / sync
+- **trame_board** — read sessions, stories, projects. **trame_reports** — list reports.
+- **trame_sync** — push/pull with the hub now.
+
+The app must be running (it writes its port for these tools). All writes ride the normal
+LWW sync to the hub.
