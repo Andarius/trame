@@ -121,7 +121,7 @@ function TicketBody(
         keys={sessionTagKeys(s, byId)}
         onClick={onFilterStory ? (key) => onFilterStory(`tag:${key}`) : undefined}
       />
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
         {client && (
           <ClientChip
             name={client.name}
@@ -131,7 +131,7 @@ function TicketBody(
             onClick={onFilterStory ? () => onFilterStory(client.id) : undefined}
           />
         )}
-        {s.branch && <span className="text-[10.5px] text-ink-muted">{s.branch}</span>}
+        {s.branch && <span title={s.branch} className="min-w-0 max-w-full truncate text-[10.5px] text-ink-muted">{s.branch}</span>}
         {!done && !overlay && <StaleChip sessionId={s.id} prUrl={s.pr_url} />}
         <span className="ml-auto">{age}</span>
       </div>

@@ -79,7 +79,7 @@ export function ClientChip(
   },
 ) {
   const c = clientColor(name, color);
-  const cls = "rounded px-1.5 py-0.5 text-[10px] font-medium leading-none";
+  const cls = "shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-medium leading-none";
   const style = { color: c, background: c + "24" };
   if (onClick) {
     return (
