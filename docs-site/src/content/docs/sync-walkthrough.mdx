@@ -5,7 +5,7 @@ description: 'The hub Deno/TS API server and the changeset sync protocol, with a
 
 import SyncFlow from '../../components/SyncFlow.astro';
 
-Trame is local-first: each laptop runs a Deno app over an embedded Postgres (PGlite) and works
+Trame is local-first: each laptop runs the native Trame app (Tauri + Rust) over a bundled PostgreSQL 18 and works
 fully offline. Laptops sync through a **Deno/TS API server on the hub**, which fronts the hub
 Postgres as the auth/authz boundary and the realtime fan-out — laptops never talk to the hub
 database directly. `LISTEN/NOTIFY` runs between Postgres and the API only.
@@ -40,8 +40,9 @@ design and the LWW envelope.
 
 ## Sync protocol
 
-Local reads/writes never block on the network. Every mutation is written to PGlite **and**
-appended to a durable outbox in the *same* transaction, so a crash can't lose or double-apply it.
+Local reads/writes never block on the network. Each pass pushes this node's rows changed since
+its push watermark (`sync_state.last_pushed_at`), which advances only after the hub acknowledges
+them, so a crash or failed pass re-sends instead of losing a write.
 
 ```text
 POST /sync
@@ -53,7 +54,7 @@ POST /sync
 }
 
 → 200 {
-  acknowledgements: [ mutationId ],      // applied — drop from the outbox
+  acknowledgements: [ mutationId ],      // applied
   rejectedMutations: [                   // surfaced, never silently dropped
     { mutationId, reason }               // e.g. "forbidden", "stale", "schema"
   ],

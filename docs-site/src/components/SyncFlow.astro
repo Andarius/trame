@@ -5,11 +5,11 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 const steps = [
 	{
 		title: 'Local write',
-		text: 'A change in the UI lands in the local PGlite and a durable outbox in the same transaction — the app works fully offline.',
+		text: 'A change in the UI lands in the local PostgreSQL — the app works fully offline.',
 	},
 	{
 		title: 'Push',
-		text: 'When online, the laptop pushes outbox mutations with POST /sync — Hono middleware checks the opaque session token.',
+		text: 'When online, the laptop pushes rows changed since its push watermark with POST /sync — Hono middleware checks the opaque session token.',
 	},
 	{
 		title: 'Apply',
@@ -21,7 +21,7 @@ const steps = [
 	},
 	{
 		title: 'Pull',
-		text: 'The nudged laptop pulls changes from its revision cursor over HTTP, applies them to PGlite, and the UI updates live.',
+		text: 'The nudged laptop pulls changes from its revision cursor over HTTP, applies them to its local PostgreSQL, and the UI updates live.',
 	},
 ];
 ---
@@ -54,8 +54,8 @@ const steps = [
 		</g>
 		<g class="node" data-steps="1 2">
 			<rect x="34" y="180" width="208" height="64" rx="10" />
-			<text x="138" y="206">Deno app</text>
-			<text x="138" y="228" class="sub">PGlite · outbox</text>
+			<text x="138" y="206">Trame app</text>
+			<text x="138" y="228" class="sub">PostgreSQL · watermark</text>
 		</g>
 
 		<g class="node" data-steps="2 3 4 5">
@@ -72,8 +72,8 @@ const steps = [
 
 		<g class="node" data-steps="4 5">
 			<rect x="678" y="94" width="208" height="64" rx="10" />
-			<text x="782" y="120">Deno app</text>
-			<text x="782" y="142" class="sub">PGlite</text>
+			<text x="782" y="120">Trame app</text>
+			<text x="782" y="142" class="sub">PostgreSQL</text>
 		</g>
 		<g class="node" data-steps="5">
 			<rect x="678" y="222" width="208" height="64" rx="10" />
@@ -83,7 +83,7 @@ const steps = [
 		<!-- edges -->
 		<g class="edge" data-steps="1">
 			<path d="M 138 130 V 180" />
-			<text x="150" y="158" class="edge-label" text-anchor="start">write + outbox</text>
+			<text x="150" y="158" class="edge-label" text-anchor="start">write</text>
 		</g>
 		<g class="edge" data-steps="2">
 			<path d="M 242 200 C 300 195, 300 133, 356 126" />

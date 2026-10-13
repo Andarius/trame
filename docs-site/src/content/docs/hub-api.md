@@ -10,10 +10,10 @@ Second opinions: Codex, Gemini, Vibe (all concur — see [Appendix](#appendix-se
 
 ## Why
 
-Trame is local-first and **single-user today**: each laptop runs a Deno app over an embedded
-Postgres (PGlite) and syncs to a hub via a custom last-write-wins (LWW) push/pull that connects
-**directly to the hub's Postgres over mutual TLS**. The hub is *just a Postgres container* — no
-application server (`hub/docker-compose.yml`, `app/sync.ts`).
+When this design started, Trame was local-first and **single-user**: each laptop ran a Deno app
+over an embedded Postgres (PGlite) and synced to a hub via a custom last-write-wins (LWW) push/pull
+that connected **directly to the hub's Postgres over mutual TLS**, with no application server.
+Laptops now run the native app (Rust over a bundled PostgreSQL 18) against the API server below.
 
 We want **multi-user live collaboration**: inline page comments shared between people (the
 `page_comments` table already exists and already rides the sync), realtime push instead of the
@@ -44,7 +44,7 @@ between Postgres and laptops.
 | Language | **Deno/TypeScript** — share `db/schema.sql`, row types, and the LWW module between client and hub |
 | Sync | **Changeset-based** `POST /sync` (mutations up, changes down) — see [Sync protocol](#sync-protocol) |
 | Pull cursor | **Server-issued opaque monotonic revision**, *not* client `updated_at` (client clocks are unsafe with multiple writers) |
-| Offline | Local PGlite stays the source of truth; writes hit a **durable outbox in the same transaction**; the app works fully offline |
+| Offline | The local PostgreSQL stays the source of truth; a **push watermark** advances only on acknowledgement; the app works fully offline |
 | Realtime | **WSS** carrying nudges only (data path stays HTTP `/sync`) — see [Realtime](#realtime-wss) |
 | First feature | **Comments** — append-only, no LWW-clobber risk, highest value, exercises the whole gateway |
 | Fallback | The existing periodic poll stays as the belt-and-suspenders path when the socket is down |
@@ -79,9 +79,9 @@ terminate TLS+WSS on its own.
 ```mermaid
 flowchart LR
     subgraph laptop [Laptop — offline-capable]
-        ui[React SPA] <-->|localhost HTTP + poll| app[Deno app]
-        app <--> pgl[(local PGlite<br/>source of truth)]
-        app --- outbox[outbox: pending mutations]
+        ui[React SPA] <-->|localhost HTTP + poll| app[native app]
+        app <--> pgl[(local PostgreSQL 18<br/>source of truth)]
+        app --- outbox[push watermark: rows not yet acked]
     end
     subgraph hub [Hub — home server]
         api[Deno API server<br/>auth · authz · fan-out] <--> pg[(Postgres 18)]
@@ -100,8 +100,9 @@ Two hops, deliberately different:
 
 ## Sync protocol
 
-Local reads/writes never block on the network. Every mutation is written to PGlite **and**
-appended to a durable outbox in the *same* transaction, so a crash can't lose or double-apply it.
+Local reads/writes never block on the network. Each pass pushes this node's rows changed since
+its push watermark (`sync_state.last_pushed_at`), which advances only after the hub acknowledges
+them, so a crash or failed pass re-sends instead of losing a write.
 
 ```text
 POST /sync
@@ -113,7 +114,7 @@ POST /sync
 }
 
 → 200 {
-  acknowledgements: [ mutationId ],      // applied — drop from the outbox
+  acknowledgements: [ mutationId ],      // applied
   rejectedMutations: [                   // surfaced, never silently dropped
     { mutationId, reason }               // e.g. "forbidden", "stale", "schema"
   ],

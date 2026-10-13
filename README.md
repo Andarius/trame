@@ -125,6 +125,8 @@ export TRACKER_CLIENTS="Acme,Globex"
 just web-build
 just dev                # isolated offline desktop; .scratch/dev data
 just serve              # isolated offline backend; .scratch/dev/port.json
+just web-dev            # Vite HMR on an isolated backend (starts one unless just serve runs)
+just web-live           # Vite HMR on the running Trame app: real data, real writes
 ```
 
 Development recipes use disposable worktree data. For an installed runtime and legacy-data cutover,
