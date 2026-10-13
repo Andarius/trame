@@ -208,12 +208,6 @@ compile-cli:
 setup *args: compile-cli
     ./dist/tramecli setup "$@"
 
-# Wipe the local PGlite data + outbox (fresh local db)
-[group('setup')]
-reset-local:
-    rm -rf "${XDG_DATA_HOME:-$HOME/.local/share}/trame"
-    echo "local data cleared"
-
 # Enable the git hooks (pre-commit: lint + typecheck; pre-push: `tramecli setup --hook`)
 [group('dev')]
 hooks:
