@@ -37,6 +37,8 @@ export function db(): Promise<Database> {
       const socket = Deno.env.get("TRAME_PG_SOCKET");
       if (socket) {
         const pg = socketPg(socket);
+        // the plugin host shares the native app's live database: the app owns its schema
+        if (Deno.env.get("TRAME_PG_SCHEMA_OWNED") === "1") return pg;
         try {
           await initSchema(pg);
           return pg;

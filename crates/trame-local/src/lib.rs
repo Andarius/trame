@@ -17,6 +17,7 @@ pub mod notify;
 pub mod pages;
 pub mod pg;
 pub mod platform;
+pub mod plugin_host;
 pub mod plugins;
 pub mod proxy;
 pub mod routes;
@@ -402,6 +403,11 @@ pub async fn run(
     } else {
         plugins::start(native.clone())
     };
+    let host_task = if oracle {
+        None
+    } else {
+        plugin_host::start(native.clone())
+    };
     let router = proxy::router(proxy::Proxy {
         port,
         upstream,
@@ -432,7 +438,7 @@ pub async fn run(
         }
     };
     let _ = shutdown_tx.send(());
-    if let Some(task) = plugin_task {
+    for task in [plugin_task, host_task].into_iter().flatten() {
         task.abort();
         let _ = task.await;
     }

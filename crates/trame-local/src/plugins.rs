@@ -430,6 +430,26 @@ pub fn handle(
 ) -> Result<(u16, Value)> {
     route(db, settings_path, method, path, query, body)
 }
+// the out-of-process plugins' frontend bundle, installed by `just plugins-install`
+async fn web_file(root: &std::path::Path, name: &str) -> Response {
+    let content_type = match name {
+        "plugins.js" => "text/javascript",
+        "plugins.css" => "text/css",
+        _ => return json_response(404, json!({"error":"not found"})),
+    };
+    match tokio::fs::read(crate::plugin_host::web_dir(root).join(name)).await {
+        Ok(bytes) => (
+            StatusCode::OK,
+            [
+                ("content-type", content_type),
+                ("cache-control", "no-store"),
+            ],
+            bytes,
+        )
+            .into_response(),
+        Err(_) => json_response(404, json!({"error":"not installed"})),
+    }
+}
 pub fn owns(_method: &str, path: &str) -> bool {
     path == "/api/plugins" || path.starts_with("/api/plugins/")
 }
@@ -439,6 +459,24 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
         req.uri().query().unwrap_or("").to_owned(),
         req.method().to_string(),
     );
+    if let Some(name) = path.strip_prefix("/api/plugins/web/") {
+        return web_file(&state.root, name).await;
+    }
+    if crate::plugin_host::serves(&path) {
+        let content_type = req
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
+        let target = req
+            .uri()
+            .path_and_query()
+            .map_or(path.clone(), |pq| pq.as_str().to_owned());
+        let Ok(bytes) = axum::body::to_bytes(req.into_body(), usize::MAX).await else {
+            return json_response(500, json!({"error":"body unavailable"}));
+        };
+        return crate::plugin_host::forward(&method, &target, content_type.as_deref(), bytes).await;
+    }
     let fixture = fixture().ok().flatten().is_some();
     if state.sync.offline
         && path.starts_with("/api/plugins/")
@@ -462,6 +500,7 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
         && body["enabled"] == true
         && !state.sync.offline;
     let state_after = state.clone();
+    let path_after = path.clone();
     let result = crate::blocking::spawn(move || -> Result<(u16, Value)> {
         let mut db = Db::connect(
             &state.root.join("socket"),
@@ -472,9 +511,12 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
     })
     .await;
     match result {
-        Ok(Ok((status, value))) => {
+        Ok(Ok((status, mut value))) => {
             if enabled_after {
                 state_after.sync.plugin_poll.notify_one();
+            }
+            if let (true, Value::Array(list)) = (path_after == "/api/plugins", &mut value) {
+                list.extend(crate::plugin_host::manifests().await);
             }
             json_response(status, value)
         }

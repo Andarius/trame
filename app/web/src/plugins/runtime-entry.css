@@ -1,0 +1,4 @@
+/* Utilities used by the composed plugins only; the host's own CSS defines the theme variables. */
+@reference "../styles.css";
+@import "tailwindcss/utilities" source(none);
+@import "./local.gen.css";
