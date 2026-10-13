@@ -17,7 +17,7 @@ fn run(program: &str, args: &[&str], host: Option<&str>) -> Option<String> {
     if let Some(host) = host {
         command.env("GITLAB_HOST", host);
     }
-    let out = command.output().ok()?;
+    let out = crate::cli::output_within(&mut command, crate::cli::NETWORK_TIMEOUT).ok()?;
     out.status
         .success()
         .then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())

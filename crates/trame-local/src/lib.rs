@@ -6,6 +6,7 @@
 
 pub mod assets;
 pub mod blocking;
+pub mod cli;
 pub mod comments;
 pub mod db;
 pub mod files;
