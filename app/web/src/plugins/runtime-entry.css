@@ -1,4 +1,4 @@
-/* Utilities used by the composed plugins only; the host's own CSS defines the theme variables. */
+/* Utilities used by the composed plugins only, layered below the host's utilities so they never override its responsive variants. */
 @reference "../styles.css";
-@import "tailwindcss/utilities" source(none);
+@import "tailwindcss/utilities" layer(components) source(none);
 @import "./local.gen.css";
