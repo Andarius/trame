@@ -153,8 +153,8 @@ fn main() -> anyhow::Result<()> {
         });
         Ok(())
     }).build(tauri::generate_context!())?;
-    app.run(move |app, event| {
-        if let tauri::RunEvent::ExitRequested { api, .. } = event {
+    app.run(move |app, event| match event {
+        tauri::RunEvent::ExitRequested { api, .. } => {
             if let Some(tx) = stop.lock().unwrap().take() {
                 api.prevent_exit();
                 let _ = tx.send(());
@@ -169,6 +169,16 @@ fn main() -> anyhow::Result<()> {
                 });
             }
         }
+        // macOS Quit (menu, Cmd+Q, Apple Event) terminates without ExitRequested
+        tauri::RunEvent::Exit => {
+            if let Some(tx) = stop.lock().unwrap().take() {
+                let _ = tx.send(());
+                if let Some(backend) = task.lock().unwrap().take() {
+                    let _ = runtime.block_on(backend);
+                }
+            }
+        }
+        _ => {}
     });
     Ok(())
 }
