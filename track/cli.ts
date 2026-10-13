@@ -3,9 +3,16 @@
 // composition conventions from track/help.ts (the single source of truth).
 import pc from "picocolors";
 import { PORT_FILE } from "../app/config.ts";
-import { apiRequest, appLink, resolveTarget, targetFetch } from "./target.ts";
+import { apiRequest, appLink, resolveTarget, type Target, targetFetch } from "./target.ts";
 import { parseSessionRef } from "../mcp/session_url.ts";
-import { filterSessions, parseQuery, type QueryBoard, type QuerySession } from "../app/web/src/query.ts";
+import {
+  type Assigners,
+  filterSessions,
+  needsAssigners,
+  parseQuery,
+  type QueryBoard,
+  type QuerySession,
+} from "../app/web/src/query.ts";
 import { newer } from "../app/update.ts";
 import { main as trackMain } from "./track.ts";
 import { main as pageMain } from "./page.ts";
@@ -149,8 +156,19 @@ async function stories(json: boolean, q: string, client: string | null): Promise
   else for (const h of hits) console.log(`${h.score.toFixed(2)}  ${h.title}  (${h.open_cards} open cards)`);
 }
 
+// every enabled plugin's cardFaces route merged; plugins run only in the local app, never on the hub
+async function loadAssigners(target: Target): Promise<Assigners> {
+  if (target.hub) throw new Error("assigner: needs the running Trame app (plugin data, the hub has none)");
+  const manifests = await apiRequest(target, "/api/plugins") as { id: string; enabled: boolean; cardFaces?: string }[];
+  const routes = manifests.filter((m) => m.enabled && m.cardFaces);
+  if (!routes.length) throw new Error("assigner: no enabled plugin provides card assigners (e.g. Cockpit)");
+  const maps = await Promise.all(routes.map((m) => apiRequest(target, `/api/plugins/${m.id}${m.cardFaces}`)));
+  return Object.assign({}, ...maps);
+}
+
 async function list(json: boolean, query: string | null, deleted: boolean): Promise<void> {
-  const res = await targetFetch(await resolveTarget(), `/api/board${deleted ? "?deleted=1" : ""}`, {
+  const target = await resolveTarget();
+  const res = await targetFetch(target, `/api/board${deleted ? "?deleted=1" : ""}`, {
     signal: AbortSignal.timeout(5000),
   });
   if (!res.ok) throw new Error(`/api/board → HTTP ${res.status}`);
@@ -164,13 +182,14 @@ async function list(json: boolean, query: string | null, deleted: boolean): Prom
     };
   }
   if (query) {
-    const errors = parseQuery(query).errors;
+    const { terms, errors } = parseQuery(query);
     if (errors.length) throw new Error(`${errors.join(", ")} — see \`tramecli query\``);
     // a status: term picks columns itself, so done cards stay reachable
-    const pickStatus = parseQuery(query).terms.some((t) => t.key === "status");
+    const pickStatus = terms.some((t) => t.key === "status");
+    const assigners = needsAssigners(terms) ? await loadAssigners(target) : {};
     board = {
       ...board,
-      sessions: filterSessions(board.sessions, board, query),
+      sessions: filterSessions(board.sessions, board, query, assigners),
       statuses: pickStatus ? board.statuses.map((s) => ({ ...s, terminal: false })) : board.statuses,
     };
   }

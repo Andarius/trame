@@ -1,4 +1,4 @@
-use serde_json::json;
+use serde_json::{Value, json};
 use trame_cli::{
     board, cli, comment, db, deployments, help, presence, query,
     refs::{RefKind, SessionRef, parse_session_ref},
@@ -235,6 +235,7 @@ fn board_grouping_flat_rows_and_query() {
     let serialized = rows[0].to_string();
     assert!(serialized.find("\"status\"").unwrap() < serialized.find("\"story\"").unwrap());
     assert!(serialized.find("\"story\"").unwrap() < serialized.find("\"branch\"").unwrap());
+    let assigners = json!({"s1":{"name":"Carlo Rossi","avatar":null}});
     for (filter, want) in [
         ("status:active", true),
         ("tag:infra", true),
@@ -246,11 +247,16 @@ fn board_grouping_flat_rows_and_query() {
         ("title:fix", true),
         ("status:done", false),
         ("no:branch", false),
+        ("assigner:carlo", true),
+        ("-assigner:carlo", false),
+        ("assigner:nobody", false),
+        ("has:assigner", true),
+        ("no:assigner", false),
     ] {
         let parsed = query::parse(filter);
         assert!(parsed.errors.is_empty());
         assert_eq!(
-            query::matches(&board["sessions"][0], &board, &parsed.terms),
+            query::matches(&board["sessions"][0], &board, &assigners, &parsed.terms),
             want,
             "{filter}"
         );
@@ -261,12 +267,14 @@ fn board_grouping_flat_rows_and_query() {
     assert!(!query::matches(
         &detached,
         &empty,
+        &Value::Null,
         &query::parse("has:project").terms
     ));
     assert!(query::matches(
         &detached,
         &empty,
-        &query::parse("touched:<badw").terms
+        &assigners,
+        &query::parse("no:assigner touched:<badw").terms
     ));
 }
 #[test]

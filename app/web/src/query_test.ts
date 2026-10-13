@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { filterSessions, matchQuery, parseQuery } from "./query.ts";
+import { filterSessions, matchQuery, needsAssigners, parseQuery } from "./query.ts";
 
 const now = Date.parse("2026-09-25T12:00:00Z");
 const item: Record<string, string[]> = {
@@ -52,17 +52,38 @@ const base = {
   last_touched: "2026-09-24T10:00:00.000Z",
 };
 const sessions = [
-  { ...base, title: "under story", page_id: "sp", specs_page_id: "sp" },
-  { ...base, title: "loose", page_id: null, specs_page_id: "gone" },
+  { ...base, id: "s1", title: "under story", page_id: "sp", specs_page_id: "sp" },
+  { ...base, id: "s2", title: "loose", page_id: null, specs_page_id: "gone" },
 ];
+// only s1 has a face: s2 is a card nobody handed me
+const assigners = { s1: { name: "Carlo Rossi" } };
 for (
   const [q, want] of [
     ["story:cli", ["under story"]],
     ["project:trame tag:p1", ["under story"]], // project/tags inherited through the tree
     ['status:"in progress" no:specs', ["loose"]], // status label; a deleted specs page is no specs
     ["-has:story", ["loose"]],
+    ["assigner:carlo", ["under story"]],
+    ["assigner:ROSSI", ["under story"]], // substring, case-insensitive
+    ["-assigner:carlo", ["loose"]],
+    ["assigner:nobody", []],
+    ["has:assigner", ["under story"]],
+    ["no:assigner", ["loose"]],
+    ["-assigner:nobody", ["under story", "loose"]],
   ] as const
 ) {
   Deno.test(`filterSessions: ${q}`, () =>
-    assertEquals(filterSessions(sessions, board, q).map((s) => s.title), [...want]));
+    assertEquals(filterSessions(sessions, board, q, assigners).map((s) => s.title), [...want]));
+}
+
+for (
+  const [q, want] of [
+    ["assigner:carlo", true],
+    ["-has:assigner", true],
+    ["no:assigner", true],
+    ["has:assigners", false],
+    ["title:assigner", false],
+  ] as const
+) {
+  Deno.test(`needsAssigners: ${q}`, () => assertEquals(needsAssigners(parseQuery(q).terms), want));
 }

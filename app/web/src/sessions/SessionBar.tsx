@@ -217,7 +217,7 @@ export function QueryBox(
         ref={input}
         value={query}
         aria-label="Session query"
-        placeholder={filter.length || noSpecs ? "" : "status:blocked tag:p1 -has:specs touched:>7d …"}
+        placeholder={filter.length || noSpecs ? "" : "status:blocked tag:p1 assigner:carlo -has:specs touched:>7d …"}
         title={errors.length ? errors.join("\n") : QUERY_SYNTAX}
         spellCheck={false}
         className="min-w-[120px] flex-1 bg-transparent py-0.5 font-mono text-[11.5px] text-ink outline-none placeholder:text-ink-muted/40"

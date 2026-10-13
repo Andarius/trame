@@ -11,6 +11,7 @@ export type PluginManifest = {
   description: string;
   enabled: boolean;
   badge: number | null;
+  cardFaces?: string;
 };
 
 export type PluginContext = {
@@ -39,6 +40,8 @@ export interface Plugin {
   start?(ctx: PluginContext): void;
   // Just switched on: refresh now instead of leaving the UI empty until the next tick.
   onEnabled?(): void;
+  // subPath answering {sessionId: {name, avatar}} — who handed me each card (`assigner:` in tramecli list -q)
+  cardFaces?: string;
   // Nav badge from in-memory state — must not do I/O.
   badge?(): number | null;
   // Allowlist/sanitize a settings patch before it is merged into the slice

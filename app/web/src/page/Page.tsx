@@ -37,7 +37,7 @@ import { useFocusedBlock } from "../ui/due";
 import { PAGE_STATUSES } from "../../../../core/page-status.ts";
 import { useAgents } from "../agents/agents";
 import { DatabaseView } from "../udb/DatabaseTable";
-import { FRONTEND_PLUGINS } from "../plugins";
+import { FRONTEND_PLUGINS, useCardFaces } from "../plugins";
 import { markRoleOf } from "../../../../core/mark-roles.ts";
 import { PageRow, ProjectChildren, useFinishedCards } from "./project-page";
 import { genId, PROJECT_COLORS } from "./page-ids";
@@ -81,6 +81,7 @@ export function Page(
   const [showDoneCards, setShowDoneCards] = useState(false);
   const [unfoldedStories, setUnfoldedStories] = useState<Set<string>>(new Set());
   const [cardQuery, setCardQuery] = useState("");
+  const faces = useCardFaces();
   const [storyOrder, setStoryOrder] = useLocalStorage<"touched" | "priority">(STORY_ORDER_KEY, "touched", enumCodec(["touched", "priority"]));
   const [showArchivedDocs, setShowArchivedDocs] = useState(false);
   const [idCopied, setIdCopied] = useState(false);
@@ -191,6 +192,7 @@ export function Page(
     finished,
     board,
     cardQuery,
+    faces,
     storyOrder,
     byId,
   });

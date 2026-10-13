@@ -16,7 +16,7 @@ import { LiveAgentChip, type useAgents } from "../agents/agents";
 import { FRONTEND_PLUGINS } from "../plugins";
 import { tagPriority } from "../sessions/SessionSort";
 import { QueryBox } from "../sessions/SessionBar";
-import { filterSessions } from "../query";
+import { type Assigners, filterSessions } from "../query";
 import { FinishedStrip, RepoChip, repoTitle, SessionRow, TodoBar, type useFinishedCards } from "./project-page";
 
 export type SessionsByStory = { story: PageChild; list: Session[] }[];
@@ -133,19 +133,20 @@ export function SessionsPanel(
 }
 
 export function groupInProgress(
-  { sessionsByStory, ungroupedSessions, finished, board, cardQuery, storyOrder, byId }: {
+  { sessionsByStory, ungroupedSessions, finished, board, cardQuery, faces, storyOrder, byId }: {
     sessionsByStory: SessionsByStory;
     ungroupedSessions: Session[];
     finished: ReturnType<typeof useFinishedCards>;
     board: BoardData;
     cardQuery: string;
+    faces: Assigners;
     storyOrder: "touched" | "priority";
     byId: ReturnType<typeof pagesById>;
   },
 ) {
   // a project lists its user stories with open cards first, those cards nested under them
   const openOf = (list: Session[]) =>
-    filterSessions(list.filter((s) => !statusStyle(s.status).terminal && !finished.has(s.id)), board, cardQuery);
+    filterSessions(list.filter((s) => !statusStyle(s.status).terminal && !finished.has(s.id)), board, cardQuery, faces);
   const lastTouch = (list: Session[]) => list.reduce((m, s) => (s.last_touched > m ? s.last_touched : m), "");
   // priority = the most urgent `pN` tag on a card (its story's tags included); untagged last
   const prio = (list: Session[]) => tagPriority(list.flatMap((s) => sessionTagKeys(s, byId))) ?? Infinity;
