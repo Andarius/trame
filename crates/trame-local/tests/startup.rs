@@ -128,7 +128,7 @@ async fn native_runtime_routes_and_unknown_routes() {
         .json()
         .await
         .unwrap();
-    assert_eq!(status["version"], "0.13.0");
+    assert_eq!(status["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(status["nodeId"], "rust-slice2-test");
     assert_eq!(
         client

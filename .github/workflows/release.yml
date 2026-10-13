@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing git tag to publish, for example v0.13.0
+        description: Existing git tag to publish, for example v0.14.0
         required: true
         type: string
       allow_native_cutover:
