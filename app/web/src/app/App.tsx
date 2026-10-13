@@ -625,9 +625,7 @@ export function App() {
             >
               {syncing
                 ? "Syncing…"
-                : syncFlash
-                ? `Synced · ${syncFlash}`
-                : "Sync now"}
+                : syncFlash ?? "Sync now"}
             </button>
             <PageActions
               view={view}

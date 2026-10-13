@@ -42,7 +42,11 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
     if path == "/api/sync" {
         return match state.sync.once().await {
             Ok(result) => json_response(200, result),
-            Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error").into_response(),
+            Err(error) => {
+                eprintln!("sync: {error:#}");
+                let (status, reason) = crate::sync::failure(&error);
+                json_response(status, json!({"error":reason}))
+            }
         };
     }
     let Ok(bytes) = axum::body::to_bytes(req.into_body(), usize::MAX).await else {

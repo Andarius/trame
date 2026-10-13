@@ -86,11 +86,11 @@ export function useSync(refresh: () => void) {
     try {
       const r = await syncNow();
       refresh();
-      msg = r
-        ? (r.pulled || r.pushed ? `${r.pulled}↓ ${r.pushed}↑` : "up to date")
-        : "offline";
-    } catch {
-      msg = "failed";
+      msg = `Synced · ${
+        r ? (r.pulled || r.pushed ? `${r.pulled}↓ ${r.pushed}↑` : "up to date") : "offline"
+      }`;
+    } catch (e) {
+      msg = `Sync failed · ${e instanceof Error ? e.message : "error"}`;
     } finally {
       setSyncing(false);
     }
