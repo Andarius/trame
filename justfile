@@ -59,6 +59,9 @@ plugins-install: plugins
     mkdir -p .scratch "$dest"
     tmp="$(mktemp -d "$PWD/.scratch/plugins.XXXXXX")"
     trap 'rm -rf -- "$tmp"' EXIT
+    # db.ts's schema fallback imports the generated embed.ts, which must match the current web build
+    npm run build --prefix app/web --silent
+    deno run --allow-read --allow-write=app/embed.ts scripts/gen-embed.ts
     (cd app && deno compile -A --quiet --config deno.json --output "$tmp/plugin-host" plugin-host.ts)
     (cd app/web && TRAME_PLUGINS_WEB_OUT="$tmp/web" npx vite build -c vite.plugins.config.ts --logLevel warn)
     rm -rf "$dest/web.old" && { [[ ! -d "$dest/web" ]] || mv "$dest/web" "$dest/web.old"; }
