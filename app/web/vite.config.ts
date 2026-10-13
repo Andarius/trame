@@ -1,17 +1,22 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
-// Frontend development follows the isolated native backend's private readiness file.
+// Frontend development follows the isolated native backend's private readiness file,
+// or the installed app's with TRAME_WEB_LIVE=1 (`just web-live`: real data).
 async function apiTarget(): Promise<string> {
   const scratch = realpathSync(resolve("../../.scratch"));
-  const portFile = process.env.TRACKER_PORT_FILE ??
-    resolve(process.env.TRAME_LOCAL_DIR ?? "../../.scratch/dev", "port.json");
-  if (!existsSync(portFile)) throw new Error("Isolated backend is unavailable; start just serve first");
+  const live = process.env.TRAME_WEB_LIVE === "1";
+  const portFile = live
+    ? resolve(process.env.XDG_DATA_HOME ?? resolve(homedir(), ".local/share"), "trame/port.json")
+    : process.env.TRACKER_PORT_FILE ?? resolve(process.env.TRAME_LOCAL_DIR ?? "../../.scratch/dev", "port.json");
+  const hint = live ? "start the Trame app first" : "start just serve first";
+  if (!existsSync(portFile)) throw new Error(`Backend is unavailable; ${hint}`);
   const file = realpathSync(portFile);
-  if (!file.startsWith(`${scratch}/`)) throw new Error("Vite requires a scratch backend port file");
+  if (!live && !file.startsWith(`${scratch}/`)) throw new Error("Vite requires a scratch backend port file");
   const { port } = JSON.parse(readFileSync(file, "utf8"));
   if (!Number.isInteger(port) || port < 1 || port > 65535 || port === 8787 || port === 5181) {
     throw new Error("Invalid isolated backend port");
@@ -19,7 +24,7 @@ async function apiTarget(): Promise<string> {
   const base = `http://127.0.0.1:${port}`;
   const alive = await fetch(`${base}/api/status`, { signal: AbortSignal.timeout(800) })
     .then(async (r) => { await r.body?.cancel(); return r.ok; }).catch(() => false);
-  if (!alive) throw new Error("Isolated backend is unavailable; start just serve first");
+  if (!alive) throw new Error(`Backend is unavailable; ${hint}`);
   return base;
 }
 
