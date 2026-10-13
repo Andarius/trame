@@ -490,9 +490,35 @@ impl Sync {
     }
 }
 
+/// HTTP status and short reason for a failed sync, for the UI.
+pub fn failure(error: &anyhow::Error) -> (u16, String) {
+    let unreachable = error
+        .chain()
+        .filter_map(|e| e.downcast_ref::<reqwest::Error>())
+        .any(|e| e.is_connect() || e.is_timeout());
+    if unreachable {
+        (502, "hub unreachable".into())
+    } else {
+        (500, format!("{error:#}"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Sync;
+
+    #[tokio::test]
+    async fn failure_names_an_unreachable_hub() {
+        let refused = reqwest::get("http://127.0.0.1:9/sync").await.unwrap_err();
+        assert_eq!(
+            super::failure(&refused.into()),
+            (502, "hub unreachable".into())
+        );
+        assert_eq!(
+            super::failure(&anyhow::anyhow!("hub API 401: bad token")).0,
+            500
+        );
+    }
 
     #[test]
     fn malformed_private_ca_falls_back_to_public_roots() {

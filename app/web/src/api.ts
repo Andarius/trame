@@ -376,9 +376,11 @@ export const deleteStatus = (id: string) =>
   post(`/api/statuses/${id}/delete`, {});
 
 export const syncNow = () =>
-  fetch("/api/sync", { method: "POST" }).then((r) =>
-    r.json() as Promise<{ pulled: number; pushed: number } | null>
-  );
+  fetch("/api/sync", { method: "POST" }).then(async (r) => {
+    const body = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(body?.error ?? `HTTP ${r.status}`);
+    return body as { pulled: number; pushed: number } | null;
+  });
 export const testHub = (hubApi: string, hubApiToken: string) =>
   fetch("/api/hub/test", {
     method: "POST",
