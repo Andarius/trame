@@ -68,7 +68,7 @@ async fn fixture(
         body: body.clone(),
     });
     let value = match (method.as_str(), path.as_str()) {
-        ("GET", "/api/status") => json!({"version":"0.13.0","ok":true}),
+        ("GET", "/api/status") => json!({"version":env!("CARGO_PKG_VERSION"),"ok":true}),
         ("GET", "/api/pages") if state.page_tree => json!([
             {"id":"p1","parent_id":null,"title":"Plan: tramecli"},
             {"id":"p2","parent_id":"p1","title":"Specs"},
