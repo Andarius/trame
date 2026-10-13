@@ -252,6 +252,7 @@ fn board_grouping_flat_rows_and_query() {
         ("assigner:nobody", false),
         ("has:assigner", true),
         ("no:assigner", false),
+        ("title:fix status:", true),
     ] {
         let parsed = query::parse(filter);
         assert!(parsed.errors.is_empty());

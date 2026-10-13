@@ -29,6 +29,14 @@ pub fn parse(query: &str) -> Parsed {
             .or_else(|| capture.get(4))
             .map(|m| m.as_str())
             .unwrap_or("");
+        // `status:` with no value yet is a key being typed, not a word to search
+        if key.is_none()
+            && raw
+                .strip_suffix(':')
+                .is_some_and(|k| KEYS.contains(&k.to_lowercase().as_str()))
+        {
+            continue;
+        }
         if let Some(key) = &key {
             if !KEYS.contains(&key.as_str()) {
                 errors.push(format!("unknown key \"{key}\""));

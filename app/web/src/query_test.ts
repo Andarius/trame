@@ -1,5 +1,13 @@
 import { assertEquals } from "@std/assert";
-import { filterSessions, matchQuery, needsAssigners, parseQuery } from "./query.ts";
+import {
+  applySuggestion,
+  filterSessions,
+  matchQuery,
+  needsAssigners,
+  parseQuery,
+  queryValues,
+  suggestQuery,
+} from "./query.ts";
 
 const now = Date.parse("2026-09-25T12:00:00Z");
 const item: Record<string, string[]> = {
@@ -29,6 +37,8 @@ for (
     ["touched:>2d", true],
     ["touched:<2026-09-24", false],
     ["touched:>=2026-09-24", true],
+    ["topbar status:", true], // a key still being typed filters nothing
+    ["-status:", true],
   ] as const
 ) {
   Deno.test(`matchQuery: ${q || "(empty)"}`, () => assertEquals(matches(q), want));
@@ -87,3 +97,53 @@ for (
 ) {
   Deno.test(`needsAssigners: ${q}`, () => assertEquals(needsAssigners(parseQuery(q).terms), want));
 }
+
+const values = {
+  status: [{ value: "active", hint: "In progress" }, { value: "blocked" }, { value: "paused" }],
+  story: [{ value: "CLI rollout" }],
+  has: [{ value: "pr" }, { value: "specs" }],
+};
+// "|" marks the caret; want = the labels offered, then the query after taking the first one
+for (
+  const [q, labels, applied] of [
+    ["st|", ["status:", "story:"], "status:|"],
+    ["-st|", ["status:", "story:"], "-status:|"],
+    ["tag:p1 ST|", ["status:", "story:"], "tag:p1 status:|"],
+    ["status:|", ["active", "blocked", "paused"], "status:active |"],
+    ["status:a|", ["active", "paused"], "status:active |"], // prefix first, then substring
+    ["status:active,b|", ["blocked"], "status:active,blocked |"],
+    ["story:cli|", ["CLI rollout"], 'story:"CLI rollout" |'],
+    ['story:"cl|', ["CLI rollout"], 'story:"CLI rollout" |'],
+    ["no:s|", ["specs"], "no:specs |"],
+    ["status:a| tag:p1", ["active", "paused"], "status:active |tag:p1"], // reuses the existing space
+    ["st|atus:active", [], null], // caret mid-word
+    ["|", [], null],
+    ["zz|", [], null],
+    ["repo:|", [], null], // free-text key: nothing to propose
+    ['"fix top|', [], null],
+  ] as const
+) {
+  Deno.test(`suggestQuery: ${q}`, () => {
+    const cursor = q.indexOf("|"), text = q.replace("|", "");
+    const got = suggestQuery(text, cursor, values);
+    assertEquals(got.map((s) => s.label), [...labels]);
+    if (applied) {
+      const next = applySuggestion(text, got[0]);
+      assertEquals(next.query.slice(0, next.cursor) + "|" + next.query.slice(next.cursor), applied);
+    }
+  });
+}
+
+Deno.test("queryValues: reads the board and the assigners", () => {
+  const got = queryValues({ ...board, sessions: [{ ...sessions[0], agent: "codex" }, sessions[1]] }, assigners);
+  assertEquals(
+    [got.status, got.story, got.tag, got.agent, got.assigner],
+    [
+      [{ value: "active", hint: "In progress" }],
+      [{ value: "CLI rollout" }],
+      [{ value: "p1" }],
+      [{ value: "codex" }],
+      [{ value: "Carlo Rossi" }],
+    ],
+  );
+});

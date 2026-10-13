@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { BoardData } from "../api";
-import { parseQuery, QUERY_SYNTAX } from "../query";
+import { applySuggestion, parseQuery, QUERY_SYNTAX, type QueryValue, suggestQuery } from "../query";
 import { SessionSort, type Sort, SORT_FIELDS } from "./SessionSort";
 import { EntityIcon, MENU_LABEL, MenuRow, pageGlyph, Popover, TagChips, IconButton } from "../ui/ui";
 
@@ -158,7 +158,10 @@ function SortMenu({ sort, onChange }: { sort: Sort[]; onChange: (sort: Sort[]) =
 // active story/tag chips and the gh-style query share one field; "/" focuses it
 // story/tag chips are the Sessions board's; elsewhere the box is the query alone
 export function QueryBox(
-  { pages = [], filter = [], onToggle = () => {}, noSpecs = false, onNoSpecs = () => {}, query, onQuery, onClear }: {
+  {
+    pages = [], filter = [], onToggle = () => {}, noSpecs = false, onNoSpecs = () => {}, query, onQuery, onClear,
+    values = {},
+  }: {
     pages?: Pages;
     filter?: string[];
     onToggle?: (id: string) => void;
@@ -167,9 +170,27 @@ export function QueryBox(
     query: string;
     onQuery: (q: string) => void;
     onClear: () => void;
+    /** values proposed after `key:` (queryValues) */
+    values?: Record<string, QueryValue[]>;
   },
 ) {
   const input = useRef<HTMLInputElement>(null);
+  // completion: caret position, highlighted row, and whether Escape closed the list for this edit
+  const [caret, setCaret] = useState<number | null>(null);
+  const [at, setAt] = useState(0);
+  const [closed, setClosed] = useState(false);
+  const suggestions = caret === null || closed ? [] : suggestQuery(query, caret, values);
+  const syncCaret = () => {
+    const el = input.current;
+    setCaret(el && el === document.activeElement ? el.selectionStart : null);
+  };
+  const accept = (i: number) => {
+    const next = applySuggestion(query, suggestions[i]);
+    onQuery(next.query);
+    setCaret(next.cursor);
+    setAt(0);
+    requestAnimationFrame(() => input.current?.setSelectionRange(next.cursor, next.cursor));
+  };
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
@@ -186,7 +207,7 @@ export function QueryBox(
   return (
     <div
       onClick={() => input.current?.focus()}
-      className={`flex min-w-[240px] flex-1 cursor-text items-center gap-1.5 rounded-md border px-2 py-[3px] focus-within:bg-panel ${
+      className={`relative flex min-w-[240px] flex-1 cursor-text items-center gap-1.5 rounded-md border px-2 py-[3px] focus-within:bg-panel ${
         errors.length ? "border-blocked/60" : active ? "border-copper/40 bg-panel/40" : "border-line bg-panel/40 focus-within:border-chipline"
       }`}
     >
@@ -221,8 +242,33 @@ export function QueryBox(
         title={errors.length ? errors.join("\n") : QUERY_SYNTAX}
         spellCheck={false}
         className="min-w-[120px] flex-1 bg-transparent py-0.5 font-mono text-[11.5px] text-ink outline-none placeholder:text-ink-muted/40"
-        onChange={(e) => onQuery(e.target.value)}
+        onChange={(e) => {
+          onQuery(e.target.value);
+          setCaret(e.target.selectionStart);
+          setClosed(false);
+          setAt(0);
+        }}
+        onSelect={syncCaret}
+        onFocus={syncCaret}
+        onBlur={() => setCaret(null)}
         onKeyDown={(e) => {
+          if (suggestions.length) {
+            const move = { ArrowDown: 1, ArrowUp: -1 }[e.key];
+            if (move) {
+              e.preventDefault();
+              setAt((at + move + suggestions.length) % suggestions.length);
+              return;
+            }
+            if (e.key === "Enter" || e.key === "Tab") {
+              e.preventDefault();
+              accept(Math.min(at, suggestions.length - 1));
+              return;
+            }
+            if (e.key === "Escape") {
+              setClosed(true);
+              return;
+            }
+          }
           if (e.key === "Escape") e.currentTarget.blur();
           if (e.key === "Backspace" && !query && filter.length) onToggle(filter[filter.length - 1]);
         }}
@@ -237,6 +283,26 @@ export function QueryBox(
           </IconButton>
         )
         : <span className="shrink-0 rounded border border-b-2 border-chipline px-1 font-mono text-[10px] text-ink-muted">/</span>}
+      {suggestions.length > 0 && (
+        <div role="listbox" aria-label="Query suggestions"
+          className="absolute left-0 top-full z-40 mt-1 min-w-[220px] max-w-[360px] rounded-lg border border-chipline bg-panel-modal p-1.5 shadow-2xl shadow-black/60">
+          {suggestions.map((sg, i) => (
+            <div key={sg.label} role="option" aria-selected={i === at}
+              onMouseDown={(e) => {
+                e.preventDefault(); // keep focus in the input
+                accept(i);
+              }}
+              onMouseEnter={() => setAt(i)}
+              className={`flex cursor-pointer items-baseline gap-2 rounded-md px-2 py-1 text-xs ${i === at ? "bg-panel" : ""}`}
+            >
+              <span className="truncate font-mono text-ink">{sg.label}</span>
+              {sg.hint && sg.hint.toLowerCase() !== sg.label.toLowerCase() && (
+                <span className="ml-auto shrink-0 truncate text-[10.5px] text-ink-muted">{sg.hint}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -253,6 +319,7 @@ export function SessionBar(
     onClear: () => void;
     sort: Sort[];
     onSort: (sort: Sort[]) => void;
+    values?: Record<string, QueryValue[]>;
     children?: ReactNode;
   },
 ) {

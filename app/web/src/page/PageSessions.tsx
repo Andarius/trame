@@ -16,7 +16,7 @@ import { LiveAgentChip, type useAgents } from "../agents/agents";
 import { FRONTEND_PLUGINS } from "../plugins";
 import { tagPriority } from "../sessions/SessionSort";
 import { QueryBox } from "../sessions/SessionBar";
-import { type Assigners, filterSessions } from "../query";
+import { type Assigners, filterSessions, type QueryValue } from "../query";
 import { FinishedStrip, RepoChip, repoTitle, SessionRow, TodoBar, type useFinishedCards } from "./project-page";
 
 export type SessionsByStory = { story: PageChild; list: Session[] }[];
@@ -172,6 +172,7 @@ export function InProgressBlock(
     inProgress,
     looseOpen,
     cardQuery,
+    cardQueryValues,
     setCardQuery,
     storyOrder,
     setStoryOrder,
@@ -184,6 +185,7 @@ export function InProgressBlock(
     inProgress: ReturnType<typeof groupInProgress>["inProgress"];
     looseOpen: Session[];
     cardQuery: string;
+    cardQueryValues: Record<string, QueryValue[]>;
     setCardQuery: (v: string) => void;
     storyOrder: "touched" | "priority";
     setStoryOrder: (v: "touched" | "priority") => void;
@@ -213,7 +215,7 @@ export function InProgressBlock(
               {storyOrder === "priority" ? "by priority" : "by activity"}
             </button>
           </span>
-          <QueryBox query={cardQuery} onQuery={setCardQuery} onClear={() => setCardQuery("")} />
+          <QueryBox query={cardQuery} onQuery={setCardQuery} onClear={() => setCardQuery("")} values={cardQueryValues} />
         </div>
       )}
       {inProgress.map(({ story, list, open }) => {

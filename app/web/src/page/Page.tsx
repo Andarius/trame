@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   addSessionLink,
   attachUdbToPage,
@@ -38,6 +38,7 @@ import { PAGE_STATUSES } from "../../../../core/page-status.ts";
 import { useAgents } from "../agents/agents";
 import { DatabaseView } from "../udb/DatabaseTable";
 import { FRONTEND_PLUGINS, useCardFaces } from "../plugins";
+import { queryValues } from "../query";
 import { markRoleOf } from "../../../../core/mark-roles.ts";
 import { PageRow, ProjectChildren, useFinishedCards } from "./project-page";
 import { genId, PROJECT_COLORS } from "./page-ids";
@@ -82,6 +83,7 @@ export function Page(
   const [unfoldedStories, setUnfoldedStories] = useState<Set<string>>(new Set());
   const [cardQuery, setCardQuery] = useState("");
   const faces = useCardFaces();
+  const cardQueryValues = useMemo(() => queryValues(board, faces), [board, faces]);
   const [storyOrder, setStoryOrder] = useLocalStorage<"touched" | "priority">(STORY_ORDER_KEY, "touched", enumCodec(["touched", "priority"]));
   const [showArchivedDocs, setShowArchivedDocs] = useState(false);
   const [idCopied, setIdCopied] = useState(false);
@@ -202,6 +204,7 @@ export function Page(
       inProgress={inProgress}
       looseOpen={looseOpen}
       cardQuery={cardQuery}
+      cardQueryValues={cardQueryValues}
       setCardQuery={setCardQuery}
       storyOrder={storyOrder}
       setStoryOrder={setStoryOrder}
