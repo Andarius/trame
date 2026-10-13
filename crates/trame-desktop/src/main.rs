@@ -4,6 +4,8 @@
     reason = "CLI output is the product; stderr is the app log"
 )]
 
+#[cfg(target_os = "linux")]
+mod appimage;
 mod geometry;
 
 use std::sync::{
@@ -20,6 +22,8 @@ fn main() -> anyhow::Result<()> {
     if let Some(result) = trame_local::pg::supervisor_args() {
         return result;
     }
+    #[cfg(target_os = "linux")]
+    appimage::detach_mount_runtime();
     let mut config = trame_local::Config::from_env()?;
     if trame_local::isolated_mode() {
         config.root = trame_local::scratch_root(&config.root)?;

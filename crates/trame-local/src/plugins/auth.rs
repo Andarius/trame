@@ -8,12 +8,14 @@ pub struct Auth {
     pub source: &'static str,
 }
 fn command(bin: &str, args: &[&str]) -> Option<String> {
-    let output = Command::new(bin)
-        .args(args)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
+    let output = crate::cli::output_within(
+        Command::new(bin)
+            .args(args)
+            .stdin(Stdio::null())
+            .stderr(Stdio::null()),
+        crate::cli::NETWORK_TIMEOUT,
+    )
+    .ok()?;
     output
         .status
         .success()
@@ -122,7 +124,10 @@ pub fn glab_api(
                 .arg(format!("{key}={}", value.as_str().unwrap_or("")));
         }
     }
-    let output = command.stdin(Stdio::null()).output()?;
+    let output = crate::cli::output_within(
+        command.stdin(Stdio::null()).stderr(Stdio::piped()),
+        crate::cli::NETWORK_TIMEOUT,
+    )?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(anyhow!(
