@@ -15,54 +15,24 @@ permissions:
   contents: read
 
 jobs:
-  check:
+  rust:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.commit || github.sha }}
 
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: app/web/package-lock.json
-
-      - name: Install frontend deps (pinned, from lockfile)
-        run: cd app/web && npm ci
-
-      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
-        with:
-          deno-version: "2.9"
+      - uses: ./.github/actions/native-setup
 
       - name: Public build composes no private plugin
         run: |
           deno run -A --config app/deno.json scripts/gen-plugins.ts
           git diff --exit-code -- app/plugins/local.gen.ts app/web/src/plugins/ core/mark-roles.gen.ts
 
-      - name: Build frontend and retained oracle assets
-        run: |
-          npm run build --prefix app/web
-          deno run --allow-read --allow-write=app/embed.ts scripts/gen-embed.ts
-          npm run build:link --prefix app/web
-          deno run --allow-read --allow-write=hub/api/link-embed.ts scripts/gen-link-embed.ts
+      - name: Build and typecheck frontend (TS 7)
+        run: npm run build --prefix app/web && cd app/web && npm run typecheck
 
-      - name: Typecheck frontend (TS 7)
-        run: cd app/web && npm run typecheck
-
-      - name: Install native build libraries
-        run: |
-          rustup toolchain install  # reads rust-toolchain.toml
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev \
-            libicu74 liburing2 libnuma1 libxml2 libldap2 libpam0g libzstd1 liblz4-1 libpq5
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-
-      - name: Prepare PostgreSQL 18 resources
-        run: bash scripts/rust-package.sh prepare
-
-      - name: Rust format and tests
+      - name: Rust format, clippy and tests
         env:
           TRAME_ISOLATED: "1"
           TRAME_OFFLINE: "1"
@@ -76,20 +46,17 @@ jobs:
           deno run --allow-read --allow-env --config app/deno.json scripts/rust-cli-contracts.ts --check
           deno test --config app/deno.json app/web/src/
 
-      - name: Retained TypeScript backend, core and CLI oracle
-        run: bash scripts/rust-oracle-check.sh
+  e2e:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.commit || github.sha }}
 
-      - name: Legacy migration safety
-        run: deno test -A --config app/deno.json scripts/rust-db-export-test.ts scripts/rust-db-migrate-test.ts
+      - uses: ./.github/actions/native-setup
 
-      - name: Hub API typecheck + tests + lint
-        run: cd hub/api && deno check main.ts && deno test -A && deno lint
-
-      - name: Lint SQL schema (sqlfluff, pinned)
-        run: pipx run sqlfluff==4.2.2 lint db/schema.sql
-
-      - name: Check SQL schema formatting
-        run: pipx run sqlfluff==4.2.2 format - < db/schema.sql | diff -u db/schema.sql - && echo "schema.sql formatted"
+      - name: Build frontend and backend
+        run: npm run build --prefix app/web && cargo build -p trame-local --locked
 
       - name: Install Playwright Chromium (pinned to @playwright/test)
         run: cd app/web && npm run e2e:install
@@ -99,7 +66,7 @@ jobs:
           TRAME_ISOLATED: "1"
           TRAME_PG_BIN: ${{ github.workspace }}/.scratch/package/pg/usr/lib/postgresql/18/bin
           TRAME_WEB_DIR: ${{ github.workspace }}/app/web/dist
-        run: cargo build -p trame-local --locked && bash scripts/rust-e2e.sh
+        run: bash scripts/rust-e2e.sh
 
       - name: Synthetic migration, differential replay and lifecycle
         env:
@@ -117,9 +84,6 @@ jobs:
           deno run -A --config app/deno.json scripts/rust-pages-diff.ts
           python3 scripts/rust-db-lifecycle-test.py
 
-      - name: Build native deb
-        run: bash scripts/rust-package.sh deb && dpkg-deb -f dist/linux/trame.deb Version
-
       - name: Upload Playwright artifacts
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -127,6 +91,73 @@ jobs:
           name: playwright-artifacts
           path: app/web/test-results
           if-no-files-found: ignore
+
+  oracle:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.commit || github.sha }}
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: "2.9"
+
+      - name: Build frontend and retained oracle assets
+        run: |
+          cd app/web && npm ci && cd ../..
+          npm run build --prefix app/web
+          deno run --allow-read --allow-write=app/embed.ts scripts/gen-embed.ts
+          npm run build:link --prefix app/web
+          deno run --allow-read --allow-write=hub/api/link-embed.ts scripts/gen-link-embed.ts
+
+      - name: Retained TypeScript backend, core and CLI oracle
+        run: bash scripts/rust-oracle-check.sh
+
+      - name: Legacy migration safety
+        run: deno test -A --config app/deno.json scripts/rust-db-export-test.ts scripts/rust-db-migrate-test.ts
+
+      - name: Hub API typecheck + tests + lint
+        run: cd hub/api && deno check main.ts && deno test -A && deno lint
+
+      - name: Lint SQL schema (sqlfluff, pinned)
+        run: pipx run sqlfluff==4.2.2 lint db/schema.sql
+
+      - name: Check SQL schema formatting
+        run: pipx run sqlfluff==4.2.2 format - < db/schema.sql | diff -u db/schema.sql - && echo "schema.sql formatted"
+
+  # releases build their own packages; PRs skip this
+  package:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.commit || github.sha }}
+
+      - uses: ./.github/actions/native-setup
+
+      - name: Build native deb
+        run: bash scripts/rust-package.sh deb && dpkg-deb -f dist/linux/trame.deb Version
+
+  # the one required status check: green only when every job above passed or was skipped
+  check:
+    if: always()
+    needs: [rust, e2e, oracle, package, macos]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: All jobs passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          for r in $RESULTS; do [[ "$r" == success || "$r" == skipped ]] || exit 1; done
 
   macos:
     runs-on: macos-14
@@ -152,6 +183,8 @@ jobs:
         run: rustup toolchain install  # reads rust-toolchain.toml
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: PostgreSQL 18 resources
         run: bash scripts/rust-package.sh prepare
