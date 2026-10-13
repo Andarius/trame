@@ -5,7 +5,8 @@ export const QUERY_SYNTAX = `Session query (the board's query box, mirrored to ?
   terms AND, commas OR within a key, "-" negates, * globs, "quote spaced values"
   status:active,blocked  tag:p1  project:trame  story:"cli rollout"
   branch:feat/*  repo:  agent:codex  title:  summary:  next:
-  has:pr|specs|branch|next|story|project|tags|transcript   no:specs
+  assigner:carlo   who handed you the card, from a plugin (e.g. Cockpit)
+  has:pr|specs|branch|next|story|project|tags|transcript|assigner   no:specs
   touched:>7d  touched:<2026-09-01   (h/d/w relative, or a date; >= and <= too)
   bare words search title, summary, next step and branch
   e.g. status:active,blocked -has:specs touched:>7d "topbar"
@@ -14,7 +15,8 @@ export const QUERY_SYNTAX = `Session query (the board's query box, mirrored to ?
 export type Term = { neg: boolean; key: string | null; values: string[] };
 
 export const QUERY_KEYS = [
-  "status", "tag", "project", "story", "branch", "repo", "agent", "title", "summary", "next", "touched", "has", "no",
+  "status", "tag", "project", "story", "branch", "repo", "agent", "title", "summary", "next", "assigner", "touched",
+  "has", "no",
 ] as const;
 // matched whole (unless globbed); every other key matches a substring
 const EXACT = new Set(["status", "tag", "agent", "has", "no"]);
@@ -62,8 +64,13 @@ export function matchQuery(terms: Term[], fields: (key: string | null) => string
   });
 }
 
+// `assigner:`, `has:assigner`, `no:assigner` need the plugin-provided assigners
+export const needsAssigners = (terms: Term[]): boolean =>
+  terms.some((t) => t.key === "assigner" || ((t.key === "has" || t.key === "no") && t.values.includes("assigner")));
+
 // the /api/board fields a query reads — the web board and tramecli list share this
 export type QuerySession = {
+  id: string;
   title: string;
   status: string;
   page_id: string | null;
@@ -85,7 +92,15 @@ export type QueryBoard = {
   projects: { id: string; name: string }[];
 };
 
-export function filterSessions<S extends QuerySession>(sessions: S[], board: QueryBoard, query: string): S[] {
+// who handed me each card, by session id — plugin data (the web's useCardFaces, a plugin's cardFaces route)
+export type Assigners = Record<string, { name: string }>;
+
+export function filterSessions<S extends QuerySession>(
+  sessions: S[],
+  board: QueryBoard,
+  query: string,
+  assigners: Assigners = {},
+): S[] {
   const { terms } = parseQuery(query);
   if (!terms.length) return sessions;
   const byId = pagesById(board.pages);
@@ -106,11 +121,13 @@ export function filterSessions<S extends QuerySession>(sessions: S[], board: Que
       case "title": return lc(s.title);
       case "summary": return lc(s.summary);
       case "next": return lc(s.next_step);
+      case "assigner": return lc(assigners[s.id]?.name);
       case "touched": return [s.last_touched];
       case "has": return [
         s.pr_url && "pr", s.specs_page_id && byId.has(s.specs_page_id) && "specs", s.branch && "branch",
         s.next_step && "next", storyOf(s, byId) && "story", projectOf(s, byId) && "project",
         sessionTagKeys(s, byId).length && "tags", s.claude_id && "transcript",
+        assigners[s.id] && "assigner",
       ].filter((x): x is string => typeof x === "string");
       default: return [];
     }

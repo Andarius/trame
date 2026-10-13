@@ -5,9 +5,9 @@ use std::{collections::HashMap, sync::LazyLock};
 
 static TERMS: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(?i)(-?)(?:([a-z]+):)?(?:"([^"]*)"?|(\S+))"#).unwrap());
-const KEYS: [&str; 13] = [
+const KEYS: [&str; 14] = [
     "status", "tag", "project", "story", "branch", "repo", "agent", "title", "summary", "next",
-    "touched", "has", "no",
+    "assigner", "touched", "has", "no",
 ];
 #[derive(Clone)]
 pub struct Term {
@@ -54,6 +54,14 @@ pub fn parse(query: &str) -> Parsed {
     }
     Parsed { terms, errors }
 }
+/// Whether `assigner:`, `has:assigner` or `no:assigner` needs the plugin-provided assigners.
+pub fn needs_assigners(terms: &[Term]) -> bool {
+    terms.iter().any(|t| match t.key.as_deref() {
+        Some("assigner") => true,
+        Some("has" | "no") => t.values.iter().any(|v| v == "assigner"),
+        _ => false,
+    })
+}
 fn string(v: &Value, key: &str) -> String {
     v[key].as_str().unwrap_or("").to_lowercase()
 }
@@ -77,7 +85,11 @@ fn ancestors<'a>(session: &Value, pages: &'a HashMap<String, Value>) -> Vec<&'a 
     }
     out
 }
-fn fields(session: &Value, board: &Value, key: Option<&str>) -> Vec<String> {
+fn fields(session: &Value, board: &Value, assigners: &Value, key: Option<&str>) -> Vec<String> {
+    let assigner = session["id"]
+        .as_str()
+        .map(|id| string(&assigners[id], "name"))
+        .unwrap_or_default();
     let pages = pages_by_id(board);
     let chain = ancestors(session, &pages);
     let story = chain.iter().find(|p| p["kind"] == "story").copied();
@@ -132,6 +144,7 @@ fn fields(session: &Value, board: &Value, key: Option<&str>) -> Vec<String> {
         Some("title") => vec![string(session, "title")],
         Some("summary") => vec![string(session, "summary")],
         Some("next") => vec![string(session, "next_step")],
+        Some("assigner") => vec![assigner],
         Some("touched") => vec![session["last_touched"].as_str().unwrap_or("").into()],
         Some("has") => {
             let mut out = Vec::new();
@@ -159,6 +172,9 @@ fn fields(session: &Value, board: &Value, key: Option<&str>) -> Vec<String> {
             }
             if !tags.is_empty() {
                 out.push("tags".into());
+            }
+            if !assigner.is_empty() {
+                out.push("assigner".into());
             }
             out
         }
@@ -213,7 +229,8 @@ fn match_value(key: Option<&str>, field: &str, value: &str) -> bool {
         field.contains(value)
     }
 }
-pub fn matches(session: &Value, board: &Value, terms: &[Term]) -> bool {
+/// `assigners` maps session id → `{name}` (a plugin's card faces); `Value::Null` when unused.
+pub fn matches(session: &Value, board: &Value, assigners: &Value, terms: &[Term]) -> bool {
     terms.iter().all(|term| {
         let key = if term.key.as_deref() == Some("no") {
             Some("has")
@@ -225,7 +242,7 @@ pub fn matches(session: &Value, board: &Value, terms: &[Term]) -> bool {
         } else {
             term.neg
         };
-        let values = fields(session, board, key);
+        let values = fields(session, board, assigners, key);
         let hit = term
             .values
             .iter()

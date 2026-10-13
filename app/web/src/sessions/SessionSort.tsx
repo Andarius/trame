@@ -1,5 +1,5 @@
 import type { BoardData, Session } from "../api";
-import { filterSessions } from "../query";
+import { type Assigners, filterSessions } from "../query";
 import { IconButton, pagesById, projectOf, sessionTagKeys, storyOf } from "../ui/ui";
 
 export const SORT_FIELDS = {
@@ -46,9 +46,9 @@ export function sortSessionBoard(board: BoardData, sort: Sort[]): BoardData {
   return { ...board, sessions };
 }
 
-export const filterSessionBoard = (board: BoardData, query: string): BoardData => ({
+export const filterSessionBoard = (board: BoardData, query: string, faces: Assigners): BoardData => ({
   ...board,
-  sessions: filterSessions(board.sessions, board, query),
+  sessions: filterSessions(board.sessions, board, query, faces),
 });
 
 export function SessionSort({ sort, onChange }: { sort: Sort[]; onChange: (sort: Sort[]) => void }) {

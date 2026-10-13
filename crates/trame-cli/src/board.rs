@@ -147,6 +147,30 @@ fn format_board_with_color(board: &Value, color: bool) -> String {
         .collect::<Vec<_>>()
         .join("\n")
 }
+/// Every enabled plugin's `cardFaces` route merged; plugins run only in the local app, never on the hub.
+pub async fn load_assigners(target: &Target) -> Result<Value> {
+    if target.hub {
+        bail!("assigner: needs the running Trame app (plugin data, the hub has none)");
+    }
+    let mut out = serde_json::Map::new();
+    let mut found = false;
+    for m in rows(&target.get("/api/plugins").await?) {
+        let (Some(id), Some(route)) = (m["id"].as_str(), m["cardFaces"].as_str()) else {
+            continue;
+        };
+        if m["enabled"] != true {
+            continue;
+        }
+        found = true;
+        if let Value::Object(faces) = target.get(&format!("/api/plugins/{id}{route}")).await? {
+            out.extend(faces);
+        }
+    }
+    if !found {
+        bail!("assigner: no enabled plugin provides card assigners (e.g. Cockpit)");
+    }
+    Ok(Value::Object(out))
+}
 pub async fn list(args: &[String], json_out: bool, target: &Target) -> Result<()> {
     let deleted = args.iter().any(|a| a == "--deleted");
     let query = args
@@ -178,9 +202,14 @@ pub async fn list(args: &[String], json_out: bool, target: &Target) -> Result<()
         if !parsed.errors.is_empty() {
             bail!("{} — see `tramecli query`", parsed.errors.join(", "));
         }
+        let assigners = if crate::query::needs_assigners(&parsed.terms) {
+            load_assigners(target).await?
+        } else {
+            Value::Null
+        };
         let sessions: Vec<_> = rows(&board["sessions"])
             .into_iter()
-            .filter(|s| crate::query::matches(s, &board, &parsed.terms))
+            .filter(|s| crate::query::matches(s, &board, &assigners, &parsed.terms))
             .collect();
         board["sessions"] = json!(sessions);
         if parsed

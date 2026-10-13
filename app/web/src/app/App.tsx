@@ -47,7 +47,7 @@ import { ShareModal } from "../modals/ShareModal";
 import { Page } from "../page/Page";
 import { ClientView } from "../sessions/ClientView";
 import { BOOL_CODEC, useLocalStorage, appConfirm, ConfirmHost, ExpandIcon, setStatuses, statusStyle, EmptyState } from "../ui/ui";
-import { FRONTEND_PLUGINS } from "../plugins";
+import { FRONTEND_PLUGINS, useCardFaces } from "../plugins";
 import { PluginsModal } from "../plugins/PluginsModal";
 import { PluginSettingsModal } from "../plugins/PluginSettingsModal";
 import { DatabaseView } from "../udb/DatabaseTable";
@@ -93,9 +93,10 @@ export function App() {
   );
   const [sessionSort, setSessionSort] = useState<Sort[]>([{ key: "touched", dir: -1 }]);
   const [sessionQuery, setSessionQuery] = useState(params.get("q") ?? "");
+  const faces = useCardFaces();
   const sortedBoard = useMemo(
-    () => board ? sortSessionBoard(filterSessionBoard(board, sessionQuery), sessionSort) : null,
-    [board, sessionQuery, sessionSort],
+    () => board ? sortSessionBoard(filterSessionBoard(board, sessionQuery, faces), sessionSort) : null,
+    [board, sessionQuery, sessionSort, faces],
   );
   // "only sessions without a specs page" — a triage lens, mirrored to the URL
   const [noSpecs, setNoSpecs] = useState(params.get("nospecs") === "1"); // narrow sessions to the selected stories/projects (subtree union)

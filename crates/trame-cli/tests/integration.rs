@@ -46,6 +46,7 @@ struct State {
     sessions_error_body: Option<String>,
     specs_page_missing_id: bool,
     redirect_to: Option<String>,
+    card_faces: bool,
 }
 async fn fixture(
     request: Request<Body>,
@@ -99,6 +100,14 @@ async fn fixture(
         ("POST", "/api/sessions/session-1/specs-page") => json!({"page_id":"page1"}),
         ("GET", "/api/board") => {
             json!({"sessions":[],"stories":[],"statuses":[],"pages":[],"projects":[]})
+        }
+        ("GET", "/api/plugins") => json!([
+            {"id":"deployments","enabled":true},
+            {"id":"cockpit","enabled":state.card_faces,"cardFaces":"/assigners"},
+            {"id":"off","enabled":false,"cardFaces":"/faces"}
+        ]),
+        ("GET", "/api/plugins/cockpit/assigners") => {
+            json!({"s1":{"name":"Carlo Rossi","avatar":null}})
         }
         ("GET", "/api/stories/similar") => json!([]),
         ("POST", "/api/presence") => json!({"ok":true}),
@@ -604,6 +613,42 @@ async fn missing_specs_page_id_is_an_error_without_creating_a_page() {
             .count(),
         1
     );
+    server.abort();
+}
+#[tokio::test]
+async fn list_assigner_query_reads_enabled_plugin_card_faces() {
+    let (base, state, server) = self::server().await;
+    let target = Target::local(base);
+    let list =
+        async |q: &str| trame_cli::board::list(&["-q".into(), q.into()], true, &target).await;
+    list("status:active").await.unwrap();
+    assert!(
+        list("has:assigner")
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("no enabled plugin provides card assigners")
+    );
+    state.lock().unwrap().card_faces = true;
+    list("assigner:carlo").await.unwrap();
+    let paths: Vec<_> = state
+        .lock()
+        .unwrap()
+        .hits
+        .iter()
+        .filter(|h| h.path.starts_with("/api/plugins"))
+        .map(|h| h.path.clone())
+        .collect();
+    assert_eq!(
+        paths,
+        [
+            "/api/plugins",
+            "/api/plugins",
+            "/api/plugins/cockpit/assigners"
+        ]
+    );
+    let faces = trame_cli::board::load_assigners(&target).await.unwrap();
+    assert_eq!(faces["s1"]["name"], "Carlo Rossi");
     server.abort();
 }
 #[tokio::test]
