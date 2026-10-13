@@ -55,8 +55,10 @@ twice, checks source preservation, and compares native HTTP/CLI behavior with th
 TypeScript oracle. `just lifecycle` checks owner refusal, parent death, WAL recovery and
 failed startup without requiring a developer's copied database.
 
-The old `hack` recipe's Deno backend watcher is retired: use `just serve` and `just web-dev`
-in separate terminals, and restart the native backend after Rust changes. The old standalone
+The old `hack` recipe's Deno backend watcher is retired: `just web-dev` runs Vite against an
+isolated backend, starting one for its lifetime unless `just serve` already runs. Restart it
+after Rust changes. `just web-live` runs Vite against the running Trame app instead: real data
+and real writes, with the installed backend. The old standalone
 `sync` recipe is retired: the running native app owns synchronization, with an explicit sync
 from the UI. Offline development deliberately disables it.
 

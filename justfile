@@ -84,7 +84,31 @@ web-build:
 # Frontend dev server with HMR
 [group('dev')]
 web-dev:
-    TRAME_ISOLATED=1 TRAME_LOCAL_DIR="$PWD/.scratch/dev" npm run dev --prefix app/web
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export TRAME_ISOLATED=1 TRAME_OFFLINE=1 TRAME_LOCAL_DIR="$PWD/.scratch/dev" TRACKER_PORT=0
+    export TRAME_PG_BIN="$PWD/.scratch/package/pg/usr/lib/postgresql/18/bin"
+    port_file="$TRAME_LOCAL_DIR/port.json"
+    alive() { [[ -f "$port_file" ]] && curl -sf "http://127.0.0.1:$(jq -r .port "$port_file")/api/status" >/dev/null; }
+    # reuse a running `just serve`, else run the backend for the lifetime of vite
+    if ! alive; then
+        bash scripts/rust-package.sh prepare
+        cargo build -p trame-local --locked
+        log="$PWD/.scratch/web-dev-backend.log"
+        target/debug/trame-local >"$log" 2>&1 &
+        backend=$!
+        trap 'kill "$backend" 2>/dev/null; wait "$backend" 2>/dev/null || true' EXIT
+        until alive; do
+            kill -0 "$backend" 2>/dev/null || { tail -20 "$log"; exit 1; }
+            sleep 0.5
+        done
+    fi
+    npm run dev --prefix app/web
+
+# Frontend dev server with HMR against the running Trame app: real data, real writes
+[group('dev')]
+web-live:
+    TRAME_WEB_LIVE=1 npm run dev --prefix app/web
 
 # Run the Rust unit tests
 [group('dev')]
