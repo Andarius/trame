@@ -35,6 +35,17 @@ been verified. To roll back, stop Trame, preserve the new data root, and restore
 legacy copy for the old application. Changes made after migration need a separate export;
 never replace a running database directory.
 
+## Out-of-tree plugins
+
+Private plugins listed in `plugins.local.json` never compile into release builds. `just plugins-install`
+builds them into the live data root: `plugins/plugin-host` (a compiled Deno program running the
+TypeScript plugin registry) and `plugins/web/plugins.{js,css}` (their frontend, built against
+`window.__trame`). On startup the app starts the host with a per-launch token and its PostgreSQL socket,
+forwards `/api/plugins/<id>/*` to it, lists its plugins and registers their mark roles. The frontend
+loads the bundle before its first render. The host never changes the schema and exits when the app
+does. Settings stay device-local, so a plugin runs only where it is enabled. Restart Trame after
+installing.
+
 ## Isolated development
 
 `just dev` and `just serve` use `.scratch/dev`, offline mode and a random loopback port.
