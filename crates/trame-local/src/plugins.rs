@@ -523,3 +523,34 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
         _ => json_response(500, json!({"error":"Internal Server Error"})),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn plugin_web_serves_only_the_bundle_files() {
+        let root = crate::scratch_root(
+            &crate::workspace().join(format!(".scratch/plugin-web-{}", uuid::Uuid::new_v4())),
+        )
+        .unwrap();
+        let web = crate::plugin_host::web_dir(&root);
+        std::fs::create_dir_all(&web).unwrap();
+        std::fs::write(web.join("plugins.js"), "js").unwrap();
+        std::fs::write(web.join("other.js"), "js").unwrap();
+        std::fs::write(root.join("settings.json"), "{}").unwrap();
+        for (name, status) in [
+            ("plugins.js", 200),
+            ("plugins.css", 404),
+            ("other.js", 404),
+            ("../../settings.json", 404),
+        ] {
+            assert_eq!(
+                web_file(&root, name).await.status().as_u16(),
+                status,
+                "{name}"
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
