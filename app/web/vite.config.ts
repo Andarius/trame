@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
@@ -7,8 +7,10 @@ import tailwindcss from "@tailwindcss/vite";
 // Frontend development follows the isolated native backend's private readiness file.
 async function apiTarget(): Promise<string> {
   const scratch = realpathSync(resolve("../../.scratch"));
-  const file = realpathSync(process.env.TRACKER_PORT_FILE ??
-    resolve(process.env.TRAME_LOCAL_DIR ?? "../../.scratch/dev", "port.json"));
+  const portFile = process.env.TRACKER_PORT_FILE ??
+    resolve(process.env.TRAME_LOCAL_DIR ?? "../../.scratch/dev", "port.json");
+  if (!existsSync(portFile)) throw new Error("Isolated backend is unavailable; start just serve first");
+  const file = realpathSync(portFile);
   if (!file.startsWith(`${scratch}/`)) throw new Error("Vite requires a scratch backend port file");
   const { port } = JSON.parse(readFileSync(file, "utf8"));
   if (!Number.isInteger(port) || port < 1 || port > 65535 || port === 8787 || port === 5181) {
