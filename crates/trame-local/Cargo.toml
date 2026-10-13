@@ -11,7 +11,7 @@ libc = "0.2"
 postgres = { version = "0.19.14", features = ["with-serde_json-1", "with-uuid-1", "with-chrono-0_4"] }
 reqwest = { version = "0.12", default-features = false, features = ["stream", "json", "rustls-tls"] }
 serde_json = { version = "1", features = ["preserve_order"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time", "signal", "sync", "fs", "io-util"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time", "signal", "sync", "fs", "io-util", "process"] }
 uuid = { version = "1", features = ["v4", "v5"] }
 
 trame-core = { path = "../trame-core" }

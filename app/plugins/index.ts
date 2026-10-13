@@ -12,8 +12,6 @@ import { LOCAL_PLUGINS } from "./local.gen.ts";
 
 export const PLUGINS: Plugin[] = [deployments, ...LOCAL_PLUGINS];
 
-const byId = new Map(PLUGINS.map((p) => [p.id, p]));
-
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
@@ -25,9 +23,10 @@ const ctxFor = (p: Plugin): PluginContext => ({
   settings: () => getPluginSettings(p.id),
 });
 
-export async function listPluginManifests(): Promise<PluginManifest[]> {
+// `plugins` narrows the registry: the out-of-process host serves only LOCAL_PLUGINS
+export async function listPluginManifests(plugins = PLUGINS): Promise<PluginManifest[]> {
   const out: PluginManifest[] = [];
-  for (const p of PLUGINS) {
+  for (const p of plugins) {
     out.push({
       id: p.id,
       label: p.label,
@@ -40,8 +39,8 @@ export async function listPluginManifests(): Promise<PluginManifest[]> {
   return out;
 }
 
-export function startPlugins(): void {
-  for (const p of PLUGINS) p.start?.(ctxFor(p));
+export function startPlugins(plugins = PLUGINS): void {
+  for (const p of plugins) p.start?.(ctxFor(p));
 }
 
 // /api/plugins/<id>/enable and /settings are registry-owned and NOT gated on
@@ -50,9 +49,10 @@ export function startPlugins(): void {
 export async function handlePluginRoute(
   req: Request,
   url: URL,
+  plugins = PLUGINS,
 ): Promise<Response> {
   const m = url.pathname.match(/^\/api\/plugins\/([^/]+)(\/.*)?$/);
-  const plugin = m ? byId.get(m[1]) : undefined;
+  const plugin = m ? plugins.find((p) => p.id === m[1]) : undefined;
   if (!plugin) return json({ error: "unknown plugin" }, 404);
   const subPath = m![2] ?? "/";
 

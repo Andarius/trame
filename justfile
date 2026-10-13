@@ -50,6 +50,25 @@ psql host=env_var_or_default('TRACKER_HUB_HOST', 'hub'):
 plugins:
     cd app && deno run -A ../scripts/gen-plugins.ts
 
+# Install plugins.local.json plugins for the installed app (host binary + web bundle); then restart Trame
+[group('setup')]
+plugins-install: plugins
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dest="${XDG_DATA_HOME:-$HOME/.local/share}/trame/plugins"
+    mkdir -p .scratch "$dest"
+    tmp="$(mktemp -d "$PWD/.scratch/plugins.XXXXXX")"
+    trap 'rm -rf -- "$tmp"' EXIT
+    # db.ts's schema fallback imports the generated embed.ts, which must match the current web build
+    npm run build --prefix app/web --silent
+    deno run --allow-read --allow-write=app/embed.ts scripts/gen-embed.ts
+    (cd app && deno compile -A --quiet --config deno.json --output "$tmp/plugin-host" plugin-host.ts)
+    (cd app/web && TRAME_PLUGINS_WEB_OUT="$tmp/web" npx vite build -c vite.plugins.config.ts --logLevel warn)
+    rm -rf "$dest/web.old" && { [[ ! -d "$dest/web" ]] || mv "$dest/web" "$dest/web.old"; }
+    mv "$tmp/web" "$dest/web" && rm -rf "$dest/web.old"
+    mv "$tmp/plugin-host" "$dest/plugin-host"
+    echo "installed into $dest; restart Trame to load them"
+
 # Run the native desktop app
 [group('dev')]
 dev: web-build

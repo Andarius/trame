@@ -40,6 +40,11 @@ export const FRONTEND_PLUGINS: FrontendPlugin[] = [
   ...LOCAL_PLUGINS,
 ];
 
+/** Out-of-process plugins loaded before the first render; a compiled-in plugin with the same id wins. */
+export function registerRuntimePlugins(list: FrontendPlugin[]): void {
+  for (const p of list) if (!FRONTEND_PLUGINS.some((f) => f.id === p.id)) FRONTEND_PLUGINS.push(p);
+}
+
 // lazy: the registry and the views that read it import each other
 export const isMetadataMark = (key: string) => FRONTEND_PLUGINS.some((p) => p.metadataMarks?.includes(key));
 
