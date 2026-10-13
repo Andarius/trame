@@ -13,7 +13,6 @@ confinement in release builds. `TRAME_OFFLINE=1` disables hub and remote work;
 it is a separate network switch. Never point these commands at running app data.
 
 ```sh
-export CARGO_HOME="$PWD/.scratch/cargo-home"
 export TRAME_ISOLATED=1
 export TRAME_OFFLINE=1
 export TRAME_LOCAL_DIR="$PWD/.scratch/native-app"
