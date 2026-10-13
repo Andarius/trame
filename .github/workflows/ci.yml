@@ -55,8 +55,12 @@ jobs:
 
       - uses: ./.github/actions/native-setup
 
-      - name: Build frontend and backend
-        run: npm run build --prefix app/web && cargo build -p trame-local --locked
+      # the differential replay's TypeScript oracle serves the embedded bundle
+      - name: Build frontend, embedded assets and backend
+        run: |
+          npm run build --prefix app/web
+          deno run --allow-read --allow-write=app/embed.ts scripts/gen-embed.ts
+          cargo build -p trame-local --locked
 
       - name: Install Playwright Chromium (pinned to @playwright/test)
         run: cd app/web && npm run e2e:install
