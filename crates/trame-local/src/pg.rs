@@ -38,6 +38,11 @@ fn owned_directory(path: &Path) -> Result<()> {
 }
 
 pub fn lock_root(root: &Path) -> Result<File> {
+    lock_root_within(root, Duration::ZERO)
+}
+
+/// Like [`lock_root`], but waits up to `wait` for a quitting instance to release the root.
+pub fn lock_root_within(root: &Path, wait: Duration) -> Result<File> {
     owned_directory(root)?;
     let path = root.join(".owner.lock");
     let lock = OpenOptions::new()
@@ -53,11 +58,15 @@ pub fn lock_root(root: &Path) -> Result<File> {
         metadata.is_file() && metadata.uid() == unsafe { libc::geteuid() } && metadata.nlink() == 1,
         "unsafe ownership lock"
     );
-    ensure!(
-        unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0,
-        "root is already running or migrating: {}",
-        root.display()
-    );
+    let deadline = Instant::now() + wait;
+    while unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        ensure!(
+            Instant::now() < deadline,
+            "root is already running or migrating: {}",
+            root.display()
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
     let named = fs::symlink_metadata(&path)?;
     ensure!(
         named.dev() == metadata.dev() && named.ino() == metadata.ino(),
@@ -732,7 +741,12 @@ mod tests {
         let result = (|| {
             let lock = lock_root(&root)?;
             assert!(lock_root(&root).is_err());
-            drop(lock);
+            let release = std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(300));
+                drop(lock);
+            });
+            drop(lock_root_within(&root, Duration::from_secs(5))?);
+            release.join().unwrap();
             drop(lock_root(&root)?);
             fs::remove_file(root.join(".owner.lock"))?;
             fs::write(root.join("other"), "preserve")?;

@@ -24,7 +24,11 @@ fn main() -> anyhow::Result<()> {
     if trame_local::isolated_mode() {
         config.root = trame_local::scratch_root(&config.root)?;
     } else {
-        drop(trame_local::pg::lock_root(&config.root)?);
+        // a relaunch right after quit waits for the old instance's PostgreSQL to stop
+        drop(trame_local::pg::lock_root_within(
+            &config.root,
+            std::time::Duration::from_secs(15),
+        )?);
     }
     let runtime = Arc::new(tokio::runtime::Runtime::new()?);
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
