@@ -48,6 +48,7 @@ import { Page } from "../page/Page";
 import { ClientView } from "../sessions/ClientView";
 import { BOOL_CODEC, useLocalStorage, appConfirm, ConfirmHost, ExpandIcon, setStatuses, statusStyle, EmptyState } from "../ui/ui";
 import { FRONTEND_PLUGINS, useCardFaces } from "../plugins";
+import { queryValues } from "../query";
 import { PluginsModal } from "../plugins/PluginsModal";
 import { PluginSettingsModal } from "../plugins/PluginSettingsModal";
 import { DatabaseView } from "../udb/DatabaseTable";
@@ -94,6 +95,7 @@ export function App() {
   const [sessionSort, setSessionSort] = useState<Sort[]>([{ key: "touched", dir: -1 }]);
   const [sessionQuery, setSessionQuery] = useState(params.get("q") ?? "");
   const faces = useCardFaces();
+  const sessionQueryValues = useMemo(() => board ? queryValues(board, faces) : {}, [board, faces]);
   const sortedBoard = useMemo(
     () => board ? sortSessionBoard(filterSessionBoard(board, sessionQuery, faces), sessionSort) : null,
     [board, sessionQuery, sessionSort, faces],
@@ -662,6 +664,7 @@ export function App() {
               onNoSpecs={() => setNoSpecs((v) => !v)}
               query={sessionQuery}
               onQuery={setSessionQuery}
+              values={sessionQueryValues}
               onClear={() => {
                 setStoryFilter([]);
                 setNoSpecs(false);

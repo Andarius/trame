@@ -26,6 +26,8 @@ export function parseQuery(q: string): { terms: Term[]; errors: string[] } {
   for (const m of q.matchAll(/(-?)(?:([a-z]+):)?(?:"([^"]*)"?|(\S+))/gi)) {
     const key = m[2]?.toLowerCase() ?? null;
     const raw = m[3] ?? m[4] ?? "";
+    // `status:` with no value yet is a key being typed, not a word to search
+    if (!key && raw.endsWith(":") && (QUERY_KEYS as readonly string[]).includes(raw.slice(0, -1).toLowerCase())) continue;
     if (key && !(QUERY_KEYS as readonly string[]).includes(key)) errors.push(`unknown key "${key}"`);
     const values = (key ? raw.split(",") : [raw]).map((v) => v.trim().toLowerCase()).filter(Boolean);
     if (values.length) terms.push({ neg: m[1] === "-", key, values });
@@ -133,4 +135,78 @@ export function filterSessions<S extends QuerySession>(
     }
   };
   return sessions.filter((s) => matchQuery(terms, fields(s)));
+}
+
+// Suggestions
+// one line per key for the query box's completion list
+export const KEY_HINTS: Record<(typeof QUERY_KEYS)[number], string> = {
+  status: "column", tag: "card or story tag", project: "project name", story: "story title", branch: "git branch",
+  repo: "repo path", agent: "claude, codex…", title: "card title", summary: "card summary", next: "next step",
+  assigner: "who handed you the card", touched: ">7d, <2026-09-01", has: "has a field", no: "lacks a field",
+};
+export const HAS_VALUES = ["pr", "specs", "branch", "next", "story", "project", "tags", "transcript", "assigner"];
+
+export type QueryValue = { value: string; hint?: string };
+export type Suggestion = { label: string; hint?: string; from: number; to: number; insert: string };
+
+// the values worth proposing after `key:`, read from the board the box filters
+export function queryValues(
+  board: QueryBoard & { sessions: QuerySession[] },
+  assigners: Assigners = {},
+): Record<string, QueryValue[]> {
+  const byId = pagesById(board.pages);
+  const uniq = (xs: (string | null | undefined)[]) =>
+    [...new Set(xs.filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b)).map((value) => ({ value }));
+  return {
+    status: board.statuses.map((s) => ({ value: s.key, hint: s.label })),
+    tag: uniq(board.sessions.flatMap((s) => sessionTagKeys(s, byId))),
+    project: uniq(board.projects.map((p) => p.name)),
+    story: uniq(board.sessions.map((s) => storyOf(s, byId)?.title)),
+    agent: uniq(board.sessions.map((s) => s.agent)),
+    assigner: uniq(Object.values(assigners).map((a) => a.name)),
+    has: HAS_VALUES.map((value) => ({ value })),
+  };
+}
+
+// completions for the token ending at `cursor`: a key while typing one, then its values
+export function suggestQuery(query: string, cursor: number, values: Record<string, QueryValue[]>): Suggestion[] {
+  if (/\S/.test(query[cursor] ?? "")) return []; // mid-word: stay out of the way
+  let start = 0, quoted = false;
+  for (let i = 0; i < cursor; i++) {
+    if (query[i] === '"') quoted = !quoted;
+    else if (!quoted && /\s/.test(query[i])) start = i + 1;
+  }
+  const token = query.slice(start, cursor);
+  const neg = token.startsWith("-") ? "-" : "";
+  const body = token.slice(neg.length);
+  const colon = body.indexOf(":");
+  if (colon < 0) {
+    const typed = body.toLowerCase();
+    if (!typed || typed.includes('"')) return [];
+    return QUERY_KEYS.filter((k) => k.startsWith(typed))
+      .map((k) => ({ label: `${k}:`, hint: KEY_HINTS[k], from: start, to: cursor, insert: `${neg}${k}:` }));
+  }
+  const key = body.slice(0, colon).toLowerCase();
+  const raw = body.slice(colon + 1);
+  const comma = raw.lastIndexOf(",");
+  // a quoted value is the whole value, so it never follows a comma
+  const fragment = (comma < 0 ? raw : raw.slice(comma + 1)).replace(/^"/, "").toLowerCase();
+  const from = start + neg.length + colon + 1 + (comma < 0 ? 0 : comma + 1);
+  const options = (values[key === "no" ? "has" : key] ?? [])
+    .filter((v) => v.value.toLowerCase().includes(fragment) && (comma < 0 || !/\s/.test(v.value)))
+    .sort((a, b) => Number(!a.value.toLowerCase().startsWith(fragment)) - Number(!b.value.toLowerCase().startsWith(fragment)));
+  return options.slice(0, 8).map((v) => ({
+    label: v.value,
+    hint: v.hint,
+    from,
+    to: cursor,
+    insert: `${/\s/.test(v.value) ? `"${v.value}"` : v.value} `,
+  }));
+}
+
+// the query with `s` applied, and where the caret goes
+export function applySuggestion(query: string, s: Suggestion): { query: string; cursor: number } {
+  const rest = query.slice(s.to);
+  const insert = s.insert.endsWith(" ") && rest.startsWith(" ") ? s.insert.trimEnd() : s.insert;
+  return { query: query.slice(0, s.from) + insert + rest, cursor: s.from + insert.length + (insert === s.insert ? 0 : 1) };
 }
