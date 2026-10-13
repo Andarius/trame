@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::process::Command;
 
-/// Moves the AppImage's FUSE runtime to its own scope, so a scope stop cannot unmount the image under the app.
+/// Moves the `AppImage` FUSE runtime to its own scope, so a scope stop cannot unmount the image under the app.
 pub(crate) fn detach_mount_runtime() {
     let Some(image) = std::env::var_os("APPIMAGE") else {
         return;
