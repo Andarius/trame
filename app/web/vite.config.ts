@@ -39,6 +39,8 @@ export default defineConfig(async ({ command }) => ({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    // served over loopback; the big chunks are lazy (excalidraw font subsetting is 1.8 MB)
+    chunkSizeWarningLimit: 2000,
     // excalidraw's editor lazily imports the mermaid converter (mermaid+katex+cytoscape,
     // ~5MB); we only use exportToSvg — keep it out of the embedded bundle
     rollupOptions: { external: [/@excalidraw\/mermaid-to-excalidraw/] },

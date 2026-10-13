@@ -57,6 +57,8 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev \
             libicu74 liburing2 libnuma1 libxml2 libldap2 libpam0g libzstd1 liblz4-1 libpq5
 
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
       - name: Prepare PostgreSQL 18 resources
         run: bash scripts/rust-package.sh prepare
 
@@ -146,10 +148,13 @@ jobs:
       - name: Build frontend
         run: cd app/web && npm ci && npm run build
 
-      - name: Rust toolchain and PostgreSQL 18 resources
-        run: |
-          rustup toolchain install  # reads rust-toolchain.toml
-          bash scripts/rust-package.sh prepare
+      - name: Rust toolchain
+        run: rustup toolchain install  # reads rust-toolchain.toml
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: PostgreSQL 18 resources
+        run: bash scripts/rust-package.sh prepare
 
       - name: Rust clippy and tests
         env:

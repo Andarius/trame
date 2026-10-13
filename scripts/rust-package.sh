@@ -18,7 +18,6 @@ deno run --allow-read --allow-env --config app/deno.json scripts/rust-cli-contra
 sha="$(git rev-parse --short HEAD 2>/dev/null || printf src)"
 dirty="$(git status --porcelain --untracked-files=normal 2>/dev/null || true)"
 export TRAME_BUILD="$sha${dirty:+-dirty}"
-export CARGO_HOME="${CARGO_HOME:-$PWD/.scratch/cargo-home}"
 if [[ "$mode" == cli ]]; then
     cargo build -p trame-cli --release --locked
     mkdir -p dist
