@@ -146,7 +146,7 @@ pub fn explore(path: &Path) -> Result<Value> {
             .collect()
     };
     Ok(
-        json!({"embedHosts":embed_hosts.iter().map(|h| h.to_lowercase()).collect::<Vec<_>>(),"paths":paths.iter().map(|s|expand(s).to_string_lossy().into_owned()).collect::<Vec<_>>(),"ignore":strings(&s["ignorePaths"])?,"starred":strings(&s["starredPaths"])?,"htmlFilter":if s["htmlFilter"]=="all"{"all"}else{"smart"},"source":if has_paths{"settings"}else{"env"},"hubApi":hub,"hubSource":source,"hubHasToken":token,"authorName":trim(s["authorName"].as_str().unwrap_or("")),"authorAvatar":trim(s["authorAvatar"].as_str().unwrap_or("")),"agentPresence":normalize_agent_presence(&s["agentPresence"])}),
+        json!({"paths":paths.iter().map(|s|expand(s).to_string_lossy().into_owned()).collect::<Vec<_>>(),"ignore":strings(&s["ignorePaths"])?,"starred":strings(&s["starredPaths"])?,"htmlFilter":if s["htmlFilter"]=="all"{"all"}else{"smart"},"source":if has_paths{"settings"}else{"env"},"hubApi":hub,"hubSource":source,"hubHasToken":token,"authorName":trim(s["authorName"].as_str().unwrap_or("")),"authorAvatar":trim(s["authorAvatar"].as_str().unwrap_or("")),"agentPresence":normalize_agent_presence(&s["agentPresence"]),"embedHosts":embed_hosts.iter().map(|h| h.to_lowercase()).collect::<Vec<_>>()}),
     )
 }
 
