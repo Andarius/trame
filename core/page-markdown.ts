@@ -23,9 +23,16 @@ export type PageEmbedBlock = {
   id: string;
 };
 
-export type PageBlock = PageTextBlock | PageFolderBlock | PageEmbedBlock;
-
 export const EMBED_DEFAULT_HEIGHT = 600;
+
+// A database shown at this point of the page, by id.
+export type PageDatabaseBlock = {
+  type: "database";
+  db_id: string;
+  id: string;
+};
+
+export type PageBlock = PageTextBlock | PageFolderBlock | PageEmbedBlock | PageDatabaseBlock;
 
 export type FolderView = "list" | "gallery";
 
@@ -41,6 +48,20 @@ const FOLDER_LINE =
 // `{{trame:height=<px>}}`.
 const EMBED_LINE =
   /^\s*\{\{trame:embed=([^{}\n]*)\}\}(?:[ \t]*\{\{trame:height=([^{}\n]*)\}\})?\s*$/;
+
+// A line that is nothing but `{{trame:db=<database id>}}`.
+const DATABASE_LINE = /^\s*\{\{trame:db=([^{}\n]*)\}\}\s*$/;
+
+export const isDatabaseBlock = (b: unknown): b is PageDatabaseBlock =>
+  typeof b === "object" && b !== null &&
+  (b as PageDatabaseBlock).type === "database";
+
+function databaseLine(line: string): PageDatabaseBlock | null {
+  const dbId = line.match(DATABASE_LINE)?.[1].trim();
+  return dbId ? { type: "database", db_id: dbId, id: crypto.randomUUID() } : null;
+}
+
+export const databaseMarkup = (b: PageDatabaseBlock): string => `{{trame:db=${b.db_id}}}`;
 
 export const isFolderBlock = (b: unknown): b is PageFolderBlock =>
   typeof b === "object" && b !== null &&
@@ -108,8 +129,8 @@ const block = (
 });
 
 // Inverse of markdownToPageBlocks, for agent reads of a page (e.g. a session's spec
-// page). Folder and embed blocks round-trip as their one line; the other structural blocks
-// (database/subpage/html) have no text form and are skipped.
+// page). Folder, embed and database blocks round-trip as their one line; the other
+// structural blocks (subpage/html) have no text form and are skipped.
 export function pageBlocksToMarkdown(blocks: unknown[]): string {
   const parts: string[] = [];
   let prevTodo = false;
@@ -123,6 +144,11 @@ export function pageBlocksToMarkdown(blocks: unknown[]): string {
     if (isEmbedBlock(raw)) {
       prevTodo = false;
       if (raw.url) parts.push(embedMarkup(raw));
+      continue;
+    }
+    if (isDatabaseBlock(raw)) {
+      prevTodo = false;
+      if (raw.db_id) parts.push(databaseMarkup(raw));
       continue;
     }
     if (b.type === "todo") {
@@ -186,6 +212,14 @@ export function markdownToPageBlocks(
     if (embed) {
       flush();
       out.push(embed);
+      firstContent = false;
+      continue;
+    }
+
+    const database = databaseLine(line);
+    if (database) {
+      flush();
+      out.push(database);
       firstContent = false;
       continue;
     }

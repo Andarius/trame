@@ -36,7 +36,7 @@ import { IconPicker } from "../udb/cells";
 import { useFocusedBlock } from "../ui/due";
 import { PAGE_STATUSES } from "../../../../core/page-status.ts";
 import { useAgents } from "../agents/agents";
-import { DatabaseView } from "../udb/DatabaseTable";
+import { PageDatabase } from "./PageDatabase";
 import { FRONTEND_PLUGINS, useCardFaces } from "../plugins";
 import { queryValues } from "../query";
 import { markRoleOf } from "../../../../core/mark-roles.ts";
@@ -125,12 +125,14 @@ export function Page(
     );
     if (kind === "subpage") newSubpage();
     else {
-      createUdb("Untitled").then((r) => attachUdbToPage(r.id, pageId)).then(
-        () => {
-          reload();
-          onChanged();
-        },
-      );
+      createUdb("Untitled").then(async (r) => {
+        await attachUdbToPage(r.id, pageId);
+        const cur = blocksRef.current;
+        const at = Math.min(replaceIdx, cur.length);
+        changeBlocks([...cur.slice(0, at), { type: "database", db_id: r.id, id: genId() }, ...cur.slice(at)]);
+        reload();
+        onChanged();
+      });
     }
   };
 
@@ -159,6 +161,8 @@ export function Page(
   }
   // on a story, its cards' spec pages render as the cards themselves
   const specIds = new Set(isStory ? subtreeSessions.map((s) => s.specs_page_id).filter(Boolean) as string[] : []);
+  // databases a {{trame:db=…}} block places in the flow; the rest list at the end
+  const placedDbs = new Set(blocks.flatMap((b) => (b.type === "database" ? [b.db_id] : [])));
   // a card already shown as a chip on one of this page's todos isn't listed again
   const todoIds = new Set(blocks.flatMap((b) => (b.type === "todo" && b.id ? [b.id] : [])));
   const chipped = new Set(
@@ -488,6 +492,15 @@ export function Page(
             flash={flash ?? focused}
             meId={meId}
             onToggleThread={toggleThread}
+            renderDatabase={(dbId, dragHandle) => (
+              <PageDatabase
+                dbId={dbId}
+                udbs={udbs}
+                fallback={page.databases.find((d) => d.id === dbId)}
+                className="-ml-3 my-2"
+                handle={dragHandle}
+              />
+            )}
           />
 
           {linkPick && (
@@ -549,23 +562,8 @@ export function Page(
 
           <OrphanComments cv={cv} meId={meId} />
 
-          {page.databases.map((d) => (
-            // breakout: attached databases use the pane's width (100cqw minus the
-            // px-8 gutters), not the 820px text column
-            <div
-              key={d.id}
-              className="relative left-1/2 flex w-[min(1400px,100cqw_-_4rem)] -translate-x-1/2 flex-col gap-1"
-            >
-              <div className="flex items-center gap-1.5 text-[12.5px] font-semibold text-ink">
-                <EntityIcon
-                  icon={d.icon}
-                  fallback="⌗"
-                  className="text-ink-muted"
-                />
-                {d.name}
-              </div>
-              <DatabaseView dbId={d.id} epoch={0} udbs={udbs} />
-            </div>
+          {page.databases.filter((d) => !placedDbs.has(d.id)).map((d) => (
+            <PageDatabase key={d.id} dbId={d.id} udbs={udbs} fallback={d} />
           ))}
 
           <div className="flex flex-col gap-0.5">

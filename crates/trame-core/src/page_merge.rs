@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use serde_json::Value;
 
 use crate::{
-    page_markdown::{is_embed_block, is_folder_block},
+    page_markdown::{is_database_block, is_embed_block, is_folder_block},
     todo_marks::{carry_marks, strip_marks},
     trim,
 };
@@ -14,6 +14,15 @@ fn text_like(block: &Value) -> bool {
         Some("text" | "heading" | "todo")
     )
 }
+
+type LineKind = (fn(&Value) -> bool, &'static str);
+
+// blocks the dialect writes as one line, with the field their id is reused by first
+const LINE_KINDS: [LineKind; 3] = [
+    (is_folder_block, "path"),
+    (is_database_block, "db_id"),
+    (is_embed_block, "url"),
+];
 
 pub fn merge_page_blocks(existing: &[Value], next: &[Value]) -> Vec<Value> {
     let mut pool: HashMap<String, VecDeque<(&str, &str)>> = HashMap::new();
@@ -27,32 +36,28 @@ pub fn merge_page_blocks(existing: &[Value], next: &[Value]) -> Vec<Value> {
                 .push_back((id, text));
         }
     }
-    let rewrites_folders = next.iter().any(is_folder_block);
-    let rewrites_embeds = next.iter().any(is_embed_block);
-    let folders = existing
+    // each line kind is rewritten as a whole only when the rewrite carries one
+    let rewritten = LINE_KINDS
         .iter()
-        .filter(|b| is_folder_block(b) && b.get("id").is_some_and(Value::is_string))
-        .collect::<Vec<_>>();
-    let embeds = existing
-        .iter()
-        .filter(|b| is_embed_block(b) && b.get("id").is_some_and(Value::is_string))
+        .filter(|(is, _)| next.iter().any(is))
+        .map(|(is, _)| *is)
         .collect::<Vec<_>>();
     let mut claimed = HashSet::new();
     let merged = next
         .iter()
         .map(|b| {
             let mut out = b.clone();
-            if is_folder_block(b) || is_embed_block(b) {
-                let (pool, key) = if is_folder_block(b) {
-                    (&folders, "path")
-                } else {
-                    (&embeds, "url")
+            if let Some((is, key)) = LINE_KINDS.iter().find(|(is, _)| is(b)) {
+                let free = |f: &&Value| {
+                    is(f)
+                        && f.get("id")
+                            .and_then(Value::as_str)
+                            .is_some_and(|id| !claimed.contains(id))
                 };
-                let free = |f: &&&Value| !claimed.contains(f["id"].as_str().unwrap());
-                let hit = pool
+                let hit = existing
                     .iter()
-                    .find(|f| free(f) && f.get(key) == b.get(key))
-                    .or_else(|| pool.iter().find(free));
+                    .find(|f| free(f) && f.get(*key) == b.get(*key))
+                    .or_else(|| existing.iter().find(free));
                 if let Some(hit) = hit {
                     let id = hit["id"].as_str().unwrap();
                     claimed.insert(id);
@@ -89,7 +94,7 @@ pub fn merge_page_blocks(existing: &[Value], next: &[Value]) -> Vec<Value> {
             }
             continue;
         }
-        if (rewrites_folders && is_folder_block(b)) || (rewrites_embeds && is_embed_block(b)) {
+        if rewritten.iter().any(|is| is(b)) {
             continue;
         }
         groups.entry(anchor).or_default().push(b.clone());

@@ -184,3 +184,31 @@ Deno.test("a rewrite carrying an embed line keeps the block's id; other embeds d
     { type: "embed", url: "https://a.example.com/", height: 800, id: "b1" },
   ]);
 });
+
+const database = (db_id: string, id: string) => ({ type: "database", db_id, id });
+
+Deno.test("a rewrite moving a database line keeps its block id", () => {
+  const out = mergePageBlocks(
+    [
+      { type: "heading", text: "Intro", id: "b1" },
+      { type: "heading", text: "Decision", id: "b2" },
+      database("db-1", "b3"),
+      database("db-2", "b4"),
+    ],
+    markdownToPageBlocks("## Intro\n\n{{trame:db=db-2}}\n\n## Decision"),
+  );
+  assertEquals(out, [
+    { type: "heading", text: "Intro", id: "b1" },
+    database("db-2", "b4"),
+    { type: "heading", text: "Decision", id: "b2" },
+  ]);
+});
+
+Deno.test("a rewrite with only a folder line leaves the page's databases in place", () => {
+  const out = mergePageBlocks(
+    [{ type: "heading", text: "Data", id: "b1" }, database("db-1", "b2")],
+    markdownToPageBlocks("## Data\n\n{{trame:folder=~/reports}}"),
+  );
+  assertEquals(out[1], database("db-1", "b2"));
+  assertEquals(out.length, 3);
+});

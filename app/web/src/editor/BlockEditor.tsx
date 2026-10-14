@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
 import { type Block, type PageComment, type SessionLink, uploadAsset } from "../api";
 import { clearSelection, statusStyle } from "../ui/ui";
 import type { ItemLink } from "../md/md-types";
@@ -48,6 +48,7 @@ export function BlockEditor(
     links,
     onOpenSession,
     onLinkItem,
+    renderDatabase,
   }: {
     blocks: Block[];
     onChange: (blocks: Block[]) => void;
@@ -66,6 +67,8 @@ export function BlockEditor(
     links?: SessionLink[];
     onOpenSession?: (id: string) => void;
     onLinkItem?: (blockId: string, item: string) => void;
+    // a {{trame:db=…}} block's database; without it the block stays invisible
+    renderDatabase?: (dbId: string, dragHandle: ReactNode) => ReactNode;
   },
 ) {
   const refs = useRef<(HTMLTextAreaElement | null)[]>([]);
@@ -712,8 +715,11 @@ export function BlockEditor(
             </Fragment>
           );
         }
+        if (b.type === "database" && renderDatabase) {
+          return <Fragment key={b.id ?? i}>{dragRow(i, renderDatabase(b.db_id, dragHandle(i)), true)}</Fragment>;
+        }
         if (!isText(b)) {
-          // database/subpage markers live in the flow but render as the page sections below
+          // subpage markers live in the flow but render as the page sections below
           return null;
         }
         return (

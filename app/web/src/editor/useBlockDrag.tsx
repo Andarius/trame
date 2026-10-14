@@ -42,7 +42,7 @@ export function useBlockDrag(
       }}
       // z-20: a card that grows into the margins (wide table, graph) would cover it
       className={`absolute left-0.5 top-[2px] z-20 w-[18px] overflow-hidden py-1 text-center cursor-grab select-none text-[13px] leading-none text-ink-muted hover:text-ink ${
-        dragIdx === null ? "hidden group-hover:block" : "block"
+        dragIdx === null ? "hidden group-hover:block group-hover/block:block" : "block"
       }`}
     >
       ⋮⋮
@@ -51,20 +51,24 @@ export function useBlockDrag(
   // a bar on the edge the block would land on — moveTo drops it below the row
   // when dragged downwards, above it when dragged up
   const dropClass = (i: number) =>
-    overIdx !== i || dragIdx === null || dragIdx === i
+    dragIdx === i
+      ? "opacity-40" // the block being dragged
+      : overIdx !== i || dragIdx === null
       ? ""
       : dragIdx < i
       ? "shadow-[0_2px_0_0_#c98a63]"
       : "shadow-[0_-2px_0_0_#c98a63]";
   // handle + drop target for blocks that render no text row of their own
-  const dragRow = (i: number, child: ReactNode) => (
+  // ownHandle: the child places dragHandle(i) itself (a full-width embed covers the gutter)
+  const dragRow = (i: number, child: ReactNode, ownHandle = false) => (
     <div
-      className={`group relative pl-6 ${dropClass(i)}`}
+      // a named group: an embedded database's own group-hover styles must not fire for the whole block
+      className={`group/block relative pl-6 ${dropClass(i)}`}
       onMouseMove={() => {
         if (dragIdx !== null && overIdx !== i) setOverIdx(i);
       }}
     >
-      {dragHandle(i)}
+      {!ownHandle && dragHandle(i)}
       {child}
     </div>
   );

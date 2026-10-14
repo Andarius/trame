@@ -60,7 +60,8 @@ into plain prose. `tramecli page --help` carries the full dialect; the essential
 - GFM tables render as interactive cards, full PR/MR URLs as live PR chips,
   `![alt](url)` as an inline image, `{{trame:folder=…}}` as a directory listing,
   `{{trame:embed=<https-url>}}` (+ optional `{{trame:height=<px>}}`, default 600) as a live
-  iframe — only for hosts allowlisted in Settings › Embeds.
+  iframe — only for hosts allowlisted in Settings › Embeds, and
+  `{{trame:db=<id>}}` as that database, in place.
 - No raw HTML or entities — write Unicode characters (·, —, …) directly.
 
 ````markdown

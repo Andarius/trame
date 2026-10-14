@@ -13,6 +13,12 @@ static EMBED: LazyLock<Regex> = LazyLock::new(|| {
 });
 static SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(JS_SPACE).unwrap());
 static HEIGHT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9]{1,4}$").unwrap());
+static DATABASE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(&format!(
+        r"^{JS_SPACE}*\{{\{{trame:db=([^{{}}\n]*)\}}\}}{JS_SPACE}*$"
+    ))
+    .unwrap()
+});
 static HEADING: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(
         r"^(#{{1,6}}){JS_SPACE}+([^\r\n\u{{2028}}\u{{2029}}]+?){JS_SPACE}*#*{JS_SPACE}*$"
@@ -32,6 +38,18 @@ static FENCE_END: LazyLock<Regex> =
 
 pub fn is_folder_block(block: &Value) -> bool {
     block.get("type").and_then(Value::as_str) == Some("folder")
+}
+
+pub fn is_database_block(block: &Value) -> bool {
+    block.get("type").and_then(Value::as_str) == Some("database")
+}
+
+pub fn database_markup(block: &Value) -> String {
+    let id = block
+        .get("db_id")
+        .map(js_string)
+        .unwrap_or_else(|| "undefined".into());
+    format!("{{{{trame:db={id}}}}}")
 }
 
 pub fn folder_markup(block: &Value) -> String {
@@ -183,6 +201,15 @@ pub fn markdown_to_page_blocks(
             first_content = false;
             continue;
         }
+        if let Some(m) = DATABASE.captures(line).filter(|m| !trim(&m[1]).is_empty()) {
+            flush(&mut buf, &mut out);
+            let mut block = Map::new();
+            block.insert("type".into(), Value::String("database".into()));
+            block.insert("db_id".into(), Value::String(trim(&m[1]).to_owned()));
+            out.push(Value::Object(block));
+            first_content = false;
+            continue;
+        }
         if let Some(m) = HEADING.captures(line) {
             flush(&mut buf, &mut out);
             let text = trim(&m[2]);
@@ -248,6 +275,13 @@ pub fn page_blocks_to_markdown(blocks: &[Value]) -> Result<String, String> {
             prev_todo = false;
             if b.get("url").is_some_and(truthy) {
                 parts.push(embed_markup(b));
+            }
+            continue;
+        }
+        if is_database_block(b) {
+            prev_todo = false;
+            if b.get("db_id").is_some_and(truthy) {
+                parts.push(database_markup(b));
             }
             continue;
         }

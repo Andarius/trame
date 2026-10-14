@@ -205,3 +205,15 @@ Deno.test("embed blocks round-trip, the default height staying implicit", () => 
   // a half-configured block (the editor creates one with an empty url) has no line
   assertEquals(pageBlocksToMarkdown([{ type: "embed", url: "" }]), "");
 });
+
+Deno.test("a lone {{trame:db=...}} line becomes a database block and round-trips", () => {
+  const markdown = "## Decision\n\n{{trame:db=db-1}}\n\nInline {{trame:db=db-2}} stays text.\n";
+  const blocks = markdownToPageBlocks(`${markdown}\n{{trame:db= }}`);
+  assertEquals(withoutIds(blocks), [
+    { type: "heading", text: "Decision" },
+    { type: "database", db_id: "db-1" },
+    { type: "text", text: "Inline {{trame:db=db-2}} stays text." },
+    { type: "text", text: "{{trame:db= }}" },
+  ]);
+  assertEquals(pageBlocksToMarkdown(blocks.slice(0, 3)), markdown);
+});

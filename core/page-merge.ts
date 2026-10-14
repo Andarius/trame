@@ -1,8 +1,9 @@
-import type { PageBlock, PageEmbedBlock, PageFolderBlock } from "./page-markdown.ts";
-import { isEmbedBlock, isFolderBlock } from "./page-markdown.ts";
+import type { PageBlock, PageDatabaseBlock, PageEmbedBlock, PageFolderBlock, PageTextBlock } from "./page-markdown.ts";
+import { isDatabaseBlock, isEmbedBlock, isFolderBlock } from "./page-markdown.ts";
 import { carryMarks, stripMarks } from "./todo-marks.ts";
 
 type AnyBlock = Record<string, unknown>;
+type LineBlock = PageFolderBlock | PageDatabaseBlock | PageEmbedBlock;
 
 const TEXT_TYPES = new Set(["text", "heading", "todo"]);
 
@@ -16,7 +17,8 @@ const isTextLike = (b: unknown): b is AnyBlock =>
 // marks still pairs up — and the surviving block keeps them. Duplicate texts pair
 // in document order. Non-text blocks (database/subpage/html/...) are never dropped:
 // each re-attaches after the nearest preceding text block whose id survived (page
-// head otherwise). Folder and embed blocks are the exception — the dialect can write them.
+// head otherwise). Folder, database and embed blocks are the exception — the dialect
+// can write them.
 export function mergePageBlocks(
   existing: unknown[],
   next: PageBlock[],
@@ -31,34 +33,39 @@ export function mergePageBlocks(
     else pool.set(key, [{ id: b.id, text: b.text }]);
   }
 
-  // A rewrite that carries a folder (or embed) line is authoritative for every block
-  // of that type on the page; one that carries none leaves them all in place (older
-  // writers, and partial rewrites, never expressed them). Ids are reused by path (url)
-  // first, then in document order, so an edited path keeps its comments.
-  type Keyed = PageFolderBlock | PageEmbedBlock;
-  const keyOf = (b: Keyed) => b.type === "folder" ? b.path : b.url;
-  const isKeyed = (b: unknown): b is Keyed => isFolderBlock(b) || isEmbedBlock(b);
-  const rewrites = new Set(next.filter(isKeyed).map((b) => b.type));
-  const keyed = existing.filter((b): b is Keyed => isKeyed(b) && typeof b.id === "string");
+  // A rewrite that carries a folder (database, embed) line is authoritative for every
+  // block of that kind on the page; one that carries none leaves them in place (older
+  // writers, and partial rewrites, never expressed them). Ids are reused by path
+  // (db_id, url) first, then in document order, so an edited line keeps its comments.
+  const lineKinds = [
+    { is: isFolderBlock, key: "path" },
+    { is: isDatabaseBlock, key: "db_id" },
+    { is: isEmbedBlock, key: "url" },
+  ] as const;
+  const rewritten = lineKinds.filter((k) => next.some(k.is));
   const claimed = new Set<string>();
-  const claim = (b: Keyed): string | null => {
-    const free = (f: Keyed) => f.type === b.type && !claimed.has(f.id);
-    const hit = keyed.find((f) => free(f) && keyOf(f) === keyOf(b)) ??
-      keyed.find(free);
-    if (!hit) return null;
+  const claimLine = (b: LineBlock, kind: (typeof lineKinds)[number]): string | null => {
+    const free = (f: unknown): f is LineBlock =>
+      kind.is(f) && typeof f.id === "string" && !claimed.has(f.id);
+    const key = (f: LineBlock) => (f as Record<string, unknown>)[kind.key];
+    const hit = existing.find((f) => free(f) && key(f) === key(b)) ??
+      existing.find(free);
+    if (!free(hit)) return null;
     claimed.add(hit.id);
     return hit.id;
   };
 
   // next is authoritative for order, type, done, indent; ids and marks are reused
   const merged = next.map((b) => {
-    if (isKeyed(b)) {
-      const id = claim(b);
+    const kind = lineKinds.find((k) => k.is(b));
+    if (kind) {
+      const id = claimLine(b as LineBlock, kind);
       return id ? { ...b, id } : b;
     }
-    const prev = pool.get(stripMarks(b.text).trim())?.shift();
+    const t = b as PageTextBlock;
+    const prev = pool.get(stripMarks(t.text).trim())?.shift();
     return prev
-      ? { ...b, id: prev.id, text: carryMarks(prev.text, b.text) }
+      ? { ...t, id: prev.id, text: carryMarks(prev.text, t.text) }
       : b;
   });
 
@@ -70,7 +77,7 @@ export function mergePageBlocks(
       if (typeof b.id === "string" && survived.has(b.id)) anchor = b.id;
       continue;
     }
-    if (isKeyed(b) && rewrites.has(b.type)) continue;
+    if (rewritten.some((k) => k.is(b))) continue;
     const g = groups.get(anchor);
     if (g) g.push(b);
     else groups.set(anchor, [b]);

@@ -512,3 +512,56 @@ fn todo_marks_typescript_assertions() {
         "no marks here"
     );
 }
+
+fn database(db_id: &str, id: &str) -> Value {
+    json!({"type":"database","db_id":db_id,"id":id})
+}
+
+#[test]
+fn database_line_assertions() {
+    // app/page_markdown_test.ts — lone db lines become blocks and round-trip.
+    let input = "## Decision\n\n{{trame:db=db-1}}\n\nInline {{trame:db=db-2}} stays text.\n";
+    let blocks = markdown(&format!("{input}\n{{{{trame:db= }}}}"), "");
+    assert_eq!(
+        without_ids(&blocks),
+        json!([
+            {"type":"heading","text":"Decision"},
+            {"type":"database","db_id":"db-1"},
+            {"type":"text","text":"Inline {{trame:db=db-2}} stays text."},
+            {"type":"text","text":"{{trame:db= }}"}
+        ])
+    );
+    assert_eq!(
+        page_markdown::page_blocks_to_markdown(&blocks[..3]).unwrap(),
+        input
+    );
+
+    // app/page_merge_test.ts — a moved database line keeps its id, the other drops.
+    assert_eq!(
+        page_merge::merge_page_blocks(
+            &[
+                json!({"type":"heading","text":"Intro","id":"b1"}),
+                json!({"type":"heading","text":"Decision","id":"b2"}),
+                database("db-1", "b3"),
+                database("db-2", "b4"),
+            ],
+            &markdown("## Intro\n\n{{trame:db=db-2}}\n\n## Decision", "")
+        ),
+        vec![
+            json!({"type":"heading","text":"Intro","id":"b1"}),
+            database("db-2", "b4"),
+            json!({"type":"heading","text":"Decision","id":"b2"}),
+        ]
+    );
+
+    // app/page_merge_test.ts — a folder-only rewrite leaves databases in place.
+    let out = page_merge::merge_page_blocks(
+        &[
+            json!({"type":"heading","text":"Data","id":"b1"}),
+            database("db-1", "b2"),
+        ],
+        &markdown("## Data\n\n{{trame:folder=~/reports}}", ""),
+    );
+    assert_eq!(out.len(), 3);
+    assert_eq!(out[1], database("db-1", "b2"));
+}

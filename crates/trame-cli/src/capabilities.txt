@@ -49,8 +49,10 @@ listing of that directory (`{{trame:view=gallery}}` after it shows HTML files as
 thumbnails) — the path must sit under one of Trame's Explore roots, or the block
 lists nothing; a line that is only `{{trame:embed=<https-url>}}` (optional
 `{{trame:height=<px>}}` after it, default 600) shows that page live in an iframe —
-the host must be in Settings › Embeds (embedHosts), or the block shows a placeholder.
-A leading `# Title` equal to the page title is dropped. No raw
+the host must be in Settings › Embeds (embedHosts), or the block shows a placeholder;
+a line that is only `{{trame:db=<database id>}}` shows that database there, with
+its views and tabs (a database attached to the page but placed by no such line
+renders at the end). A leading `# Title` equal to the page title is dropped. No raw
 HTML or HTML entities — `&middot;` renders literally; write Unicode characters
 (·, —, …) directly.
 

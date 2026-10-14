@@ -567,7 +567,7 @@ export type Block =
     indent?: number;
     id?: string;
   }
-  | { type: "database"; db_id: string }
+  | { type: "database"; db_id: string; id?: string }
   | { type: "subpage"; page_id: string }
   | { type: "folder"; path: string; view?: "list" | "gallery"; id?: string }
   | { type: "embed"; url: string; height?: number; id?: string }
