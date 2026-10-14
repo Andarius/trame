@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import type { Block } from "../api";
 import { isText } from "./editor-text";
 
-// a block row wider than the text column, centred on it (wide graphs and tables)
+// a block row wider than the text column, centred on it (wide graphs, tables, databases)
 export const spanStyle = (w: string) => ({ width: w, marginLeft: `calc((100% - ${w}) / 2)` });
 
 export function useBlockDrag(
@@ -15,6 +15,13 @@ export function useBlockDrag(
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
   const [tabDrag, setTabDrag] = useState<number | null>(null); // heading block being dragged along its strip
+  // a block dragged in from outside the editor (a database listed at the page end):
+  // dragIdx is -1 while it moves, and it lands below the row it is dropped on
+  const [inserting, setInserting] = useState<Block | null>(null);
+  const startInsert = (b: Block) => {
+    setInserting(b);
+    setDragIdx(-1);
+  };
   const moveTo = (from: number, to: number) => {
     if (from === to) return;
     // a heading drags its whole section (every block up to the next heading)
@@ -61,35 +68,40 @@ export function useBlockDrag(
       : dragIdx < i
       ? "shadow-[0_2px_0_0_#c98a63]"
       : "shadow-[0_-2px_0_0_#c98a63]";
-  // handle + drop target for blocks that render no text row of their own
-  // ownHandle: the child places dragHandle(i) itself (a full-width embed covers the gutter)
-  const dragRow = (i: number, child: ReactNode, ownHandle = false) => (
+  // handle + drop target for blocks that render no text row of their own;
+  // span widens the row past the text column (a database)
+  const dragRow = (i: number, child: ReactNode, span?: string) => (
     <div
       // a named group: an embedded database's own group-hover styles must not fire for the whole block
       className={`group/block relative pl-6 ${dropClass(i)}`}
+      style={span ? spanStyle(span) : undefined}
       onMouseMove={() => {
         if (dragIdx !== null && overIdx !== i) setOverIdx(i);
       }}
     >
-      {!ownHandle && dragHandle(i)}
+      {dragHandle(i)}
       {child}
     </div>
   );
   useEffect(() => {
     if (dragIdx === null) return;
     const up = () => {
-      if (overIdx !== null) moveTo(dragIdx, overIdx);
+      if (overIdx !== null && dragIdx === -1 && inserting) {
+        snapshot();
+        onChange([...blocks.slice(0, overIdx + 1), inserting, ...blocks.slice(overIdx + 1)]);
+      } else if (overIdx !== null && dragIdx >= 0) moveTo(dragIdx, overIdx);
       setDragIdx(null);
       setOverIdx(null);
+      setInserting(null);
     };
     document.addEventListener("mouseup", up);
     return () => document.removeEventListener("mouseup", up);
-  }, [dragIdx, overIdx, blocks]);
+  }, [dragIdx, overIdx, blocks, inserting]);
   useEffect(() => {
     if (tabDrag === null) return;
     const up = () => setTabDrag(null);
     document.addEventListener("mouseup", up);
     return () => document.removeEventListener("mouseup", up);
   }, [tabDrag]);
-  return { dragIdx, overIdx, setOverIdx, tabDrag, setTabDrag, dragHandle, dropClass, dragRow };
+  return { dragIdx, overIdx, setOverIdx, tabDrag, setTabDrag, dragHandle, dropClass, dragRow, startInsert };
 }

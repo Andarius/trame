@@ -139,6 +139,8 @@ export function Page(
   const finished = useFinishedCards(
     board.sessions.filter((s) => !statusStyle(s.status).terminal && inSubtree(s, pageId, pagesById(board.pages))),
   );
+  // a database listed at the end, being dragged into the page text
+  const [dragDb, setDragDb] = useState<Block | null>(null);
   if (!page) return <EmptyState page>Loading…</EmptyState>;
   const client = board.projects.find((c) => c.id === page.client_id);
   const isProject = page.kind === "project";
@@ -492,15 +494,17 @@ export function Page(
             flash={flash ?? focused}
             meId={meId}
             onToggleThread={toggleThread}
-            renderDatabase={(dbId, dragHandle) => (
+            renderDatabase={(dbId) => (
               <PageDatabase
                 dbId={dbId}
                 udbs={udbs}
                 fallback={page.databases.find((d) => d.id === dbId)}
-                className="-ml-3 my-2"
-                handle={dragHandle}
+                placed
+                className="my-2"
               />
             )}
+            insertDrag={dragDb}
+            onInsertStarted={() => setDragDb(null)}
           />
 
           {linkPick && (
@@ -563,7 +567,13 @@ export function Page(
           <OrphanComments cv={cv} meId={meId} />
 
           {page.databases.filter((d) => !placedDbs.has(d.id)).map((d) => (
-            <PageDatabase key={d.id} dbId={d.id} udbs={udbs} fallback={d} />
+            <PageDatabase
+              key={d.id}
+              dbId={d.id}
+              udbs={udbs}
+              fallback={d}
+              onDragIn={() => setDragDb({ type: "database", db_id: d.id, id: genId() })}
+            />
           ))}
 
           <div className="flex flex-col gap-0.5">

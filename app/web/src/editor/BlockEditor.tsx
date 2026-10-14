@@ -49,6 +49,8 @@ export function BlockEditor(
     onOpenSession,
     onLinkItem,
     renderDatabase,
+    insertDrag,
+    onInsertStarted,
   }: {
     blocks: Block[];
     onChange: (blocks: Block[]) => void;
@@ -68,7 +70,10 @@ export function BlockEditor(
     onOpenSession?: (id: string) => void;
     onLinkItem?: (blockId: string, item: string) => void;
     // a {{trame:db=…}} block's database; without it the block stays invisible
-    renderDatabase?: (dbId: string, dragHandle: ReactNode) => ReactNode;
+    renderDatabase?: (dbId: string) => ReactNode;
+    // a block the page started dragging in from outside (a database listed at its end)
+    insertDrag?: Block | null;
+    onInsertStarted?: () => void;
   },
 ) {
   const refs = useRef<(HTMLTextAreaElement | null)[]>([]);
@@ -463,7 +468,13 @@ export function BlockEditor(
     dragHandle,
     dropClass,
     dragRow,
+    startInsert,
   } = useBlockDrag(blocks, snapshot, onChange);
+  useEffect(() => {
+    if (!insertDrag) return;
+    startInsert(insertDrag);
+    onInsertStarted?.();
+  }, [insertDrag]);
   // a comment target picked in place (💬 on a table row or a text selection),
   // awaiting its body
   const [pendingNote, setPendingNote] = useState(
@@ -716,7 +727,7 @@ export function BlockEditor(
           );
         }
         if (b.type === "database" && renderDatabase) {
-          return <Fragment key={b.id ?? i}>{dragRow(i, renderDatabase(b.db_id, dragHandle(i)), true)}</Fragment>;
+          return <Fragment key={b.id ?? i}>{dragRow(i, renderDatabase(b.db_id), "min(1400px, 100cqw - 4rem)")}</Fragment>;
         }
         if (!isText(b)) {
           // subpage markers live in the flow but render as the page sections below
