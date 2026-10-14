@@ -9,9 +9,25 @@
 //
 //     The API inserts it and NOTIFYs a worker.
 //     > What the console shows while it happens.
+//
+// Groups, tones and styles (optional):
+//
+//   style sketch                      // plain (default) | workshop | sketch | neon
+//   group ops[saas-ops|platform]#bad: sec, ci
+//   ci[CI runners]#warn ..> pg : option B #bad   // ..> is dashed
 
-export type GNode = { id: string; title: string; sub?: string };
-export type GEdge = { from: string; to: string; label?: string };
+export type Tone = "bad" | "warn" | "good";
+export const GRAPH_STYLES = ["plain", "workshop", "sketch", "neon"] as const;
+export type GraphStyle = (typeof GRAPH_STYLES)[number];
+export type GNode = { id: string; title: string; sub?: string; tone?: Tone };
+export type GEdge = {
+  from: string;
+  to: string;
+  label?: string;
+  dashed?: boolean;
+  tone?: Tone;
+};
+export type GGroup = GNode & { members: string[] };
 export type GStep = {
   title: string;
   nodes: string[];
@@ -24,27 +40,49 @@ export type Graph = {
   edges: GEdge[];
   steps: GStep[];
   columns: GNode[][];
+  // the group a column draws, parallel to `columns` (undefined: ungrouped ranks)
+  columnGroups: (GGroup | undefined)[];
+  groups: GGroup[];
+  style: GraphStyle;
+  wide: boolean; // a `wide` line: the block spans the page, not the text column
+  width?: number; // a `width <px>` line: dragged wider than the text column
 };
 
-const EDGE = /^([A-Za-z0-9_.-]+(?:\[[^\]]*\])?)\s*->\s*(.+)$/;
-const NODE = /^([A-Za-z0-9_.-]+)(?:\[([^\]]*)\])?\s*(?::\s*(.*))?$/;
+const EDGE = /^([A-Za-z0-9_.-]+(?:\[[^\]]*\])?(?:#\w+)?)\s*(->|\.\.>)\s*(.+)$/;
+const NODE = /^([A-Za-z0-9_.-]+)(?:\[([^\]]*)\])?(?:#(\w+))?\s*(?::\s*(.*))?$/;
 const STEP = /^step\s+([^:]+):\s*(.*)$/i;
+const GROUP =
+  /^group\s+([A-Za-z0-9_.-]+)(?:\[([^\]]*)\])?(?:#(\w+))?\s*:\s*(.*)$/i;
+const STYLE = /^style\s+(plain|workshop|sketch|neon)\s*$/i;
+const WIDE = /^wide$/i;
+const WIDTH = /^width\s+(\d+)$/i;
+const TONES = new Set(["bad", "warn", "good"]);
+const toneOf = (t?: string): Tone | undefined =>
+  t && TONES.has(t.toLowerCase()) ? (t.toLowerCase() as Tone) : undefined;
+// a trailing `#bad` on an edge tones it; `#123` stays text
+const TAIL_TONE = /\s*#(bad|warn|good)\s*$/i;
 
 export function parseGraph(src: string): Graph | null {
   const nodes = new Map<string, GNode>();
   const edges: GEdge[] = [];
   const steps: GStep[] = [];
+  const groups: GGroup[] = [];
+  let style: GraphStyle = "plain";
+  let wide = false;
+  let width: number | undefined;
   // declares or updates a node, and returns its id plus the trailing edge label
   const take = (spec: string): [string, string | undefined] | null => {
     const m = spec.trim().match(NODE);
     if (!m) return null;
-    const [, id, label, edgeLabel] = m;
+    const [, id, label, tone, edgeLabel] = m;
     const [title, sub] = (label ?? "").split("|");
     const prev = nodes.get(id);
+    const t = toneOf(tone) ?? prev?.tone;
     nodes.set(id, {
       id,
       title: title?.trim() || prev?.title || id,
       sub: sub?.trim() || prev?.sub,
+      ...(t ? { tone: t } : {}),
     });
     return [id, edgeLabel?.trim() || undefined];
   };
@@ -86,16 +124,81 @@ export function parseGraph(src: string): Graph | null {
     }
     para = false;
     beat = null;
+    if (WIDE.test(line)) {
+      wide = true;
+      continue;
+    }
+    const wd = line.match(WIDTH);
+    if (wd) {
+      width = Number(wd[1]);
+      continue;
+    }
+    const sty = line.match(STYLE);
+    if (sty) {
+      style = sty[1].toLowerCase() as GraphStyle;
+      continue;
+    }
+    const gr = line.match(GROUP);
+    if (gr) {
+      const [, id, label, tone, list] = gr;
+      const [title, sub] = (label ?? "").split("|");
+      const t = toneOf(tone);
+      groups.push({
+        id,
+        title: title?.trim() || id,
+        sub: sub?.trim() || undefined,
+        ...(t ? { tone: t } : {}),
+        members: list.split(",").map((x) => x.trim()).filter(Boolean),
+      });
+      continue;
+    }
     const e = line.match(EDGE);
     if (e) {
-      const from = take(e[1]), to = take(e[2]);
-      if (from && to) edges.push({ from: from[0], to: to[0], label: to[1] });
+      const tail = e[3].match(TAIL_TONE);
+      const from = take(e[1]),
+        to = take(tail ? e[3].slice(0, tail.index) : e[3]);
+      if (from && to) {
+        const tone = toneOf(tail?.[1]);
+        edges.push({
+          from: from[0],
+          to: to[0],
+          label: to[1],
+          ...(e[2] === "..>" ? { dashed: true } : {}),
+          ...(tone ? { tone } : {}),
+        });
+      }
       continue;
     }
     take(line);
   }
+  // an edge may target a whole group: that id is the group, not a node
+  for (const gp of groups) {
+    nodes.delete(gp.id);
+    for (const m of gp.members) {
+      if (!nodes.has(m)) nodes.set(m, { id: m, title: m });
+    }
+  }
   if (!nodes.size) return null;
-  return { nodes, edges, steps, columns: columnsOf(nodes, edges) };
+  // groups own a column each, in declaration order; the rest keep their ranks after
+  const seen = new Set(groups.flatMap((gp) => gp.members));
+  const rest = new Map([...nodes].filter(([id]) => !seen.has(id)));
+  const ranked = rest.size
+    ? columnsOf(rest, edges.filter((e) => rest.has(e.from) && rest.has(e.to)))
+    : [];
+  return {
+    nodes,
+    edges,
+    steps,
+    columns: [
+      ...groups.map((gp) => gp.members.map((m) => nodes.get(m)!)),
+      ...ranked,
+    ],
+    columnGroups: [...groups, ...ranked.map(() => undefined)],
+    groups,
+    style,
+    wide,
+    ...(width ? { width } : {}),
+  };
 }
 
 // Longest-path layering: a node sits one column right of its furthest source.
@@ -138,6 +241,8 @@ export type EdgeGeo = {
   lx: number;
   ly: number;
   anchor: "middle" | "start";
+  dashed?: boolean;
+  tone?: Tone;
 };
 
 type Side = "r" | "l" | "b" | "t";
@@ -194,7 +299,51 @@ export function edgeGeometry(
       lx: p.horiz ? mx : mx + 7,
       ly: p.horiz ? my - 6 : my + 4,
       anchor: p.horiz ? "middle" : "start",
+      ...(e.dashed ? { dashed: true } : {}),
+      ...(e.tone ? { tone: e.tone } : {}),
     });
   });
   return out;
+}
+
+// only a known name, so an edge like `style -> x` is never taken for one
+const STYLE_LINE = /^[ \t]*style[ \t]+(?:plain|workshop|sketch|neon)[ \t]*(?:\n|$)/im;
+
+// The `style` of a whole ```graph fence block, for the toolbar picker.
+export function graphStyleOf(fence: string): GraphStyle {
+  const m = fence.match(/^[ \t]*style[ \t]+(\w+)[ \t]*$/im);
+  const v = m?.[1].toLowerCase();
+  return (GRAPH_STYLES as readonly string[]).includes(v ?? "") ? v as GraphStyle : "plain";
+}
+
+// Rewrites (or drops, for plain) the `style` line of a ```graph fence block.
+export function setGraphStyle(fence: string, style: GraphStyle): string {
+  const bare = fence.replace(STYLE_LINE, "");
+  if (style === "plain") return bare;
+  return bare.replace(/^(\s*```[^\n]*\n)/, `$1style ${style}\n`);
+}
+
+const WIDE_LINE = /^[ \t]*wide[ \t]*(?:\n|$)/im;
+
+// Whether a ```graph fence block has a `wide` line, for the toolbar toggle.
+export const graphWideOf = (fence: string): boolean => WIDE_LINE.test(fence);
+
+// Adds or drops the `wide` line of a ```graph fence block.
+export function setGraphWide(fence: string, on: boolean): string {
+  const bare = fence.replace(WIDE_LINE, "").replace(WIDTH_LINE, "");
+  return on ? bare.replace(/^(\s*```[^\n]*\n)/, "$1wide\n") : bare;
+}
+
+const WIDTH_LINE = /^[ \t]*width[ \t]+\d+[ \t]*(?:\n|$)/im;
+
+// The dragged width of a ```graph fence block, if any.
+export function graphWidthOf(fence: string): number | undefined {
+  const m = fence.match(/^[ \t]*width[ \t]+(\d+)[ \t]*$/im);
+  return m ? Number(m[1]) : undefined;
+}
+
+// Sets (or, with undefined, drops) the `width` line; a width replaces `wide`.
+export function setGraphWidth(fence: string, px: number | undefined): string {
+  const bare = fence.replace(WIDTH_LINE, "").replace(WIDE_LINE, "");
+  return px ? bare.replace(/^(\s*```[^\n]*\n)/, `$1width ${Math.round(px)}\n`) : bare;
 }

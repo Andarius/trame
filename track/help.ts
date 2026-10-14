@@ -71,7 +71,27 @@ scenario line, the rest the detail, and \`> …\` lines become the card's side p
 (inline markdown works throughout). The card carries ← Previous / Next → nav, so the
 steps read as a lifecycle. A lifecycle with prose opens on beat 1; without prose the
 whole diagram shows. Steps are optional — leave them out for a plain diagram.
-Lines starting with \`//\` are comments.`;
+Lines starting with \`//\` are comments.
+
+\`group dev[saas-dev|subtitle]: a, b, c\` boxes those nodes under a title; groups take
+a column each, in the order declared, and an edge may point at a group id. A \`#bad\`,
+\`#warn\` or \`#good\` after a node's or group's brackets tones it, and at the end of an
+edge line tones the edge; \`..>\` instead of \`->\` draws it dashed. Within a group, link
+only adjacent nodes: an edge between two rows crosses the ones in between. A
+\`style workshop|sketch|neon\` line picks the look (default \`plain\`, the page's theme):
+workshop is a light paper card, sketch hand-drawn, neon a dark console with moving
+dashes. A \`wide\` line spans the page instead of the text column, and \`width <px>\` sets
+a width in between (wider graphs scroll otherwise); the block toolbar sets the style
+and \`wide\`, and dragging the block's right edge writes \`width\`.
+
+  \`\`\`graph
+  style workshop
+  group dev[saas-dev]: apps
+  group ops[saas-ops|platform]#bad: graf, ci
+  group prod[saas-prod]: pg
+  apps[dev apps] -> graf[Grafana] : metrics + logs
+  ci[CI runners]#warn ..> pg[pg-ro replica] : option B #bad
+  \`\`\``;
 
 // Todo lines: the dated marks the app keeps on `- [ ]`/`- [x]` items.
 export const TODO_SYNTAX =

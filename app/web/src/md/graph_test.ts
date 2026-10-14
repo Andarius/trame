@@ -1,5 +1,15 @@
 import { assertEquals } from "@std/assert";
-import { edgeGeometry, parseGraph, type Rect } from "./graph.ts";
+import {
+  edgeGeometry,
+  graphStyleOf,
+  graphWideOf,
+  graphWidthOf,
+  parseGraph,
+  type Rect,
+  setGraphStyle,
+  setGraphWide,
+  setGraphWidth,
+} from "./graph.ts";
 
 const SRC = `
 web[Web app|SPA · REST + SSE] -> api[API|gravier] : REST + SSE
@@ -93,4 +103,75 @@ Deno.test("edgeGeometry: a stacked pair connects bottom to top", () => {
   );
   assertEquals(e.d, "M50 40 C 50 70, 50 70, 50 100");
   assertEquals(e.anchor, "start");
+});
+
+Deno.test("parseGraph: groups, tones, dashed edges and style", () => {
+  const g = parseGraph(`
+style neon
+group dev[saas-dev|dev · stg]: apps, dumps
+group ops[saas-ops]#bad: graf, ci
+dumps[real prod dumps]#bad
+apps -> graf[Grafana] : metrics + logs
+ci[CI runners]#warn ..> pg[pg-ro replica] : option B #bad
+dev -> ext : #123
+`)!;
+  assertEquals(g.style, "neon");
+  assertEquals(g.groups.map((gp) => [gp.id, gp.tone, gp.members]), [
+    ["dev", undefined, ["apps", "dumps"]],
+    ["ops", "bad", ["graf", "ci"]],
+  ]);
+  // group ids are not nodes; an edge may still target one
+  assertEquals(g.nodes.has("dev"), false);
+  assertEquals(g.nodes.get("dumps")?.tone, "bad");
+  assertEquals(g.nodes.get("ci")?.tone, "warn");
+  assertEquals(g.edges[1], {
+    from: "ci",
+    to: "pg",
+    label: "option B",
+    dashed: true,
+    tone: "bad",
+  });
+  // `#123` is an issue ref, not a tone
+  assertEquals(g.edges[2], { from: "dev", to: "ext", label: "#123" });
+  // one column per group, then the ungrouped nodes by rank
+  assertEquals(g.columns.map((c) => c.map((n) => n.id)), [
+    ["apps", "dumps"],
+    ["graf", "ci"],
+    ["pg", "ext"],
+  ]);
+  assertEquals(g.columnGroups.map((gp) => gp?.id), ["dev", "ops", undefined]);
+});
+
+for (
+  const [name, fence, style, want] of [
+    ["adds the line under the fence", "```graph\na -> b\n```", "sketch", "```graph\nstyle sketch\na -> b\n```"],
+    ["replaces an existing one", "```graph\na -> b\nstyle neon\n```", "workshop", "```graph\nstyle workshop\na -> b\n```"],
+    ["plain drops it", "```graph\nstyle neon\na -> b\n```", "plain", "```graph\na -> b\n```"],
+  ] as const
+) {
+  Deno.test(`setGraphStyle: ${name}`, () => {
+    const out = setGraphStyle(fence, style);
+    assertEquals(out, want);
+    assertEquals(graphStyleOf(out), style);
+  });
+}
+
+Deno.test("setGraphWide: toggles the line and the parse reads it", () => {
+  const fence = "```graph\nstyle neon\na -> b\n```";
+  const on = setGraphWide(fence, true);
+  assertEquals(on, "```graph\nwide\nstyle neon\na -> b\n```");
+  assertEquals(graphWideOf(on), true);
+  assertEquals(parseGraph("wide\na -> b")?.wide, true);
+  assertEquals(setGraphWide(on, false), fence);
+  assertEquals(graphWideOf(fence), false);
+});
+
+Deno.test("setGraphWidth: a width replaces wide, wide replaces a width", () => {
+  const fence = "```graph\nwide\na -> b\n```";
+  const sized = setGraphWidth(fence, 1100.4);
+  assertEquals(sized, "```graph\nwidth 1100\na -> b\n```");
+  assertEquals([graphWidthOf(sized), graphWideOf(sized)], [1100, false]);
+  assertEquals(parseGraph("width 1100\na -> b")?.width, 1100);
+  assertEquals(setGraphWide(sized, true), "```graph\nwide\na -> b\n```");
+  assertEquals(setGraphWidth(sized, undefined), "```graph\na -> b\n```");
 });

@@ -162,3 +162,18 @@ body {
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
 }
+
+/* graph fences, `style neon`: dashes travel along each edge, off under reduced motion */
+@keyframes graph-flow {
+  to {
+    stroke-dashoffset: -11;
+  }
+}
+.graph-flow {
+  animation: graph-flow 1.2s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .graph-flow {
+    animation: none;
+  }
+}

@@ -154,9 +154,18 @@ const LANG_LOGOS: Record<(typeof FENCE_LANGS)[number], JSX.Element> = {
 
 // Hover toolbar in a block's top-right corner (snippet/image/todo quick actions).
 export function CornerToolbar(
-  { chip, onChip, actions }: {
+  { chip, onChip, variant, toggle, actions }: {
     chip?: string; // snippet language label; opens the picker
     onChip?: (lang: string) => void;
+    // a second picker beside the language one (a graph fence's style)
+    variant?: {
+      title: string;
+      value: string;
+      options: readonly string[];
+      onPick: (v: string) => void;
+    };
+    // an on/off chip after the pickers (a graph fence's `wide`)
+    toggle?: { label: string; title: string; on: boolean; onClick: () => void };
     actions: {
       icon: ToolIconName;
       title: string;
@@ -165,7 +174,7 @@ export function CornerToolbar(
     }[];
   },
 ) {
-  const [menu, setMenu] = useState(false);
+  const [menu, setMenu] = useState<"lang" | "variant" | null>(null);
   return (
     <div
       // preventDefault keeps focus in the block's textarea while clicking actions
@@ -179,15 +188,15 @@ export function CornerToolbar(
           <button
             type="button"
             title="Language"
-            onClick={() => setMenu((m) => !m)}
+            onClick={() => setMenu((m) => m === "lang" ? null : "lang")}
             className="flex items-center gap-1 rounded px-1.5 font-mono text-[10px] text-copper hover:text-ink"
           >
             {LANG_LOGOS[(chip || "plain") as keyof typeof LANG_LOGOS]}
             {chip || "plain"} ▾
           </button>
-          {menu && (
+          {menu === "lang" && (
             <Popover
-              onClose={() => setMenu(false)}
+              onClose={() => setMenu(null)}
               className="!left-auto !right-0 w-[130px] !min-w-0"
             >
               {FENCE_LANGS.map((l) => (
@@ -198,7 +207,7 @@ export function CornerToolbar(
                     l === (chip || "plain") ? "text-copper" : "text-ink-soft"
                   }`}
                   onClick={() => {
-                    setMenu(false);
+                    setMenu(null);
                     onChip?.(l);
                   }}
                 >
@@ -209,6 +218,53 @@ export function CornerToolbar(
             </Popover>
           )}
         </div>
+      )}
+      {variant && (
+        <div className="relative mr-0.5 border-r border-line pr-1">
+          <button
+            type="button"
+            title={variant.title}
+            onClick={() => setMenu((m) => m === "variant" ? null : "variant")}
+            className="rounded px-1.5 font-mono text-[10px] text-ink-soft hover:text-ink"
+          >
+            {variant.value} ▾
+          </button>
+          {menu === "variant" && (
+            <Popover
+              onClose={() => setMenu(null)}
+              className="!left-auto !right-0 w-[110px] !min-w-0"
+            >
+              {variant.options.map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  className={`flex w-full rounded px-2 py-1 text-left font-mono text-[11px] hover:bg-panel ${
+                    v === variant.value ? "text-copper" : "text-ink-soft"
+                  }`}
+                  onClick={() => {
+                    setMenu(null);
+                    variant.onPick(v);
+                  }}
+                >
+                  {v}
+                </button>
+              ))}
+            </Popover>
+          )}
+        </div>
+      )}
+      {toggle && (
+        <button
+          type="button"
+          title={toggle.title}
+          aria-pressed={toggle.on}
+          onClick={toggle.onClick}
+          className={`mr-0.5 rounded px-1.5 font-mono text-[10px] hover:text-ink ${
+            toggle.on ? "text-copper" : "text-ink-soft"
+          }`}
+        >
+          {toggle.label}
+        </button>
       )}
       {actions.map((a) => (
         <button
