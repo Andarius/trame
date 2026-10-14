@@ -140,10 +140,31 @@ Deno.test("queryValues: reads the board and the assigners", () => {
     [got.status, got.story, got.tag, got.agent, got.assigner],
     [
       [{ value: "active", hint: "In progress" }],
-      [{ value: "CLI rollout" }],
+      [{ value: "CLI rollout", icon: null, color: null }],
       [{ value: "p1" }],
       [{ value: "codex" }],
-      [{ value: "Carlo Rossi" }],
+      [{ value: "Carlo Rossi", avatar: null }],
     ],
   );
+});
+
+Deno.test("queryValues: one assigner row per person, with a picture when any card has one", () => {
+  const faces = { a: { name: "Carlo Rossi" }, b: { name: "Carlo Rossi", avatar: "c.png" }, c: { name: "Ana" } };
+  const got = queryValues({ ...board, sessions: [] }, faces);
+  assertEquals(got.assigner, [{ value: "Ana", avatar: null }, { value: "Carlo Rossi", avatar: "c.png" }]);
+  assertEquals(suggestQuery("assigner:car", 12, got).map((s) => [s.label, s.value?.avatar]), [["Carlo Rossi", "c.png"]]);
+});
+
+Deno.test("queryValues: projects and stories carry their icon and color", () => {
+  const got = queryValues({
+    ...board,
+    sessions,
+    pages: board.pages.map((p) => p.id === "st" ? { ...p, icon: "🧪" } : p),
+    projects: [{ id: "pr", name: "Trame", icon: "🚂", color: "#f00" }],
+  });
+  assertEquals([got.project, got.story], [
+    [{ value: "Trame", icon: "🚂", color: "#f00" }],
+    [{ value: "CLI rollout", icon: "🧪", color: null }],
+  ]);
+  assertEquals(suggestQuery("project:tr", 10, got).map((s) => [s.key, s.value]), [["project", got.project[0]]]);
 });
