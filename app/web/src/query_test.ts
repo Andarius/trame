@@ -143,7 +143,14 @@ Deno.test("queryValues: reads the board and the assigners", () => {
       [{ value: "CLI rollout" }],
       [{ value: "p1" }],
       [{ value: "codex" }],
-      [{ value: "Carlo Rossi" }],
+      [{ value: "Carlo Rossi", avatar: null }],
     ],
   );
+});
+
+Deno.test("queryValues: one assigner row per person, with a picture when any card has one", () => {
+  const faces = { a: { name: "Carlo Rossi" }, b: { name: "Carlo Rossi", avatar: "c.png" }, c: { name: "Ana" } };
+  const got = queryValues({ ...board, sessions: [] }, faces);
+  assertEquals(got.assigner, [{ value: "Ana", avatar: null }, { value: "Carlo Rossi", avatar: "c.png" }]);
+  assertEquals(suggestQuery("assigner:car", 12, got).map((s) => [s.label, s.avatar]), [["Carlo Rossi", "c.png"]]);
 });

@@ -293,8 +293,9 @@ export function QueryBox(
                 accept(i);
               }}
               onMouseEnter={() => setAt(i)}
-              className={`flex cursor-pointer items-baseline gap-2 rounded-md px-2 py-1 text-xs ${i === at ? "bg-panel" : ""}`}
+              className={`flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-xs ${i === at ? "bg-panel" : ""}`}
             >
+              {sg.avatar !== undefined && <Face name={sg.label} avatar={sg.avatar} />}
               <span className="truncate font-mono text-ink">{sg.label}</span>
               {sg.hint && sg.hint.toLowerCase() !== sg.label.toLowerCase() && (
                 <span className="ml-auto shrink-0 truncate text-[10.5px] text-ink-muted">{sg.hint}</span>
@@ -305,6 +306,17 @@ export function QueryBox(
       )}
     </div>
   );
+}
+
+// a person's picture, else their initials
+function Face({ name, avatar }: { name: string; avatar: string | null }) {
+  return avatar
+    ? <img src={avatar} alt="" className="size-4 shrink-0 rounded-full object-cover" />
+    : (
+      <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-chipline text-[8px] font-medium text-ink">
+        {name.split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase()}
+      </span>
+    );
 }
 
 export function SessionBar(
