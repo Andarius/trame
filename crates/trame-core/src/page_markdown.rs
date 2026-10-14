@@ -8,6 +8,11 @@ use crate::{JS_SPACE, js_string, trim, truthy};
 static FOLDER: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(r"^{JS_SPACE}*\{{\{{trame:folder=([^{{}}\n]*)\}}\}}(?:[ \t]*\{{\{{trame:view=([^{{}}\n]*)\}}\}})?{JS_SPACE}*$")).unwrap()
 });
+static EMBED: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(&format!(r"^{JS_SPACE}*\{{\{{trame:embed=([^{{}}\n]*)\}}\}}(?:[ \t]*\{{\{{trame:height=([^{{}}\n]*)\}}\}})?{JS_SPACE}*$")).unwrap()
+});
+static SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(JS_SPACE).unwrap());
+static HEIGHT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9]{1,4}$").unwrap());
 static HEADING: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(
         r"^(#{{1,6}}){JS_SPACE}+([^\r\n\u{{2028}}\u{{2029}}]+?){JS_SPACE}*#*{JS_SPACE}*$"
@@ -40,6 +45,29 @@ pub fn folder_markup(block: &Value) -> String {
     format!(
         "{{{{trame:folder={path}}}}}{}",
         view.map(|v| format!(" {{{{trame:view={}}}}}", js_string(v)))
+            .unwrap_or_default()
+    )
+}
+
+pub const EMBED_DEFAULT_HEIGHT: u64 = 600;
+
+pub fn is_embed_block(block: &Value) -> bool {
+    block.get("type").and_then(Value::as_str) == Some("embed")
+}
+
+pub fn embed_markup(block: &Value) -> String {
+    let url = block
+        .get("url")
+        .map(js_string)
+        .unwrap_or_else(|| "undefined".into());
+    let height = block
+        .get("height")
+        .and_then(Value::as_u64)
+        .filter(|h| *h > 0 && *h != EMBED_DEFAULT_HEIGHT);
+    format!(
+        "{{{{trame:embed={url}}}}}{}",
+        height
+            .map(|h| format!(" {{{{trame:height={h}}}}}"))
             .unwrap_or_default()
     )
 }
@@ -134,6 +162,27 @@ pub fn markdown_to_page_blocks(
             first_content = false;
             continue;
         }
+        if let Some(m) = EMBED
+            .captures(line)
+            .filter(|m| trim(&m[1]).starts_with("https://") && !SPACE.is_match(trim(&m[1])))
+        {
+            flush(&mut buf, &mut out);
+            let mut block = Map::new();
+            block.insert("type".into(), Value::String("embed".into()));
+            block.insert("url".into(), Value::String(trim(&m[1]).to_owned()));
+            let height = m
+                .get(2)
+                .map(|m| trim(m.as_str()))
+                .filter(|h| HEIGHT.is_match(h))
+                .and_then(|h| h.parse::<u64>().ok())
+                .filter(|h| *h > 0 && *h != EMBED_DEFAULT_HEIGHT);
+            if let Some(height) = height {
+                block.insert("height".into(), Value::from(height));
+            }
+            out.push(Value::Object(block));
+            first_content = false;
+            continue;
+        }
         if let Some(m) = HEADING.captures(line) {
             flush(&mut buf, &mut out);
             let text = trim(&m[2]);
@@ -192,6 +241,13 @@ pub fn page_blocks_to_markdown(blocks: &[Value]) -> Result<String, String> {
             prev_todo = false;
             if b.get("path").is_some_and(truthy) {
                 parts.push(folder_markup(b));
+            }
+            continue;
+        }
+        if is_embed_block(b) {
+            prev_todo = false;
+            if b.get("url").is_some_and(truthy) {
+                parts.push(embed_markup(b));
             }
             continue;
         }

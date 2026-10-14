@@ -5,7 +5,7 @@
   "identifier": "sh.trame.app",
   "mainBinaryName": "trame",
   "build": { "frontendDist": "splash" },
-  "app": { "windows": [], "security": { "csp": "default-src 'self'; style-src 'unsafe-inline'" } },
+  "app": { "windows": [], "security": { "csp": "default-src 'self'; style-src 'unsafe-inline'; frame-src 'self' https:" } },
   "bundle": {
     "active": true,
     "category": "DeveloperTool",

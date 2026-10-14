@@ -134,6 +134,7 @@ export const getPageEvents = (id: string) =>
 
 export type FileHit = { path: string; name: string; mtime: string };
 export type Settings = {
+  embedHosts: string[]; // hostnames the embed block may frame; empty = embeds off
   paths: string[];
   ignore: string[];
   starred: string[];
@@ -197,6 +198,7 @@ export const getSettings = () =>
   fetch("/api/settings").then((r) => r.json() as Promise<Settings>);
 export const patchSettings = (
   patch: {
+    embedHosts?: string[];
     reportPaths?: string[];
     ignorePaths?: string[];
     starredPaths?: string[];
@@ -568,6 +570,7 @@ export type Block =
   | { type: "database"; db_id: string }
   | { type: "subpage"; page_id: string }
   | { type: "folder"; path: string; view?: "list" | "gallery"; id?: string }
+  | { type: "embed"; url: string; height?: number; id?: string }
   | {
     type: "html";
     html: string;

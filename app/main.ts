@@ -1111,6 +1111,7 @@ async function handler(req: Request): Promise<Response> {
       reportPaths: Array.isArray(body.reportPaths)
         ? body.reportPaths
         : undefined,
+      embedHosts: Array.isArray(body.embedHosts) ? body.embedHosts : undefined,
       ignorePaths: Array.isArray(body.ignorePaths)
         ? body.ignorePaths
         : undefined,

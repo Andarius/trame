@@ -134,8 +134,19 @@ pub fn explore(path: &Path) -> Result<Value> {
             .map(str::to_owned)
             .collect()
     };
+    let embed_hosts = if s["embedHosts"].is_array() {
+        strings(&s["embedHosts"])?
+    } else {
+        std::env::var("TRACKER_EMBED_HOSTS")
+            .unwrap_or_default()
+            .split(',')
+            .map(trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .collect()
+    };
     Ok(
-        json!({"paths":paths.iter().map(|s|expand(s).to_string_lossy().into_owned()).collect::<Vec<_>>(),"ignore":strings(&s["ignorePaths"])?,"starred":strings(&s["starredPaths"])?,"htmlFilter":if s["htmlFilter"]=="all"{"all"}else{"smart"},"source":if has_paths{"settings"}else{"env"},"hubApi":hub,"hubSource":source,"hubHasToken":token,"authorName":trim(s["authorName"].as_str().unwrap_or("")),"authorAvatar":trim(s["authorAvatar"].as_str().unwrap_or("")),"agentPresence":normalize_agent_presence(&s["agentPresence"])}),
+        json!({"embedHosts":embed_hosts.iter().map(|h| h.to_lowercase()).collect::<Vec<_>>(),"paths":paths.iter().map(|s|expand(s).to_string_lossy().into_owned()).collect::<Vec<_>>(),"ignore":strings(&s["ignorePaths"])?,"starred":strings(&s["starredPaths"])?,"htmlFilter":if s["htmlFilter"]=="all"{"all"}else{"smart"},"source":if has_paths{"settings"}else{"env"},"hubApi":hub,"hubSource":source,"hubHasToken":token,"authorName":trim(s["authorName"].as_str().unwrap_or("")),"authorAvatar":trim(s["authorAvatar"].as_str().unwrap_or("")),"agentPresence":normalize_agent_presence(&s["agentPresence"])}),
     )
 }
 
@@ -145,6 +156,14 @@ pub fn save_explore(path: &Path, patch: &Value) -> Result<()> {
             if patch[key].is_array() {
                 s[key] = json!(strings(&patch[key])?);
             }
+        }
+        if patch["embedHosts"].is_array() {
+            s["embedHosts"] = json!(
+                strings(&patch["embedHosts"])?
+                    .iter()
+                    .map(|h| h.to_lowercase())
+                    .collect::<Vec<_>>()
+            );
         }
         if matches!(patch["htmlFilter"].as_str(), Some("smart" | "all")) {
             s["htmlFilter"] = patch["htmlFilter"].clone();
@@ -246,6 +265,21 @@ pub fn save_plugin(path: &Path, id: &str, patch: &Value) -> Result<()> {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+    #[test]
+    fn embed_hosts_are_trimmed_lowercased_and_persisted() {
+        let root = crate::scratch_root(
+            &crate::workspace().join(format!(".scratch/settings-{}", uuid::Uuid::new_v4())),
+        )
+        .unwrap();
+        let file = root.join("settings.json");
+        save_explore(&file, &json!({"embedHosts":[" Grafana.Example.com ", ""]})).unwrap();
+        assert_eq!(
+            explore(&file).unwrap()["embedHosts"],
+            json!(["grafana.example.com"])
+        );
+        save_explore(&file, &json!({"embedHosts":[]})).unwrap();
+        assert_eq!(explore(&file).unwrap()["embedHosts"], json!([]));
+    }
     #[test]
     fn settings_preserve_unknown_fields_hide_secrets_and_write_private_atomic_files() {
         let root = crate::scratch_root(

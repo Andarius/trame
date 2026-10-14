@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use serde_json::Value;
 
 use crate::{
-    page_markdown::is_folder_block,
+    page_markdown::{is_embed_block, is_folder_block},
     todo_marks::{carry_marks, strip_marks},
     trim,
 };
@@ -28,21 +28,31 @@ pub fn merge_page_blocks(existing: &[Value], next: &[Value]) -> Vec<Value> {
         }
     }
     let rewrites_folders = next.iter().any(is_folder_block);
+    let rewrites_embeds = next.iter().any(is_embed_block);
     let folders = existing
         .iter()
         .filter(|b| is_folder_block(b) && b.get("id").is_some_and(Value::is_string))
+        .collect::<Vec<_>>();
+    let embeds = existing
+        .iter()
+        .filter(|b| is_embed_block(b) && b.get("id").is_some_and(Value::is_string))
         .collect::<Vec<_>>();
     let mut claimed = HashSet::new();
     let merged = next
         .iter()
         .map(|b| {
             let mut out = b.clone();
-            if is_folder_block(b) {
+            if is_folder_block(b) || is_embed_block(b) {
+                let (pool, key) = if is_folder_block(b) {
+                    (&folders, "path")
+                } else {
+                    (&embeds, "url")
+                };
                 let free = |f: &&&Value| !claimed.contains(f["id"].as_str().unwrap());
-                let hit = folders
+                let hit = pool
                     .iter()
-                    .find(|f| free(f) && f.get("path") == b.get("path"))
-                    .or_else(|| folders.iter().find(free));
+                    .find(|f| free(f) && f.get(key) == b.get(key))
+                    .or_else(|| pool.iter().find(free));
                 if let Some(hit) = hit {
                     let id = hit["id"].as_str().unwrap();
                     claimed.insert(id);
@@ -79,7 +89,7 @@ pub fn merge_page_blocks(existing: &[Value], next: &[Value]) -> Vec<Value> {
             }
             continue;
         }
-        if rewrites_folders && is_folder_block(b) {
+        if (rewrites_folders && is_folder_block(b)) || (rewrites_embeds && is_embed_block(b)) {
             continue;
         }
         groups.entry(anchor).or_default().push(b.clone());

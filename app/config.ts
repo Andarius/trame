@@ -38,6 +38,11 @@ export const REPORT_PATHS = (Deno.env.get("TRACKER_REPORT_PATHS") ?? "")
   .map((s) => s.trim())
   .filter(Boolean)
   .map((p) => p.replace(/^~(?=\/|$)/, home));
+// Comma-separated hostnames whose https URLs the `embed` page block may frame.
+export const EMBED_HOSTS = (Deno.env.get("TRACKER_EMBED_HOSTS") ?? "")
+  .split(",")
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
 // Working-dir → Project map, JSON: {"<path segment>": <entry>} where an entry is a
 // project name or {"project": "...", "tags": ["..."], "repos": ["..."]} — the tags are
 // stamped on story pages created for matching sessions, gated by the repo whitelist

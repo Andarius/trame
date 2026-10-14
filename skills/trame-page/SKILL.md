@@ -58,7 +58,9 @@ into plain prose. `tramecli page --help` carries the full dialect; the essential
 - A `graph` fence draws an architecture diagram (stepped lifecycles included), a
   `mermaid` fence anything else; other fences highlight python/ts/js/bash/json/sql.
 - GFM tables render as interactive cards, full PR/MR URLs as live PR chips,
-  `![alt](url)` as an inline image, `{{trame:folder=…}}` as a directory listing.
+  `![alt](url)` as an inline image, `{{trame:folder=…}}` as a directory listing,
+  `{{trame:embed=<https-url>}}` (+ optional `{{trame:height=<px>}}`, default 600) as a live
+  iframe — only for hosts allowlisted in Settings › Embeds.
 - No raw HTML or entities — write Unicode characters (·, —, …) directly.
 
 ````markdown

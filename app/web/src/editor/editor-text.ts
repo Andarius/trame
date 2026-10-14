@@ -13,6 +13,7 @@ export const SLASH: { key: string; label: string; hint: string }[] = [
   { key: "subpage", label: "Sub-page", hint: "nest a page here" },
   { key: "database", label: "Database", hint: "table on this page" },
   { key: "folder", label: "Folder", hint: "live files from a directory" },
+  { key: "embed", label: "Embed", hint: "live https page (Grafana…)" },
   { key: "html", label: "HTML", hint: "embedded interactive doc" },
 ];
 

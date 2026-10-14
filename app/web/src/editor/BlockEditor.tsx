@@ -545,6 +545,19 @@ export function BlockEditor(
         ),
       );
     }
+    if (key === "embed") {
+      return onChange(
+        blocks.map((b, j) =>
+          j === i
+            ? {
+              type: "embed",
+              url: "",
+              id: (isText(b) && b.id) || genId(),
+            } as Block
+            : b
+        ),
+      );
+    }
     if (key === "html") {
       return onChange(
         blocks.map((b, j) =>
@@ -689,7 +702,7 @@ export function BlockEditor(
         // section groups: strip/accordion on the marked heading, hide inactive blocks
         const section = renderSection(sectionCtx, b, i);
         if (section !== undefined) return section;
-        if (b.type === "folder" || b.type === "html") {
+        if (b.type === "folder" || b.type === "html" || b.type === "embed") {
           return (
             <Fragment key={b.id ?? i}>
               {dragRow(
