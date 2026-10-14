@@ -18,7 +18,7 @@ for (const view of ["board", "list"]) {
         data: { id: crypto.randomUUID(), title: `${name} ${suffix}`, tags, page_id: pageId, no_event: true },
       })).ok()).toBeTruthy();
     }
-    await page.goto(`/?view=${view}&story=tag:${group}`);
+    await page.goto(`/?view=${view}&q=tag:${group}`);
     await page.getByRole("button", { name: /^Sort:/ }).click();
     await page.getByRole("button", { name: "Remove Touched sort", exact: true }).click();
     await page.getByLabel("Add sort field").selectOption("title");

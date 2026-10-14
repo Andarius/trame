@@ -1,5 +1,5 @@
 // gh-style session query; the syntax text is shown by the web query box and `tramecli query` / `setup`
-import { pagesById, projectOf, sessionTagKeys, storyOf, type TreePage } from "./tree.ts";
+import { ancestry, pagesById, projectOf, sessionAnchor, sessionTagKeys, storyOf, type TreePage } from "./tree.ts";
 
 export const QUERY_SYNTAX = `Session query (the board's query box, mirrored to ?q=) — gh-style:
   terms AND, commas OR within a key, "-" negates, * globs, "quote spaced values"
@@ -106,17 +106,20 @@ export function filterSessions<S extends QuerySession>(
   const { terms } = parseQuery(query);
   if (!terms.length) return sessions;
   const byId = pagesById(board.pages);
+  const above = (s: S, kind: string) => [...ancestry(sessionAnchor(s, byId), byId)].filter((p) => p.kind === kind);
   const lc = (...xs: (string | null | undefined)[]) => xs.filter((x): x is string => !!x).map((x) => x.toLowerCase());
   const fields = (s: S) => (key: string | null): string[] => {
     switch (key) {
       case null: return lc(s.title, s.summary, s.next_step, s.branch);
       case "status": return lc(s.status, board.statuses.find((st) => st.key === s.status)?.label);
       case "tag": return lc(...sessionTagKeys(s, byId));
+      // every enclosing project / story, so a parent matches its whole subtree
       case "project": {
-        const id = projectOf(s, byId);
-        return lc(board.projects.find((p) => p.id === id)?.name ?? byId.get(id ?? "")?.title);
+        const ids = above(s, "project").map((p) => p.id);
+        if (!ids.length && s.client_id) ids.push(s.client_id);
+        return lc(...ids.map((id) => board.projects.find((p) => p.id === id)?.name ?? byId.get(id)?.title));
       }
-      case "story": return lc(storyOf(s, byId)?.title);
+      case "story": return lc(...above(s, "story").map((p) => p.title));
       case "branch": return lc(s.branch);
       case "repo": return lc(s.repo_path);
       case "agent": return lc(s.agent);
@@ -213,6 +216,18 @@ export function suggestQuery(query: string, cursor: number, values: Record<strin
     insert: `${/\s/.test(v.value) ? `"${v.value}"` : v.value} `,
   }));
 }
+
+// `key:value`, quoted when the value has a space
+export const termOf = (key: string, value: string) => `${key}:${/\s/.test(value) ? `"${value}"` : value}`;
+
+const tokens = (q: string): string[] => q.match(/(?:"[^"]*"?|[^\s"]+)+/g) ?? [];
+export const hasTerm = (q: string, term: string) => tokens(q).includes(term);
+
+// add the term, or drop it when already present
+export const toggleTerm = (q: string, term: string) => {
+  const parts = tokens(q);
+  return (parts.includes(term) ? parts.filter((p) => p !== term) : [...parts, term]).join(" ");
+};
 
 // the query with `s` applied, and where the caret goes
 export function applySuggestion(query: string, s: Suggestion): { query: string; cursor: number } {

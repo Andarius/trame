@@ -101,12 +101,15 @@ fn fields(session: &Value, board: &Value, assigners: &Value, key: Option<&str>) 
     let pages = pages_by_id(board);
     let chain = ancestors(session, &pages);
     let story = chain.iter().find(|p| p["kind"] == "story").copied();
-    let project = chain
+    // every enclosing project, so a parent matches its whole subtree
+    let mut projects = chain
         .iter()
-        .find(|p| p["kind"] == "project")
-        .and_then(|p| p["id"].as_str())
-        .or_else(|| session["client_id"].as_str())
-        .filter(|s| !s.is_empty());
+        .filter(|p| p["kind"] == "project")
+        .filter_map(|p| p["id"].as_str())
+        .collect::<Vec<_>>();
+    if projects.is_empty() {
+        projects.extend(session["client_id"].as_str().filter(|s| !s.is_empty()));
+    }
     let mut tags = session["tags"].as_array().cloned().unwrap_or_default();
     if let Some(page) = story.or_else(|| chain.first().copied()) {
         tags.extend(page["tags"].as_array().cloned().unwrap_or_default());
@@ -132,20 +135,23 @@ fn fields(session: &Value, board: &Value, assigners: &Value, key: Option<&str>) 
             vec![string(session, "status"), label]
         }
         Some("tag") => tags.clone(),
-        Some("project") => vec![
-            project
-                .and_then(|id| {
-                    board["projects"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .find(|p| p["id"] == id)
-                        .map(|p| string(p, "name"))
-                        .or_else(|| pages.get(id).map(|p| string(p, "title")))
-                })
-                .unwrap_or_default(),
-        ],
-        Some("story") => vec![story.map(|p| string(p, "title")).unwrap_or_default()],
+        Some("project") => projects
+            .iter()
+            .filter_map(|id| {
+                board["projects"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .find(|p| p["id"] == *id)
+                    .map(|p| string(p, "name"))
+                    .or_else(|| pages.get(*id).map(|p| string(p, "title")))
+            })
+            .collect(),
+        Some("story") => chain
+            .iter()
+            .filter(|p| p["kind"] == "story")
+            .map(|p| string(p, "title"))
+            .collect(),
         Some("branch") => vec![string(session, "branch")],
         Some("repo") => vec![string(session, "repo_path")],
         Some("agent") => vec![string(session, "agent")],
@@ -175,7 +181,7 @@ fn fields(session: &Value, board: &Value, assigners: &Value, key: Option<&str>) 
             if story.is_some() {
                 out.push("story".into());
             }
-            if project.is_some() {
+            if !projects.is_empty() {
                 out.push("project".into());
             }
             if !tags.is_empty() {

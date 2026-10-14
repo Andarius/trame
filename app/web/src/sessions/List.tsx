@@ -5,7 +5,6 @@ import {
   ClientChip,
   dblOpen,
   EntityIcon,
-  matchesSessionFilter,
   pageGlyph,
   pagesById,
   projectOf,
@@ -30,15 +29,14 @@ const COLS: [SortKey, string][] = [
 ];
 
 export function List(
-  { board, sort, onSortChange, onOpen, onOpenFull, storyFilter, onFilterStory, noSpecs, selected, onToggleSelect, onSelectMany }: {
+  { board, sort, onSortChange, onOpen, onOpenFull, chipActive, onFilterStory, selected, onToggleSelect, onSelectMany }: {
     board: BoardData;
     sort: Sort[];
     onSortChange: (sort: Sort[]) => void;
     onOpen: (id: string) => void;
     onOpenFull?: (id: string) => void;
-    storyFilter?: string[] | null;
+    chipActive?: (id: string) => boolean;
     onFilterStory?: (id: string) => void;
-    noSpecs?: boolean;
     selected?: Set<string>;
     onToggleSelect?: (id: string) => void;
     onSelectMany?: (ids: string[], on: boolean) => void;
@@ -47,13 +45,7 @@ export function List(
   const [anchorId, setAnchorId] = useState<string | null>(null); // last-clicked checkbox, for shift-ranges
   const byId = pagesById(board.pages);
 
-  const scoped = storyFilter?.length
-    ? board.sessions.filter((s) => storyFilter.some((f) => matchesSessionFilter(s, f, byId)))
-    : board.sessions;
-  const filtered = noSpecs
-    ? scoped.filter((s) => !s.specs_page_id || !byId.has(s.specs_page_id))
-    : scoped;
-  const sessions = filtered;
+  const sessions = board.sessions;
   const onSort = (key: SortKey, append: boolean) => {
     const current = sort.find((s) => s.key === key);
     const field: Sort = { key, dir: current ? (current.dir === 1 ? -1 : 1) : key === "touched" ? -1 : 1 };
@@ -139,7 +131,7 @@ export function List(
                   name={project.name}
                   color={project.color}
                   title={`Show only “${project.name}”`}
-                  active={storyFilter?.includes(project.id) ?? false}
+                  active={chipActive?.(project.id) ?? false}
                   onClick={onFilterStory
                     ? () => onFilterStory(project.id)
                     : undefined}
@@ -157,7 +149,7 @@ export function List(
                         }}
                         title={`Show only “${target.title}”`}
                         className={`flex min-w-0 items-center gap-1 truncate text-left text-[11.5px] hover:text-copper ${
-                          storyFilter?.includes(target.id) ? "text-copper" : "text-ink-muted"
+                          chipActive?.(target.id) ? "text-copper" : "text-ink-muted"
                         }`}
                       >
                         <EntityIcon icon={target.icon} fallback={pageGlyph(target.kind, target.mark_role)} className="shrink-0 text-[9px]" />

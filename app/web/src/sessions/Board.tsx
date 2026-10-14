@@ -17,7 +17,6 @@ import {
   dblOpen,
   EntityIcon,
   IDLE_DAYS,
-  matchesSessionFilter,
   ObjectiveChip,
   pageGlyph,
   pagesById,
@@ -35,13 +34,13 @@ import { StaleChip } from "../md/chips";
 import { FRONTEND_PLUGINS } from "../plugins";
 
 function TicketBody(
-  { s, board, overlay = false, dense = false, showObjective = true, storyFilter, onFilterStory }: {
+  { s, board, overlay = false, dense = false, showObjective = true, chipActive, onFilterStory }: {
     s: Session;
     board: BoardData;
     overlay?: boolean;
     dense?: boolean;
     showObjective?: boolean;
-    storyFilter?: string[] | null;
+    chipActive?: (id: string) => boolean;
     onFilterStory?: (id: string) => void;
   },
 ) {
@@ -85,7 +84,7 @@ function TicketBody(
                 title={chipPage.title}
                 glyph={pageGlyph(chipPage.kind, chipPage.mark_role)}
                 icon={chipPage.icon}
-                active={storyFilter?.includes(chipPage.id) ?? false}
+                active={chipActive?.(chipPage.id) ?? false}
                 onClick={onFilterStory ? () => onFilterStory(chipPage.id) : undefined}
               />
             )}
@@ -113,7 +112,7 @@ function TicketBody(
           title={chipPage.title}
           glyph={pageGlyph(chipPage.kind, chipPage.mark_role)}
           icon={chipPage.icon}
-          active={storyFilter?.includes(chipPage.id) ?? false}
+          active={chipActive?.(chipPage.id) ?? false}
           onClick={onFilterStory ? () => onFilterStory(chipPage.id) : undefined}
         />
       )}
@@ -127,7 +126,7 @@ function TicketBody(
             name={client.name}
             color={client.color}
             title={`Show only “${client.name}”`}
-            active={storyFilter?.includes(client.id) ?? false}
+            active={chipActive?.(client.id) ?? false}
             onClick={onFilterStory ? () => onFilterStory(client.id) : undefined}
           />
         )}
@@ -143,14 +142,14 @@ function TicketBody(
 }
 
 function DraggableTicket(
-  { s, board, dense, showObjective, onOpen, onOpenFull, storyFilter, onFilterStory, selected = false, onToggleSelect }: {
+  { s, board, dense, showObjective, onOpen, onOpenFull, chipActive, onFilterStory, selected = false, onToggleSelect }: {
     s: Session;
     board: BoardData;
     dense?: boolean;
     showObjective: boolean;
     onOpen: (id: string) => void;
     onOpenFull?: (id: string) => void;
-    storyFilter?: string[] | null;
+    chipActive?: (id: string) => boolean;
     onFilterStory?: (id: string) => void;
     selected?: boolean;
     onToggleSelect?: (id: string, shift: boolean) => void;
@@ -173,7 +172,7 @@ function DraggableTicket(
         board={board}
         dense={dense}
         showObjective={showObjective}
-        storyFilter={storyFilter}
+        chipActive={chipActive}
         onFilterStory={onFilterStory}
       />
       {onToggleSelect && (
@@ -202,7 +201,7 @@ function DraggableTicket(
 const DONE_WINDOW_DAYS = 7;
 
 function Column(
-  { status, sessions, board, dropId, dense, showObjective, onOpen, onOpenFull, compact = false, storyFilter, onFilterStory, selected, onToggleSelect, onSelectMany, anchorId, onAnchor }: {
+  { status, sessions, board, dropId, dense, showObjective, onOpen, onOpenFull, compact = false, chipActive, onFilterStory, selected, onToggleSelect, onSelectMany, anchorId, onAnchor }: {
     status: Status;
     sessions: Session[];
     board: BoardData;
@@ -212,7 +211,7 @@ function Column(
     onOpen: (id: string) => void;
     onOpenFull?: (id: string) => void;
     compact?: boolean;
-    storyFilter?: string[] | null;
+    chipActive?: (id: string) => boolean;
     onFilterStory?: (id: string) => void;
     selected?: Set<string>;
     onToggleSelect?: (id: string) => void;
@@ -265,7 +264,7 @@ function Column(
           showObjective={showObjective}
           onOpen={onOpen}
           onOpenFull={onOpenFull}
-          storyFilter={storyFilter}
+          chipActive={chipActive}
           onFilterStory={onFilterStory}
           selected={selected?.has(s.id) ?? false}
           onToggleSelect={onToggleSelect && toggle}
@@ -285,15 +284,14 @@ function Column(
 }
 
 export function Board(
-  { board, group, onMove, onOpen, onOpenFull, storyFilter, onFilterStory, noSpecs, hideEmpty, dense, selected, onToggleSelect, onSelectMany }: {
+  { board, group, onMove, onOpen, onOpenFull, chipActive, onFilterStory, hideEmpty, dense, selected, onToggleSelect, onSelectMany }: {
     board: BoardData;
     group: "none" | "story" | "project";
     onMove: (id: string, status: Status) => void;
     onOpen: (id: string) => void;
     onOpenFull?: (id: string) => void;
-    storyFilter?: string[] | null;
+    chipActive?: (id: string) => boolean;
     onFilterStory?: (id: string) => void;
-    noSpecs?: boolean;
     hideEmpty?: boolean;
     dense?: boolean;
     selected?: Set<string>;
@@ -327,15 +325,7 @@ export function Board(
   };
 
   const byId = pagesById(board.pages);
-  // clicking a card's story chip narrows the board to that story's SUBTREE
-  // (drag still uses the full set)
-  const scoped = storyFilter?.length
-    ? board.sessions.filter((s) => storyFilter.some((f) => matchesSessionFilter(s, f, byId)))
-    : board.sessions;
-  // "no specs" = no specs page, or one that was deleted since (board.pages is live)
-  const visible = noSpecs
-    ? scoped.filter((s) => !s.specs_page_id || !byId.has(s.specs_page_id))
-    : scoped;
+  const visible = board.sessions;
   // status columns come from the synced statuses table (already sort_key-ordered),
   // optionally hiding the empty ones
   const ordered = board.statuses.map((s) => s.key);
@@ -406,7 +396,7 @@ export function Board(
                   onOpen={openGuarded}
                   onOpenFull={openFullGuarded}
                   compact={group !== "none"}
-                  storyFilter={storyFilter}
+                  chipActive={chipActive}
                   onFilterStory={onFilterStory}
                   selected={selected}
                   onToggleSelect={onToggleSelect}

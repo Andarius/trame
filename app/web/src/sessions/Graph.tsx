@@ -13,7 +13,7 @@ import {
 import { select } from "d3-selection";
 import { zoom, zoomIdentity, zoomTransform, type ZoomTransform } from "d3-zoom";
 import type { BoardData } from "../api.ts";
-import { daysSince, IDLE_DAYS, matchesSessionFilter, pagesById, StatusDot, statusStyle, timeAgo } from "../ui/ui";
+import { daysSince, IDLE_DAYS, StatusDot, statusStyle, timeAgo } from "../ui/ui";
 import { type CardFace, useCardFaces } from "../plugins";
 import { dueLabel, dueTone, useDue } from "../ui/due";
 import { buildGraph, type GraphNode } from "./graph-model.ts";
@@ -60,10 +60,8 @@ const placed = new Map<string, { x: number; y: number }>();
 const PEEK_W = 320;
 
 export default function Graph(
-  { board, storyFilter, noSpecs, openId, onOpen, onOpenFull, onClose }: {
+  { board, openId, onOpen, onOpenFull, onClose }: {
     board: BoardData;
-    storyFilter: string[];
-    noSpecs: boolean;
     openId: string | null; // the card shown in the drawer
     onOpen: (id: string) => void;
     onOpenFull: (id: string) => void;
@@ -78,12 +76,8 @@ export default function Graph(
   const focusRef = useRef<((id: string | null, dx: number) => void) | null>(null);
 
   const graph = useMemo(() => {
-    const byId = pagesById(board.pages);
-    const sessions = board.sessions
-      .filter((s) => !storyFilter.length || storyFilter.some((f) => matchesSessionFilter(s, f, byId)))
-      .filter((s) => !noSpecs || !s.specs_page_id || !byId.has(s.specs_page_id));
-    return buildGraph(board, sessions);
-  }, [board, storyFilter, noSpecs]);
+    return buildGraph(board, board.sessions);
+  }, [board]);
   const faces = useCardFaces();
   const dues = useDue();
   const extras = useMemo(() => {

@@ -207,7 +207,7 @@ fn board_grouping_flat_rows_and_query() {
         {"id":"s3","title":"repo — orphan","status":"paused","branch":null,"next_step":null,"page_id":null,"deleted":false},
         {"id":"s4","title":"gone","status":"active","page_id":null,"deleted":true}
     ],"stories":[{"id":"st-1","title":"Ship the thing"}],
-    "pages":[{"id":"st-1","parent_id":"pr-1","kind":"story","title":"Ship the thing","tags":["infra"]},{"id":"pr-1","parent_id":null,"kind":"project","title":"Trame"}],
+    "pages":[{"id":"st-1","parent_id":"pr-1","kind":"story","title":"Ship the thing","tags":["infra"]},{"id":"pr-1","parent_id":"pr-0","kind":"project","title":"Trame"},{"id":"pr-0","parent_id":null,"kind":"project","title":"Side-projects"}],
     "projects":[{"id":"pr-1","name":"Trame"}],
     "statuses":[{"key":"active","terminal":false},{"key":"paused","terminal":false},{"key":"done","terminal":true}]});
     let out = board::format_board(&board);
@@ -241,6 +241,7 @@ fn board_grouping_flat_rows_and_query() {
         ("tag:infra", true),
         ("project:trame", true),
         ("story:ship*", true),
+        ("project:side", true), // a parent project matches its subtree
         ("-has:pr", true),
         ("has:branch", true),
         ("repo:dev", true),
