@@ -139,7 +139,7 @@ export const pillItemsFor = (pill: PillState | null, i: number) =>
 
 // rendered markdown of a text block; click edits, images/tables/snippets select
 export function BlockRendered(
-  { ctx, b, i, shape, editing, textCls, listVariant, visibleComments, children }: {
+  { ctx, b, i, shape, editing, textCls, listVariant, visibleComments, onTableSpan, children }: {
     ctx: TextCtx;
     b: TextBlock;
     i: number;
@@ -148,6 +148,7 @@ export function BlockRendered(
     textCls: string;
     listVariant: ListVariant;
     visibleComments: PageComment[];
+    onTableSpan?: (width: string | null) => void;
     children?: ReactNode;
   },
 ) {
@@ -221,6 +222,7 @@ export function BlockRendered(
           rowComments={isTable && b.id
             ? (anchor) => visibleComments.filter((c) => c.anchor === anchor).length
             : undefined}
+          onTableSpan={isTable ? onTableSpan : undefined}
           onMarkDone={listVariant === "open" ? (item) => ctx.markDone(i, item) : undefined}
           onMarkOpen={listVariant === "done" ? (item) => ctx.markOpen(i, item) : undefined}
           onEditItem={(item, next) => ctx.editItem(i, item, next)}

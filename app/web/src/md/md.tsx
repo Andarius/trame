@@ -407,6 +407,7 @@ export function Markdown(
     onEdit,
     onCommentRow,
     rowComments,
+    onTableSpan,
     onMarkDone,
     onMarkOpen,
     onEditItem,
@@ -421,6 +422,7 @@ export function Markdown(
     onEdit?: (next: string) => void;
     onCommentRow?: (anchor: string) => void;
     rowComments?: (anchor: string) => number;
+    onTableSpan?: TableOps["onTableSpan"];
     onMarkDone?: (item: string) => void;
     onMarkOpen?: (item: string) => void;
     onEditItem?: (item: string, next: string) => void;
@@ -436,6 +438,7 @@ export function Markdown(
         onEdit,
         onCommentRow,
         rowComments,
+        onTableSpan,
         onMarkDone,
         onMarkOpen,
         onEditItem,

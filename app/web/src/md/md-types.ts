@@ -18,6 +18,8 @@ export type TableOps = {
   onCommentRow?: (anchor: string) => void;
   // how many visible comments anchor to this row — tints the row + pins its 💬
   rowComments?: (anchor: string) => number;
+  // a table wider than the text column: the block row's width (null = the column)
+  onTableSpan?: (width: string | null) => void;
   onMarkDone?: (item: string) => void;
   onMarkOpen?: (item: string) => void;
   onEditItem?: (item: string, next: string) => void;

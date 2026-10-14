@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import type { AgentPresenceSettings, PageComment } from "../api";
 import { isMetadataMark } from "../plugins";
 import { readMarks, removeMark, stripMarks, writeMark } from "../../../../core/todo-marks.ts";
@@ -9,6 +9,7 @@ import { graphWideOf, graphWidthOf, setGraphWidth } from "../md/graph";
 import { TodoActions, TodoCheck, TodoChips } from "./editor-blocks";
 import { InlineThread, PendingNote, PillMenu, SlashMenu } from "./editor-menus";
 import { rowCls } from "./editor-sections";
+import { spanStyle } from "./useBlockDrag";
 import {
   BlockCorners,
   BlockRendered,
@@ -85,12 +86,15 @@ export function TextBlockRow({ ctx, row, b, i }: { ctx: TextCtx; row: RowCtx; b:
   // popovers anchored
   const isGraph = isSnippet && /^\s*```\s*graph\b/.test(b.text);
   const px = isGraph ? graphWidthOf(b.text) : undefined;
+  // a table wider than the text column reports its row width (MdTable)
+  const [tableSpan, setTableSpan] = useState<string | null>(null);
   const span = isGraph && graphWideOf(b.text)
     ? "min(1400px, 100cqw - 4rem)"
     : px
     ? `min(${px}px, 100cqw - 4rem)`
+    : isTable
+    ? tableSpan
     : null;
-  const spanStyle = (w: string) => ({ width: w, marginLeft: `calc((100% - ${w}) / 2)` });
   // right-edge drag, as on HTML blocks: grows both ways, saved as a `width` line
   const startWidthDrag = (e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -158,6 +162,7 @@ export function TextBlockRow({ ctx, row, b, i }: { ctx: TextCtx; row: RowCtx; b:
           textCls={textCls}
           listVariant={listVariantAt(blocks, i)}
           visibleComments={visibleComments}
+          onTableSpan={setTableSpan}
         >
           {lv && liveCfg && (
             // reading the activity line shouldn't open the editor
@@ -213,7 +218,7 @@ export function TextBlockRow({ ctx, row, b, i }: { ctx: TextCtx; row: RowCtx; b:
             onCloseDue={() => setDueIdx(null)}
           />
         )}
-        <div className="absolute right-[calc(var(--block-r,0px)_-_1.75rem)] top-[3px]">
+        <div className="absolute -right-7 top-[3px]">
           <CommentGutter
             blockId={b.id ?? ""}
             anchor={b.text}

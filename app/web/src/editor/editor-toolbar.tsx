@@ -179,8 +179,7 @@ export function CornerToolbar(
     <div
       // preventDefault keeps focus in the block's textarea while clicking actions
       onMouseDown={(e) => e.preventDefault()}
-      // --block-r: a block wider than the text column (MdTable) puts its right edge there
-      className={`absolute right-[var(--block-r,0.25rem)] top-1 z-10 ${
+      className={`absolute right-1 top-1 z-10 ${
         menu ? "flex" : "hidden group-hover:flex"
       } items-center gap-0.5 rounded-md border border-overlay-border bg-card p-0.5 shadow-lg shadow-black/40`}
     >

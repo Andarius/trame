@@ -2,6 +2,9 @@ import { type ReactNode, useEffect, useState } from "react";
 import type { Block } from "../api";
 import { isText } from "./editor-text";
 
+// a block row wider than the text column, centred on it (wide graphs and tables)
+export const spanStyle = (w: string) => ({ width: w, marginLeft: `calc((100% - ${w}) / 2)` });
+
 export function useBlockDrag(
   blocks: Block[],
   snapshot: () => void,
@@ -41,8 +44,7 @@ export function useBlockDrag(
         setDragIdx(i);
       }}
       // z-20: a card that grows into the margins (wide table, graph) would cover it
-      // --block-l: a block wider than the text column (MdTable) moves it to its own left edge
-      className={`absolute left-[var(--block-l,0.125rem)] top-[2px] z-20 w-[18px] overflow-hidden py-1 text-center cursor-grab select-none text-[13px] leading-none text-ink-muted hover:text-ink ${
+      className={`absolute left-0.5 top-[2px] z-20 w-[18px] overflow-hidden py-1 text-center cursor-grab select-none text-[13px] leading-none text-ink-muted hover:text-ink ${
         dragIdx === null ? "hidden group-hover:block group-hover/block:block" : "block"
       }`}
     >

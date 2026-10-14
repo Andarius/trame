@@ -21,6 +21,8 @@ export const colWidth = (c: string) => {
 
 // the card's px-3 padding and its border, around the table
 const CARD_CHROME = 26;
+// the editor row's own gutters around a block (pl-6, pr-1)
+const ROW_GUTTER = 28;
 
 export const colAlign = (c: string) =>
   c.startsWith(":") && c.endsWith(":")
@@ -114,38 +116,25 @@ export function MdTable(
     document.addEventListener("pointermove", move);
     document.addEventListener("pointerup", up);
   };
-  // a card wider than the text column is offset from its block row: publish its edges
-  // there so the row's drag handle, corner toolbar and comment bubble follow the card
+  // wider than the text column: the block row itself spans into the margins (as a
+  // wide graph does), so its handle, toolbar and comment bubble move with it
+  const span = !wide
+    ? null
+    : minW
+    ? `min(${minW + CARD_CHROME + ROW_GUTTER}px, 100cqw - 4rem)`
+    : "min(1400px, 100cqw - 4rem)";
+  const onSpan = ops?.onTableSpan;
   useLayoutEffect(() => {
-    const card = cardRef.current;
-    const row = card?.closest<HTMLElement>("[data-block-id]");
-    if (!card || !row) return;
-    const clear = () => {
-      row.style.removeProperty("--block-l");
-      row.style.removeProperty("--block-r");
-    };
-    if (!wide) return clear();
-    const place = () => {
-      const c = card.getBoundingClientRect(), r = row.getBoundingClientRect();
-      row.style.setProperty("--block-l", `${c.left - r.left - 22}px`);
-      row.style.setProperty("--block-r", `${r.right - c.right + 4}px`);
-    };
-    place();
-    const ro = new ResizeObserver(place);
-    ro.observe(card);
-    ro.observe(row);
-    return () => {
-      ro.disconnect();
-      clear();
-    };
-  }, [wide]);
+    onSpan?.(span);
+  }, [span, onSpan]);
+  useEffect(() => () => onSpan?.(null), [onSpan]);
   // drag the card's right edge: every column scales so the edge follows the pointer.
-  // A narrow card sits at the column's left; a wide one is centred on the column.
+  // A narrow card sits at the column's left; a wide row is centred on the column.
   const startFit = (e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
     const card = cardRef.current, table = tableRef.current;
-    const host = card?.parentElement;
+    const host = card?.closest("[data-block-id]")?.parentElement; // the text column
     if (!card || !table || !host) return;
     const ths = [...table.tHead!.rows[0].cells].slice(1, header.length + 1);
     const base = ths.map((th) => th.offsetWidth);
@@ -155,10 +144,11 @@ export function MdTable(
     const r = host.getBoundingClientRect();
     const left = r.left + parseFloat(hs.paddingLeft);
     const col = host.clientWidth - parseFloat(hs.paddingLeft) - parseFloat(hs.paddingRight);
-    const pane = Math.min(1400, (card.closest(".\\@container")?.clientWidth ?? 1464) - 64);
+    const pane = (card.closest(".\\@container")?.clientWidth ?? 1464) - 64 - ROW_GUTTER;
     const at = (ev: PointerEvent) => {
       const narrow = ev.clientX - left;
-      const w = narrow > col ? 2 * (ev.clientX - left - col / 2) : narrow;
+      // a wide row is centred and its card sits inside the row's gutters (pl-6, pr-1)
+      const w = narrow > col + CARD_CHROME ? 2 * (ev.clientX - left - col / 2 + 4) - ROW_GUTTER : narrow;
       const data = Math.max(40 * header.length, Math.min(pane, w) - chrome);
       return base.map((b) => Math.max(40, (b * data) / sum));
     };
@@ -282,16 +272,9 @@ export function MdTable(
   return (
     <div
       ref={cardRef}
-      // wider than the 820px text column (px-8 gutters) → grow into the margins;
-      // sized columns set the card's width, up to the pane
-      style={editable && minW
-        ? { width: `min(${minW + CARD_CHROME}px, 1400px, 100cqw - 4rem)` }
-        : undefined}
-      className={`md-table-card group/table relative my-2 max-w-[min(1400px,100cqw_-_4rem)] overflow-x-auto rounded-lg border border-line bg-block px-3 py-1 ${
-        wide
-          ? `left-1/2 -translate-x-1/2 ${minW ? "" : "w-[min(1400px,100cqw_-_4rem)]"}`
-          : ""
-      }`}
+      // narrower sized columns set the card's width; a wide table fills its spanning row
+      style={editable && minW && !wide ? { width: minW + CARD_CHROME } : undefined}
+      className="md-table-card group/table relative my-2 max-w-full overflow-x-auto rounded-lg border border-line bg-block px-3 py-1"
     >
       {editable && (
         <span
