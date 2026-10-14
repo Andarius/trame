@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import type { UdbProp, UdbRow } from "../api.ts";
-import { chartData, sanitizeChart } from "./chart.ts";
+import { type ChartSeries, chartData, sanitizeChart } from "./chart.ts";
 
 const prop = (
   id: string,
@@ -163,4 +163,39 @@ Deno.test("sanitizeChart: junk from localStorage never reaches the renderer", ()
       donut: true,
     },
   );
+});
+
+const BREAKS = prop("p4", "Breaks", "number", {
+  color_mode: "fixed",
+  color: "#e06c75",
+});
+const SCALED = prop("p5", "Scaled", "number", {
+  color_mode: "scale",
+  color: "#111111",
+});
+
+Deno.test("chartData: series colour is explicit, then column fixed, then palette", () => {
+  const cases: [string, ChartSeries, UdbProp[], string | null][] = [
+    ["explicit wins", { propId: "p4", agg: "sum", color: "#00ff00" }, [BREAKS], "#00ff00"],
+    ["column fixed", { propId: "p4", agg: "sum" }, [BREAKS], "#e06c75"],
+    ["invalid explicit falls to column", { propId: "p4", agg: "sum", color: "red" }, [BREAKS], "#e06c75"],
+    ["non-fixed mode ignores column colour", { propId: "p5", agg: "sum" }, [SCALED], null],
+    ["no colour at all", { propId: "p3", agg: "sum" }, [POINTS], null],
+    ["count takes explicit", { propId: null, agg: "count", color: "#abc" }, [], "#abc"],
+  ];
+  for (const [name, s, props, want] of cases) {
+    const d = chartData(ROWS, props, { kind: "bar", x: null, series: [s] });
+    assertEquals(d.series[0].color, want, name);
+  }
+});
+
+Deno.test("sanitizeChart: keeps a valid series colour, drops an invalid one", () => {
+  const out = sanitizeChart({
+    kind: "bar",
+    series: [
+      { propId: "p3", agg: "sum", color: "#e06c75" },
+      { propId: "p3", agg: "sum", color: "javascript:x" },
+    ],
+  });
+  assertEquals(out?.series.map((s) => s.color), ["#e06c75", undefined]);
 });

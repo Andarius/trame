@@ -253,7 +253,11 @@ aggregate table; `chart` draws those same aggregates instead:
   x       property id to group by — null for one mark per row
   series  [{"propId":"<number|formula|rollup id>","agg":"sum|avg|min|max"}], or
           {"propId":null,"agg":"count"} for the row count. The order is the
-          legend and the colour order, and it caps at 8.
+          legend and the palette order, and it caps at 8.
+  colour  optional "color":"#e06c75" (hex) on a series entry. Without it the
+          series takes its column's fixed colour (color_mode "fixed" + color),
+          then the palette slot; an invalid hex is ignored. A pie colours by
+          slice, so a series colour does nothing there.
 
 Example — total cost per status, as bars:
 

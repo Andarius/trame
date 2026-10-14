@@ -14,6 +14,7 @@ import {
   type ChartSeries,
   KIND_LABEL,
   MAX_SERIES,
+  seriesColor,
   sanitizeChart,
 } from "./chart.ts";
 import {
@@ -743,7 +744,12 @@ export function ViewToolbar(
                     <div key={i} className="flex items-center gap-1">
                       <span
                         className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
-                        style={{ background: CHART_COLORS[i] }}
+                        style={{
+                          background: seriesColor(
+                            s,
+                            props.find((p) => p.id === s.propId),
+                          ) ?? CHART_COLORS[i],
+                        }}
                       />
                       <div className="min-w-0 flex-[1.3]">
                         <Select

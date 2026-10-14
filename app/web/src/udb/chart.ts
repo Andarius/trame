@@ -14,7 +14,11 @@ export type ChartKind = "bar" | "line" | "pie";
 // propId null + "count" is the row count — the one measure every database has,
 // so a brand-new chart draws something before anything is configured.
 export type ChartMeasure = Agg | "count";
-export type ChartSeries = { propId: string | null; agg: ChartMeasure };
+export type ChartSeries = {
+  propId: string | null;
+  agg: ChartMeasure;
+  color?: string; // hex; else the column's fixed colour, else the palette slot
+};
 export type ChartConfig = {
   kind: ChartKind;
   x: string | null; // property to group by; null = one category per row
@@ -51,6 +55,22 @@ export const CHART_COLORS: readonly string[] = [
   "var(--color-chart-8)",
 ];
 
+const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+const hexOrNull = (v: unknown): string | null =>
+  typeof v === "string" && HEX.test(v) ? v : null;
+
+// explicit > the column's fixed colour > null (the caller falls to the palette)
+export function seriesColor(
+  s: ChartSeries,
+  prop: UdbProp | undefined,
+): string | null {
+  const cfg = prop?.config;
+  return hexOrNull(s.color) ??
+    (cfg && (cfg.color_mode ?? "fixed") === "fixed"
+      ? hexOrNull(cfg.color)
+      : null);
+}
+
 // A tab config arrives from localStorage or the hub — neither is trusted.
 // undefined degrades the tab to a plain table rather than throwing at render.
 export function sanitizeChart(raw: unknown): ChartConfig | undefined {
@@ -64,6 +84,7 @@ export function sanitizeChart(raw: unknown): ChartConfig | undefined {
   ).slice(0, MAX_SERIES).map((s) => ({
     propId: typeof s.propId === "string" ? s.propId : null,
     agg: s.agg,
+    ...(hexOrNull(s.color) ? { color: s.color } : {}),
   }));
   return {
     kind: c.kind as ChartKind,
@@ -85,7 +106,13 @@ export type ChartRow = {
 };
 export type ChartData = {
   rows: ChartRow[];
-  series: { key: string; label: string; cfg: PropConfig }[];
+  series: {
+    key: string;
+    label: string;
+    cfg: PropConfig;
+    color: string | null; // null = palette slot
+    explicit: boolean; // the colour is the series entry's own
+  }[];
   xLabel: string;
   hidden: number; // categories the cap dropped (pie folds instead)
 };
@@ -111,10 +138,12 @@ export function chartData(
   }));
 
   const series = c.series.slice(0, MAX_SERIES).map((s) => {
-    if (s.agg === "count") return { prop: null, agg: null, cfg: {} };
+    if (s.agg === "count") {
+      return { prop: null, agg: null, cfg: {}, color: seriesColor(s, undefined), explicit: !!hexOrNull(s.color) };
+    }
     const p = s.propId ? byId.get(s.propId) : undefined;
     return p && AGGREGATABLE.has(p.type)
-      ? { prop: p, agg: s.agg as Agg, cfg: p.config }
+      ? { prop: p, agg: s.agg as Agg, cfg: p.config, color: seriesColor(s, p), explicit: !!hexOrNull(s.color) }
       : null;
   }).filter((s) => s !== null).map((s, i) => ({
     ...s,
@@ -152,7 +181,7 @@ export function chartData(
 
   return {
     rows: out,
-    series: series.map(({ key, label, cfg }) => ({ key, label, cfg })),
+    series: series.map(({ key, label, cfg, color, explicit }) => ({ key, label, cfg, color, explicit })),
     xLabel: xProp?.name ?? titleProp?.name ?? "",
     hidden,
   };

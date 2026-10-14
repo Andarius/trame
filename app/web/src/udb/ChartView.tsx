@@ -79,8 +79,13 @@ export default function ChartView(
 
   // pie slices, and a lone bar series, wear the category's identity colour
   const byCategory = config.kind === "pie" || series.length === 1;
+  // a lone bar series: its explicit colour beats the category's, its column's does not
+  const lone = config.kind !== "pie" && series.length === 1 ? series[0] : null;
   const colorAt = (r: ChartRow, i: number) =>
-    r.k === OTHER ? INK : (r.c ?? slot(i));
+    r.k === OTHER
+      ? INK
+      : ((lone?.explicit ? lone.color : null) ?? r.c ?? lone?.color ?? slot(i));
+  const sColor = (i: number) => series[i].color ?? slot(i);
 
   // one axis, always: a series two orders of magnitude below the biggest draws
   // as nothing, and a second scale would be a lie — say so instead.
@@ -168,7 +173,7 @@ export default function ChartView(
                     type="monotone"
                     dataKey={s.key}
                     name={s.label}
-                    stroke={slot(i)}
+                    stroke={sColor(i)}
                     strokeWidth={2}
                     // recharts fills a dot white by default — invisible on the
                     // light panel; the surface ring keeps overlaps readable
@@ -176,7 +181,7 @@ export default function ChartView(
                       r: 4,
                       strokeWidth: 2,
                       stroke: SURFACE,
-                      fill: slot(i),
+                      fill: sColor(i),
                     }}
                     activeDot={{ r: 5 }}
                     connectNulls={false}
@@ -199,7 +204,7 @@ export default function ChartView(
                     key={s.key}
                     dataKey={s.key}
                     name={s.label}
-                    fill={slot(i)}
+                    fill={sColor(i)}
                     maxBarSize={28}
                     radius={config.stacked ? 0 : [4, 4, 0, 0]}
                     stackId={config.stacked ? "a" : undefined}
@@ -214,7 +219,7 @@ export default function ChartView(
                     }
                     {series.length === 1 &&
                       data.rows.map((r, j) => (
-                        <Cell key={r.k} fill={r.c ?? slot(j)} />
+                        <Cell key={r.k} fill={colorAt(r, j)} />
                       ))}
                   </Bar>
                 ))}
@@ -237,7 +242,7 @@ export default function ChartView(
                   {!byCategory && (
                     <span
                       className="mr-1.5 inline-block h-2 w-2 rounded-[2px] align-middle"
-                      style={{ background: slot(i) }}
+                      style={{ background: sColor(i) }}
                     />
                   )}
                   {s.label}
