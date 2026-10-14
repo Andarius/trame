@@ -7,6 +7,14 @@ import { normalizeMarks, setMark, stripMarks, todayMark, touchTodo } from "../..
 import { TodoDueCtx } from "../ui/due";
 import { caretXY, type InlineKind, isText, PILLS, SLASH, type TextBlock } from "./editor-text";
 import { CornerToolbar, FormatBar } from "./editor-toolbar";
+import {
+  GRAPH_STYLES,
+  type GraphStyle,
+  graphStyleOf,
+  graphWideOf,
+  setGraphStyle,
+  setGraphWide,
+} from "../md/graph";
 
 // React rewrites node.defaultValue on every render of a controlled textarea, which
 // mutates its text child and resets the browser's undo grouping — Ctrl+Z then crawls
@@ -515,11 +523,28 @@ export function SelectionBar({ ctx, b, i, sel }: { ctx: TextCtx; b: TextBlock; i
 export function BlockCorners({ ctx, b, i, shape }: { ctx: TextCtx; b: TextBlock; i: number; shape: BlockShape }) {
   const { isSnippet, isImage, isTable, isList } = shape;
   const del = { icon: "delete", title: "Delete", danger: true, onClick: () => ctx.remove(i) } as const;
+  const lang = b.text.match(/^\s*```\s*([\w+#-]*)/)?.[1] ?? "";
   return (
     <>
       {isSnippet && (
         <CornerToolbar
-          chip={b.text.match(/^\s*```\s*([\w+#-]*)/)?.[1] ?? ""}
+          chip={lang}
+          variant={lang === "graph"
+            ? {
+              title: "Graph style",
+              value: graphStyleOf(b.text),
+              options: GRAPH_STYLES,
+              onPick: (v) => ctx.set(i, { text: setGraphStyle(b.text, v as GraphStyle) }),
+            }
+            : undefined}
+          toggle={lang === "graph"
+            ? {
+              label: "wide",
+              title: graphWideOf(b.text) ? "back to the text column" : "use the page's full width",
+              on: graphWideOf(b.text),
+              onClick: () => ctx.set(i, { text: setGraphWide(b.text, !graphWideOf(b.text)) }),
+            }
+            : undefined}
           onChip={(l) =>
             ctx.set(i, {
               text: b.text.replace(

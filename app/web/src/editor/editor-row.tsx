@@ -5,6 +5,7 @@ import { readMarks, removeMark, stripMarks, writeMark } from "../../../../core/t
 import { type Live, LiveLine, LiveRail, liveRingCls, liveRowCls, LiveTrail, worksOn } from "../agents/agents";
 import { CommentGutter, type CommentMode, type CommentOps } from "../page/comments";
 import type { TextBlock } from "./editor-text";
+import { graphWideOf, graphWidthOf, setGraphWidth } from "../md/graph";
 import { TodoActions, TodoCheck, TodoChips } from "./editor-blocks";
 import { InlineThread, PendingNote, PillMenu, SlashMenu } from "./editor-menus";
 import { rowCls } from "./editor-sections";
@@ -79,6 +80,40 @@ export function TextBlockRow({ ctx, row, b, i }: { ctx: TextCtx; row: RowCtx; b:
   const textCls = textClsOf(b);
   const shape = blockShape(b);
   const { isSnippet, isTable } = shape;
+  // a `wide` or dragged-wider graph breaks the whole row out of the text column, so
+  // its handle, outline and toolbar move with it; margins, not a transform, keep
+  // popovers anchored
+  const isGraph = isSnippet && /^\s*```\s*graph\b/.test(b.text);
+  const px = isGraph ? graphWidthOf(b.text) : undefined;
+  const span = isGraph && graphWideOf(b.text)
+    ? "min(1400px, 100cqw - 4rem)"
+    : px
+    ? `min(${px}px, 100cqw - 4rem)`
+    : null;
+  const spanStyle = (w: string) => ({ width: w, marginLeft: `calc((100% - ${w}) / 2)` });
+  // right-edge drag, as on HTML blocks: grows both ways, saved as a `width` line
+  const startWidthDrag = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const row = e.currentTarget.parentElement;
+    const column = row?.parentElement?.getBoundingClientRect().width;
+    if (!row || !column) return;
+    const from = { x: e.clientX, w: row.getBoundingClientRect().width };
+    let last: number | null = null;
+    const move = (ev: MouseEvent) => {
+      last = Math.max(from.w + 2 * (ev.clientX - from.x), column);
+      Object.assign(row.style, spanStyle(`min(${last}px, 100cqw - 4rem)`));
+    };
+    const up = () => {
+      removeEventListener("mousemove", move);
+      removeEventListener("mouseup", up);
+      if (last === null) return;
+      const w = Math.min(last, row.getBoundingClientRect().width); // what the pane allowed
+      // the row's own gutter makes it ~28px wider than the column: within that is "no width"
+      set(i, { text: setGraphWidth(b.text, w <= column + 32 ? undefined : w) });
+    };
+    addEventListener("mousemove", move);
+    addEventListener("mouseup", up);
+  };
   // the live agent working on this todo, if any
   const lv = b.type === "todo" && !b.done && b.id && liveCfg
     ? live.find((x) => worksOn(x.a, b.id as string))
@@ -97,7 +132,10 @@ export function TextBlockRow({ ctx, row, b, i }: { ctx: TextCtx; row: RowCtx; b:
           live: lv && liveCfg ? liveRowCls(lv.state, liveCfg) : "",
         })}
         // nested blocks shift right; overrides the base pl-6 (24px)
-        style={b.indent ? { paddingLeft: 24 + b.indent * 20 } : undefined}
+        style={{
+          ...(b.indent ? { paddingLeft: 24 + b.indent * 20 } : {}),
+          ...(span ? spanStyle(span) : {}),
+        }}
         onMouseMove={() => {
           if (dragIdx !== null && overIdx !== i) setOverIdx(i);
         }}
@@ -157,6 +195,14 @@ export function TextBlockRow({ ctx, row, b, i }: { ctx: TextCtx; row: RowCtx; b:
         )}
         {sel?.i === i && <SelectionBar ctx={textCtx} b={b} i={i} sel={sel} />}
         <BlockCorners ctx={textCtx} b={b} i={i} shape={shape} />
+        {isGraph && !editing && (
+          <div
+            onMouseDown={startWidthDrag}
+            onDoubleClick={() => set(i, { text: setGraphWidth(b.text, undefined) })}
+            title="drag to set width, double-click for the text column"
+            className="absolute bottom-2 right-0 top-2 z-10 w-[6px] cursor-ew-resize rounded bg-transparent transition-colors hover:bg-copper/30"
+          />
+        )}
         {b.type === "todo" && (
           <TodoActions
             dueOpen={dueIdx === i}
