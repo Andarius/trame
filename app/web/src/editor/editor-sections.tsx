@@ -4,6 +4,7 @@ import { stripMarks } from "../../../../core/todo-marks.ts";
 import { isText, type TextBlock } from "./editor-text";
 import { FoldHeader, TabStrip } from "./editor-blocks";
 import { FolderBlock } from "./FolderBlock";
+import { LiveEmbedBlock } from "./LiveEmbedBlock";
 import { HtmlBlock } from "./HtmlBlock";
 
 export type SectionMeta = {
@@ -119,16 +120,18 @@ export function renderSection(ctx: SectionCtx, b: Block, i: number): ReactNode |
   return undefined;
 }
 
-// a folder or html block: self-contained components with their own chrome
+// a folder, embed or html block: self-contained components with their own chrome
 export function EmbedBlock({ block, onPatch, onRemove, onOpenReport }: {
-  block: Extract<Block, { type: "folder" | "html" }>;
+  block: Extract<Block, { type: "folder" | "html" | "embed" }>;
   onPatch: (patch: Partial<Block>) => void;
   onRemove: () => void;
   onOpenReport: (path: string) => void;
 }) {
-  return block.type === "folder"
-    ? <FolderBlock block={block} onPatch={onPatch} onRemove={onRemove} onOpenReport={onOpenReport} />
-    : <HtmlBlock block={block} onPatch={onPatch} onRemove={onRemove} />;
+  if (block.type === "folder") {
+    return <FolderBlock block={block} onPatch={onPatch} onRemove={onRemove} onOpenReport={onOpenReport} />;
+  }
+  if (block.type === "embed") return <LiveEmbedBlock block={block} onPatch={onPatch} onRemove={onRemove} />;
+  return <HtmlBlock block={block} onPatch={onPatch} onRemove={onRemove} />;
 }
 
 // a text block row's classes: comment tint, flash ring, selection contour, drop target, live agent

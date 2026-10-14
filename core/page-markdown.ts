@@ -15,7 +15,17 @@ export type PageFolderBlock = {
   id: string;
 };
 
-export type PageBlock = PageTextBlock | PageFolderBlock;
+// An https URL shown live in an iframe; `height` (px) is left out at the default.
+export type PageEmbedBlock = {
+  type: "embed";
+  url: string;
+  height?: number;
+  id: string;
+};
+
+export type PageBlock = PageTextBlock | PageFolderBlock | PageEmbedBlock;
+
+export const EMBED_DEFAULT_HEIGHT = 600;
 
 export type FolderView = "list" | "gallery";
 
@@ -26,6 +36,11 @@ const DEFAULT_FOLDER_VIEW: FolderView = "list";
 // `{{trame:view=<list|gallery>}}`.
 const FOLDER_LINE =
   /^\s*\{\{trame:folder=([^{}\n]*)\}\}(?:[ \t]*\{\{trame:view=([^{}\n]*)\}\})?\s*$/;
+
+// A line that is nothing but `{{trame:embed=<https-url>}}`, optionally followed by
+// `{{trame:height=<px>}}`.
+const EMBED_LINE =
+  /^\s*\{\{trame:embed=([^{}\n]*)\}\}(?:[ \t]*\{\{trame:height=([^{}\n]*)\}\})?\s*$/;
 
 export const isFolderBlock = (b: unknown): b is PageFolderBlock =>
   typeof b === "object" && b !== null &&
@@ -43,6 +58,32 @@ function folderLine(line: string): PageFolderBlock | null {
     view: view ?? DEFAULT_FOLDER_VIEW,
     id: crypto.randomUUID(),
   };
+}
+
+function embedLine(line: string): PageEmbedBlock | null {
+  const m = line.match(EMBED_LINE);
+  if (!m) return null;
+  const url = m[1].trim();
+  if (!/^https:\/\/\S+$/.test(url)) return null; // only https, one token
+  const h = /^[0-9]{1,4}$/.test(m[2]?.trim() ?? "") ? Number(m[2].trim()) : 0;
+  return {
+    type: "embed",
+    url,
+    ...(h > 0 && h !== EMBED_DEFAULT_HEIGHT ? { height: h } : {}),
+    id: crypto.randomUUID(),
+  };
+}
+
+export const isEmbedBlock = (b: unknown): b is PageEmbedBlock =>
+  typeof b === "object" && b !== null &&
+  (b as PageEmbedBlock).type === "embed";
+
+// The default height is left implicit, like the folder's default view.
+export function embedMarkup(b: PageEmbedBlock): string {
+  const h = b.height && b.height !== EMBED_DEFAULT_HEIGHT
+    ? ` {{trame:height=${b.height}}}`
+    : "";
+  return `{{trame:embed=${b.url}}}${h}`;
 }
 
 // The default view is left implicit, so the common case stays a single mark.
@@ -67,7 +108,7 @@ const block = (
 });
 
 // Inverse of markdownToPageBlocks, for agent reads of a page (e.g. a session's spec
-// page). Folder blocks round-trip as their one line; the other structural blocks
+// page). Folder and embed blocks round-trip as their one line; the other structural blocks
 // (database/subpage/html) have no text form and are skipped.
 export function pageBlocksToMarkdown(blocks: unknown[]): string {
   const parts: string[] = [];
@@ -77,6 +118,11 @@ export function pageBlocksToMarkdown(blocks: unknown[]): string {
     if (isFolderBlock(raw)) {
       prevTodo = false;
       if (raw.path) parts.push(folderMarkup(raw));
+      continue;
+    }
+    if (isEmbedBlock(raw)) {
+      prevTodo = false;
+      if (raw.url) parts.push(embedMarkup(raw));
       continue;
     }
     if (b.type === "todo") {
@@ -132,6 +178,14 @@ export function markdownToPageBlocks(
     if (folder) {
       flush();
       out.push(folder);
+      firstContent = false;
+      continue;
+    }
+
+    const embed = embedLine(line);
+    if (embed) {
+      flush();
+      out.push(embed);
       firstContent = false;
       continue;
     }

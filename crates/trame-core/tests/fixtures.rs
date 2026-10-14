@@ -131,6 +131,47 @@ fn markdown_typescript_assertions() {
 }
 
 #[test]
+fn embed_markdown_assertions() {
+    let ok = "{{trame:embed=https://grafana.example.com/d/abc}} {{trame:height=900}}\n\n{{trame:embed=https://grafana.example.com/d/xyz}}\n";
+    let blocks = markdown(ok, "");
+    assert_eq!(
+        blocks
+            .iter()
+            .map(|b| (b["type"].as_str(), b["url"].as_str(), b["height"].as_u64()))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                Some("embed"),
+                Some("https://grafana.example.com/d/abc"),
+                Some(900)
+            ),
+            (
+                Some("embed"),
+                Some("https://grafana.example.com/d/xyz"),
+                None
+            )
+        ]
+    );
+    assert_eq!(page_markdown::page_blocks_to_markdown(&blocks).unwrap(), ok);
+    for text in [
+        "{{trame:embed=http://a.example.com/}}",
+        "{{trame:embed=javascript:alert(1)}}",
+        "{{trame:embed=https://a.example.com/x y}}",
+        "{{trame:embed=}}",
+        "See {{trame:embed=https://a.example.com/}}.",
+    ] {
+        let blocks = markdown(text, "");
+        assert_eq!(blocks.len(), 1, "{text}");
+        assert_eq!(blocks[0]["type"], "text", "{text}");
+    }
+    let tall = markdown(
+        "{{trame:embed=https://a.example.com/}} {{trame:height=tall}}",
+        "",
+    );
+    assert!(tall[0].get("height").is_none());
+}
+
+#[test]
 fn merge_typescript_assertions() {
     // app/page_merge_test.ts:11 — unchanged IDs survive, edited IDs are fresh.
     let next = markdown("## Checklist\n\nNew paragraph.", "");

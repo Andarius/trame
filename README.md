@@ -117,6 +117,8 @@ Env (shell profile, or the project `.env` for `just`):
 export TRACKER_NODE_ID="mbp-14"                                   # unique per machine
 # folders scanned (depth 4) for *.html reports + *.excalidraw drawings, shown+searchable in Explore
 export TRACKER_REPORT_PATHS="$HOME/Projects:$HOME/code"
+# hostnames the `embed` page block may frame (comma-separated; Settings › Embeds overrides)
+export TRACKER_EMBED_HOSTS="grafana.example.com"
 # optional: client names detected from a repo path (/<Client>/); anything else → "Side-projects"
 export TRACKER_CLIENTS="Acme,Globex"
 ```

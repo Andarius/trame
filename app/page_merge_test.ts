@@ -172,3 +172,15 @@ Deno.test("a rewrite with no folder line leaves the page's folders in place", ()
   assertEquals(out.length, 3);
   assertEquals(out[1], folder("~/reports", "b2"));
 });
+
+Deno.test("a rewrite carrying an embed line keeps the block's id; other embeds drop", () => {
+  const embed = (url: string, id: string) => ({ type: "embed", url, id });
+  const out = mergePageBlocks(
+    [embed("https://a.example.com/", "b1"), embed("https://gone.example.com/", "b2"), folder("~/r", "b3")],
+    markdownToPageBlocks("{{trame:embed=https://a.example.com/}} {{trame:height=800}}"),
+  );
+  assertEquals(out, [
+    folder("~/r", "b3"),
+    { type: "embed", url: "https://a.example.com/", height: 800, id: "b1" },
+  ]);
+});

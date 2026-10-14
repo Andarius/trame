@@ -26,7 +26,7 @@ const proxySource = `
 import * as markdown from ${JSON.stringify(`${root}/core/page-markdown.ts`)};
 import * as merge from ${JSON.stringify(`${root}/core/page-merge.ts`)};
 import * as marks from ${JSON.stringify(`${root}/core/todo-marks.ts`)};
-export type { PageBlock, PageTextBlock, PageFolderBlock, FolderView } from ${
+export type { PageBlock, PageTextBlock, PageFolderBlock, PageEmbedBlock, FolderView } from ${
   JSON.stringify(`${root}/core/page-markdown.ts`)
 };
 export type { Marks } from ${JSON.stringify(`${root}/core/todo-marks.ts`)};

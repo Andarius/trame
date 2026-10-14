@@ -163,6 +163,7 @@ export function SettingsModal(
 ) {
   const [paths, setPaths] = useState<string[]>([]);
   const [ignore, setIgnore] = useState<string[]>([]);
+  const [embedHosts, setEmbedHosts] = useState<string[]>([]);
   const [source, setSource] = useState<"settings" | "env">("settings");
   const [hubUrl, setHubUrl] = useState("");
   const [hubToken, setHubToken] = useState("");
@@ -185,6 +186,7 @@ export function SettingsModal(
       setPresence(s.agentPresence);
       setPaths(s.paths.length ? s.paths : [""]);
       setIgnore(s.ignore ?? []);
+      setEmbedHosts(s.embedHosts?.length ? s.embedHosts : [""]);
       setAuthorName(s.authorName ?? "");
       setAuthorAvatar(s.authorAvatar ?? "");
       setSource(s.source);
@@ -229,6 +231,7 @@ export function SettingsModal(
     patchSettings({
       reportPaths: paths.map((p) => p.trim()).filter(Boolean),
       ignorePaths: ignore.map((p) => p.trim()).filter(Boolean),
+      embedHosts: embedHosts.map((h) => h.trim().toLowerCase()).filter(Boolean),
       hubApi: hubUrl.trim(),
       hubApiToken: hubToken.trim(), // blank = keep the stored one
       authorName: authorName.trim(),
@@ -446,6 +449,21 @@ export function SettingsModal(
           Manage plugins →
         </button>
       </div>
+
+      <div className="h-px bg-line" />
+      <div className="text-[14px] font-semibold">Embeds</div>
+      <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
+        Hostnames whose <code>https</code> URLs an <code>embed</code> page block may show in an iframe (e.g.{" "}
+        <code>grafana.example.com</code>). Empty = embeds are off.
+      </p>
+      {loaded && (
+        <PathList
+          items={embedHosts}
+          onChange={setEmbedHosts}
+          placeholder="grafana.example.com"
+          addLabel="＋ Add host"
+        />
+      )}
 
       <div className="h-px bg-line" />
       <button

@@ -2,7 +2,7 @@
 // *.excalidraw drawings so the Explore view can search files on disk alongside
 // published reports. Paths come from the UI-editable settings file, falling back
 // to the TRACKER_REPORT_PATHS env var.
-import { HOME_DIR, REPORT_PATHS, SETTINGS_FILE } from "./config.ts";
+import { EMBED_HOSTS, HOME_DIR, REPORT_PATHS, SETTINGS_FILE } from "./config.ts";
 import { updateSettings } from "./settings-store.ts";
 
 export type FileHit = { path: string; name: string; mtime: string };
@@ -10,6 +10,7 @@ export type FileHit = { path: string; name: string; mtime: string };
 const expand = (p: string) => p.trim().replace(/^~(?=\/|$)/, HOME_DIR);
 
 export type ExploreConfig = {
+  embedHosts: string[]; // hostnames the `embed` block may frame (empty = embeds off)
   paths: string[];
   ignore: string[];
   starred: string[];
@@ -144,6 +145,9 @@ export async function getReportPaths(): Promise<ExploreConfig> {
     ? settings.authorAvatar.trim()
     : "";
   const agentPresence = normalizeAgentPresence(settings.agentPresence);
+  const embedHosts = Array.isArray(settings.embedHosts)
+    ? list("embedHosts").map((h) => h.toLowerCase())
+    : EMBED_HOSTS;
   if (Array.isArray(settings.reportPaths)) {
     return {
       paths: list("reportPaths").map(expand),
@@ -157,6 +161,7 @@ export async function getReportPaths(): Promise<ExploreConfig> {
       authorName,
       authorAvatar,
       agentPresence,
+      embedHosts,
     };
   }
   return {
@@ -171,6 +176,7 @@ export async function getReportPaths(): Promise<ExploreConfig> {
     authorName,
     authorAvatar,
     agentPresence,
+    embedHosts,
   };
 }
 
@@ -185,6 +191,7 @@ export async function saveExploreSettings(
     authorName?: string;
     authorAvatar?: string;
     agentPresence?: unknown;
+    embedHosts?: string[];
   },
 ): Promise<void> {
   await updateSettings((settings) => {
@@ -205,6 +212,10 @@ export async function saveExploreSettings(
       settings.reportPaths = patch.reportPaths.map((p) => p.trim()).filter(
         Boolean,
       );
+    }
+    if (patch.embedHosts) {
+      settings.embedHosts = patch.embedHosts.map((h) => h.trim().toLowerCase())
+        .filter(Boolean);
     }
     if (patch.ignorePaths) {
       settings.ignorePaths = patch.ignorePaths.map((p) => p.trim()).filter(

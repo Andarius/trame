@@ -145,3 +145,63 @@ Deno.test("folder blocks round-trip, the default view staying implicit", () => {
     "",
   );
 });
+
+Deno.test("a lone {{trame:embed=...}} line becomes an embed block", () => {
+  assertEquals(
+    withoutIds(markdownToPageBlocks(
+      `{{trame:embed=https://grafana.example.com/d/abc?kiosk}}
+
+{{trame:embed=https://grafana.example.com/d/xyz}} {{trame:height=900}}
+
+{{trame:embed=https://grafana.example.com/d/def}} {{trame:height=600}}
+
+{{trame:embed=https://grafana.example.com/d/ghi}} {{trame:height=tall}}`,
+    )),
+    [
+      { type: "embed", url: "https://grafana.example.com/d/abc?kiosk" },
+      { type: "embed", url: "https://grafana.example.com/d/xyz", height: 900 },
+      { type: "embed", url: "https://grafana.example.com/d/def" },
+      { type: "embed", url: "https://grafana.example.com/d/ghi" },
+    ],
+  );
+});
+
+Deno.test("an embed mark that is not an https whole line stays text", () => {
+  assertEquals(
+    withoutIds(markdownToPageBlocks(
+      `See {{trame:embed=https://grafana.example.com/d/abc}}.
+
+{{trame:embed=http://grafana.example.com/d/abc}}
+
+{{trame:embed=javascript:alert(1)}}
+
+{{trame:embed=https://a.example.com/x y}}
+
+{{trame:embed=}}
+
+\`\`\`md
+{{trame:embed=https://grafana.example.com/d/abc}}
+\`\`\``,
+    )),
+    [
+      { type: "text", text: "See {{trame:embed=https://grafana.example.com/d/abc}}." },
+      { type: "text", text: "{{trame:embed=http://grafana.example.com/d/abc}}" },
+      { type: "text", text: "{{trame:embed=javascript:alert(1)}}" },
+      { type: "text", text: "{{trame:embed=https://a.example.com/x y}}" },
+      { type: "text", text: "{{trame:embed=}}" },
+      { type: "text", text: "```md\n{{trame:embed=https://grafana.example.com/d/abc}}\n```" },
+    ],
+  );
+});
+
+Deno.test("embed blocks round-trip, the default height staying implicit", () => {
+  const markdown =
+    "## Metrics\n\n{{trame:embed=https://grafana.example.com/d/abc}} {{trame:height=900}}\n\n{{trame:embed=https://grafana.example.com/d/xyz}}\n";
+  assertEquals(pageBlocksToMarkdown(markdownToPageBlocks(markdown)), markdown);
+  assertEquals(
+    pageBlocksToMarkdown([{ type: "embed", url: "https://a.example.com/", height: 600 }]),
+    "{{trame:embed=https://a.example.com/}}\n",
+  );
+  // a half-configured block (the editor creates one with an empty url) has no line
+  assertEquals(pageBlocksToMarkdown([{ type: "embed", url: "" }]), "");
+});

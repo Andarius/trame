@@ -79,6 +79,12 @@ pub fn evaluate_value(request: &Value) -> Result<Value, String> {
         "folderMarkup" => Value::String(page_markdown::folder_markup(
             args.first().ok_or("missing argument")?,
         )),
+        "isEmbedBlock" => Value::Bool(page_markdown::is_embed_block(
+            args.first().ok_or("missing argument")?,
+        )),
+        "embedMarkup" => Value::String(page_markdown::embed_markup(
+            args.first().ok_or("missing argument")?,
+        )),
         "mergePageBlocks" => Value::Array(page_merge::merge_page_blocks(array(0)?, array(1)?)),
         "readMarks" => Value::Object(todo_marks::read_marks(string(0)?)),
         "stripMarks" => Value::String(todo_marks::strip_marks(string(0)?)),
