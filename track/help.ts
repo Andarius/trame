@@ -490,6 +490,15 @@ stay. Same as the page header's status picker (POST /api/pages/<id> {"status": �
 Pages have only these two statuses — finished work is a card tracked \`done\`, so
 archive a story once all its cards are done. --json prints {id, status}.`;
 
+export const MOVE_HELP = `tramecli move — reparent a page (a doc, a user story) without recreating it
+
+  tramecli move <page-id | page URL> <parent-id | parent URL>   nest it under that page
+  tramecli move <page-id | page URL> --top                      move it to the top level
+
+The page keeps its id, content, comments and links. Same as dragging it in the sidebar
+(POST /api/pages/<id>/move). Refused under itself or a descendant, and a user story
+can't nest under another story. --json prints {id, parent_id}.`;
+
 export const DEPLOYMENTS_HELP = `tramecli deployments — how the Deployments plugin matches waiting releases to cards
 
   tramecli deployments ships                    list every watched repo's rule
@@ -523,6 +532,7 @@ Commands:
   stories    open stories similar to a topic (pick one before tracking)
   convert    turn a page into a session card whose specs are that page
   archive    fold a page or user story away (--restore brings it back)
+  move       reparent a page under another page (or --top)
   setup      install the agent skills embedded in this binary
   deployments  per-repo rules matching waiting releases to cards
   db         write database rows (\`db rows <db>\`); bare, the database contract

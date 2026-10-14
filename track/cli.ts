@@ -33,6 +33,7 @@ import {
   SHOW_HELP,
   CONVERT_HELP,
   ARCHIVE_HELP,
+  MOVE_HELP,
   LIST_HELP,
   STORIES_HELP,
   OVERVIEW,
@@ -54,6 +55,7 @@ const HELP_TOPICS: Record<string, string> = {
   stories: STORIES_HELP,
   convert: CONVERT_HELP,
   archive: ARCHIVE_HELP,
+  move: MOVE_HELP,
   setup: SETUP_HELP,
   deployments: DEPLOYMENTS_HELP,
   db: UDB_CONTRACT,
@@ -220,6 +222,31 @@ async function archive(ref: string | undefined, json: boolean, restore: boolean)
   console.log(json ? JSON.stringify({ id, status }) : `ok: page ${id} ${status}${appLink(target, `page=${id}`)}`);
 }
 
+// Reparent a page in place — keeps its id, comments and links.
+async function movePage(refs: string[], json: boolean, top: boolean): Promise<void> {
+  const ids = refs.map((r) => parseSessionRef(r)?.id);
+  if (ids.some((id) => !id) || ids.length !== (top ? 1 : 2)) {
+    throw new Error("usage: tramecli move <page id | page URL> (<parent id | parent URL> | --top)");
+  }
+  const [id, parent = null] = ids as string[];
+  const target = await resolveTarget();
+  for (const page of parent ? [id, parent] : [id]) {
+    await apiRequest(target, `/api/pages/${page}`).catch(() => {
+      throw new Error(`no page with id ${page}`);
+    });
+  }
+  await apiRequest(target, `/api/pages/${id}/move`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ parent_id: parent }),
+  });
+  console.log(
+    json
+      ? JSON.stringify({ id, parent_id: parent })
+      : `ok: page ${id} moved under ${parent ?? "the top level"}${appLink(target, `page=${id}`)}`,
+  );
+}
+
 async function convert(
   pageId: string | undefined,
   json: boolean,
@@ -375,6 +402,10 @@ export async function run(argv: string[]): Promise<number> {
     case "archive":
       if (wantsHelp) console.log(ARCHIVE_HELP);
       else await archive(rest.find((a) => !a.startsWith("--")), json, rest.includes("--restore"));
+      return 0;
+    case "move":
+      if (wantsHelp) console.log(MOVE_HELP);
+      else await movePage(rest.filter((a) => !a.startsWith("--")), json, rest.includes("--top"));
       return 0;
     case "deployments":
       if (!rest.length || wantsHelp) console.log(DEPLOYMENTS_HELP);

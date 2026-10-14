@@ -695,6 +695,54 @@ async fn list_stories_and_convert_keep_cli_query_and_wire_contracts() {
     server.abort();
 }
 #[tokio::test]
+async fn move_reparents_or_moves_to_top_after_checking_pages() {
+    let (base, state, server) = self::server().await;
+    let target = Target::local(base);
+    let page = "11111111-1111-4111-8111-111111111111";
+    let parent = "22222222-2222-4222-8222-222222222222";
+    let parent_url = format!("http://localhost/?page={parent}");
+    for args in [
+        vec![page],
+        vec![page, parent, "--top"],
+        vec![page, parent, parent],
+        vec![page, "not-a-page"],
+    ] {
+        let args = args.into_iter().map(str::to_owned).collect::<Vec<_>>();
+        assert!(
+            trame_cli::board::move_page(&args, false, &target)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("usage")
+        );
+    }
+    trame_cli::board::move_page(&[page.into(), parent_url], true, &target)
+        .await
+        .unwrap();
+    trame_cli::board::move_page(&[page.into(), "--top".into()], true, &target)
+        .await
+        .unwrap();
+    let state = state.lock().unwrap();
+    let checked = state
+        .hits
+        .iter()
+        .filter(|h| h.method == "GET")
+        .map(|h| h.path.as_str())
+        .collect::<Vec<_>>();
+    assert!(checked.contains(&format!("/api/pages/{parent}").as_str()));
+    let moves = state
+        .hits
+        .iter()
+        .filter(|h| h.path == format!("/api/pages/{page}/move"))
+        .map(|h| h.body.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        moves,
+        vec![json!({"parent_id":parent}), json!({"parent_id":null})]
+    );
+    server.abort();
+}
+#[tokio::test]
 async fn invalid_writer_input_precedes_target_resolution() {
     let scratch = Scratch::new();
     for command in ["page", "comment"] {

@@ -68,6 +68,7 @@ fn cli_help_version_and_staleness() {
         "stories",
         "convert",
         "archive",
+        "move",
         "setup",
         "deployments",
         "db",
@@ -188,6 +189,7 @@ async fn cli_dispatch_help_version_and_unknown_exit_codes() {
         vec!["track", "--help"],
         vec!["convert", "--help"],
         vec!["archive", "--help"],
+        vec!["move", "--help"],
         vec!["db"],
     ] {
         assert_eq!(

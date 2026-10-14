@@ -339,6 +339,41 @@ pub async fn archive(args: &[String], json_out: bool, target: &Target) -> Result
     }
     Ok(())
 }
+pub async fn move_page(args: &[String], json_out: bool, target: &Target) -> Result<()> {
+    let top = args.iter().any(|a| a == "--top");
+    let refs = args
+        .iter()
+        .filter(|a| !a.starts_with("--"))
+        .map(|s| parse_session_ref(s).map(|r| r.id))
+        .collect::<Option<Vec<_>>>()
+        .unwrap_or_default();
+    let (id, parent) = match (refs.as_slice(), top) {
+        ([id], true) => (id.clone(), None),
+        ([id, parent], false) => (id.clone(), Some(parent.clone())),
+        _ => bail!("usage: tramecli move <page id | page URL> (<parent id | parent URL> | --top)"),
+    };
+    for page in std::iter::once(&id).chain(parent.as_ref()) {
+        if target.get(&format!("/api/pages/{page}")).await.is_err() {
+            bail!("no page with id {page}");
+        }
+    }
+    target
+        .post(
+            &format!("/api/pages/{id}/move"),
+            &json!({"parent_id":parent}),
+        )
+        .await?;
+    if json_out {
+        println!("{}", json!({"id":id,"parent_id":parent}));
+    } else {
+        println!(
+            "ok: page {id} moved under {}{}",
+            parent.as_deref().unwrap_or("the top level"),
+            target.app_link(&format!("page={id}"))
+        );
+    }
+    Ok(())
+}
 pub async fn show(args: &[String], json_out: bool, target: &Target) -> Result<()> {
     let events_at = args.iter().position(|a| a == "--events");
     let events = events_at
