@@ -41,7 +41,8 @@ export function useBlockDrag(
         setDragIdx(i);
       }}
       // z-20: a card that grows into the margins (wide table, graph) would cover it
-      className={`absolute left-0.5 top-[2px] z-20 w-[18px] overflow-hidden py-1 text-center cursor-grab select-none text-[13px] leading-none text-ink-muted hover:text-ink ${
+      // --block-l: a block wider than the text column (MdTable) moves it to its own left edge
+      className={`absolute left-[var(--block-l,0.125rem)] top-[2px] z-20 w-[18px] overflow-hidden py-1 text-center cursor-grab select-none text-[13px] leading-none text-ink-muted hover:text-ink ${
         dragIdx === null ? "hidden group-hover:block group-hover/block:block" : "block"
       }`}
     >

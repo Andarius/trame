@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { clearSelection, IconButton } from "../ui/ui";
 import { renderInline } from "./md-inline";
 import type { TableOps } from "./md-types";
@@ -18,6 +18,9 @@ export const colWidth = (c: string) => {
   const n = (c.match(/-/g) ?? []).length;
   return n > 3 ? n * PX_PER_DASH : null;
 };
+
+// the card's px-3 padding and its border, around the table
+const CARD_CHROME = 26;
 
 export const colAlign = (c: string) =>
   c.startsWith(":") && c.endsWith(":")
@@ -57,20 +60,39 @@ export function MdTable(
   const [drag, setDrag] = useState<{ ci: number; px: number } | null>(null);
   const base = hdrIdx + 2;
   const widths = parseTableRow(lines[hdrIdx + 1]).map(colWidth);
+  // every column, while the table's right edge is dragged
+  const [fit, setFit] = useState<number[] | null>(null);
   const widthOf = (ci: number) =>
-    drag?.ci === ci ? drag.px : widths[ci] ?? null;
+    fit ? fit[ci] : drag?.ci === ci ? drag.px : widths[ci] ?? null;
   const sized = header.some((_, ci) => widthOf(ci) !== null);
   // the table needs at least the sum of its columns; autos get a readable share
   const minW = sized
     ? header.reduce((t, _, ci) => t + (widthOf(ci) ?? 120), editable ? 76 : 0)
     : null;
-  const setColWidth = (ci: number, px: number) => {
+  // an auto-sized table is as wide as its content wants (one line per cell), measured
+  // once per edit; that, or the sized columns, decides whether it grows into the margins
+  const tableRef = useRef<HTMLTableElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [natural, setNatural] = useState(0);
+  const text = lines.join("\n");
+  useLayoutEffect(() => {
+    const t = tableRef.current;
+    if (!t || sized || !editable) return;
+    const prev = t.style.width;
+    t.style.width = "max-content";
+    setNatural(t.offsetWidth);
+    t.style.width = prev;
+  }, [text, sized, editable]);
+  const wide = editable && (minW ?? natural) > 756;
+  const setColWidths = (px: Map<number, number>) => {
     const cells = parseTableRow(lines[hdrIdx + 1]);
-    const cur = (cells[ci] ?? "---").trim();
-    const n = Math.max(4, Math.min(160, Math.round(px / PX_PER_DASH)));
-    cells[ci] = `${cur.startsWith(":") ? ":" : ""}${"-".repeat(n)}${
-      cur.endsWith(":") ? ":" : ""
-    }`;
+    for (const [ci, w] of px) {
+      const cur = (cells[ci] ?? "---").trim();
+      const n = Math.max(4, Math.min(160, Math.round(w / PX_PER_DASH)));
+      cells[ci] = `${cur.startsWith(":") ? ":" : ""}${"-".repeat(n)}${
+        cur.endsWith(":") ? ":" : ""
+      }`;
+    }
     const next = [...lines];
     next[hdrIdx + 1] = `| ${cells.join(" | ")} |`;
     ops?.onEdit?.(next.join("\n"));
@@ -87,7 +109,65 @@ export function MdTable(
       document.removeEventListener("pointermove", move);
       document.removeEventListener("pointerup", up);
       setDrag(null);
-      setColWidth(ci, at(ev));
+      setColWidths(new Map([[ci, at(ev)]]));
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
+  };
+  // a card wider than the text column is offset from its block row: publish its edges
+  // there so the row's drag handle, corner toolbar and comment bubble follow the card
+  useLayoutEffect(() => {
+    const card = cardRef.current;
+    const row = card?.closest<HTMLElement>("[data-block-id]");
+    if (!card || !row) return;
+    const clear = () => {
+      row.style.removeProperty("--block-l");
+      row.style.removeProperty("--block-r");
+    };
+    if (!wide) return clear();
+    const place = () => {
+      const c = card.getBoundingClientRect(), r = row.getBoundingClientRect();
+      row.style.setProperty("--block-l", `${c.left - r.left - 22}px`);
+      row.style.setProperty("--block-r", `${r.right - c.right + 4}px`);
+    };
+    place();
+    const ro = new ResizeObserver(place);
+    ro.observe(card);
+    ro.observe(row);
+    return () => {
+      ro.disconnect();
+      clear();
+    };
+  }, [wide]);
+  // drag the card's right edge: every column scales so the edge follows the pointer.
+  // A narrow card sits at the column's left; a wide one is centred on the column.
+  const startFit = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const card = cardRef.current, table = tableRef.current;
+    const host = card?.parentElement;
+    if (!card || !table || !host) return;
+    const ths = [...table.tHead!.rows[0].cells].slice(1, header.length + 1);
+    const base = ths.map((th) => th.offsetWidth);
+    const sum = base.reduce((a, b) => a + b, 0);
+    const chrome = CARD_CHROME + 76; // + the select and add columns
+    const hs = getComputedStyle(host);
+    const r = host.getBoundingClientRect();
+    const left = r.left + parseFloat(hs.paddingLeft);
+    const col = host.clientWidth - parseFloat(hs.paddingLeft) - parseFloat(hs.paddingRight);
+    const pane = Math.min(1400, (card.closest(".\\@container")?.clientWidth ?? 1464) - 64);
+    const at = (ev: PointerEvent) => {
+      const narrow = ev.clientX - left;
+      const w = narrow > col ? 2 * (ev.clientX - left - col / 2) : narrow;
+      const data = Math.max(40 * header.length, Math.min(pane, w) - chrome);
+      return base.map((b) => Math.max(40, (b * data) / sum));
+    };
+    const move = (ev: PointerEvent) => setFit(at(ev));
+    const up = (ev: PointerEvent) => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      setFit(null);
+      setColWidths(new Map(at(ev).map((w, ci) => [ci, w])));
     };
     document.addEventListener("pointermove", move);
     document.addEventListener("pointerup", up);
@@ -201,14 +281,27 @@ export function MdTable(
 
   return (
     <div
-      // wider than the 820px text column (px-8 gutters) → grow into the margins
-      className={`md-table-card group/table my-2 overflow-x-auto rounded-lg border border-line bg-block px-3 py-1 ${
-        editable && minW && minW > 756
-          ? "relative left-1/2 w-[min(1400px,100cqw_-_4rem)] -translate-x-1/2"
+      ref={cardRef}
+      // wider than the 820px text column (px-8 gutters) → grow into the margins;
+      // sized columns set the card's width, up to the pane
+      style={editable && minW
+        ? { width: `min(${minW + CARD_CHROME}px, 1400px, 100cqw - 4rem)` }
+        : undefined}
+      className={`md-table-card group/table relative my-2 max-w-[min(1400px,100cqw_-_4rem)] overflow-x-auto rounded-lg border border-line bg-block px-3 py-1 ${
+        wide
+          ? `left-1/2 -translate-x-1/2 ${minW ? "" : "w-[min(1400px,100cqw_-_4rem)]"}`
           : ""
       }`}
     >
+      {editable && (
+        <span
+          title="Drag to resize the table"
+          onPointerDown={startFit}
+          className="absolute inset-y-0 right-0 z-10 w-2 cursor-col-resize after:absolute after:inset-y-2 after:right-0.5 after:w-0.5 after:rounded after:bg-copper after:opacity-0 hover:after:opacity-100"
+        />
+      )}
       <table
+        ref={tableRef}
         style={minW ? { minWidth: minW } : undefined}
         className={`w-full border-collapse text-[0.92em] ${
           sized ? "table-fixed" : ""

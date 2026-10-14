@@ -213,7 +213,7 @@ export function TextBlockRow({ ctx, row, b, i }: { ctx: TextCtx; row: RowCtx; b:
             onCloseDue={() => setDueIdx(null)}
           />
         )}
-        <div className="absolute -right-7 top-[3px]">
+        <div className="absolute right-[calc(var(--block-r,0px)_-_1.75rem)] top-[3px]">
           <CommentGutter
             blockId={b.id ?? ""}
             anchor={b.text}
@@ -224,6 +224,7 @@ export function TextBlockRow({ ctx, row, b, i }: { ctx: TextCtx; row: RowCtx; b:
             onToggleInline={() => b.id && onToggleThread(b.id)}
             meId={meId}
             ops={commentOps}
+            hoverAdd={!isTable}
           />
         </div>
       </div>

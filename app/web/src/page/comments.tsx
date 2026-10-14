@@ -270,6 +270,7 @@ export function CommentGutter(
     onToggleInline,
     meId,
     ops,
+    hoverAdd = true,
   }: {
     blockId: string;
     anchor: string;
@@ -280,6 +281,7 @@ export function CommentGutter(
     onToggleInline: () => void;
     meId: string | null;
     ops: CommentOps;
+    hoverAdd?: boolean; // false: no hover "add" (a table comments per row), only the bubble
   },
 ) {
   const [open, setOpen] = useState(false);
@@ -287,6 +289,7 @@ export function CommentGutter(
   const visible = showResolved ? comments : unresolved;
   const marker = unresolved.length > 0 || (showResolved && comments.length > 0);
   const active = mode === "inline" ? inlineOpen : open;
+  if (!hoverAdd && !marker && !active) return null;
   return (
     <div className="relative">
       <button
