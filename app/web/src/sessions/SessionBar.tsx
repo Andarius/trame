@@ -1,8 +1,8 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { BoardData } from "../api";
-import { applySuggestion, parseQuery, QUERY_SYNTAX, type QueryValue, suggestQuery } from "../query";
+import { applySuggestion, parseQuery, QUERY_SYNTAX, type QueryValue, type Suggestion, suggestQuery } from "../query";
 import { SessionSort, type Sort, SORT_FIELDS } from "./SessionSort";
-import { EntityIcon, MENU_LABEL, MenuRow, pageGlyph, Popover, TagChips, IconButton } from "../ui/ui";
+import { clientColor, EntityIcon, IconButton, MENU_LABEL, MenuRow, pageGlyph, Popover, StatusDot, TagChips } from "../ui/ui";
 
 type Pages = BoardData["pages"];
 
@@ -295,8 +295,8 @@ export function QueryBox(
               onMouseEnter={() => setAt(i)}
               className={`flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-xs ${i === at ? "bg-panel" : ""}`}
             >
-              {sg.avatar !== undefined && <Face name={sg.label} avatar={sg.avatar} />}
-              <span className="truncate font-mono text-ink">{sg.label}</span>
+              <Lead sg={sg} />
+              {sg.key === "tag" ? <TagChips keys={[sg.label]} /> : <span className="truncate font-mono text-ink">{sg.label}</span>}
               {sg.hint && sg.hint.toLowerCase() !== sg.label.toLowerCase() && (
                 <span className="ml-auto shrink-0 truncate text-[10.5px] text-ink-muted">{sg.hint}</span>
               )}
@@ -317,6 +317,28 @@ function Face({ name, avatar }: { name: string; avatar: string | null }) {
         {name.split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase()}
       </span>
     );
+}
+
+// what a value suggestion looks like elsewhere in the app: face, status dot, page icon
+function Lead({ sg: { key, value: v } }: { sg: Suggestion }) {
+  if (!v) return null;
+  if (v.avatar !== undefined) return <Face name={v.value} avatar={v.avatar} />;
+  if (key === "status") return <StatusDot status={v.value} />;
+  if (key === "project") {
+    return (
+      <span className="w-4 shrink-0 text-center text-[11px]" style={{ color: clientColor(v.value, v.color) }}>
+        <EntityIcon icon={v.icon} fallback={pageGlyph("project")} size={14} />
+      </span>
+    );
+  }
+  if (key === "story") {
+    return (
+      <span className="w-4 shrink-0 text-center text-[11px] text-ink-muted">
+        <EntityIcon icon={v.icon} fallback={pageGlyph("story")} size={14} />
+      </span>
+    );
+  }
+  return null;
 }
 
 export function SessionBar(

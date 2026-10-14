@@ -91,7 +91,7 @@ export type QuerySession = {
 export type QueryBoard = {
   pages: (TreePage & { tags?: string[] })[];
   statuses: { key: string; label?: string }[];
-  projects: { id: string; name: string }[];
+  projects: { id: string; name: string; icon?: string | null; color?: string | null }[];
 };
 
 // who handed me each card, by session id — plugin data (the web's useCardFaces, a plugin's cardFaces route)
@@ -146,9 +146,10 @@ export const KEY_HINTS: Record<(typeof QUERY_KEYS)[number], string> = {
 };
 export const HAS_VALUES = ["pr", "specs", "branch", "next", "story", "project", "tags", "transcript", "assigner"];
 
-// `avatar` set (null: initials) marks a person
-export type QueryValue = { value: string; hint?: string; avatar?: string | null };
-export type Suggestion = { label: string; hint?: string; avatar?: string | null; from: number; to: number; insert: string };
+// `avatar` set (null: initials) marks a person; `icon`/`color` are the page's own
+export type QueryValue = { value: string; hint?: string; avatar?: string | null; icon?: string | null; color?: string | null };
+// `key` and `value` are set on value suggestions, for the list to draw them
+export type Suggestion = { label: string; hint?: string; from: number; to: number; insert: string; key?: string; value?: QueryValue };
 
 // the values worth proposing after `key:`, read from the board the box filters
 export function queryValues(
@@ -158,14 +159,17 @@ export function queryValues(
   const byId = pagesById(board.pages);
   const uniq = (xs: (string | null | undefined)[]) =>
     [...new Set(xs.filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b)).map((value) => ({ value }));
+  const pick = (p?: { icon?: string | null; color?: string | null }) => ({ icon: p?.icon ?? null, color: p?.color ?? null });
   // one row per person, with the first picture any of their cards has
   const faces = new Map<string, string | null>();
   for (const a of Object.values(assigners)) if (!faces.get(a.name)) faces.set(a.name, a.avatar ?? null);
   return {
     status: board.statuses.map((s) => ({ value: s.key, hint: s.label })),
     tag: uniq(board.sessions.flatMap((s) => sessionTagKeys(s, byId))),
-    project: uniq(board.projects.map((p) => p.name)),
-    story: uniq(board.sessions.map((s) => storyOf(s, byId)?.title)),
+    project: uniq(board.projects.map((p) => p.name))
+      .map(({ value }) => ({ value, ...pick(board.projects.find((p) => p.name === value)) })),
+    story: uniq(board.sessions.map((s) => storyOf(s, byId)?.title))
+      .map(({ value }) => ({ value, ...pick(board.pages.find((p) => p.kind === "story" && p.title === value)) })),
     agent: uniq(board.sessions.map((s) => s.agent)),
     assigner: [...faces].sort(([a], [b]) => a.localeCompare(b)).map(([value, avatar]) => ({ value, avatar })),
     has: HAS_VALUES.map((value) => ({ value })),
@@ -202,7 +206,8 @@ export function suggestQuery(query: string, cursor: number, values: Record<strin
   return options.slice(0, 8).map((v) => ({
     label: v.value,
     hint: v.hint,
-    ...(v.avatar !== undefined && { avatar: v.avatar }),
+    key: key === "no" ? "has" : key,
+    value: v,
     from,
     to: cursor,
     insert: `${/\s/.test(v.value) ? `"${v.value}"` : v.value} `,
