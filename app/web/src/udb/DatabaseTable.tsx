@@ -87,6 +87,7 @@ const TableRow = memo(function TableRow(
     onPatch,
     onPickIcon,
     reload,
+    compact,
   }: {
     row: UdbRow;
     props: UdbProp[];
@@ -97,6 +98,7 @@ const TableRow = memo(function TableRow(
     onPatch: (rowId: string, propId: string, value: unknown) => void;
     onPickIcon: (rowId: string, icon: string | null) => void;
     reload: () => void;
+    compact?: boolean;
   },
 ) {
   return (
@@ -107,7 +109,9 @@ const TableRow = memo(function TableRow(
       {props.map((p, i) => (
         <div
           key={p.id}
-          className="relative flex min-w-0 items-center border-r border-line-soft/60 py-0.5 last:border-r-0"
+          className={`relative flex min-w-0 items-center border-r border-line-soft/60 py-0.5 last:border-r-0 ${
+            compact && i === props.length - 1 ? "border-r-0" : ""
+          }`}
         >
           {i === 0 && (
             <button
@@ -153,7 +157,7 @@ const TableRow = memo(function TableRow(
           )}
         </div>
       ))}
-      <div />
+      {!compact && <div />}
     </div>
   );
 });
@@ -234,10 +238,11 @@ function SummaryBody(
 
 // memo + App's identity-stable polling: the 5s refresh tick must not re-render this huge grid
 export const DatabaseView = memo(function DatabaseView(
-  { dbId, epoch, udbs, onReadOnly }: {
+  { dbId, epoch, udbs, onReadOnly, compact }: {
     dbId: string;
     epoch: number;
     udbs: UdbMeta[];
+    compact?: boolean; // view mode: tabs and rows only, no toolbar/paging/new-row/column chrome
     onReadOnly?: (ro: boolean) => void; // lets App hide the global "New row" on a read-only summary tab
   },
 ) {
@@ -416,7 +421,8 @@ export const DatabaseView = memo(function DatabaseView(
   const [pageSize, setPageSize] = useLocalStorage(PAGE_SIZE_KEY, 50, PAGE_SIZE_CODEC);
   const [page, setPage] = useState(0);
   useEffect(() => setPage(0), [dbId, deferredView, pageSize]); // reset on db/view/size change
-  const paginate = pageSize !== PAGE_ALL && !summaryConfigured && !chartConfig;
+  // view mode has no pager, so it lists every row
+  const paginate = pageSize !== PAGE_ALL && !summaryConfigured && !chartConfig && !compact;
   const total = orderedRows.length;
   const pageCount = paginate ? Math.max(1, Math.ceil(total / pageSize)) : 1;
   const curPage = Math.min(page, pageCount - 1);
@@ -434,8 +440,11 @@ export const DatabaseView = memo(function DatabaseView(
   const props = data.properties;
   // grid + header render only the view's visible columns; data ops use all props
   const visProps = props.filter((p) => !view.hidden?.includes(p.id));
-  const grid = visProps.map((p) => `${widths[p.id] ?? colWidth(p)}px`).join(" ") +
-    " minmax(44px, 1fr)";
+  // view mode: the last column takes the spare width, no empty "+" column
+  const grid = visProps.map((p, i) => {
+    const w = `${widths[p.id] ?? colWidth(p)}px`;
+    return compact && i === visProps.length - 1 ? `minmax(${w}, 1fr)` : w;
+  }).join(" ") + (compact ? "" : " minmax(44px, 1fr)");
   // summary ("DB view") mode: a read-only aggregate table, shown instead of the raw grid
   const summaryMode = !!(groupProp && groups && deferredView.summary);
   // a summary view without a group-by yet — prompt to pick one instead of the grid
@@ -484,6 +493,7 @@ export const DatabaseView = memo(function DatabaseView(
       onPatch={patchRow}
       onPickIcon={pickIcon}
       reload={reload}
+      compact={compact}
     />
   );
 
@@ -530,9 +540,9 @@ export const DatabaseView = memo(function DatabaseView(
     <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center gap-2 px-6 pt-2">
-          <ViewTabsBar state={tabState} props={props} onChange={changeTabs} />
+          <ViewTabsBar state={tabState} props={props} onChange={changeTabs} readOnly={compact} />
         </div>
-        <div className="flex items-center gap-2 border-b border-line-soft px-6 py-2">
+        <div className={`${compact ? "hidden" : "flex"} items-center gap-2 border-b border-line-soft px-6 py-2`}>
           <ViewToolbar props={props} view={view} onChange={changeView} />
           <span className="flex-1" />
           {(view.filters.length > 0 || view.sorts.length > 0) && (
@@ -541,7 +551,7 @@ export const DatabaseView = memo(function DatabaseView(
             </span>
           )}
         </div>
-        <div className="min-w-0 flex-1 overflow-auto px-6 py-4">
+        <div className={`min-w-0 flex-1 overflow-auto px-6 ${compact ? "pb-1 pt-1.5" : "py-4"}`}>
           {/* a chart sizes itself to the pane; w-max would collapse it to nothing */}
           <div className={chartConfig ? "min-w-full" : "w-max min-w-full"}>
             {chartConfig
@@ -584,14 +594,17 @@ export const DatabaseView = memo(function DatabaseView(
                     className="grid border-b border-line"
                     style={{ gridTemplateColumns: grid }}
                   >
-                    {visProps.map((p) => (
+                    {visProps.map((p, pi) => (
                       <div
                         key={p.id}
-                        className="group relative flex items-center border-r border-line-soft last:border-r-0"
+                        className={`group relative flex items-center border-r border-line-soft last:border-r-0 ${
+                          compact && pi === visProps.length - 1 ? "border-r-0" : ""
+                        }`}
                       >
                         <button
                           type="button"
-                          className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left text-[11px] font-medium text-ink-muted transition-colors hover:bg-panel/60 hover:text-ink-soft"
+                          className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left text-[11px] font-medium text-ink-muted transition-colors enabled:hover:bg-panel/60 enabled:hover:text-ink-soft"
+                          disabled={compact}
                           onClick={() => setEditor({ prop: p })}
                           title={p.type}
                         >
@@ -609,7 +622,7 @@ export const DatabaseView = memo(function DatabaseView(
                             )}
                           <span className="truncate">{p.name}</span>
                         </button>
-                        <button
+                        {!compact && <button
                           type="button"
                           className={`flex shrink-0 items-center gap-0.5 px-1 py-1.5 text-[9px] transition-colors hover:text-ink ${
                             sortDirOf(p.id)
@@ -629,10 +642,17 @@ export const DatabaseView = memo(function DatabaseView(
                               {sortRank(p.id) + 1}
                             </span>
                           )}
-                        </button>
+                        </button>}
+                        {/* view mode still shows the active sort, without the toggle */}
+                        {compact && sortDirOf(p.id) && (
+                          <span className="shrink-0 px-1 text-[9px] text-copper">
+                            {sortDirOf(p.id) === 1 ? "▲" : "▼"}
+                          </span>
+                        )}
                         <div
                           className="absolute -right-[3px] top-0 z-10 h-full w-[7px] cursor-col-resize after:absolute after:left-[3px] after:top-0 after:h-full after:w-[1px] after:bg-transparent hover:after:bg-copper/70"
                           title="drag to resize"
+                          hidden={compact}
                           onMouseDown={startResize(p)}
                         />
                         {editor && editor.prop?.id === p.id && (
@@ -656,7 +676,7 @@ export const DatabaseView = memo(function DatabaseView(
                         )}
                       </div>
                     ))}
-                    <div className="relative">
+                    <div className={compact ? "hidden" : "relative"}>
                       <button
                         type="button"
                         className="w-full px-2 py-1.5 text-left text-[13px] text-ink-muted/60 transition-colors hover:bg-panel/60 hover:text-ink-soft"
@@ -696,6 +716,7 @@ export const DatabaseView = memo(function DatabaseView(
                   {/* footer */}
                   <button
                     type="button"
+                    hidden={compact}
                     className="w-full px-2 py-1.5 text-left text-xs text-ink-muted/70 transition-colors hover:bg-panel/40 hover:text-ink-soft"
                     onClick={addRow}
                   >
@@ -703,8 +724,9 @@ export const DatabaseView = memo(function DatabaseView(
                   </button>
                   {data.rows.length === 0 && (
                     <EmptyState block className="px-2 pt-4 text-[12px]">
-                      No rows yet — add one, or add columns with the “+” header
-                      cell.
+                      {compact
+                        ? "No rows yet — Edit to add rows and columns."
+                        : "No rows yet — add one, or add columns with the “+” header cell."}
                     </EmptyState>
                   )}
                   {data.rows.length > 0 && rows.length === 0 && (
@@ -716,7 +738,7 @@ export const DatabaseView = memo(function DatabaseView(
               )}
           </div>
         </div>
-        {!summaryConfigured && !chartConfig && rows.length > 0 && (
+        {!summaryConfigured && !chartConfig && !compact && rows.length > 0 && (
           <div className="flex items-center gap-2.5 border-t border-line-soft px-6 py-1.5 text-[11px] text-ink-muted">
             <span>Rows / page</span>
             <div className="w-[70px]">

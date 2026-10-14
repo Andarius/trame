@@ -127,11 +127,13 @@ export const saveTabs = (dbId: string, v: ViewTabs) => {
 // UI
 
 // Named view tabs: click to switch, double-click to rename, ✕ to delete, ＋ to add.
+// readOnly keeps only the switching.
 export function ViewTabsBar(
-  { state, props, onChange }: {
+  { state, props, onChange, readOnly }: {
     state: ViewTabs;
     props: UdbProp[];
     onChange: (v: ViewTabs) => void;
+    readOnly?: boolean;
   },
 ) {
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -203,11 +205,12 @@ export function ViewTabsBar(
                 type="button"
                 className={`pl-2 text-[11.5px] ${
                   t.id === state.active ? "font-medium" : ""
-                } ${state.tabs.length > 1 ? "pr-0.5" : "pr-2"}`}
-                title="double-click to rename"
+                } ${state.tabs.length > 1 && !readOnly ? "pr-0.5" : "pr-2"}`}
+                title={readOnly ? undefined : "double-click to rename"}
                 onClick={() =>
                   t.id !== state.active && onChange({ ...state, active: t.id })}
                 onDoubleClick={() => {
+                  if (readOnly) return;
                   setRenaming(t.id);
                   setDraft(t.name);
                 }}
@@ -220,7 +223,7 @@ export function ViewTabsBar(
                 )}
                 {t.name}
               </button>
-              {state.tabs.length > 1 && (
+              {state.tabs.length > 1 && !readOnly && (
                 <IconButton tone="danger" className="w-5 self-stretch text-[9px] opacity-0 transition-opacity group-hover/tab:opacity-70 hover:!opacity-100"
                   title="delete view tab"
                   onClick={() => remove(t.id)}
@@ -231,7 +234,7 @@ export function ViewTabsBar(
             </div>
           )
       )}
-      <div className="relative">
+      <div className={readOnly ? "hidden" : "relative"}>
         <button
           type="button"
           className="flex h-6 w-6 items-center justify-center rounded-md text-[12px] text-ink-muted/60 transition-colors hover:bg-panel/50 hover:text-ink-soft"
