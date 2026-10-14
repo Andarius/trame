@@ -475,3 +475,96 @@ fn comment_routes_and_get_inbox_cleanup_log_their_writes() {
         log
     );
 }
+
+#[test]
+fn row_threads_follow_their_row_and_database() {
+    let mut t = TestDb::new();
+    let home = page(&mut t, "home", json!([]));
+    let other = page(&mut t, "other", json!([]));
+    let (_, created) = t.request("POST", "/api/udb", json!({"name":"Infra"}));
+    let db = created["id"].as_str().unwrap().to_owned();
+    t.request("POST", &format!("/api/udb/{db}"), json!({"page_id":home}));
+    let title = t.request("GET", &format!("/api/udb/{db}"), Value::Null).1["properties"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let row = |t: &mut TestDb, name: &str| {
+        let (_, r) = t.request(
+            "POST",
+            &format!("/api/udb/{db}/rows"),
+            json!({"vals":{title.clone():name}}),
+        );
+        r["id"].as_str().unwrap().to_owned()
+    };
+    let (a, b) = (row(&mut t, "Prod"), row(&mut t, "Staging"));
+    let comment = |t: &mut TestDb, row: &str, body: &str, agent: Option<&str>| {
+        comments::create(
+            &mut t.db,
+            &json!({"page_id":home,"block_id":format!("row:{row}"),"anchor":"snapshot","body":body,"agent":agent}),
+        )
+        .unwrap()
+    };
+    let asked = comment(&mut t, &a, "agent question", Some("claude"));
+    t.db.query(
+        "update page_comments set updated_at=updated_at-interval '1 second' where id=$1",
+        &[json!(asked)],
+    )
+    .unwrap();
+    let reply = comment(&mut t, &a, "human reply", None);
+    let on_b = comment(&mut t, &b, "other row", None);
+    let item = pending(&mut t, &reply).expect("row reply reaches the watcher inbox");
+    assert_eq!(
+        item["row"],
+        json!({"id":a,"db_id":db,"db_name":"Infra","title":"Prod"})
+    );
+    assert_eq!(
+        item["block"],
+        json!({"id":format!("row:{a}"),"text":"Prod"})
+    );
+    assert_eq!(item["thread"].as_array().unwrap().len(), 2);
+    status(&mut t, &reply, "seen");
+
+    t.request("POST", &format!("/api/udb/{db}"), json!({"page_id":other}));
+    let live = |t: &mut TestDb, sql: &str| t.db.query(sql, &[]).unwrap()[0]["n"].as_i64().unwrap();
+    assert_eq!(
+        live(
+            &mut t,
+            &format!(
+                "select count(*)::int as n from page_comments where page_id='{other}' and not deleted"
+            )
+        ),
+        3,
+        "row threads move with their database"
+    );
+    assert_eq!(
+        live(
+            &mut t,
+            &format!(
+                "select count(*)::int as n from comment_agent_status where page_id='{other}' and not deleted"
+            )
+        ),
+        1
+    );
+
+    t.request("POST", &format!("/api/udb/rows/{a}/delete"), Value::Null);
+    let alive = |t: &mut TestDb| {
+        t.db.query(
+            "select id from page_comments where not deleted order by id",
+            &[],
+        )
+        .unwrap()
+        .into_iter()
+        .map(|r| r["id"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        alive(&mut t),
+        vec![on_b.clone()],
+        "deleting a row deletes its thread only"
+    );
+    t.request("POST", &format!("/api/udb/{db}/delete"), Value::Null);
+    assert!(
+        alive(&mut t).is_empty(),
+        "deleting the database deletes its row threads"
+    );
+}

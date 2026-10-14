@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { deleteUdbRow, patchUdbRow, type UdbProp, type UdbRow } from "../api";
+import { deleteUdbRow, type PageComment, patchUdbRow, type UdbProp, type UdbRow } from "../api";
+import { AddNote, answeredIn, CommentItem } from "../page/comments";
+import type { RowCommentOps } from "./row-comments";
 import { appConfirm, EntityIcon, FIELD_LABEL, IconButton, EmptyState } from "../ui/ui";
 import { Cell, IconPicker } from "./cells";
 import { TYPE_GLYPH } from "./PropertyEditor";
@@ -17,13 +19,66 @@ function ExpandIcon({ open }: { open: boolean }) {
   );
 }
 
+// The row's comment thread (same items as a block thread); null ops = db not on a page.
+function RowThread(
+  { comments, ops, meId, rowId, title, focus }: {
+    comments: PageComment[];
+    ops: RowCommentOps | null;
+    meId: string | null;
+    rowId: string;
+    title: string;
+    focus: boolean;
+  },
+) {
+  const [showResolved, setShowResolved] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (focus) ref.current?.scrollIntoView({ block: "nearest" });
+  }, [focus]);
+  const resolved = comments.filter((c) => c.resolved).length;
+  const visible = showResolved ? comments : comments.filter((c) => !c.resolved);
+  return (
+    <div ref={ref} className="flex flex-col gap-2 border-t border-line-soft px-4 py-3.5">
+      <div className="flex items-center gap-2">
+        <span className={FIELD_LABEL}>COMMENTS</span>
+        <span className="flex-1" />
+        {resolved > 0 && (
+          <button type="button"
+            className="text-[11px] text-ink-muted/70 transition-colors hover:text-ink-soft"
+            onClick={() => setShowResolved((v) => !v)}
+          >
+            {showResolved ? "Hide" : "Show"} {resolved} resolved
+          </button>
+        )}
+      </div>
+      {visible.map((c) => (
+        <CommentItem
+          key={c.id}
+          c={c}
+          canEdit={Boolean(meId) && c.author_id === meId}
+          answered={answeredIn(c, comments)}
+          onUpdate={(patch) => ops?.update(c.id, patch)}
+          onDelete={() => ops?.remove(c.id)}
+        />
+      ))}
+      {ops
+        ? <AddNote autoFocus={focus} onAdd={(body) => ops.add(rowId, title, body)} />
+        : <span className="text-[11px] text-ink-muted/60">Attach this database to a page to comment on its rows.</span>}
+    </div>
+  );
+}
+
 export function RowPanel(
-  { db, properties, row, onClose, onSaved }: {
+  { db, properties, row, onClose, onSaved, comments, commentOps, meId, focusComments }: {
     db: { id: string; name: string };
     properties: UdbProp[];
     row: UdbRow;
     onClose: () => void;
     onSaved: () => void;
+    comments: PageComment[];
+    commentOps: RowCommentOps | null;
+    meId: string | null;
+    focusComments: boolean;
   },
 ) {
   const titleProp = properties.find((p) => p.type === "title");
@@ -126,6 +181,15 @@ export function RowPanel(
         ))}
         {properties.length <= 1 && <EmptyState>No columns yet.</EmptyState>}
       </div>
+
+      <RowThread
+        comments={comments}
+        ops={commentOps}
+        meId={meId}
+        rowId={row.id}
+        title={title}
+        focus={focusComments}
+      />
 
       <div className="sticky bottom-0 mt-auto flex items-center gap-2 border-t border-line bg-sidebar px-4 py-2.5">
         <button type="button" className="text-[11px] text-ink-muted transition-colors hover:text-blocked" onClick={remove}>

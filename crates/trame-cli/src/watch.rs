@@ -157,8 +157,12 @@ pub fn build_prompt(item: &Value, agent: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n");
+    let subject = match item["row"]["db_name"].as_str() {
+        Some(db) => format!("Database row under discussion (database \"{db}\")"),
+        None => "Block under discussion".into(),
+    };
     format!(
-        "You are {who}. You left a review comment on the Trame page \"{title}\".\nA human replied; write your answer as the next comment in the thread.\n\nBlock under discussion:\n> {block}\n\nThread (oldest first):\n{thread}\n\nAnswer the last human message. Be concise (a few sentences), plain text for a\nsmall comment box. Output ONLY the comment body — no preamble, no markdown headings."
+        "You are {who}. You left a review comment on the Trame page \"{title}\".\nA human replied; write your answer as the next comment in the thread.\n\n{subject}:\n> {block}\n\nThread (oldest first):\n{thread}\n\nAnswer the last human message. Be concise (a few sentences), plain text for a\nsmall comment box. Output ONLY the comment body — no preamble, no markdown headings."
     )
 }
 pub fn tokenize(command: &str) -> Vec<String> {
@@ -803,8 +807,11 @@ pub async fn watch_main(args: &[String]) -> Result<()> {
                             let id=item["comment"]["id"].as_str().unwrap_or("");
                             let _=status(&target,id,"answering",&agent).await;
                         }
-                        let pending=mine.iter().map(|item|json!({"comment_id":item["comment"]["id"],
-                            "page":item["page"],"block_id":item["block"]["id"],"body":item["comment"]["body"]})).collect::<Vec<_>>();
+                        let pending=mine.iter().map(|item|{
+                            let mut p=json!({"comment_id":item["comment"]["id"],"page":item["page"],"block_id":item["block"]["id"],"body":item["comment"]["body"]});
+                            // a row thread is answered with {db_id,row_id}, not page/block
+                            if item["row"].is_object(){p["db_id"]=item["row"]["db_id"].clone();p["row_id"]=item["row"]["id"].clone();p["row_title"]=item["row"]["title"].clone();}
+                            p}).collect::<Vec<_>>();
                         println!("{} pending comment(s) — feedback ready:\n{}",mine.len(),serde_json::to_string_pretty(&pending)?);
                         return Ok::<bool,anyhow::Error>(true);
                     }

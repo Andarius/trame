@@ -407,6 +407,73 @@ fn comment_validation_and_quote_resolution() {
     assert_eq!(comment::validate(&custom).unwrap(), "glm");
 }
 #[test]
+fn row_comment_targets_and_show_listing() {
+    let base = json!({"body":"review","agent":"glm","meta":{"model":"glm-5"}});
+    for (target, error) in [
+        (json!({"db_id":"d","row_id":"r"}), None),
+        (json!({"db_id":"d","row_title":"A"}), None),
+        (
+            json!({"db_id":"d"}),
+            Some("exactly one of row_id or row_title"),
+        ),
+        (
+            json!({"db_id":"d","row_id":"r","row_title":"A"}),
+            Some("exactly one of row_id or row_title"),
+        ),
+        (
+            json!({"db_id":"d","row_id":"r","page_id":"p"}),
+            Some("not a page or block"),
+        ),
+        (json!({"row_title":"A"}), Some("need db_id")),
+    ] {
+        let mut case = base.clone();
+        for (k, v) in target.as_object().unwrap() {
+            case[k] = v.clone();
+        }
+        match (comment::validate(&case), error) {
+            (Ok(_), None) => {}
+            (Err(e), Some(want)) => assert!(e.to_string().contains(want), "{e}"),
+            (got, want) => panic!("{target}: {got:?} vs {want:?}"),
+        }
+    }
+    let udb = json!({"properties":[{"id":"t","type":"title"}],"rows":[
+        {"id":"r1","vals":{"t":"Prod runs only client services"}},
+        {"id":"r2","vals":{"t":"dup "}},{"id":"r3","vals":{"t":"dup"}}]});
+    for (target, want) in [
+        (json!({"row_id":"r2"}), Ok("r2")),
+        (
+            json!({"row_title":" Prod runs only client services"}),
+            Ok("r1"),
+        ),
+        (
+            json!({"row_title":"dup"}),
+            Err("matches 2 rows; use row_id (r2, r3)"),
+        ),
+        (json!({"row_title":"Prod"}), Err("was not found")),
+        (json!({"row_id":"nope"}), Err("was not found")),
+    ] {
+        match (comment::resolve_row(&udb, &target), want) {
+            (Ok(row), Ok(id)) => assert_eq!(row["id"], id),
+            (Err(e), Err(msg)) => assert!(e.to_string().contains(msg), "{e}"),
+            (got, want) => panic!("{target}: {got:?} vs {want:?}"),
+        }
+    }
+    let page = json!({
+        "databases":[{"id":"d1","name":"Infra","row_count":3}],
+        "comments":[
+            {"block_id":"b1","author":"Ju","body":"block note"},
+            {"block_id":"row:r1","author":"Ju","body":"why\nthis?","resolved":false},
+            {"block_id":"row:r1","author":"Claude","body":"because","resolved":true},
+            {"block_id":"row:gone","anchor":"Old row","author":"Ju","body":"orphan"}
+        ]
+    });
+    let udbs = std::collections::HashMap::from([("d1".to_owned(), udb)]);
+    assert_eq!(
+        board::page_databases(&page, &udbs),
+        "- Infra (3 rows) · db_id d1\n  - row \"Prod runs only client services\" · row_id r1\n    - Ju: why this?\n    - Claude (resolved): because\n- row \"Old row\" (not in a database on this page) · row_id gone\n    - Ju: orphan"
+    );
+}
+#[test]
 fn presence_hooks_usage_provider_and_state() {
     for (event, want) in [
         ("UserPromptSubmit", Some("working")),

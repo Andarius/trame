@@ -28,6 +28,9 @@ const authorColor = (name: string) =>
 // mirrors AGENT_AUTHOR_ID in app/agent-comments.ts — agent-authored comments
 const AGENT_AUTHOR_ID = "00000000-0000-4000-8000-0000000000aa";
 export const isAgent = (c: PageComment) => c.author_id === AGENT_AUTHOR_ID;
+// database-row threads share page_comments with block threads: block_id = row:<row id>
+export const ROW_PREFIX = "row:";
+export const isRowThread = (c: PageComment) => c.block_id.startsWith(ROW_PREFIX);
 // a reply is answered once a newer agent comment sits on the same block
 export const answeredIn = (c: PageComment, blockComments: PageComment[]) =>
   blockComments.some((o) => isAgent(o) && o.updated_at > c.updated_at);

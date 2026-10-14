@@ -5,6 +5,10 @@ use serde_json::{Value, json};
 use trame_core::{trim, truthy};
 
 pub const AGENT_AUTHOR_ID: &str = "00000000-0000-4000-8000-0000000000aa";
+/// Row threads live in `page_comments` on the database's page, `block_id` = `row:<row id>`.
+pub const ROW_PREFIX: &str = "row:";
+/// SQL for a `udb_rows` row's thread `block_id` (rows aliased as the bare table).
+pub const ROW_BLOCK_SQL: &str = "'row:' || id::text";
 const COLS: &str = "id, page_id, block_id, anchor, body, author, author_avatar, author_id, resolved, meta, updated_at";
 
 pub fn list(db: &mut Db, page: &str) -> Result<Value> {
@@ -144,9 +148,17 @@ pub fn inbox(db: &mut Db, stale: f64, pages: &[String], all: bool) -> Result<Val
         )?;
         let Some(page) = rows.first() else { continue };
         let block = c["block_id"].as_str().unwrap_or("");
-        let text = resolve_block(&page["content"], &json!({"block_id":block}))
-            .map(|b| b["text"].clone())
-            .unwrap_or_else(|_| c["anchor"].clone());
+        let row = match block.strip_prefix(ROW_PREFIX) {
+            Some(row_id) => row_target(db, row_id)?,
+            None => Value::Null,
+        };
+        let text = if row.is_null() {
+            resolve_block(&page["content"], &json!({"block_id":block}))
+                .map(|b| b["text"].clone())
+                .unwrap_or_else(|_| c["anchor"].clone())
+        } else {
+            row["title"].clone()
+        };
         let thread=db.query(&format!("select {COLS} from page_comments where page_id=$1 and block_id=$2 and not deleted order by updated_at"), &[c["page_id"].clone(),c["block_id"].clone()])?;
         let agent = thread
             .iter()
@@ -155,9 +167,36 @@ pub fn inbox(db: &mut Db, stale: f64, pages: &[String], all: bool) -> Result<Val
             .and_then(|t| t["author"].as_str())
             .unwrap_or("claude")
             .to_lowercase();
-        items.push(json!({"comment":c,"page":{"id":page["id"],"title":page["title"]},"block":{"id":block,"text":text},"thread":thread,"agent":agent}));
+        let mut item = json!({"comment":c,"page":{"id":page["id"],"title":page["title"]},"block":{"id":block,"text":text},"thread":thread,"agent":agent});
+        if !row.is_null() {
+            item["row"] = json!({"id":row["id"],"db_id":row["db_id"],"db_name":row["db_name"],"title":row["title"]});
+        }
+        items.push(item);
     }
     Ok(json!(items))
+}
+/// A row thread's target: the live row (`id`, `db_id`, `db_name`, `page_id`, `title`), or null once gone.
+pub fn row_target(db: &mut Db, row_id: &str) -> Result<Value> {
+    if !crate::routes::valid_uuid(row_id) {
+        return Ok(Value::Null);
+    }
+    Ok(db.query("select r.id, r.db_id, d.name as db_name, d.page_id, coalesce(r.vals->>(select p.id::text from udb_properties p where p.db_id=r.db_id and p.type='title' and not p.deleted order by p.sort_key limit 1), '') as title from udb_rows r join udb_databases d on d.id=r.db_id and not d.deleted where r.id=$1 and not r.deleted", &[json!(row_id)])?.into_iter().next().unwrap_or(Value::Null))
+}
+pub fn delete_row_thread(db: &mut Db, row_id: &str) -> Result<()> {
+    let origin = json!(db.origin);
+    db.query(
+        "update page_comments set deleted=true,origin=$2,updated_at=clock_timestamp() where block_id=$1 and not deleted",
+        &[json!(format!("{ROW_PREFIX}{row_id}")), origin],
+    )?;
+    Ok(())
+}
+/// Row threads follow their database when it moves to another page (the hub ACL gates by `page_id`).
+pub fn rehome_row_threads(db: &mut Db, db_id: &str, page_id: &Value) -> Result<()> {
+    let origin = json!(db.origin);
+    let params = [json!(db_id), page_id.clone(), origin];
+    db.query(&format!("update comment_agent_status set page_id=$2,origin=$3,updated_at=clock_timestamp() where not deleted and page_id<>$2 and comment_id in (select id from page_comments where block_id in (select {ROW_BLOCK_SQL} from udb_rows where db_id=$1))"), &params)?;
+    db.query(&format!("update page_comments set page_id=$2,origin=$3,updated_at=clock_timestamp() where not deleted and page_id<>$2 and block_id in (select {ROW_BLOCK_SQL} from udb_rows where db_id=$1)"), &params)?;
+    Ok(())
 }
 pub fn resolve_block(content: &Value, target: &Value) -> Result<Value> {
     let blocks: Vec<_> = content

@@ -5,6 +5,7 @@ import {
   type CommentMode,
   type CommentOps,
   COMMENT_MODE_KEY,
+  isRowThread,
   openKey,
   PANEL_OPEN_KEY,
 } from "./comments";
@@ -119,7 +120,8 @@ export function commentView(cs: ReturnType<typeof usePageComments>, blocks: Bloc
   const blockIds = new Set(
     blocks.filter(isText).map((b) => b.id).filter(Boolean) as string[],
   );
-  const orphans = comments.filter((c) => !blockIds.has(c.block_id));
+  // row threads render on their database, not as orphaned page notes
+  const orphans = comments.filter((c) => !blockIds.has(c.block_id) && !isRowThread(c));
   const resolvedCount =
     comments.filter((c) => c.resolved && blockIds.has(c.block_id)).length;
   const openCount =

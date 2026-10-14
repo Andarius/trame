@@ -17,10 +17,12 @@ import {
   type Udb,
   type UdbMeta,
   type UdbProp,
+  type PageComment,
   type UdbRow,
   updateUdb,
   updateUdbProp,
 } from "../api";
+import { useRowComments } from "./row-comments";
 import { EmptyState, EntityIcon, numberCodec, Select, useLocalStorage } from "../ui/ui";
 import { Cell, ColumnRanges, IconPicker, TableProps } from "./cells";
 import { PropertyEditor, TYPE_GLYPH } from "./PropertyEditor";
@@ -84,6 +86,8 @@ const TableRow = memo(function TableRow(
     iconOpen,
     onIconFor,
     onOpenRow,
+    onOpenComments,
+    comments,
     onPatch,
     onPickIcon,
     reload,
@@ -95,6 +99,8 @@ const TableRow = memo(function TableRow(
     iconOpen: boolean;
     onIconFor: (rowId: string | null) => void;
     onOpenRow: (rowId: string) => void;
+    onOpenComments: (rowId: string) => void;
+    comments: PageComment[] | undefined;
     onPatch: (rowId: string, propId: string, value: unknown) => void;
     onPickIcon: (rowId: string, icon: string | null) => void;
     reload: () => void;
@@ -103,7 +109,7 @@ const TableRow = memo(function TableRow(
 ) {
   return (
     <div
-      className="group grid items-start border-b border-line-soft transition-colors hover:bg-panel/40"
+      className="group/row grid items-start border-b border-line-soft transition-colors hover:bg-panel/40"
       style={{ gridTemplateColumns: grid }}
     >
       {props.map((p, i) => (
@@ -117,7 +123,7 @@ const TableRow = memo(function TableRow(
             <button
               type="button"
               className={`ml-1 shrink-0 rounded p-0.5 text-[13px] leading-none transition-opacity hover:bg-panel ${
-                r.icon ? "" : "opacity-0 group-hover:opacity-50"
+                r.icon ? "" : "opacity-0 group-hover/row:opacity-50"
               }`}
               title="row icon"
               onClick={() => onIconFor(r.id)}
@@ -148,7 +154,7 @@ const TableRow = memo(function TableRow(
           {i === 0 && (
             <button
               type="button"
-              className="mr-1 rounded border border-chipline/60 bg-panel px-1 py-0.5 text-[9px] text-ink-muted opacity-0 transition-opacity hover:text-ink group-hover:opacity-100"
+              className="mr-1 rounded border border-chipline/60 bg-panel px-1 py-0.5 text-[9px] text-ink-muted opacity-0 transition-opacity hover:text-ink group-hover/row:opacity-100"
               title="open row"
               onClick={() => onOpenRow(r.id)}
             >
@@ -157,7 +163,26 @@ const TableRow = memo(function TableRow(
           )}
         </div>
       ))}
-      {!compact && <div />}
+      {/* the row's comment marker sits in the trailing column, past the last cell */}
+      <div className="flex items-center justify-end py-0.5">
+        {(() => {
+          const open = comments?.filter((c) => !c.resolved).length ?? 0;
+          return (
+            <button
+              type="button"
+              className={`mr-1 flex shrink-0 items-center gap-0.5 rounded-md px-1 py-0.5 text-[11px] transition-opacity ${
+                open
+                  ? "text-copper hover:bg-copper/10"
+                  : "text-ink-muted opacity-0 hover:bg-panel hover:!opacity-100 group-hover/row:opacity-60"
+              }`}
+              title={open ? `${open} comment${open > 1 ? "s" : ""}` : "comment"}
+              onClick={() => onOpenComments(r.id)}
+            >
+              💬{open > 0 && <span className="text-[10px] font-medium">{open}</span>}
+            </button>
+          );
+        })()}
+      </div>
     </div>
   );
 });
@@ -251,6 +276,16 @@ export const DatabaseView = memo(function DatabaseView(
   );
   const [editor, setEditor] = useState<{ prop: UdbProp | null } | null>(null); // null prop = create
   const [openRow, setOpenRow] = useState<string | null>(null);
+  const [commentFocus, setCommentFocus] = useState(false); // row panel opened from the 💬 marker
+  const rowComments = useRowComments(udbs.find((u) => u.id === dbId)?.page_id ?? null);
+  const openRowPanel = useCallback((id: string) => {
+    setCommentFocus(false);
+    setOpenRow(id);
+  }, []);
+  const openRowComments = useCallback((id: string) => {
+    setCommentFocus(true);
+    setOpenRow(id);
+  }, []);
   const [iconFor, setIconFor] = useState<string | null>(null); // row id with the icon picker open
   const [widths, setWidths] = useState<Record<string, number>>({}); // live values while dragging
   // view tabs: localStorage is the instant/offline cache; the hub's udb_databases.views is the
@@ -440,11 +475,11 @@ export const DatabaseView = memo(function DatabaseView(
   const props = data.properties;
   // grid + header render only the view's visible columns; data ops use all props
   const visProps = props.filter((p) => !view.hidden?.includes(p.id));
-  // view mode: the last column takes the spare width, no empty "+" column
+  // view mode: the last column takes the spare width (no empty "+" column), then the 💬 slot
   const grid = visProps.map((p, i) => {
     const w = `${widths[p.id] ?? colWidth(p)}px`;
     return compact && i === visProps.length - 1 ? `minmax(${w}, 1fr)` : w;
-  }).join(" ") + (compact ? "" : " minmax(44px, 1fr)");
+  }).join(" ") + (compact ? " 32px" : " minmax(44px, 1fr)");
   // summary ("DB view") mode: a read-only aggregate table, shown instead of the raw grid
   const summaryMode = !!(groupProp && groups && deferredView.summary);
   // a summary view without a group-by yet — prompt to pick one instead of the grid
@@ -472,7 +507,7 @@ export const DatabaseView = memo(function DatabaseView(
   const addRow = () =>
     createUdbRow(dbId).then((r) => {
       reload();
-      setOpenRow(r.id);
+      openRowPanel(r.id);
     });
 
   // Resolve against the full row set, not the filtered/sorted `rows`: a just-added
@@ -489,7 +524,9 @@ export const DatabaseView = memo(function DatabaseView(
       grid={grid}
       iconOpen={iconFor === r.id}
       onIconFor={setIconFor}
-      onOpenRow={setOpenRow}
+      onOpenRow={openRowPanel}
+      onOpenComments={openRowComments}
+      comments={rowComments.byRow.get(r.id)}
       onPatch={patchRow}
       onPickIcon={pickIcon}
       reload={reload}
@@ -676,7 +713,7 @@ export const DatabaseView = memo(function DatabaseView(
                         )}
                       </div>
                     ))}
-                    <div className={compact ? "hidden" : "relative"}>
+                    <div className={compact ? "invisible" : "relative"}>
                       <button
                         type="button"
                         className="w-full px-2 py-1.5 text-left text-[13px] text-ink-muted/60 transition-colors hover:bg-panel/60 hover:text-ink-soft"
@@ -795,6 +832,10 @@ export const DatabaseView = memo(function DatabaseView(
           row={row}
           onClose={() => setOpenRow(null)}
           onSaved={reload}
+          comments={rowComments.byRow.get(row.id) ?? []}
+          commentOps={rowComments.ops}
+          meId={rowComments.meId}
+          focusComments={commentFocus}
         />
       )}
     </div>

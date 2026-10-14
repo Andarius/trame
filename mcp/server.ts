@@ -66,7 +66,7 @@ As an agent you can:
 
 ## Review comments (conversational)
 - Leave inline comments on a page block with **trame_add_comment** (page by id/title,
-  block by id or a unique text quote).
+  block by id or a unique text quote), or on a database row (db_id + row_id or a unique row_title).
 - **Attribution**: set \`agent\` to the id of the model ACTUALLY writing (codex, claude,
   glm, gemini, …) — not the harness seat. codex/claude get a branded avatar; any other
   id gets a generated one. Never post as a human.
@@ -324,12 +324,15 @@ server.tool(
 
 server.tool(
   "trame_add_comment",
-  "Add an inline agent review comment to a Trame page block. Identify the page by id or exact title and the block by id or a unique text quote. `agent` is the id of the model actually writing (e.g. codex, claude, glm, gemini) — attribute the real model, not the harness seat; codex/claude get a branded avatar, any other id gets a generated one. `meta.model` is required and records the exact model id you are running as (e.g. claude-opus-5, gpt-5.6-sol) — it renders as a footer under the comment. `in`/`out`/`ms` (input tokens, output tokens, elapsed milliseconds) are required when running as claude or codex — both harnesses report their own usage, so read it there rather than guessing; other agents may omit stats they cannot measure.",
+  "Add an inline agent review comment to a Trame page block or database row. Identify the page by id or exact title and the block by id or a unique text quote — or, for a row, pass db_id with row_id or an exact row_title (a title shared by several rows is an error). `agent` is the id of the model actually writing (e.g. codex, claude, glm, gemini) — attribute the real model, not the harness seat; codex/claude get a branded avatar, any other id gets a generated one. `meta.model` is required and records the exact model id you are running as (e.g. claude-opus-5, gpt-5.6-sol) — it renders as a footer under the comment. `in`/`out`/`ms` (input tokens, output tokens, elapsed milliseconds) are required when running as claude or codex — both harnesses report their own usage, so read it there rather than guessing; other agents may omit stats they cannot measure.",
   {
     page_id: z.string().optional(),
     page_title: z.string().optional(),
     block_id: z.string().optional(),
     block_text: z.string().optional(),
+    db_id: z.string().optional(),
+    row_id: z.string().optional(),
+    row_title: z.string().optional(),
     body: z.string(),
     agent: z.string(),
     meta: z.object({
@@ -345,6 +348,9 @@ server.tool(
       page_title?: string;
       block_id?: string;
       block_text?: string;
+      db_id?: string;
+      row_id?: string;
+      row_title?: string;
       body: string;
       agent: string;
       meta: { model: string; in?: number; out?: number; ms?: number };

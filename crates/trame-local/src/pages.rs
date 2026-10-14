@@ -14,6 +14,9 @@ pub fn attach_udb(db: &mut Db, id: &str, page_id: &Value) -> Result<()> {
         "update udb_databases set page_id=$2, origin=$3, updated_at=clock_timestamp() where id=$1",
         &[json!(id), page_id.clone(), json!(db.origin)],
     )?;
+    if page_id.is_string() {
+        crate::comments::rehome_row_threads(db, id, page_id)?;
+    }
     Ok(())
 }
 

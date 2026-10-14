@@ -449,6 +449,7 @@ export type InboxItem = {
   comment: Record<string, unknown>; // the human reply awaiting an answer
   page: { id: string; title: string };
   block: { id: string; text: string };
+  row?: { id: string; db_id: string; db_name: string; title: string }; // set on a database-row thread
   thread: Record<string, unknown>[]; // all comments on the block, oldest first
   agent: AgentKind; // which CLI answers (the thread's latest agent author)
 };
@@ -460,6 +461,29 @@ export type InboxItem = {
 // claims a candidate (until it goes stale ≥ staleSecs — a watcher crash); "seen" is the
 // display ack a poller writes at pickup and keeps it listed, since a long-running watcher
 // re-reads its own inbox. A hash-stale status (the human edited) re-surfaces regardless.
+// Row threads live in page_comments on the database's page, block_id = `row:<row id>`.
+export const ROW_PREFIX = "row:";
+const ROW_BLOCK_SQL = "'row:' || id::text";
+
+async function rowTarget(ctx: Ctx, rowId: string) {
+  if (!/^[0-9a-f-]{36}$/i.test(rowId)) return undefined;
+  return (await ctx.q.query(
+    `select r.id, r.db_id, d.name as db_name, coalesce(r.vals->>(select p.id::text from udb_properties p
+            where p.db_id=r.db_id and p.type='title' and not p.deleted order by p.sort_key limit 1), '') as title
+       from udb_rows r join udb_databases d on d.id=r.db_id and not d.deleted
+      where r.id=$1 and not r.deleted`,
+    [rowId],
+  )).rows[0] as { id: string; db_id: string; db_name: string; title: string } | undefined;
+}
+
+export async function deleteRowThreads(ctx: Ctx, where: "row" | "db", id: string): Promise<void> {
+  await ctx.q.query(
+    `update page_comments set deleted=true, origin=$2, updated_at=clock_timestamp()
+      where not deleted and block_id in (select ${ROW_BLOCK_SQL} from udb_rows where ${where === "row" ? "id" : "db_id"}=$1)`,
+    [id, ctx.origin],
+  );
+}
+
 export async function listCommentInbox(
   ctx: Ctx,
   staleSecs = 600,
@@ -527,10 +551,16 @@ export async function listCommentInbox(
     if (!page) continue; // page vanished under LWW — skip this pass
 
     let blockText = String(c.anchor ?? "");
-    try {
-      blockText = resolveCommentBlock(page.content, { block_id: blockId }).text;
-    } catch {
-      // block removed from content — keep the anchor snapshot
+    const row = blockId.startsWith(ROW_PREFIX)
+      ? await rowTarget(ctx, blockId.slice(ROW_PREFIX.length))
+      : undefined;
+    if (row) blockText = row.title;
+    else {
+      try {
+        blockText = resolveCommentBlock(page.content, { block_id: blockId }).text;
+      } catch {
+        // block removed from content — keep the anchor snapshot
+      }
     }
 
     const thread = (await pg.query(
@@ -551,6 +581,7 @@ export async function listCommentInbox(
       comment: c,
       page: { id: page.id, title: page.title },
       block: { id: blockId, text: blockText },
+      ...(row ? { row: { id: row.id, db_id: row.db_id, db_name: row.db_name, title: row.title } } : {}),
       thread,
       agent,
     });
@@ -566,6 +597,19 @@ export async function attachUdbToPage(
   const pg = ctx.q;
   await pg.query(
     `update udb_databases set page_id=$2, origin=$3, updated_at=clock_timestamp() where id=$1`,
+    [dbId, pageId, ctx.origin],
+  );
+  if (!pageId) return;
+  // row threads follow their database (the hub ACL gates comments by page_id)
+  const rows = `select id from page_comments where not deleted and page_id<>$2
+    and block_id in (select ${ROW_BLOCK_SQL} from udb_rows where db_id=$1)`;
+  await pg.query(
+    `update comment_agent_status set page_id=$2, origin=$3, updated_at=clock_timestamp()
+      where not deleted and comment_id in (${rows})`,
+    [dbId, pageId, ctx.origin],
+  );
+  await pg.query(
+    `update page_comments set page_id=$2, origin=$3, updated_at=clock_timestamp() where id in (${rows})`,
     [dbId, pageId, ctx.origin],
   );
 }

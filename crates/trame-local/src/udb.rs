@@ -81,6 +81,7 @@ fn delete_db(db: &mut Db, id: &str) -> Result<Value> {
     let p = [json!(id), json!(db.origin)];
     db.query("update udb_links set deleted=true, origin=$2, updated_at=now() where not deleted and (prop_id in (select id from udb_properties where db_id=$1) or to_row in (select id from udb_rows where db_id=$1) or from_row in (select id from udb_rows where db_id=$1))", &p)?;
     db.query("update udb_properties set deleted=true, origin=$2, updated_at=now() where not deleted and (db_id=$1 or (type='relation' and config->>'target_db' = $1::text))", &p)?;
+    db.query(&format!("update page_comments set deleted=true, origin=$2, updated_at=clock_timestamp() where not deleted and block_id in (select {} from udb_rows where db_id=$1)", crate::comments::ROW_BLOCK_SQL), &p)?;
     db.query("update udb_rows set deleted=true, origin=$2, updated_at=now() where db_id=$1 and not deleted", &p)?;
     db.query(
         "update udb_databases set deleted=true, origin=$2, updated_at=now() where id=$1",
@@ -244,6 +245,7 @@ fn patch_row(db: &mut Db, id: &str, body: &Value) -> Result<Value> {
 fn delete_row(db: &mut Db, id: &str) -> Result<Value> {
     let p = [json!(id), json!(db.origin)];
     db.query("update udb_links set deleted=true, origin=$2, updated_at=now() where not deleted and (from_row=$1 or to_row=$1)",&p)?;
+    crate::comments::delete_row_thread(db, id)?;
     db.query(
         "update udb_rows set deleted=true, origin=$2, updated_at=now() where id=$1",
         &p,

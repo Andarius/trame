@@ -4,6 +4,7 @@
 // extractions and evaluated through ctx.formula (the hub's sandboxed role).
 import type { Ctx } from "./ctx.ts";
 import { midKey } from "./sort-key.ts";
+import { deleteRowThreads } from "./pages.ts";
 
 export type UdbProp = {
   id: string;
@@ -95,6 +96,7 @@ export async function deleteUdb(ctx: Ctx, id: string): Promise<void> {
       where not deleted and (db_id=$1 or (type='relation' and config->>'target_db' = $1::text))`,
     [id, ctx.origin],
   );
+  await deleteRowThreads(ctx, "db", id);
   await pg.query(
     `update udb_rows set deleted=true, origin=$2, updated_at=now() where db_id=$1 and not deleted`,
     [id, ctx.origin],
@@ -297,6 +299,7 @@ export async function deleteRow(ctx: Ctx, id: string): Promise<void> {
       where not deleted and (from_row=$1 or to_row=$1)`,
     [id, ctx.origin],
   );
+  await deleteRowThreads(ctx, "row", id);
   await pg.query(
     `update udb_rows set deleted=true, origin=$2, updated_at=now() where id=$1`,
     [id, ctx.origin],

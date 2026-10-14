@@ -36,6 +36,8 @@ The optional argument is the page (an id or an exact title) or `stop`.
       echo '{"page_id":"<page id>","block_id":"<block id>","body":"…","agent":"claude","in_reply_to":"<comment_id>","meta":{"model":"<the real model id running this session>","in":<input tokens>,"out":<output tokens>,"ms":<elapsed ms>}}' | tramecli comment
       ```
 
+      A database-row item also carries `db_id`/`row_id`: reply with those in place of
+      `page_id`/`block_id` (`{"db_id":"<db_id>","row_id":"<row_id>",…}`).
       `meta` is mandatory for claude and codex — model id plus this reply's own token
       counts and elapsed time, read from the harness, never guessed.
       Keep replies short and concrete — they render in a small comment box.

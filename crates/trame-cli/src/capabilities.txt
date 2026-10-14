@@ -5,7 +5,7 @@ As an agent you can:
 
 ## Review comments (conversational)
 - Leave inline comments on a page block with **trame_add_comment** (page by id/title,
-  block by id or a unique text quote).
+  block by id or a unique text quote), or on a database row (db_id + row_id or a unique row_title).
 - **Attribution**: set `agent` to the id of the model ACTUALLY writing (codex, claude,
   glm, gemini, …) — not the harness seat. codex/claude get a branded avatar; any other
   id gets a generated one. Never post as a human.

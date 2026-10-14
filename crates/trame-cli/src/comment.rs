@@ -26,11 +26,26 @@ pub fn validate(input: &Value) -> Result<String> {
     if nonempty(input, "body").is_none_or(|s| s.trim().is_empty()) {
         bail!("body is required");
     }
-    if nonempty(input, "page_id").is_some() == nonempty(input, "page_title").is_some() {
-        bail!("use exactly one of page_id or page_title");
-    }
-    if nonempty(input, "block_id").is_some() && nonempty(input, "block_text").is_some() {
-        bail!("use block_id or block_text, not both");
+    let has = |key| nonempty(input, key).is_some();
+    if has("db_id") {
+        if ["page_id", "page_title", "block_id", "block_text"]
+            .into_iter()
+            .any(has)
+        {
+            bail!("a row comment takes db_id with row_id or row_title, not a page or block");
+        }
+        if has("row_id") == has("row_title") {
+            bail!("use exactly one of row_id or row_title with db_id");
+        }
+    } else if has("row_id") || has("row_title") {
+        bail!("row_id and row_title need db_id");
+    } else {
+        if has("page_id") == has("page_title") {
+            bail!("use exactly one of page_id or page_title (or db_id for a database row)");
+        }
+        if has("block_id") && has("block_text") {
+            bail!("use block_id or block_text, not both");
+        }
     }
     let agent = resolve_agent(input);
     if input["meta"]["model"]
@@ -123,8 +138,72 @@ pub fn resolve_block(content: &Value, input: &Value) -> Result<Value> {
     }
     bail!("block_id or unique block_text is required:\n{choices}")
 }
-pub async fn add_comment(input: &Value, target: &Target) -> Result<Value> {
-    let agent = validate(input)?;
+/// Picks the row a comment targets from a `/api/udb/<id>` payload: by `row_id`, or by a unique exact title.
+pub fn resolve_row(udb: &Value, input: &Value) -> Result<Value> {
+    let title_prop = udb["properties"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|p| p["type"] == "title")
+        .and_then(|p| p["id"].as_str())
+        .unwrap_or("");
+    let rows: Vec<_> = udb["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|r| {
+            let title = r["vals"][title_prop].as_str().unwrap_or("");
+            json!({"id":r["id"],"text":title})
+        })
+        .collect();
+    if let Some(id) = nonempty(input, "row_id") {
+        return rows
+            .into_iter()
+            .find(|r| r["id"] == id)
+            .ok_or_else(|| anyhow::anyhow!("row_id \"{id}\" was not found"));
+    }
+    let want = nonempty(input, "row_title").unwrap_or("").trim();
+    let found: Vec<_> = rows
+        .into_iter()
+        .filter(|r| r["text"].as_str().unwrap().trim() == want)
+        .collect();
+    match found.len() {
+        1 => Ok(found[0].clone()),
+        0 => bail!("row_title \"{want}\" was not found"),
+        n => bail!(
+            "row_title \"{want}\" matches {n} rows; use row_id ({})",
+            found
+                .iter()
+                .map(|r| r["id"].as_str().unwrap_or(""))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
+}
+/// Resolves where a comment goes: (page, block {id, text}, label for the output line).
+async fn resolve_target(input: &Value, target: &Target) -> Result<(Value, Value, String)> {
+    if let Some(db_id) = nonempty(input, "db_id") {
+        let dbs = target.get("/api/udb").await?;
+        let meta = dbs
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|d| d["id"] == db_id)
+            .ok_or_else(|| anyhow::anyhow!("database \"{db_id}\" was not found"))?;
+        let Some(page_id) = meta["page_id"].as_str() else {
+            bail!("database \"{db_id}\" is not on a page; attach it to one to comment on its rows")
+        };
+        let udb = target.get(&format!("/api/udb/{db_id}")).await?;
+        let row = resolve_row(&udb, input)?;
+        let block =
+            json!({"id":format!("row:{}", row["id"].as_str().unwrap_or("")),"text":row["text"]});
+        let label = format!(
+            "{} › {}",
+            meta["name"].as_str().unwrap_or(""),
+            row["text"].as_str().unwrap_or("")
+        );
+        return Ok((json!({"id":page_id}), block, label));
+    }
     let page_id = if let Some(id) = nonempty(input, "page_id") {
         id.into()
     } else {
@@ -132,6 +211,12 @@ pub async fn add_comment(input: &Value, target: &Target) -> Result<Value> {
     };
     let page = target.get(&format!("/api/pages/{page_id}")).await?;
     let block = resolve_block(&page["content"], input)?;
+    let label = page["title"].as_str().unwrap_or("").to_owned();
+    Ok((page, block, label))
+}
+pub async fn add_comment(input: &Value, target: &Target) -> Result<Value> {
+    let agent = validate(input)?;
+    let (page, block, label) = resolve_target(input, target).await?;
     if let Some(reply) = nonempty(input, "in_reply_to") {
         target
             .post(
@@ -160,7 +245,7 @@ pub async fn add_comment(input: &Value, target: &Target) -> Result<Value> {
             eprintln!("warning: reply posted but marking answered failed: {error}");
         }
     }
-    Ok(json!({"id":res["id"],"agent":agent,"page":{"id":page["id"],"title":page["title"]}}))
+    Ok(json!({"id":res["id"],"agent":agent,"page":{"id":page["id"],"title":label}}))
 }
 pub async fn main(input: &Value, target: &Target) -> Result<()> {
     let res = add_comment(input, target).await?;

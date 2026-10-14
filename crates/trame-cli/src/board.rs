@@ -408,10 +408,102 @@ pub async fn show(args: &[String], json_out: bool, target: &Target) -> Result<()
         .map_err(|_| anyhow::anyhow!("nothing in Trame with id {}", reference.id))?;
     if json_out {
         println!("{page}");
-    } else {
-        print_page(&page, target)?;
+        return Ok(());
+    }
+    let mut udbs = HashMap::new();
+    if rows(&page["comments"])
+        .iter()
+        .any(|c| string(c, "block_id").starts_with("row:"))
+    {
+        for d in rows(&page["databases"]) {
+            let id = string(&d, "id").to_owned();
+            udbs.insert(id.clone(), target.get(&format!("/api/udb/{id}")).await?);
+        }
+    }
+    print_page(&page, target)?;
+    let databases = page_databases(&page, &udbs);
+    if !databases.is_empty() {
+        println!("\n## Databases\n\n{databases}");
     }
     Ok(())
+}
+/// The page's databases, each followed by its row comment threads; `udbs` maps db id → `/api/udb/<id>`.
+pub fn page_databases(page: &Value, udbs: &HashMap<String, Value>) -> String {
+    let threads = rows(&page["comments"])
+        .into_iter()
+        .filter(|c| string(c, "block_id").starts_with("row:"))
+        .collect::<Vec<_>>();
+    let mut out = Vec::new();
+    let mut listed = HashSet::new();
+    let thread_lines = |list: &[&Value]| {
+        list.iter()
+            .map(|c| {
+                let resolved = if c["resolved"] == true {
+                    " (resolved)"
+                } else {
+                    ""
+                };
+                format!(
+                    "    - {}{resolved}: {}",
+                    string(c, "author"),
+                    string(c, "body")
+                        .split_whitespace()
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    for d in rows(&page["databases"]) {
+        let id = string(&d, "id");
+        out.push(format!(
+            "- {} ({} rows) · db_id {id}",
+            string(&d, "name"),
+            d["row_count"]
+        ));
+        let Some(udb) = udbs.get(id) else { continue };
+        let title_prop = rows(&udb["properties"])
+            .into_iter()
+            .find(|p| p["type"] == "title")
+            .map(|p| string(&p, "id").to_owned())
+            .unwrap_or_default();
+        for row in rows(&udb["rows"]) {
+            let block = format!("row:{}", string(&row, "id"));
+            let list = threads
+                .iter()
+                .filter(|c| string(c, "block_id") == block)
+                .collect::<Vec<_>>();
+            if list.is_empty() {
+                continue;
+            }
+            listed.insert(block);
+            out.push(format!(
+                "  - row \"{}\" · row_id {}",
+                row["vals"][&title_prop].as_str().unwrap_or(""),
+                string(&row, "id")
+            ));
+            out.extend(thread_lines(&list));
+        }
+    }
+    let mut others: Vec<String> = Vec::new();
+    for c in &threads {
+        let block = string(c, "block_id");
+        if listed.contains(block) || others.iter().any(|b| b == block) {
+            continue;
+        }
+        others.push(block.to_owned());
+        let list = threads
+            .iter()
+            .filter(|o| string(o, "block_id") == block)
+            .collect::<Vec<_>>();
+        out.push(format!(
+            "- row \"{}\" (not in a database on this page) · row_id {}",
+            string(c, "anchor"),
+            &block[4..]
+        ));
+        out.extend(thread_lines(&list));
+    }
+    out.join("\n")
 }
 fn print_card(card: &Value, target: &Target) {
     let id = string(card, "id");
