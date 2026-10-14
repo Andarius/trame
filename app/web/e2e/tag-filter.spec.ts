@@ -23,19 +23,19 @@ for (const view of ["board", "list"]) {
     const unrelated = page.getByText(`unrelated ${suffix}`, { exact: true });
     await expect(unrelated).toBeVisible();
     await inherited.locator("..").getByRole("button", { name: `Filter by tag ${label}` }).click();
-    const filter = page.locator("header").getByTitle("Remove filter").filter({ hasText: suffix });
-    await expect(filter).toBeVisible();
+    const query = page.getByLabel("Session query");
+    await expect(query).toHaveValue(`tag:${tag.key}`);
     await expect(direct).toBeVisible();
     await expect(inherited).toBeVisible();
     await expect(unrelated).toHaveCount(0);
     expect(new URL(page.url()).searchParams.has("session")).toBe(false);
     await page.reload();
-    await expect(filter).toBeVisible();
+    await expect(query).toHaveValue(`tag:${tag.key}`);
     await expect(unrelated).toHaveCount(0);
-    await filter.click();
+    await page.getByTitle("Clear all filters").click();
     await expect(unrelated).toBeVisible();
     await direct.locator("..").getByRole("button", { name: `Filter by tag ${label}` }).click();
-    await expect(filter).toBeVisible();
+    await expect(query).toHaveValue(`tag:${tag.key}`);
     await expect(unrelated).toHaveCount(0);
   });
 }

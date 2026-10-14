@@ -48,7 +48,7 @@ import { Page } from "../page/Page";
 import { ClientView } from "../sessions/ClientView";
 import { BOOL_CODEC, useLocalStorage, appConfirm, ConfirmHost, ExpandIcon, setStatuses, statusStyle, EmptyState } from "../ui/ui";
 import { FRONTEND_PLUGINS, useCardFaces } from "../plugins";
-import { queryValues } from "../query";
+import { hasTerm, queryValues, termOf, toggleTerm } from "../query";
 import { PluginsModal } from "../plugins/PluginsModal";
 import { PluginSettingsModal } from "../plugins/PluginSettingsModal";
 import { DatabaseView } from "../udb/DatabaseTable";
@@ -89,23 +89,28 @@ export function App() {
       ? "project"
       : "none";
   });
-  const [storyFilter, setStoryFilter] = useState<string[]>(
-    params.get("story")?.split(",").filter(Boolean) ?? [],
-  );
   const [sessionSort, setSessionSort] = useState<Sort[]>([{ key: "touched", dir: -1 }]);
-  const [sessionQuery, setSessionQuery] = useState(params.get("q") ?? "");
+  // `nospecs=1` predates the query's no:specs
+  const [sessionQuery, setSessionQuery] = useState(
+    [params.get("q"), params.get("nospecs") === "1" && "no:specs"].filter(Boolean).join(" "),
+  );
   const faces = useCardFaces();
   const sessionQueryValues = useMemo(() => board ? queryValues(board, faces) : {}, [board, faces]);
   const sortedBoard = useMemo(
     () => board ? sortSessionBoard(filterSessionBoard(board, sessionQuery, faces), sessionSort) : null,
     [board, sessionQuery, sessionSort, faces],
   );
-  // "only sessions without a specs page" — a triage lens, mirrored to the URL
-  const [noSpecs, setNoSpecs] = useState(params.get("nospecs") === "1"); // narrow sessions to the selected stories/projects (subtree union)
-  const toggleStoryFilter = (id: string) =>
-    setStoryFilter((cur) =>
-      cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
-    );
+  // a card's story/project/tag chip toggles the matching query term
+  const chipTerm = (id: string) => {
+    if (id.startsWith("tag:")) return termOf("tag", id.slice(4));
+    const project = board?.projects.find((p) => p.id === id);
+    const page = board?.pages.find((p) => p.id === id);
+    return project || page?.kind === "project"
+      ? termOf("project", project?.name ?? page?.title ?? id)
+      : termOf("story", page?.title ?? id);
+  };
+  const toggleChip = (id: string) => setSessionQuery((q) => toggleTerm(q, chipTerm(id)));
+  const chipActive = (id: string) => hasTerm(sessionQuery, chipTerm(id));
   // column order + the status set itself now live in the synced DB (board.statuses);
   // only "hide empty" stays a per-device preference.
   const [dense, setDense] = useLocalStorage("trame:denseBoard", false, BOOL_CODEC);
@@ -261,8 +266,8 @@ export function App() {
     put("session", openId);
     put("full", openId ? (drawerFull ? "1" : "0") : null);
     put("group", group === "none" ? null : group);
-    put("story", storyFilter.join(",") || null);
-    put("nospecs", noSpecs ? "1" : null);
+    put("story", null);
+    put("nospecs", null);
     put("q", sessionQuery.trim() || null);
     put("zen", zen ? "1" : null);
     const k = locKey(view, { page: pageId, db: dbId, client: clientId, plugin: pluginId, card: cardId });
@@ -270,7 +275,7 @@ export function App() {
       lastLoc.current = k;
       history.pushState(null, "", u);
     } else history.replaceState(null, "", u);
-  }, [view, pageId, dbId, clientId, pluginId, cardId, openId, drawerFull, group, storyFilter, noSpecs, sessionQuery, zen]);
+  }, [view, pageId, dbId, clientId, pluginId, cardId, openId, drawerFull, group, sessionQuery, zen]);
   // Browser Back from the full-screen ticket returns to the view behind it (the
   // board for a direct link) instead of leaving the app: the underlying view is
   // written as its own history entry beneath the ticket, and popstate closes it.
@@ -657,19 +662,10 @@ export function App() {
           </div>
           {isSessions && board && (
             <SessionBar
-              pages={board.pages}
-              filter={storyFilter}
-              onToggle={toggleStoryFilter}
-              noSpecs={noSpecs}
-              onNoSpecs={() => setNoSpecs((v) => !v)}
               query={sessionQuery}
               onQuery={setSessionQuery}
               values={sessionQueryValues}
-              onClear={() => {
-                setStoryFilter([]);
-                setNoSpecs(false);
-                setSessionQuery("");
-              }}
+              onClear={() => setSessionQuery("")}
               sort={sessionSort}
               onSort={setSessionSort}
             >
@@ -698,9 +694,8 @@ export function App() {
               onMove={onMove}
               onOpen={(id) => openSession(id)}
               onOpenFull={(id) => openSession(id, true)}
-              storyFilter={storyFilter}
-              onFilterStory={toggleStoryFilter}
-              noSpecs={noSpecs}
+              chipActive={chipActive}
+              onFilterStory={toggleChip}
               hideEmpty={hideEmpty}
               dense={dense}
               selected={selected}
@@ -716,9 +711,8 @@ export function App() {
               onSortChange={setSessionSort}
               onOpen={(id) => openSession(id)}
               onOpenFull={(id) => openSession(id, true)}
-              noSpecs={noSpecs}
-              storyFilter={storyFilter}
-              onFilterStory={toggleStoryFilter}
+              chipActive={chipActive}
+              onFilterStory={toggleChip}
               selected={selected}
               onToggleSelect={toggleSelected}
               onSelectMany={selectMany}
@@ -729,8 +723,6 @@ export function App() {
             <Suspense fallback={<EmptyState page>Loading…</EmptyState>}>
               <Graph
                 board={sortedBoard ?? board}
-                storyFilter={storyFilter}
-                noSpecs={noSpecs}
                 openId={openId}
                 onOpen={(id) => openSession(id)}
                 onOpenFull={(id) => openSession(id, true)}

@@ -7,6 +7,7 @@ import {
   parseQuery,
   queryValues,
   suggestQuery,
+  toggleTerm,
 } from "./query.ts";
 
 const now = Date.parse("2026-09-25T12:00:00Z");
@@ -85,6 +86,12 @@ for (
   Deno.test(`filterSessions: ${q}`, () =>
     assertEquals(filterSessions(sessions, board, q, assigners).map((s) => s.title), [...want]));
 }
+
+Deno.test("filterSessions: a parent story or project matches its whole subtree", () => {
+  const nested = { ...board, pages: [...board.pages, { id: "sub", parent_id: "st", kind: "story", title: "Sub", icon: null }] };
+  const deep = [{ ...base, id: "s3", title: "deep", page_id: "sub", specs_page_id: null }];
+  assertEquals(["story:cli", "story:sub", "project:trame"].map((q) => filterSessions(deep, nested, q).length), [1, 1, 1]);
+});
 
 for (
   const [q, want] of [
@@ -168,3 +175,13 @@ Deno.test("queryValues: projects and stories carry their icon and color", () => 
   ]);
   assertEquals(suggestQuery("project:tr", 10, got).map((s) => [s.key, s.value]), [["project", got.project[0]]]);
 });
+
+for (
+  const [q, term, want] of [
+    ["", 'story:"CLI rollout"', 'story:"CLI rollout"'],
+    ['tag:p1 story:"CLI rollout"', 'story:"CLI rollout"', "tag:p1"], // a quoted term is one token
+    ["tag:p1  status:active", "tag:p2", "tag:p1 status:active tag:p2"],
+  ] as const
+) {
+  Deno.test(`toggleTerm: ${q} ± ${term}`, () => assertEquals(toggleTerm(q, term), want));
+}

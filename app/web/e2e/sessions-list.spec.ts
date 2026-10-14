@@ -71,18 +71,12 @@ test("project pill click filters the list to that project", async ({ page, reque
   await expect(page.getByText("beta session e2e")).not.toBeVisible();
   await expect(page.getByText("chip session e2e")).toBeVisible();
 
-  // the Filters menu already suggests projects/stories
-  await page.getByRole("button", { name: "Filters" }).click();
-  await expect(
-    page.getByRole("main").getByRole("button", { name: "Chip Proj B" }),
-  ).toBeVisible();
-
-  // the autocomplete adds a second project — sessions shown are the union
-  await page.getByPlaceholder("＋ filter…").fill("chip proj b");
-  await page.getByRole("main").getByRole("button", { name: "Chip Proj B" })
-    .click();
+  // the click is a query term, editable like any other
+  const query = page.getByLabel("Session query");
+  await expect(query).toHaveValue('project:"Chip Proj"');
+  await query.fill('story:"chip proj b"');
   await expect(page.getByText("beta session e2e")).toBeVisible();
-  await expect(page.getByText("chip session e2e")).toBeVisible();
+  await expect(page.getByText("chip session e2e")).not.toBeVisible();
   await expect(page.getByText("other session e2e")).not.toBeVisible();
 
   // "clear" drops every filter at once
