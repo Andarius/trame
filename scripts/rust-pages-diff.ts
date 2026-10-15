@@ -6,6 +6,7 @@ import postgres from "postgres";
 import { assertEquals } from "@std/assert";
 import { join } from "node:path";
 import { scratchPath } from "./rust-db-export.ts";
+import { HOST_PLUGINS } from "../app/plugins/index.ts";
 
 const workspace = new URL("../", import.meta.url).pathname.replace(/\/$/, "");
 const full = Deno.env.get("TRAME_DIFF_GROUPS") === "full";
@@ -324,6 +325,14 @@ try {
       };
       left = normalize(left);
       right = normalize(right);
+    }
+    if (path === "/api/plugins") {
+      // native runs offline without its plugin host: compare only what it serves itself
+      const hosted = new Set(HOST_PLUGINS.map((p) => p.id));
+      left = JSON.stringify(
+        (JSON.parse(left) as { id: string }[]).filter((m) => !hosted.has(m.id)),
+      );
+      right = JSON.stringify(JSON.parse(right));
     }
     if (path === "/api/status") {
       const normalize = (text: string, root: string) => {
