@@ -1,7 +1,8 @@
 // inline SVG with hardcoded colors — the span version relied on the --color-copper
 // var and color-mix opacity, one of which the Linux WebKitGTK webview drops (logo
 // rendered invisible). SVG with literal hex is bulletproof across both webviews.
-export function LogoMark() {
+// debug builds get a blue mark so a dev window can't pass for the installed app
+export function LogoMark({ debug = false }: { debug?: boolean }) {
   return (
     <svg
       width="26"
@@ -10,7 +11,7 @@ export function LogoMark() {
       aria-hidden="true"
       className="shrink-0"
     >
-      <rect width="26" height="26" rx="7" fill="#c98a63" />
+      <rect width="26" height="26" rx="7" fill={debug ? "#5b8fd6" : "#c98a63"} />
       <rect
         x="6"
         y="11"

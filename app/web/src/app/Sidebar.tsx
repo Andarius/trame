@@ -259,8 +259,9 @@ export function Sidebar(
           atteindre. */}
       <div className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 pb-3 pt-4">
       <div className="mb-3 flex items-center gap-2.5 px-2">
-        <LogoMark />
+        <LogoMark debug={status?.debug} />
         <span className="text-[15px] font-semibold">Trame</span>
+        {status?.debug && <span className="text-[10px] font-medium uppercase text-[#5b8fd6]">debug</span>}
       </div>
       <div className={`px-2 pb-1.5 pt-0.5 ${SECTION_LABEL}`}>
         VIEWS

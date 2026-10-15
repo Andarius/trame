@@ -33,7 +33,7 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
     if path == "/api/status" {
         return json_response(
             200,
-            json!({"nodeId":state.origin,"remote":settings::hub_api(&state.settings).is_some(),"lastSync":*state.sync.last.lock().await,"dataDir":state.root.join("postgres"),"desktop":state.desktop,"version":version()}),
+            json!({"nodeId":state.origin,"remote":settings::hub_api(&state.settings).is_some(),"lastSync":*state.sync.last.lock().await,"dataDir":state.root.join("postgres"),"desktop":state.desktop,"debug":cfg!(debug_assertions),"version":version()}),
         );
     }
     if path == "/api/hub/test" && state.sync.offline {
