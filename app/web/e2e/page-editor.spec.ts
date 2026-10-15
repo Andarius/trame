@@ -397,7 +397,7 @@ test("a page opening on an html block stays writable around it", async ({ page, 
   await expect.poll(types).toEqual(["text", "html", "text", "heading"]);
 
   // the ⋮⋮ handle reaches an html block too — drop it on the heading row
-  const htmlRow = page.locator("div.group", { has: page.locator("iframe") }).first();
+  const htmlRow = page.locator("div.group\\/block", { has: page.locator("iframe") }).first();
   await htmlRow.hover();
   await htmlRow.getByTitle("Drag to move").hover();
   await page.mouse.down();
