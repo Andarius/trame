@@ -340,6 +340,8 @@ try {
           throw new Error("status dataDir escaped clone");
         }
         value.dataDir = "<clone-db>";
+        // native-only: the TypeScript twin has no build profile to report
+        delete value.debug;
         return JSON.stringify(value);
       };
       left = normalize(left, a.root);
