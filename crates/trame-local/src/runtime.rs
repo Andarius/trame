@@ -14,7 +14,11 @@ pub fn version() -> &'static str {
 }
 pub fn owns(method: &str, path: &str) -> bool {
     matches!(path, "/api/status" | "/api/update")
-        || (method == "POST" && matches!(path, "/api/sync" | "/api/hub/test" | "/api/pr-state"))
+        || (method == "POST"
+            && matches!(
+                path,
+                "/api/sync" | "/api/hub/test" | "/api/pr-state" | "/api/update/restart"
+            ))
 }
 
 pub async fn serve(state: Native, req: Request<Body>) -> Response {
@@ -29,6 +33,9 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
         let (status, value) =
             crate::update::serve(req.method() == "POST", force, state.sync.offline).await;
         return json_response(status, value);
+    }
+    if path == "/api/update/restart" {
+        return json_response(200, crate::update::restart(state.desktop));
     }
     if path == "/api/status" {
         return json_response(

@@ -20,15 +20,22 @@ export function UpdateBanner(
               ✓ Updated to v{update.latest}
             </p>
             <p className="m-0 text-[11.5px] leading-relaxed text-ink-muted">
-              Restart Trame to run the new version.
+              Downloaded in the background — restart Trame to run it.
             </p>
-            <div className="flex items-center justify-end">
+            <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
                 className="rounded-md px-2 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
                 onClick={onDismiss}
               >
-                Close
+                Later
+              </button>
+              <button
+                type="button"
+                className="rounded-md bg-copper px-2.5 py-1 text-[11.5px] font-medium text-copper-ink hover:brightness-110"
+                onClick={onUpdate}
+              >
+                Restart now
               </button>
             </div>
           </>

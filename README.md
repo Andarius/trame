@@ -329,5 +329,11 @@ macOS arm64 ships an ad-hoc signed DMG (`scripts/rust-package.sh dmg`); Macs mov
 re-pulling from the hub rather than converting `pglite/`. Snap installation and hosted release
 execution still need qualification.
 
+**Auto-update**: the AppImage and the macOS `.app` check the latest release every 6h,
+download it in the background and swap it in place; a banner offers **Restart now** (or the
+next launch runs it). deb/snap/source installs only get a link to the release.
+`TRACKER_AUTO_UPDATE=0` keeps the check but skips the download; `TRACKER_UPDATE_CHECK=0`
+disables both.
+
 See [native runtime and migration](crates/trame-local/README.md) for data paths, backup and
 rollback instructions, isolated tests, and package requirements.

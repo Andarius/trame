@@ -1,21 +1,72 @@
 use serde_json::{Value, json};
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 use tokio::sync::Mutex;
+
+const ENDPOINT: &str = "https://api.github.com/repos/Andarius/trame/releases/latest";
+const AUTO_EVERY: Duration = Duration::from_hours(6);
+
+/// What a self-update replaces: the running `AppImage` file or the macOS `.app` bundle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Target {
+    AppImage(PathBuf),
+    App(PathBuf),
+}
 
 #[derive(Default)]
 pub struct Updater {
     cache: Option<(Instant, Value)>,
     asset: Option<String>,
-    applied: bool,
+    // version now in place; the next launch runs it
+    applied: Option<String>,
 }
 static UPDATER: Mutex<Updater> = Mutex::const_new(Updater {
     cache: None,
     asset: None,
-    applied: false,
+    applied: None,
 });
+
+/// The `.app` enclosing a macOS executable path (`X.app/Contents/MacOS/<exe>`), or `None`.
+pub fn app_bundle_of(exe: &Path) -> Option<PathBuf> {
+    let macos = exe.parent()?;
+    let contents = macos.parent()?;
+    let bundle = contents.parent()?;
+    (macos.file_name()? == "MacOS"
+        && contents.file_name()? == "Contents"
+        && bundle.extension()? == "app")
+        .then(|| bundle.to_path_buf())
+}
+
+/// Release asset name pattern for an OS/arch (see release.yml's upload names).
+pub fn asset_pattern(os: &str, arch: &str) -> Option<&'static str> {
+    match (os, arch) {
+        ("linux", "x86_64") => Some(r"(?i)^Trame-v?[^/]+-native-x64\.AppImage$"),
+        ("macos", "aarch64") => Some(r"(?i)^Trame-v?[^/]+-native-arm64\.dmg$"),
+        _ => None,
+    }
+}
+
+fn target() -> Option<Target> {
+    if cfg!(target_os = "linux") {
+        return std::env::var_os("APPIMAGE").map(|p| Target::AppImage(p.into()));
+    }
+    if cfg!(target_os = "macos") {
+        return std::env::current_exe()
+            .ok()
+            .and_then(|exe| app_bundle_of(&exe))
+            .map(Target::App);
+    }
+    None
+}
+
+// Hidden siblings, so the swap is a same-volume rename; `.old` is swept on next launch.
+fn sibling(bundle: &Path, suffix: &str) -> PathBuf {
+    let name = bundle.file_name().unwrap_or_default().to_string_lossy();
+    bundle.with_file_name(format!(".{name}.{suffix}"))
+}
+
 #[allow(
     clippy::float_cmp,
     reason = "exact float comparison is intentional for parity"
@@ -39,12 +90,7 @@ pub fn newer(a: &str, b: &str) -> bool {
     false
 }
 impl Updater {
-    async fn check(
-        &mut self,
-        force: bool,
-        endpoint: &str,
-        target: Option<&std::path::Path>,
-    ) -> Value {
+    async fn check(&mut self, force: bool, endpoint: &str, target: Option<&Target>) -> Value {
         if !force {
             if let Some((at, info)) = &self.cache {
                 if at.elapsed() < Duration::from_hours(1) {
@@ -52,7 +98,10 @@ impl Updater {
                 }
             }
         }
-        let mut info = json!({"current":crate::runtime::version(),"latest":null,"available":false,"releaseUrl":"https://github.com/Andarius/trame/releases/latest","canSelfUpdate":cfg!(target_os="linux")&&target.is_some(),"applied":self.applied});
+        let mut info = json!({"current":crate::runtime::version(),"latest":null,"available":false,"releaseUrl":"https://github.com/Andarius/trame/releases/latest","canSelfUpdate":target.is_some(),"applied":self.applied.is_some()});
+        if let Some(applied) = &self.applied {
+            info["latest"] = json!(applied);
+        }
         let client = reqwest::Client::new();
         if let Ok(response) = client
             .get(endpoint)
@@ -69,24 +118,24 @@ impl Updater {
                         .unwrap_or("")
                         .strip_prefix('v')
                         .unwrap_or_else(|| rel["tag_name"].as_str().unwrap_or(""));
-                    info["latest"] = if tag.is_empty() {
-                        Value::Null
-                    } else {
-                        json!(tag)
-                    };
-                    info["available"] =
-                        json!(!tag.is_empty() && newer(tag, crate::runtime::version()));
+                    if !tag.is_empty() {
+                        info["latest"] = json!(tag);
+                    }
+                    let installed = self
+                        .applied
+                        .as_deref()
+                        .unwrap_or_else(|| crate::runtime::version());
+                    info["available"] = json!(!tag.is_empty() && newer(tag, installed));
                     if !rel["html_url"].is_null() {
                         info["releaseUrl"] = rel["html_url"].clone();
                     }
-                    self.asset = rel["assets"]
-                        .as_array()
-                        .and_then(|a| {
-                            a.iter().find(|a| {
-                                regex::Regex::new(r"(?i)^Trame-v?[^/]+-native-x64\.AppImage$")
-                                    .unwrap()
-                                    .is_match(a["name"].as_str().unwrap_or(""))
-                            })
+                    let pattern = asset_pattern(std::env::consts::OS, std::env::consts::ARCH)
+                        .map(|p| regex::Regex::new(p).unwrap());
+                    self.asset = pattern
+                        .zip(rel["assets"].as_array())
+                        .and_then(|(re, a)| {
+                            a.iter()
+                                .find(|a| re.is_match(a["name"].as_str().unwrap_or("")))
                         })
                         .and_then(|a| a["browser_download_url"].as_str())
                         .map(str::to_owned);
@@ -96,70 +145,254 @@ impl Updater {
         self.cache = Some((Instant::now(), info.clone()));
         info
     }
-    async fn apply(&mut self, endpoint: &str, target: Option<&std::path::Path>) -> Value {
-        let Some(target) = target.filter(|_| cfg!(target_os = "linux")) else {
-            return json!({"ok":false,"error":"self-update only works for the AppImage"});
+    async fn apply(&mut self, endpoint: &str, target: Option<&Target>) -> Value {
+        let Some(target) = target else {
+            return json!({"ok":false,"error":"self-update only works for the AppImage or the macOS app"});
         };
-        if self.check(true, endpoint, Some(target)).await["available"] != true {
-            return json!({"ok":false,"error":"already up to date"});
+        let info = self.check(true, endpoint, Some(target)).await;
+        if info["available"] != true {
+            // a background update already staged it: the caller only needs to restart
+            return if self.applied.is_some() {
+                json!({"ok":true})
+            } else {
+                json!({"ok":false,"error":"already up to date"})
+            };
         }
-        let Some(asset) = &self.asset else {
-            return json!({"ok":false,"error":"no AppImage asset on the latest release"});
+        let Some(asset) = self.asset.clone() else {
+            return json!({"ok":false,"error":"no build for this platform on the latest release"});
         };
-        let tmp = PathBuf::from(format!("{}.new", target.display()));
-        let mut created = false;
-        let result = async {
-            use std::os::unix::fs::OpenOptionsExt;
-            use tokio::io::AsyncWriteExt;
-            let response = reqwest::Client::new()
-                .get(asset)
-                .timeout(Duration::from_mins(2))
-                .send()
-                .await
-                .map_err(|_| "download failed".to_owned())?;
-            if !response.status().is_success() {
-                return Err(format!("download failed ({})", response.status().as_u16()));
-            }
-            let file = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o755)
-                .custom_flags(libc::O_NOFOLLOW)
-                .open(&tmp)
-                .map_err(|e| e.to_string())?;
-            created = true;
-            let mut file = tokio::fs::File::from_std(file);
-            let mut response = response;
-            while let Some(bytes) = response
-                .chunk()
-                .await
-                .map_err(|_| "download interrupted".to_owned())?
-            {
-                file.write_all(&bytes).await.map_err(|e| e.to_string())?;
-            }
-            file.sync_all().await.map_err(|e| e.to_string())?;
-            drop(file);
-            tokio::fs::rename(&tmp, target)
-                .await
-                .map_err(|e| e.to_string())?;
-            Ok::<_, String>(())
-        }
-        .await;
+        let result = match target {
+            Target::AppImage(path) => replace_appimage(&asset, path).await,
+            Target::App(bundle) => replace_app(&asset, bundle).await,
+        };
         match result {
             Ok(()) => {
-                self.applied = true;
+                self.applied = info["latest"].as_str().map(str::to_owned);
                 self.cache = None;
                 json!({"ok":true})
             }
-            Err(error) => {
-                if created {
-                    let _ = tokio::fs::remove_file(tmp).await;
-                }
-                json!({"ok":false,"error":error})
-            }
+            Err(error) => json!({"ok":false,"error":error}),
         }
     }
 }
+
+fn io_error(path: &Path) -> impl Fn(std::io::Error) -> String + '_ {
+    move |e| {
+        if e.kind() == std::io::ErrorKind::PermissionDenied {
+            format!("no write access to {}", path.display())
+        } else {
+            e.to_string()
+        }
+    }
+}
+
+/// Streams `url` into a new file at `dest`; never touches a file that already exists there.
+async fn download(url: &str, dest: &Path) -> Result<(), String> {
+    use std::os::unix::fs::OpenOptionsExt;
+    use tokio::io::AsyncWriteExt;
+    let response = reqwest::Client::new()
+        .get(url)
+        .timeout(Duration::from_mins(10))
+        .send()
+        .await
+        .map_err(|_| "download failed".to_owned())?;
+    if !response.status().is_success() {
+        return Err(format!("download failed ({})", response.status().as_u16()));
+    }
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o755)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(dest)
+        .map_err(io_error(dest))?;
+    let result = async {
+        let mut file = tokio::fs::File::from_std(file);
+        let mut response = response;
+        while let Some(bytes) = response
+            .chunk()
+            .await
+            .map_err(|_| "download interrupted".to_owned())?
+        {
+            file.write_all(&bytes).await.map_err(|e| e.to_string())?;
+        }
+        file.sync_all().await.map_err(|e| e.to_string())
+    }
+    .await;
+    if result.is_err() {
+        let _ = tokio::fs::remove_file(dest).await;
+    }
+    result
+}
+
+async fn replace_appimage(asset: &str, target: &Path) -> Result<(), String> {
+    let tmp = PathBuf::from(format!("{}.new", target.display()));
+    download(asset, &tmp).await?;
+    // atomic: the running image keeps its inode
+    if let Err(e) = tokio::fs::rename(&tmp, target).await {
+        let _ = tokio::fs::remove_file(&tmp).await;
+        return Err(io_error(target)(e));
+    }
+    Ok(())
+}
+
+async fn run(cmd: &str, args: &[&std::ffi::OsStr]) -> Result<(), String> {
+    let out = tokio::process::Command::new(cmd)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .await
+        .map_err(|e| format!("{cmd}: {e}"))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{cmd} failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ))
+    }
+}
+
+/// Mounts the release dmg, copies its `.app` next to `bundle`, then swaps the two by rename.
+async fn replace_app(asset: &str, bundle: &Path) -> Result<(), String> {
+    let tmp = std::env::temp_dir().join(format!("trame-update-{}", uuid::Uuid::new_v4().simple()));
+    tokio::fs::create_dir(&tmp)
+        .await
+        .map_err(|e| e.to_string())?;
+    let (staged, retired) = (sibling(bundle, "new"), sibling(bundle, "old"));
+    let result = async {
+        let (dmg, mnt) = (tmp.join("Trame.dmg"), tmp.join("mnt"));
+        download(asset, &dmg).await?;
+        run(
+            "hdiutil",
+            &[
+                "attach",
+                "-nobrowse",
+                "-readonly",
+                "-noautoopen",
+                "-mountpoint",
+            ]
+            .map(std::ffi::OsStr::new)
+            .into_iter()
+            .chain([mnt.as_os_str(), dmg.as_os_str()])
+            .collect::<Vec<_>>(),
+        )
+        .await?;
+        let copied = async {
+            let mut entries = tokio::fs::read_dir(&mnt).await.map_err(|e| e.to_string())?;
+            let mut app = None;
+            while let Some(e) = entries.next_entry().await.map_err(|e| e.to_string())? {
+                if e.path().extension().is_some_and(|x| x == "app") {
+                    app = Some(e.path());
+                }
+            }
+            let app = app.ok_or("no .app in the downloaded dmg")?;
+            let _ = tokio::fs::remove_dir_all(&staged).await;
+            // ditto keeps the bundle's signature and extended attributes intact
+            run("ditto", &[app.as_os_str(), staged.as_os_str()]).await
+        }
+        .await;
+        let _ = run(
+            "hdiutil",
+            &["detach", "-force"]
+                .map(std::ffi::OsStr::new)
+                .into_iter()
+                .chain([mnt.as_os_str()])
+                .collect::<Vec<_>>(),
+        )
+        .await;
+        copied?;
+        let _ = tokio::fs::remove_dir_all(&retired).await;
+        tokio::fs::rename(bundle, &retired)
+            .await
+            .map_err(io_error(bundle))?;
+        if let Err(e) = tokio::fs::rename(&staged, bundle).await {
+            // put the running app back
+            let _ = tokio::fs::rename(&retired, bundle).await;
+            return Err(io_error(bundle)(e));
+        }
+        Ok(())
+    }
+    .await;
+    let _ = tokio::fs::remove_dir_all(&staged).await;
+    let _ = tokio::fs::remove_dir_all(&tmp).await;
+    result
+}
+
+/// Desktop background loop: download and stage new releases so the next launch runs them.
+pub async fn background() {
+    if std::env::var("TRACKER_UPDATE_CHECK").as_deref() == Ok("0")
+        || std::env::var("TRACKER_AUTO_UPDATE").as_deref() == Ok("0")
+    {
+        return;
+    }
+    let Some(target) = target() else { return };
+    if let Target::App(bundle) = &target {
+        let _ = tokio::fs::remove_dir_all(sibling(bundle, "old")).await;
+    }
+    tokio::time::sleep(Duration::from_secs(30)).await;
+    loop {
+        {
+            let mut updater = UPDATER.lock().await;
+            let info = updater.check(true, ENDPOINT, Some(&target)).await;
+            if info["available"] == true {
+                let result = updater.apply(ENDPOINT, Some(&target)).await;
+                match result["error"].as_str() {
+                    None => eprintln!(
+                        "update: v{} staged, restart to run it",
+                        info["latest"].as_str().unwrap_or("?")
+                    ),
+                    Some(error) => eprintln!("update: {error}"),
+                }
+            }
+        }
+        tokio::time::sleep(AUTO_EVERY).await;
+    }
+}
+
+fn shell_quote(path: &Path) -> String {
+    format!("'{}'", path.display().to_string().replace('\'', r"'\''"))
+}
+
+/// Relaunches the installed build once this process has exited, then quits through the desktop's SIGTERM path.
+pub fn restart(desktop: bool) -> Value {
+    use std::os::unix::process::CommandExt;
+    let Some(target) = target().filter(|_| desktop) else {
+        return json!({"ok":false,"error":"restart only works for the AppImage or the macOS app"});
+    };
+    let launch = match &target {
+        Target::App(bundle) => format!("open -n {}", shell_quote(bundle)),
+        // drop the old mount's env so the new image sets its own
+        Target::AppImage(path) => format!(
+            "env -u APPIMAGE -u APPDIR -u ARGV0 -u OWD {}",
+            shell_quote(path)
+        ),
+    };
+    let pid = std::process::id();
+    let spawned = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!(
+            "while kill -0 {pid} 2>/dev/null; do sleep 0.2; done; {launch}"
+        ))
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .process_group(0)
+        .spawn();
+    if let Err(e) = spawned {
+        return json!({"ok":false,"error":e.to_string()});
+    }
+    tokio::spawn(async move {
+        // let the response go out first
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let _ = tokio::process::Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .status()
+            .await;
+    });
+    json!({"ok":true})
+}
+
 pub async fn serve(post: bool, force: bool, offline: bool) -> (u16, Value) {
     if offline && post {
         return (503, json!({"error":"unavailable in offline mode"}));
@@ -170,15 +403,14 @@ pub async fn serve(post: bool, force: bool, offline: bool) -> (u16, Value) {
             json!({"current":crate::runtime::version(),"latest":null,"available":false,"releaseUrl":"","canSelfUpdate":false}),
         );
     }
-    let target = std::env::var_os("APPIMAGE").map(PathBuf::from);
-    let endpoint = "https://api.github.com/repos/Andarius/trame/releases/latest";
+    let target = target();
     let mut updater = UPDATER.lock().await;
     (
         200,
         if post {
-            updater.apply(endpoint, target.as_deref()).await
+            updater.apply(ENDPOINT, target.as_ref()).await
         } else {
-            updater.check(force, endpoint, target.as_deref()).await
+            updater.check(force, ENDPOINT, target.as_ref()).await
         },
     )
 }
@@ -195,6 +427,48 @@ mod tests {
             ("x", "0.1.0", false),
         ] {
             assert_eq!(newer(a, b), want);
+        }
+    }
+    #[test]
+    fn app_bundle_of_finds_the_enclosing_app() {
+        for (exe, want) in [
+            (
+                "/Applications/Trame.app/Contents/MacOS/trame",
+                Some("/Applications/Trame.app"),
+            ),
+            (
+                "/Users/me/My Apps/Trame.app/Contents/MacOS/trame",
+                Some("/Users/me/My Apps/Trame.app"),
+            ),
+            ("/Applications/Trame.app/Contents/Resources/x", None),
+            ("/opt/homebrew/bin/trame", None),
+        ] {
+            assert_eq!(
+                app_bundle_of(Path::new(exe)),
+                want.map(PathBuf::from),
+                "{exe}"
+            );
+        }
+    }
+    #[test]
+    fn asset_pattern_matches_only_this_platforms_build() {
+        let assets = [
+            "trame-v0.18.0-linux-x64.deb",
+            "Trame-v0.18.0-native-arm64.dmg",
+            "Trame-v0.18.0-native-x64.AppImage",
+            "tramecli-v0.18.0-macos-arm64",
+        ];
+        for (os, arch, want) in [
+            ("linux", "x86_64", Some("Trame-v0.18.0-native-x64.AppImage")),
+            ("macos", "aarch64", Some("Trame-v0.18.0-native-arm64.dmg")),
+            ("macos", "x86_64", None),
+            ("windows", "x86_64", None),
+        ] {
+            let found = asset_pattern(os, arch).and_then(|p| {
+                let re = regex::Regex::new(p).unwrap();
+                assets.into_iter().find(|a| re.is_match(a))
+            });
+            assert_eq!(found, want, "{os}/{arch}");
         }
     }
     #[tokio::test]
@@ -218,30 +492,97 @@ mod tests {
             &crate::workspace().join(format!(".scratch/update-{}", uuid::Uuid::new_v4())),
         )
         .unwrap();
-        let target = root.join("Trame.AppImage");
-        std::fs::write(&target, "old").unwrap();
+        let path = root.join("Trame.AppImage");
+        std::fs::write(&path, "old").unwrap();
+        let target = Target::AppImage(path.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let asset = format!("{base}/image");
         let server=tokio::spawn(axum::serve(listener,Router::new().route("/latest",get(move||{let asset=asset.clone();async move{axum::Json(json!({"tag_name":"v99.0.0","html_url":"https://fixture.invalid/release","assets":[{"name":"trame-linux.AppImage","browser_download_url":"http://127.0.0.1:1/legacy"},{"name":"Trame-v99.0.0-native-x64.AppImage","browser_download_url":asset}]}))}})).route("/image",get(||async{"new image"}))).into_future());
         let mut updater = Updater::default();
         let endpoint = format!("{base}/latest");
-        std::fs::write(target.with_extension("AppImage.new"), "other process").unwrap();
+        std::fs::write(path.with_extension("AppImage.new"), "other process").unwrap();
         assert_eq!(updater.apply(&endpoint, Some(&target)).await["ok"], false);
-        assert_eq!(std::fs::read_to_string(&target).unwrap(), "old");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "old");
         assert_eq!(
-            std::fs::read_to_string(target.with_extension("AppImage.new")).unwrap(),
+            std::fs::read_to_string(path.with_extension("AppImage.new")).unwrap(),
             "other process"
         );
-        std::fs::remove_file(target.with_extension("AppImage.new")).unwrap();
+        std::fs::remove_file(path.with_extension("AppImage.new")).unwrap();
         assert_eq!(
             updater.apply(&endpoint, Some(&target)).await,
             json!({"ok":true})
         );
-        assert_eq!(std::fs::read_to_string(&target).unwrap(), "new image");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new image");
         assert_eq!(
             updater.check(false, &endpoint, Some(&target)).await["applied"],
             true
+        );
+        server.abort();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[tokio::test]
+    async fn updater_swaps_the_app_bundle_from_the_dmg() {
+        use axum::{Router, routing::get};
+        use std::future::IntoFuture;
+        let root = crate::scratch_root(
+            &crate::workspace().join(format!(".scratch/update-{}", uuid::Uuid::new_v4())),
+        )
+        .unwrap();
+        let make_app = |dir: &Path, body: &str| {
+            std::fs::create_dir_all(dir.join("Trame.app/Contents/MacOS")).unwrap();
+            std::fs::write(dir.join("Trame.app/Contents/MacOS/trame"), body).unwrap();
+        };
+        make_app(&root.join("src"), "new build");
+        make_app(&root.join("install"), "old build");
+        let dmg = root.join("Trame.dmg");
+        let built = std::process::Command::new("hdiutil")
+            .args(["create", "-quiet", "-format", "UDZO", "-srcfolder"])
+            .args([root.join("src"), dmg.clone()])
+            .status()
+            .unwrap();
+        assert!(built.success());
+        let bytes = std::fs::read(&dmg).unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let asset = format!("{base}/dmg");
+        let server = tokio::spawn(
+            axum::serve(
+                listener,
+                Router::new()
+                    .route(
+                        "/latest",
+                        get(move || {
+                            let asset = asset.clone();
+                            async move {
+                                axum::Json(json!({"tag_name":"v99.0.0","html_url":"https://fixture.invalid/release","assets":[{"name":"Trame-v99.0.0-native-x64.AppImage","browser_download_url":"http://127.0.0.1:1/linux"},{"name":"Trame-v99.0.0-native-arm64.dmg","browser_download_url":asset}]}))
+                            }
+                        }),
+                    )
+                    .route("/dmg", get(move || async move { bytes })),
+            )
+            .into_future(),
+        );
+        let bundle = root.join("install/Trame.app");
+        let mut updater = Updater::default();
+        let endpoint = format!("{base}/latest");
+        assert_eq!(
+            updater
+                .apply(&endpoint, Some(&Target::App(bundle.clone())))
+                .await,
+            json!({"ok":true})
+        );
+        let read = |p: &Path| std::fs::read_to_string(p.join("Contents/MacOS/trame")).unwrap();
+        assert_eq!(read(&bundle), "new build");
+        assert_eq!(read(&sibling(&bundle, "old")), "old build");
+        assert!(!sibling(&bundle, "new").exists());
+        // a later click (e.g. the banner) after the background update just reports success
+        assert_eq!(
+            updater
+                .apply(&endpoint, Some(&Target::App(bundle.clone())))
+                .await,
+            json!({"ok":true})
         );
         server.abort();
         std::fs::remove_dir_all(root).unwrap();
