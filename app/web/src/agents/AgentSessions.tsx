@@ -17,6 +17,7 @@ const resumeCmd = (s: ClaudeSession) => {
     : `claude --resume ${s.claudeId}`;
   return s.repoPath ? `cd ${shq(s.repoPath)} && ${cmd}` : cmd;
 };
+const COPIED_MS = 60_000; // how long a copied row stays highlighted
 
 // Brand marks (Simple Icons paths, 24×24); unknown agents fall back to their
 // initial so a new source stays identifiable before it gets an icon here.
@@ -62,6 +63,8 @@ function SessionRow(
     repoColor,
     showRepo,
     card,
+    copied,
+    onCopied,
     onOpenSession,
     onFilterRepo,
     onFilterStatus,
@@ -72,6 +75,8 @@ function SessionRow(
     repoColor: string;
     showRepo: boolean;
     card: { id: string } | undefined;
+    copied: boolean;
+    onCopied: () => void;
     onOpenSession: (id: string) => void;
     onFilterRepo: () => void;
     onFilterStatus: () => void;
@@ -79,65 +84,77 @@ function SessionRow(
   },
 ) {
   return (
-    <div className="flex items-center gap-2 pl-2 text-[12px]">
-      <SourceIcon source={s.source} onClick={onFilterSource} />
-      <button
-        type="button"
-        onClick={onFilterStatus}
-        title={s.suggestedStatus === "active"
-          ? "Touched in the last 48 h — click to filter"
-          : "Idle for more than 48 h — click to filter"}
-        className={`shrink-0 rounded px-1.5 py-px text-[9.5px] hover:brightness-125 ${
-          s.suggestedStatus === "active"
-            ? "border border-chip-active-border bg-chip-active-bg text-active"
-            : "border border-chipline text-ink-muted"
-        }`}
-      >
-        {s.suggestedStatus === "active" ? "current" : "past"}
-      </button>
-      {showRepo && (
+    <div className={copied ? "rounded-md bg-copper/10 py-1 pr-1 ring-1 ring-copper/40" : undefined}>
+      <div className="flex items-center gap-2 pl-2 text-[12px]">
+        <SourceIcon source={s.source} onClick={onFilterSource} />
         <button
           type="button"
-          title={`Filter on ${repoName}`}
-          onClick={onFilterRepo}
-          className="flex w-32 shrink-0 items-center gap-1.5 hover:brightness-125"
+          onClick={onFilterStatus}
+          title={s.suggestedStatus === "active"
+            ? "Touched in the last 48 h — click to filter"
+            : "Idle for more than 48 h — click to filter"}
+          className={`shrink-0 rounded px-1.5 py-px text-[9.5px] hover:brightness-125 ${
+            s.suggestedStatus === "active"
+              ? "border border-chip-active-border bg-chip-active-bg text-active"
+              : "border border-chipline text-ink-muted"
+          }`}
         >
-          <span
-            className="h-[7px] w-[7px] shrink-0 rounded-full"
-            style={{ background: repoColor }}
-          />
-          <span className="truncate text-[10.5px]" style={{ color: repoColor }}>
-            {repoName}
-          </span>
+          {s.suggestedStatus === "active" ? "current" : "past"}
         </button>
-      )}
-      <span className="min-w-0 flex-1 truncate text-ink-soft" title={s.title}>
-        {s.title}
-      </span>
-      {s.branch && (
-        <span className="shrink-0 text-[10.5px] text-ink-muted">
-          ⎇ {s.branch}
+        {showRepo && (
+          <button
+            type="button"
+            title={`Filter on ${repoName}`}
+            onClick={onFilterRepo}
+            className="flex w-32 shrink-0 items-center gap-1.5 hover:brightness-125"
+          >
+            <span
+              className="h-[7px] w-[7px] shrink-0 rounded-full"
+              style={{ background: repoColor }}
+            />
+            <span className="truncate text-[10.5px]" style={{ color: repoColor }}>
+              {repoName}
+            </span>
+          </button>
+        )}
+        <span
+          className={`min-w-0 flex-1 text-ink-soft ${copied ? "break-words" : "truncate"}`}
+          title={s.title}
+        >
+          {s.title}
         </span>
+        {s.branch && (
+          <span className="shrink-0 text-[10.5px] text-ink-muted">
+            ⎇ {s.branch}
+          </span>
+        )}
+        <span className="w-14 shrink-0 text-right text-[10.5px] text-ink-muted/80">
+          {timeAgo(s.lastActive)}
+        </span>
+        {card && (
+          <button
+            type="button"
+            title="Open the tracked card"
+            onClick={() => onOpenSession(card.id)}
+            className="shrink-0 whitespace-nowrap text-[10.5px] text-ink-muted hover:text-copper"
+          >
+            tracked ↗
+          </button>
+        )}
+        <ResumeButton session={s} onCopied={onCopied} />
+      </div>
+      {copied && (
+        <div className="select-all break-all pl-8 pt-0.5 font-mono text-[10.5px] text-copper">
+          {resumeCmd(s)}
+        </div>
       )}
-      <span className="w-14 shrink-0 text-right text-[10.5px] text-ink-muted/80">
-        {timeAgo(s.lastActive)}
-      </span>
-      {card && (
-        <button
-          type="button"
-          title="Open the tracked card"
-          onClick={() => onOpenSession(card.id)}
-          className="shrink-0 whitespace-nowrap text-[10.5px] text-ink-muted hover:text-copper"
-        >
-          tracked ↗
-        </button>
-      )}
-      <ResumeButton session={s} />
     </div>
   );
 }
 
-function ResumeButton({ session }: { session: ClaudeSession }) {
+function ResumeButton(
+  { session, onCopied }: { session: ClaudeSession; onCopied: () => void },
+) {
   const [msg, setMsg] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -150,6 +167,7 @@ function ResumeButton({ session }: { session: ClaudeSession }) {
     try {
       await navigator.clipboard.writeText(cmd);
       text = "copied";
+      onCopied();
     } catch {
       text = "clipboard blocked";
     }
@@ -192,6 +210,18 @@ export function AgentSessions(
   const [allMsg, setAllMsg] = useState<string | null>(null);
   const allTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(allTimer.current), []);
+  // claudeId → copy time; a row stays highlighted (and unfolded) for COPIED_MS
+  const [copiedAt, setCopiedAt] = useState<Record<string, number>>({});
+  const markCopied = (id: string) => {
+    const at = Date.now();
+    setCopiedAt((c) => ({ ...c, [id]: at }));
+    setTimeout(() =>
+      setCopiedAt((c) => {
+        if (c[id] !== at) return c; // re-copied since — its own timer clears it
+        const { [id]: _, ...rest } = c;
+        return rest;
+      }), COPIED_MS);
+  };
 
   const load = () => {
     setScan(null);
@@ -399,6 +429,8 @@ export function AgentSessions(
                   repoColor={repoColor(g.repoName)}
                   showRepo={false}
                   card={cardFor(s)}
+                  copied={s.claudeId in copiedAt}
+                  onCopied={() => markCopied(s.claudeId)}
                   onOpenSession={onOpenSession}
                   onFilterRepo={() => toggleRepoFilter(g.repoName)}
                   onFilterStatus={() => toggleStatusFilter(s.suggestedStatus)}
@@ -433,6 +465,8 @@ export function AgentSessions(
                   repoColor={repoColor(repoName)}
                   showRepo
                   card={cardFor(s)}
+                  copied={s.claudeId in copiedAt}
+                  onCopied={() => markCopied(s.claudeId)}
                   onOpenSession={onOpenSession}
                   onFilterRepo={() => toggleRepoFilter(repoName)}
                   onFilterStatus={() => toggleStatusFilter(s.suggestedStatus)}
