@@ -24,6 +24,8 @@ export type SourceStatus = {
   next_at: string | null;
 };
 export type Connection = { id: string; name: string; host: string; hasDsn: boolean };
+/** One query column's target: a database column name, or null to skip it. */
+export type ColumnMap = { from: string; to: string | null };
 export type SourceDef = {
   id: string;
   name: string;
@@ -34,11 +36,29 @@ export type SourceDef = {
   interval_min: number;
   delete_missing: boolean;
   paused: boolean;
+  columns?: ColumnMap[];
 };
 export type PreviewResult = { columns: Column[]; rows: Record<string, unknown>[]; count: number; ms: number };
-export type DryRun = { rows: number; created: number; updated: number; deleted: number; new_columns: Column[]; claimed_columns: string[] };
+export type PreviewCell = number | string | boolean | { start: string } | null;
+export type PreviewRowOp = "new" | "changed" | "same" | "kept" | "removed";
+/** Dry-run table: `vals`/`old` are keyed by preview column id; rows are capped server-side. */
+export type DryPreview = {
+  columns: { id: string; name: string; type: string; source: boolean }[];
+  rows: { id: string | null; op: PreviewRowOp; vals: Record<string, PreviewCell>; old: Record<string, PreviewCell> }[];
+  total: number;
+};
+export type DryRun = {
+  rows: number;
+  created: number;
+  updated: number;
+  deleted: number;
+  new_columns: Column[];
+  claimed_columns: string[];
+  preview?: DryPreview;
+};
 /** What POST /sources takes; `dsn` becomes a saved connection named `connection_name`. */
-export type SourceInput = Omit<SourceDef, "id" | "connection_id" | "paused"> & {
+export type SourceInput = Omit<SourceDef, "id" | "connection_id" | "paused" | "columns"> & {
+  columns: ColumnMap[];
   id?: string;
   connection_id?: string;
   dsn?: string;

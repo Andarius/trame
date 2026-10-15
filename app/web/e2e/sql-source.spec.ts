@@ -27,10 +27,9 @@ test("connect a database to a query from its page", async ({ page, request }) =>
   await page.getByLabel("Query").fill(QUERY);
   await page.getByRole("button", { name: "▶ Run" }).click();
   await expect(page.getByText("2 rows ·")).toBeVisible();
-  await page.getByRole("button", { name: "pick the key column" }).click();
-  await page.getByRole("button", { name: "key", exact: true }).click();
-  await expect(page.getByText("＋ create 2 rows")).toBeVisible();
-  await expect(page.getByText(/fill the existing\s*Name\s*column/)).toBeVisible();
+  await page.getByRole("radio", { name: "Key: key" }).check();
+  await expect(page.getByText(/＋2 new/)).toBeVisible();
+  await expect(page.getByText(/fills existing:\s*Name/)).toBeVisible();
   await page.getByRole("button", { name: "Connect & fill" }).click();
 
   const rows = page.locator("main div.group\\/row");

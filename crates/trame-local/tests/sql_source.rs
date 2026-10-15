@@ -284,3 +284,124 @@ fn routes_stay_closed_while_the_plugin_is_off() {
     }
     assert_eq!(call(&f, "GET", "/settings", &json!({})).0, 200);
 }
+
+#[test]
+fn a_mapping_renames_skips_and_releases_columns() {
+    let mut f = fixture();
+    let mapped = |f: &Fixture, columns: Value, extra: Value| {
+        let mut body = source(f, &json!({"columns": columns}));
+        body.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        body
+    };
+    let map = json!([
+        {"from": "volume_pct", "to": "Volume"},
+        {"from": "as_of", "to": null},
+    ]);
+    for (columns, error) in [
+        (
+            json!([{"from": "client_id", "to": null}]),
+            "can't be skipped",
+        ),
+        (
+            json!([{"from": "active", "to": "Volume"}, {"from": "volume_pct", "to": "Volume"}]),
+            "two query columns fill \"Volume\"",
+        ),
+    ] {
+        let (status, body) = call(
+            &f,
+            "POST",
+            "/sources",
+            &mapped(&f, columns, json!({"dry_run": true})),
+        );
+        assert_eq!(status, 400, "{body}");
+        assert!(body["error"].as_str().unwrap().contains(error), "{body}");
+    }
+
+    let (_, dry) = call(
+        &f,
+        "POST",
+        "/sources",
+        &mapped(&f, map.clone(), json!({"dry_run": true})),
+    );
+    let preview = &dry["dry_run"]["preview"];
+    let names: Vec<_> = preview["columns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["name"].clone())
+        .collect();
+    assert!(
+        names.contains(&json!("Volume")) && !names.contains(&json!("as_of")),
+        "{names:?}"
+    );
+    assert_eq!(preview["total"], 2);
+    assert!(
+        preview["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["op"] == "new")
+    );
+
+    let (_, saved) = call(&f, "POST", "/sources", &mapped(&f, map, json!({})));
+    assert_eq!(
+        saved["source"]["columns"][1],
+        json!({"from": "as_of", "to": null})
+    );
+    let id = saved["source"]["id"].as_str().unwrap().to_owned();
+    let data = table(&mut f);
+    let volume = by_name(&data, "Volume");
+    assert!(
+        data["properties"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|p| p["name"] != "as_of")
+    );
+
+    // a changed value previews old → new; skipping a filled column hands it back
+    exec(&f, "update kr set volume_pct = 70 where client_id = 'c1'");
+    let mut again = mapped(
+        &f,
+        json!([{"from": "volume_pct", "to": "Volume"}, {"from": "as_of", "to": null}, {"from": "active", "to": null}]),
+        json!({"id": id, "connection_id": saved["source"]["connection_id"], "dry_run": true}),
+    );
+    again.as_object_mut().unwrap().remove("dsn");
+    let (_, dry) = call(&f, "POST", "/sources", &again);
+    assert_eq!(
+        dry["dry_run"]["released_columns"],
+        json!(["active"]),
+        "{dry}"
+    );
+    let rows = dry["dry_run"]["preview"]["rows"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let changed: Vec<_> = rows.iter().filter(|r| r["op"] == "changed").collect();
+    assert_eq!(changed.len(), 1, "{rows:?}");
+    assert_eq!(
+        (
+            changed[0]["old"][&volume].clone(),
+            changed[0]["vals"][&volume].clone()
+        ),
+        (json!(63.4), json!(70))
+    );
+    assert_eq!(rows.iter().filter(|r| r["op"] == "same").count(), 1);
+
+    again.as_object_mut().unwrap().remove("dry_run");
+    call(&f, "POST", "/sources", &again);
+    let data = table(&mut f);
+    let active = data["properties"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == "active")
+        .unwrap()
+        .clone();
+    assert!(
+        active["config"].get("source").is_none(),
+        "released: {active}"
+    );
+}
