@@ -27,6 +27,7 @@ import { EmptyState, EntityIcon, numberCodec, Select, useLocalStorage } from "..
 import { Cell, ColumnRanges, IconPicker, TableProps } from "./cells";
 import { PropertyEditor, TYPE_GLYPH } from "./PropertyEditor";
 import { RowPanel } from "./RowPanel";
+import { FRONTEND_PLUGINS } from "../plugins";
 import {
   type Agg,
   aggregate,
@@ -582,6 +583,8 @@ export const DatabaseView = memo(function DatabaseView(
         <div className={`${compact ? "hidden" : "flex"} items-center gap-2 border-b border-line-soft px-6 py-2`}>
           <ViewToolbar props={props} view={view} onChange={changeView} />
           <span className="flex-1" />
+          {!compact &&
+            FRONTEND_PLUGINS.map((p) => p.DatabaseHeader && <p.DatabaseHeader key={p.id} dbId={dbId} onDone={reload} />)}
           {(view.filters.length > 0 || view.sorts.length > 0) && (
             <span className="text-[11px] text-ink-muted/70">
               {rows.length} of {data.rows.length}
@@ -658,6 +661,9 @@ export const DatabaseView = memo(function DatabaseView(
                               </span>
                             )}
                           <span className="truncate">{p.name}</span>
+                          {p.config.source && (
+                            <span className="shrink-0 text-[10px] text-copper/80" title="filled by a SQL source">⇣</span>
+                          )}
                         </button>
                         {!compact && <button
                           type="button"

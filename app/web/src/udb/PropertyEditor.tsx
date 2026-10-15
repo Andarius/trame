@@ -193,6 +193,23 @@ export function PropertyEditor(
           </label>
         </div>
 
+        {prop?.config.source && (
+          <div className="flex items-center gap-2 rounded-md border border-copper/30 px-2 py-1.5 text-[11px] text-ink-soft">
+            <span className="min-w-0 flex-1">⇣ Filled by a SQL source — read-only here</span>
+            <button
+              type="button"
+              className="shrink-0 text-copper hover:underline"
+              title="stop refreshing this column; its cells become editable"
+              onClick={() =>
+                updateUdbProp(prop.id, { config: { source: null } }).then(() => {
+                  onSaved();
+                  onClose();
+                }).catch((e) => setError((e as Error).message))}
+            >
+              Detach
+            </button>
+          </div>
+        )}
         {!prop && (
           <label className="flex flex-col gap-1">
             <span className={lbl}>TYPE</span>

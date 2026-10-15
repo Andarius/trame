@@ -438,6 +438,8 @@ export type PropConfig = {
   target_prop?: string;
   agg?: "count" | "sum" | "avg" | "min" | "max" | "latest";
   date_prop?: string;
+  source?: string | null; // id of the SQL source that fills this column (read-only here); null = detached
+  source_column?: string;
 };
 
 export type UdbProp = {
