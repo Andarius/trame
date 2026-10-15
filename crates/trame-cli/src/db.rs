@@ -30,6 +30,15 @@ pub fn resolve_vals(vals: &Value, properties: &Value) -> Result<Value> {
                 property["name"].as_str().unwrap_or("")
             );
         }
+        if let Some(source) = property["config"]["source"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+        {
+            bail!(
+                "column \"{}\" is filled by the SQL source \"{source}\" — not writable (detach it from the column menu first)",
+                property["name"].as_str().unwrap_or("")
+            );
+        }
         out.insert(property["id"].as_str().unwrap_or(key).into(), value.clone());
     }
     Ok(Value::Object(out))

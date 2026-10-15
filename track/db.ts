@@ -7,7 +7,7 @@ export type RowInput = {
   vals: Record<string, unknown>;
   icon?: string | null;
 };
-type Prop = { id: string; name: string; type: string };
+type Prop = { id: string; name: string; type: string; config?: { source?: string | null } };
 
 const READ_ONLY = new Set(["relation", "formula", "rollup"]);
 
@@ -23,6 +23,11 @@ export function resolveVals(
     if (!p) throw new Error(`unknown column "${k}" — have: ${props.map((p) => p.name).join(", ")}`);
     if (READ_ONLY.has(p.type)) {
       throw new Error(`column "${p.name}" is a ${p.type} — not writable through vals (see \`tramecli db\`)`);
+    }
+    if (p.config?.source) {
+      throw new Error(
+        `column "${p.name}" is filled by the SQL source "${p.config.source}" — not writable (detach it from the column menu first)`,
+      );
     }
     return [p.id, v];
   }));
