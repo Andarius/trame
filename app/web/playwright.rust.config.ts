@@ -13,6 +13,8 @@ export default {
       ...server?.env,
       TRAME_LOCAL_DIR: process.env.TRAME_LOCAL_DIR ?? resolve("../../.scratch/stage1/e2e-db"),
       TRACKER_DEPLOYMENTS_FIXTURE: resolve("../plugins/deployments/fixture.sample.json"),
+      // the in-tree host plugins (sql-source) run from source
+      TRAME_PLUGIN_HOST: resolve("../../scripts/plugin-host.sh"),
     },
   },
 };

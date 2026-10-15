@@ -142,7 +142,8 @@ test *args:
 # Retained TypeScript backend/core/CLI oracle checks in a clean scratch environment
 [group('dev')]
 oracle-check: web-build
-    bash scripts/rust-oracle-check.sh
+    bash scripts/rust-package.sh prepare
+    TRAME_PG_BIN="$PWD/.scratch/package/pg/usr/lib/postgresql/18/bin" bash scripts/rust-oracle-check.sh
 
 # Fresh synthetic migration and HTTP/CLI differential gate
 [group('dev')]

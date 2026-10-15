@@ -19,6 +19,7 @@ clean_env=(env -i PATH="$PATH" DENO_DIR="$cache" TMPDIR="$run_dir/tmp"
     TRACKER_ASSETS_DIR="$run_dir/assets" TRACKER_CLAUDE_DIR="$run_dir/claude-projects"
     TRACKER_CODEX_DIR="$run_dir/codex-sessions" TRACKER_REPORT_PATHS="$run_dir/reports"
     TRACKER_PORT=0 TRACKER_NODE_ID=oracle-test TRACKER_UPDATE_CHECK=0
+    TRAME_PG_BIN="${TRAME_PG_BIN:-}"  # tests needing a real PostgreSQL skip without it
 )
 "${clean_env[@]}" "$deno_bin" check main.ts ../track/track.ts ../track/page.ts ../track/comment.ts ../track/watch.ts ../track/cli.ts ../mcp/server.ts
 "${clean_env[@]}" "$deno_bin" test -A
