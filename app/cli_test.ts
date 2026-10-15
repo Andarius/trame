@@ -80,9 +80,14 @@ Deno.test("db rows keys cells by column name or id, refusing derived columns", (
     { id: "p1", name: "Name", type: "title" },
     { id: "p2", name: "Cost", type: "number" },
     { id: "p3", name: "Total", type: "formula" },
+    { id: "p4", name: "Synced", type: "number", config: { source: "okr" } },
   ];
   assertEquals(resolveVals({ Name: "Q3", p2: null }, props), { p1: "Q3", p2: null });
-  for (const [vals, msg] of [[{ Nope: 1 }, "unknown column"], [{ Total: 1 }, "is a formula"]] as const) {
+  for (const [vals, msg] of [
+    [{ Nope: 1 }, "unknown column"],
+    [{ Total: 1 }, "is a formula"],
+    [{ Synced: 1 }, "filled by the SQL source"],
+  ] as const) {
     assertThrows(() => resolveVals(vals, props), Error, msg);
   }
 });

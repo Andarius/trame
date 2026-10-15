@@ -288,17 +288,20 @@ fn db_columns_and_deployments_merge() {
         {"id":"p2","name":"When","type":"date"},
         {"id":"p3","name":"Related","type":"relation"},
         {"id":"p4","name":"Calc","type":"formula"},
-        {"id":"p5","name":"Total","type":"rollup"}
+        {"id":"p5","name":"Total","type":"rollup"},
+        {"id":"p6","name":"Synced","type":"number","config":{"source":"okr"}},
+        {"id":"p7","name":"Detached","type":"number","config":{"source":null}}
     ]);
     assert_eq!(
-        db::resolve_vals(&json!({"Name":"Q3","p2":null}), &props).unwrap(),
-        json!({"p1":"Q3","p2":null})
+        db::resolve_vals(&json!({"Name":"Q3","p2":null,"Detached":1}), &props).unwrap(),
+        json!({"p1":"Q3","p2":null,"p7":1})
     );
     for (vals, message) in [
         (json!({"unknown":1}), "unknown column"),
         (json!({"Related":"x"}), "not writable"),
         (json!({"Calc":1}), "not writable"),
         (json!({"Total":2}), "not writable"),
+        (json!({"Synced":3}), "filled by the SQL source \"okr\""),
     ] {
         assert!(
             db::resolve_vals(&vals, &props)
