@@ -16,7 +16,7 @@ import type { BoardData } from "../api.ts";
 import { daysSince, IDLE_DAYS, StatusDot, statusStyle, timeAgo } from "../ui/ui";
 import { type CardFace, useCardFaces } from "../plugins";
 import { dueLabel, dueTone, useDue } from "../ui/due";
-import { buildGraph, type GraphNode } from "./graph-model.ts";
+import { buildGraph, type GraphNode, NO_PROJECT } from "./graph-model.ts";
 
 type Node = GraphNode & SimulationNodeDatum;
 type Link = SimulationLinkDatum<Node> & { source: Node; target: Node };
@@ -60,19 +60,20 @@ const placed = new Map<string, { x: number; y: number }>();
 const PEEK_W = 320;
 
 export default function Graph(
-  { board, openId, onOpen, onOpenFull, onClose }: {
+  { board, openId, onOpen, onOpenFull, onClose, onFilterProject }: {
     board: BoardData;
     openId: string | null; // the card shown in the drawer
     onOpen: (id: string) => void;
     onOpenFull: (id: string) => void;
     onClose: () => void;
+    onFilterProject: (projectId: string) => void; // toggles the project's term in the filter bar
   },
 ) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [tip, setTip] = useState<{ node: GraphNode; x: number; y: number } | null>(null);
   const [peek, setPeek] = useState<string | null>(null); // repo or project listed in the peek panel
-  const open = useRef({ onOpen, onOpenFull, onClose });
-  open.current = { onOpen, onOpenFull, onClose };
+  const open = useRef({ onOpen, onOpenFull, onClose, onFilterProject });
+  open.current = { onOpen, onOpenFull, onClose, onFilterProject };
   const focusRef = useRef<((id: string | null, dx: number) => void) | null>(null);
 
   const graph = useMemo(() => {
@@ -337,7 +338,10 @@ export default function Graph(
         setTip(null);
       })
       .on("click", (_e: MouseEvent, d) => (d.kind === "card" ? open.current.onOpen(d.sessionId) : setPeek(d.id)))
-      .on("dblclick", (_e: MouseEvent, d) => d.kind === "card" && open.current.onOpenFull(d.sessionId));
+      .on("dblclick", (_e: MouseEvent, d) => {
+        if (d.kind === "card") open.current.onOpenFull(d.sessionId);
+        else if (d.kind === "project" && d.id !== NO_PROJECT) open.current.onFilterProject(d.id.slice("project:".length));
+      });
     node.call(
       drag<SVGCircleElement, Node>()
         .on("start", (e, d) => {
@@ -438,7 +442,7 @@ export default function Graph(
       {!peeked && (
         <div className="pointer-events-none absolute bottom-3 left-4 flex gap-4 text-[11px] text-ink-muted">
           <span>Projects link to their repos, cards hang off their repo.</span>
-          <span>Scroll to zoom, drag to move. Click a card to open it, a repo or project to list its cards.</span>
+          <span>Scroll to zoom, drag to move. Click a card to open it, a repo or project to list its cards. Double-click a project to filter on it.</span>
         </div>
       )}
       {peeked && peeked.kind !== "card" && (

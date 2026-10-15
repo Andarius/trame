@@ -727,6 +727,7 @@ export function App() {
                 onOpen={(id) => openSession(id)}
                 onOpenFull={(id) => openSession(id, true)}
                 onClose={() => setOpenId(null)}
+                onFilterProject={toggleChip}
               />
             </Suspense>
           )

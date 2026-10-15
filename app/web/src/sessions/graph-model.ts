@@ -23,7 +23,7 @@ export type GraphNode =
 export type GraphLink = { source: string; target: string };
 export type BoardGraph = { nodes: GraphNode[]; links: GraphLink[] };
 
-const NO_PROJECT = "project:none";
+export const NO_PROJECT = "project:none";
 
 // Projects link to the repos their cards live in, cards hang off their repo (or their project
 // when the title names none); a repo used by several projects is one node, bridging them.
