@@ -55,7 +55,7 @@ test("sorting the title column orders the rows", async ({ page }) => {
   await nameHeader.getByTitle(/sort by this column|cycle sort/).click();
   await expect(page.getByText("3 of 3")).toBeVisible();
   // ascending → apple first, cherry last
-  await expect(page.locator("main div.group.grid input").first()).toHaveValue(
+  await expect(page.locator("main div.group\\/row input").first()).toHaveValue(
     "apple",
   );
 });
@@ -69,7 +69,7 @@ test("filtering hides non-matching rows and shows the count", async ({ page }) =
   await page.getByPlaceholder("value…").fill("apple");
   await expect(page.getByText("1 of 3")).toBeVisible();
   await page.keyboard.press("Escape"); // close the filter popover
-  await expect(page.locator("main div.group.grid input").first()).toHaveValue(
+  await expect(page.locator("main div.group\\/row input").first()).toHaveValue(
     "apple",
   );
 });
@@ -270,7 +270,7 @@ test("grouped grid shows whole-group counts under pagination", async ({ page, re
   await page.getByRole("button", { name: "PageGrp DB" }).click();
 
   // the page renders 25 rows, but the group header count is the WHOLE group (30), not the page slice
-  await expect(page.locator("main div.group.grid")).toHaveCount(25);
+  await expect(page.locator("main div.group\\/row")).toHaveCount(25);
   await expect(page.locator("main").getByText("30", { exact: true }))
     .toBeVisible();
 
