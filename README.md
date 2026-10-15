@@ -255,6 +255,18 @@ that spawns a terminal).
 > Tokens live only in this machine's `settings.json` (mode 0600). They are never synced to the
 > hub and never sent back to the UI, and each is bound to the forge host you configured.
 
+**SQL sources** fill a database from a query on a PostgreSQL you choose (local or tailnet; no TLS
+yet). On a database page, **⇣ Connect** opens a drawer: pick or paste a connection, run the query,
+choose the key column that matches rows, a schedule, and whether rows whose key disappears are
+removed; a dry run shows what the first fill will create before anything syncs. The query runs from
+this device in a read-only transaction (30 s timeout, at most 10 000 rows, refused beyond). Result
+columns become read-only columns of the database (also in `tramecli db rows`) until you **Detach**
+one; a refresh writes only the cells whose source value changed, so your own columns and comments
+survive it.
+
+> Connection strings stay in this machine's `settings.json` (0600) and are never sent back to the
+> UI. The query **results** are ordinary rows: they sync to the hub and your other devices.
+
 **Out-of-tree plugins** are composed at build time: list their checkouts in a gitignored
 `plugins.local.json` (`{ "plugins": ["../my-plugin"] }`) and run `just plugins`. A plugin holds
 `mod.ts` (backend, imports Trame only via `@trame/plugin-api`), `web/index.ts` (a `FrontendPlugin`,
