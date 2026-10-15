@@ -7,6 +7,9 @@ import type { PageDetail, Session } from "../api";
 import { DeploymentsCardPath } from "./deployments/CardPath";
 import { DeploymentsPanel } from "./deployments/Panel";
 import { DeploymentsSettings } from "./deployments/Settings";
+import { SqlSourceDatabaseActions, SqlSourceDatabaseEmpty } from "./sql-source/Actions";
+import { SqlSourcePanel } from "./sql-source/Panel";
+import { SqlSourceSettings } from "./sql-source/Settings";
 import { LOCAL_PLUGINS } from "./local.gen";
 
 /** What the host hands a panel. A panel may declare only the props it uses. */
@@ -25,6 +28,10 @@ export type FrontendPlugin = {
   Settings?: ComponentType;
   /** under a page's brief */
   PageHeader?: ComponentType<{ page: PageDetail; onDone: () => void }>;
+  /** in a database page's header, before "New row"; `onDone` reloads the table */
+  DatabaseActions?: ComponentType<{ dbId: string; onDone: () => void }>;
+  /** a choice in an empty database's "start" options; `onDone` reloads the table */
+  DatabaseEmpty?: ComponentType<{ dbId: string; onDone: () => void }>;
   /** a small mark on a card's board tile and story row */
   CardBadge?: ComponentType<{ sessionId: string }>;
   /** who handed me each card, by session id: a face after its title on the graph */
@@ -37,6 +44,7 @@ export type FrontendPlugin = {
 
 export const FRONTEND_PLUGINS: FrontendPlugin[] = [
   { id: "deployments", Panel: DeploymentsPanel, Settings: DeploymentsSettings, CardFields: DeploymentsCardPath },
+  { id: "sql-source", Panel: SqlSourcePanel, Settings: SqlSourceSettings, DatabaseActions: SqlSourceDatabaseActions, DatabaseEmpty: SqlSourceDatabaseEmpty },
   ...LOCAL_PLUGINS,
 ];
 

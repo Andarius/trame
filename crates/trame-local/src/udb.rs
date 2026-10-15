@@ -90,7 +90,7 @@ fn delete_db(db: &mut Db, id: &str) -> Result<Value> {
     Ok(json!({"ok":true}))
 }
 
-fn create_prop(db: &mut Db, db_id: &str, body: &Value) -> Result<Value> {
+pub(crate) fn create_prop(db: &mut Db, db_id: &str, body: &Value) -> Result<Value> {
     let config = body
         .get("config")
         .filter(|v| !v.is_null())
@@ -154,7 +154,7 @@ fn create_prop(db: &mut Db, db_id: &str, body: &Value) -> Result<Value> {
     Ok(json!({"id":id}))
 }
 
-fn update_prop(db: &mut Db, id: &str, body: &Value) -> Result<Value> {
+pub(crate) fn update_prop(db: &mut Db, id: &str, body: &Value) -> Result<Value> {
     let current = first(
         db,
         "select db_id, type, config from udb_properties where id=$1 and not deleted",
@@ -209,7 +209,7 @@ fn delete_prop(db: &mut Db, id: &str) -> Result<Value> {
     Ok(json!({"ok":true}))
 }
 
-fn create_row(db: &mut Db, id: &str, body: &Value) -> Result<Value> {
+pub(crate) fn create_row(db: &mut Db, id: &str, body: &Value) -> Result<Value> {
     let key = next_key(db, "udb_rows", Some(id))?;
     let vals = body
         .get("vals")
@@ -230,7 +230,7 @@ fn create_row(db: &mut Db, id: &str, body: &Value) -> Result<Value> {
     Ok(json!({"id":row["id"]}))
 }
 
-fn patch_row(db: &mut Db, id: &str, body: &Value) -> Result<Value> {
+pub(crate) fn patch_row(db: &mut Db, id: &str, body: &Value) -> Result<Value> {
     let vals = body
         .get("vals")
         .filter(|v| trame_core::truthy(v))
@@ -242,7 +242,7 @@ fn patch_row(db: &mut Db, id: &str, body: &Value) -> Result<Value> {
     Ok(json!({"ok":true}))
 }
 
-fn delete_row(db: &mut Db, id: &str) -> Result<Value> {
+pub(crate) fn delete_row(db: &mut Db, id: &str) -> Result<Value> {
     let p = [json!(id), json!(db.origin)];
     db.query("update udb_links set deleted=true, origin=$2, updated_at=now() where not deleted and (from_row=$1 or to_row=$1)",&p)?;
     crate::comments::delete_row_thread(db, id)?;
@@ -300,7 +300,7 @@ fn icons(db: &mut Db) -> Result<Value> {
     Ok(json!(db.query("select icon from (select icon, updated_at from udb_rows where icon is not null and not deleted union all select icon, updated_at from udb_databases where icon is not null and not deleted) t where icon like 'data:%' or icon like 'http%' group by icon order by max(updated_at) desc limit 60",&[])?.into_iter().map(|r| r["icon"].clone()).collect::<Vec<_>>()))
 }
 
-fn read(db: &mut Db, id: &str) -> Result<(u16, Value)> {
+pub(crate) fn read(db: &mut Db, id: &str) -> Result<(u16, Value)> {
     let definition = first(
         db,
         "select id, name, icon, views from udb_databases where id=$1 and not deleted",

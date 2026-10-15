@@ -146,7 +146,8 @@ down. Rows have a command — JSON on stdin, one row or an array:
                                        {"id":"<row>","vals":{"Cost":null}}]'
 
 A row with an \`id\` merges into it, one without is created; \`vals\` keys are column
-names or property ids, cells shaped as below (relation/formula/rollup refused).
+names or property ids, cells shaped as below (relation/formula/rollup refused, and so
+are columns a SQL source fills: \`config.source\` set, \`source_column\` its result column, \`source_name\` its label).
 
   POST /api/udb               {name}                    → {id}, with a "Name" title column
   POST /api/udb/<db>          {name?, icon?, page_id?}  rename, icon, show it on a page

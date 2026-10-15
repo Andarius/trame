@@ -404,6 +404,7 @@ pub async fn run(
     } else {
         plugins::start(native.clone())
     };
+    let sql_source_task = (!oracle).then(|| plugins::sql_source::start(&native));
     let host_task = if oracle {
         None
     } else {
@@ -439,7 +440,10 @@ pub async fn run(
         }
     };
     let _ = shutdown_tx.send(());
-    for task in [plugin_task, host_task].into_iter().flatten() {
+    for task in [plugin_task, sql_source_task, host_task]
+        .into_iter()
+        .flatten()
+    {
         task.abort();
         let _ = task.await;
     }

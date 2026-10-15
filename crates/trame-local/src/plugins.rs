@@ -16,6 +16,7 @@ pub mod github;
 pub mod gitlab;
 pub mod live;
 pub mod ships;
+pub mod sql_source;
 
 pub fn encode(value: &str) -> String {
     let mut url = reqwest::Url::parse("https://encode.invalid/").unwrap();
@@ -462,6 +463,20 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
     if let Some(name) = path.strip_prefix("/api/plugins/web/") {
         return web_file(&state.root, name).await;
     }
+    if let Some(sub) = path.strip_prefix("/api/plugins/sql-source") {
+        let sub = sub.to_owned();
+        let Ok(bytes) = axum::body::to_bytes(req.into_body(), usize::MAX).await else {
+            return json_response(500, json!({"error":"body unavailable"}));
+        };
+        let body = serde_json::from_slice::<Value>(&bytes).unwrap_or_else(|_| json!({}));
+        let env = sql_source::Env::of(&state);
+        return match crate::blocking::spawn(move || sql_source::handle(&env, &method, &sub, &body))
+            .await
+        {
+            Ok(Ok((status, value))) => json_response(status, value),
+            _ => json_response(500, json!({"error":"Internal Server Error"})),
+        };
+    }
     if crate::plugin_host::serves(&path) {
         let content_type = req
             .headers()
@@ -516,6 +531,7 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
                 state_after.sync.plugin_poll.notify_one();
             }
             if let (true, Value::Array(list)) = (path_after == "/api/plugins", &mut value) {
+                list.push(sql_source::manifest(&state_after.settings));
                 list.extend(crate::plugin_host::manifests().await);
             }
             json_response(status, value)

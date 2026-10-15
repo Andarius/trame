@@ -1040,7 +1040,7 @@ export function DerivedCell(
   { value, cfg, kind, propId, panel }: {
     value: Derived;
     cfg: PropConfig;
-    kind: "formula" | "rollup";
+    kind: "formula" | "rollup" | "source";
     propId?: string;
     panel?: boolean;
   },
@@ -1075,6 +1075,20 @@ export function DerivedCell(
   );
 }
 
+const SOURCE_TYPES = new Set(["title", "text", "url", "number", "checkbox", "date"]);
+
+// a column a SQL source fills: display-only, like a derived value — it changes at the source
+function SourceCell({ prop, value, panel }: { prop: UdbProp; value: unknown; panel?: boolean }) {
+  const shown: Derived = prop.type === "checkbox"
+    ? (value === true ? "✓" : "")
+    : prop.type === "date"
+    ? ((value as { start?: string } | null)?.start ?? null)
+    : typeof value === "number" || typeof value === "string"
+    ? value
+    : null;
+  return <DerivedCell value={shown} cfg={prop.config} kind="source" propId={prop.id} panel={panel} />;
+}
+
 export function Cell(
   { prop, row, onPatch, onSaved, onPropChanged, panel }: {
     prop: UdbProp;
@@ -1088,6 +1102,7 @@ export function Cell(
   const allProps = useContext(TableProps);
   const v = row.vals[prop.id];
   const commit = (value: unknown) => onPatch(prop.id, value);
+  if (prop.config.source && SOURCE_TYPES.has(prop.type)) return <SourceCell prop={prop} value={v} panel={panel} />;
   switch (prop.type) {
     case "title":
     case "text":

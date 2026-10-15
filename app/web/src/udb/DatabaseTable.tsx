@@ -27,6 +27,7 @@ import { EmptyState, EntityIcon, numberCodec, Select, useLocalStorage } from "..
 import { Cell, ColumnRanges, IconPicker, TableProps } from "./cells";
 import { PropertyEditor, TYPE_GLYPH } from "./PropertyEditor";
 import { RowPanel } from "./RowPanel";
+import { FRONTEND_PLUGINS } from "../plugins";
 import {
   type Agg,
   aggregate,
@@ -658,6 +659,9 @@ export const DatabaseView = memo(function DatabaseView(
                               </span>
                             )}
                           <span className="truncate">{p.name}</span>
+                          {p.config.source && (
+                            <span className="shrink-0 text-[10px] text-copper/80" title="filled by a SQL source">⇣</span>
+                          )}
                         </button>
                         {!compact && <button
                           type="button"
@@ -760,11 +764,32 @@ export const DatabaseView = memo(function DatabaseView(
                     ＋ New row
                   </button>
                   {data.rows.length === 0 && (
-                    <EmptyState block className="px-2 pt-4 text-[12px]">
-                      {compact
-                        ? "No rows yet — Edit to add rows and columns."
-                        : "No rows yet — add one, or add columns with the “+” header cell."}
-                    </EmptyState>
+                    compact
+                      ? (
+                        <EmptyState block className="px-2 pt-4 text-[12px]">
+                          No rows yet — Edit to add rows and columns.
+                        </EmptyState>
+                      )
+                      : (
+                        <div className="mx-2 mt-4 flex flex-col gap-2.5 rounded-xl border border-dashed border-chipline p-3.5">
+                          <EmptyState block className="text-[12px]">
+                            No rows yet — start here, or add columns with the “+” header cell.
+                          </EmptyState>
+                          <div className="grid grid-cols-2 gap-2.5">
+                            <button
+                              type="button"
+                              className="flex flex-col gap-0.5 rounded-lg border border-line bg-panel px-3 py-2.5 text-left"
+                              onClick={addRow}
+                            >
+                              <b className="text-[12px]">＋ Add a row</b>
+                              <span className="text-[11px] text-ink-muted">Type your own data.</span>
+                            </button>
+                            {FRONTEND_PLUGINS.map((p) =>
+                              p.DatabaseEmpty && <p.DatabaseEmpty key={p.id} dbId={dbId} onDone={reload} />
+                            )}
+                          </div>
+                        </div>
+                      )
                   )}
                   {data.rows.length > 0 && rows.length === 0 && (
                     <EmptyState block className="px-2 pt-4 text-[12px]">

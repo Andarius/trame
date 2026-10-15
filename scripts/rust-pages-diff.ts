@@ -325,6 +325,14 @@ try {
       left = normalize(left);
       right = normalize(right);
     }
+    if (path === "/api/plugins" && rs.ok) {
+      // native-only plugins have no TypeScript twin to compare against
+      const nativeOnly = new Set(["sql-source"]);
+      right = JSON.stringify(
+        (JSON.parse(right) as { id: string }[]).filter((p) => !nativeOnly.has(p.id)),
+      );
+      left = JSON.stringify(JSON.parse(left));
+    }
     if (path === "/api/status") {
       const normalize = (text: string, root: string) => {
         const value = JSON.parse(text);
