@@ -8,9 +8,12 @@ import {
   setPluginEnabled,
 } from "./settings.ts";
 import deployments from "./deployments/mod.ts";
+import sqlSource from "./sql-source/mod.ts";
 import { LOCAL_PLUGINS } from "./local.gen.ts";
 
-export const PLUGINS: Plugin[] = [deployments, ...LOCAL_PLUGINS];
+// what the out-of-process host serves: deployments is native in the Rust app
+export const HOST_PLUGINS: Plugin[] = [sqlSource, ...LOCAL_PLUGINS];
+export const PLUGINS: Plugin[] = [deployments, ...HOST_PLUGINS];
 
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {

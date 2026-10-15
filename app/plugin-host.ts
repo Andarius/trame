@@ -1,12 +1,12 @@
-// Out-of-process host for the locally composed plugins (plugins.local.json). The native app
+// Out-of-process host for HOST_PLUGINS (sql-source + plugins.local.json). The native app
 // spawns the compiled binary, reads {"port"} from its first stdout line and forwards
 // /api/plugins/<id>/* with a per-launch token; plugins reach the app's PostgreSQL over its socket.
 import {
   handlePluginRoute,
+  HOST_PLUGINS,
   listPluginManifests,
   startPlugins,
 } from "./plugins/index.ts";
-import { LOCAL_PLUGINS } from "./plugins/local.gen.ts";
 import { LOCAL_MARK_ROLES } from "../core/mark-roles.gen.ts";
 
 const token = Deno.env.get("TRAME_PLUGIN_TOKEN");
@@ -33,7 +33,7 @@ const server = Deno.serve({
   }
   const url = new URL(req.url);
   if (url.pathname === "/host/manifests") {
-    return json(await listPluginManifests(LOCAL_PLUGINS));
+    return json(await listPluginManifests(HOST_PLUGINS));
   }
   if (url.pathname === "/host/mark-roles") {
     return json(
@@ -46,7 +46,7 @@ const server = Deno.serve({
   }
   if (url.pathname.startsWith("/api/plugins/")) {
     try {
-      return await handlePluginRoute(req, url, LOCAL_PLUGINS);
+      return await handlePluginRoute(req, url, HOST_PLUGINS);
     } catch (e) {
       console.error("plugin-host:", e);
       return json({ error: e instanceof Error ? e.message : String(e) }, 500);
@@ -61,5 +61,5 @@ const server = Deno.serve({
   Deno.exit(0);
 })();
 
-startPlugins(LOCAL_PLUGINS);
+startPlugins(HOST_PLUGINS);
 await server.finished;

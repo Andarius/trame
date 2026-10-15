@@ -10,3 +10,8 @@ export const APP_CTX: Ctx = {
   defaultTags: defaultTagsFor,
   localAuthor: localAuthorSettings,
 };
+
+// APP_CTX bound to one transaction: every write in fn commits or rolls back together.
+export async function inTransaction<T>(fn: (ctx: Ctx) => Promise<T>): Promise<T> {
+  return await (await db()).transaction((tx) => fn({ ...APP_CTX, q: tx }));
+}
