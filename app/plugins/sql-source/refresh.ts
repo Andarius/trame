@@ -145,8 +145,9 @@ const keyOf = (v: unknown) => (v === null || v === undefined || v === "" ? null 
 type Plan = { prop: UdbProp | null; name: string; type: string; claim: boolean };
 
 /**
- * Write `result` into the source's database: source-owned columns are matched by name
- * (created, or claimed when no source owns them), rows by the key column. Validation runs
+ * Write `result` into the source's database: columns are matched by name (created, or
+ * claimed when no source owns them; `source: null` marks one the user detached), rows by
+ * the key column. Validation runs
  * before the first write, so a refused refresh changes nothing.
  */
 export async function applyRefresh(
@@ -163,7 +164,9 @@ export async function applyRefresh(
 
   const plans: Plan[] = [];
   for (const c of result.columns) {
-    const prop = props.find((p) => p.name === c.name) ?? null;
+    // a renamed owned column is still found by the result column it was made for
+    const prop = props.find((p) => p.config.source === source.id && p.config.source_column === c.name) ??
+      props.find((p) => p.name === c.name) ?? null;
     if (!prop) {
       plans.push({ prop: null, name: c.name, type: typeFor(c.type), claim: false });
       continue;
@@ -198,23 +201,12 @@ export async function applyRefresh(
 
   const counts: RefreshCounts = { rows: result.rows.length, created: 0, updated: 0, deleted: 0 };
   for (const p of plans) {
+    const config = { source: source.id, source_column: p.name };
     if (p.prop && p.claim) {
-      await updateProperty(ctx, p.prop.id, { config: { source: source.id } });
+      await updateProperty(ctx, p.prop.id, { config });
     } else if (!p.prop) {
-      const id = await createProperty(ctx, source.db_id, {
-        name: p.name,
-        type: p.type,
-        config: { source: source.id },
-      });
-      p.prop = {
-        id,
-        db_id: source.db_id,
-        name: p.name,
-        type: p.type,
-        config: { source: source.id },
-        sort_key: "",
-        width: null,
-      };
+      const id = await createProperty(ctx, source.db_id, { name: p.name, type: p.type, config });
+      p.prop = { id, db_id: source.db_id, name: p.name, type: p.type, config, sort_key: "", width: null };
     }
   }
 

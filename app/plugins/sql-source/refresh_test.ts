@@ -131,6 +131,20 @@ const mergeCases: MergeCase[] = [
     rows: [{ key: "a", n: 1, flag: true, day: { start: "2026-10-01" } }],
   },
   {
+    name: "a renamed owned column keeps its cells",
+    before: async (s) => {
+      await apply(s, R1);
+      await updateProperty(APP_CTX, (await propBy(s, "n")).id, { name: "count" });
+    },
+    run: R1,
+    counts: { created: 0, updated: 0, deleted: 0 },
+    rows: [
+      { key: "a", count: 1, flag: true, day: { start: "2026-10-01" } },
+      { key: "b", count: 2, flag: false },
+    ],
+    logged: 0,
+  },
+  {
     name: "a detached column is left to the user",
     before: async (s) => {
       await apply(s, R1);
@@ -154,11 +168,8 @@ for (const c of mergeCases) {
     assertEquals(counts, { rows: c.run.rows.length, ...c.counts });
     assertEquals(await table(s), c.rows);
     if (c.logged !== undefined) assertEquals(await writes() - before, c.logged);
-    for (const p of COLUMNS) {
-      if (p.name !== "n" || !c.name.includes("detached")) {
-        assertEquals((await propBy(s, p.name)).config.source, "src", `${p.name} is source-owned`);
-      }
-    }
+    const owned = (await getUdb(APP_CTX, s.db_id))!.properties.filter((p) => p.config.source === "src");
+    assertEquals(owned.length, c.name.includes("detached") ? 3 : 4, "result columns are source-owned");
   });
 }
 
