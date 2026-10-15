@@ -206,6 +206,8 @@ Deno.test({
   sanitizeOps: false,
   async fn(t) {
     const dir = Deno.makeTempDirSync({ prefix: "trame-sqlsrc-pg-" });
+    // a socket path is capped at 107 bytes, and TMPDIR can be deep (oracle-check)
+    const sock = Deno.makeTempDirSync({ dir: "/tmp", prefix: "sqlsrc-" });
     const port = 55000 + Math.floor(Math.random() * 400);
     await run("initdb", ["-D", `${dir}/data`, "--username=src", "--auth-local=trust", "--auth-host=reject", "--no-sync"]);
     await run("pg_ctl", [
@@ -215,13 +217,13 @@ Deno.test({
       "-l",
       `${dir}/log`,
       "-o",
-      `-c listen_addresses= -k ${dir} -p ${port} -c dynamic_library_path=${PG_BIN}/../lib`,
+      `-c listen_addresses= -k ${sock} -p ${port} -c dynamic_library_path=${PG_BIN}/../lib`,
       "start",
     ]);
-    const dsn = `postgres://src@localhost:${port}/postgres?host=${dir}`;
+    const dsn = `postgres://src@localhost:${port}/postgres?host=${sock}`;
     try {
       // a function that writes, so the write is reachable from a plain select
-      const setup = (await import("postgres")).default({ path: `${dir}/.s.PGSQL.${port}`, username: "src", database: "postgres", onnotice: () => {} });
+      const setup = (await import("postgres")).default({ path: `${sock}/.s.PGSQL.${port}`, username: "src", database: "postgres", onnotice: () => {} });
       await setup.unsafe(`create table t (id int);
         create function w() returns int language sql as 'insert into t values (1) returning id';`);
 
@@ -265,6 +267,7 @@ Deno.test({
     } finally {
       await run("pg_ctl", ["-D", `${dir}/data`, "-m", "immediate", "stop"]).catch(() => {});
       Deno.removeSync(dir, { recursive: true });
+      Deno.removeSync(sock, { recursive: true });
     }
   },
 });
