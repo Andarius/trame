@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { UdbMeta } from "../api";
+import { FRONTEND_PLUGINS } from "../plugins";
 import { DatabaseView } from "../udb/DatabaseTable";
 import { EntityIcon } from "../ui/ui";
 
@@ -10,7 +11,7 @@ const typing = (t: EventTarget) =>
 // A database shown on a page: placed by a {{trame:db=…}} block, or attached and listed at
 // the end. It uses the pane's width (100cqw minus the px-8 gutters), not the 820px text
 // column: a placed one through its editor row, a listed one by breaking out itself. Opens
-// in view mode (tabs and rows); the edit toggle brings back the toolbar, paging and
+// in view mode (tabs and rows); the edit toggle brings back the toolbar, paging, plugin actions and
 // new-row chrome for this viewer only.
 export function PageDatabase({ dbId, udbs, fallback, placed = false, onDragIn, className = "" }: {
   dbId: string;
@@ -21,6 +22,7 @@ export function PageDatabase({ dbId, udbs, fallback, placed = false, onDragIn, c
   className?: string;
 }) {
   const [editing, setEditing] = useState(false);
+  const [epoch, setEpoch] = useState(0); // a plugin action (SQL refresh) reloads the rows
   const meta = udbs.find((d) => d.id === dbId) ?? fallback;
   return (
     <div
@@ -60,8 +62,15 @@ export function PageDatabase({ dbId, udbs, fallback, placed = false, onDragIn, c
         >
           {editing ? "Done" : "Edit"}
         </button>
+        {editing && (
+          <span className="ml-auto flex items-center gap-1.5 font-normal">
+            {FRONTEND_PLUGINS.map((p) =>
+              p.DatabaseActions && <p.DatabaseActions key={p.id} dbId={dbId} onDone={() => setEpoch((e) => e + 1)} />
+            )}
+          </span>
+        )}
       </div>
-      <DatabaseView dbId={dbId} epoch={0} udbs={udbs} compact={!editing} />
+      <DatabaseView dbId={dbId} epoch={epoch} udbs={udbs} compact={!editing} />
     </div>
   );
 }
