@@ -3,6 +3,7 @@ import { appConfirm, EntityIcon, ExpandIcon } from "../ui/ui";
 import { createUdbRow, deleteUdb, type PageMeta, type Session, type UdbMeta, updateUdb } from "../api";
 import { confirmDeletePage } from "../page/Page";
 import { IconPicker } from "../udb/cells";
+import { FRONTEND_PLUGINS } from "../plugins";
 import type { View } from "./view";
 
 export function HeaderTitle(
@@ -239,6 +240,12 @@ export function DbActions(
         Delete
       </button>
     )}
+    {view === "database" && currentDb && !dbReadOnly &&
+      FRONTEND_PLUGINS.map((p) =>
+        p.DatabaseActions && (
+          <p.DatabaseActions key={p.id} dbId={currentDb.id} onDone={() => setUdbEpoch((e) => e + 1)} />
+        )
+      )}
     {view === "database" && !dbReadOnly
       ? (
         <button

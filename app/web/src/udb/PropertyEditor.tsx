@@ -195,7 +195,7 @@ export function PropertyEditor(
 
         {prop?.config.source && (
           <div className="flex items-center gap-2 rounded-md border border-copper/30 px-2 py-1.5 text-[11px] text-ink-soft">
-            <span className="min-w-0 flex-1">⇣ Filled by a SQL source — read-only here</span>
+            <span className="min-w-0 flex-1">{prop.config.source_name ? `⇣ Filled by ${prop.config.source_name}` : "⇣ Filled by a SQL source"} — read-only here</span>
             <button
               type="button"
               className="shrink-0 text-copper hover:underline"

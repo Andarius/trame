@@ -439,6 +439,7 @@ export type PropConfig = {
   agg?: "count" | "sum" | "avg" | "min" | "max" | "latest";
   date_prop?: string;
   source?: string | null; // id of the SQL source that fills this column (read-only here); null = detached
+  source_name?: string; // display name of that source
   source_column?: string;
 };
 
