@@ -104,7 +104,7 @@ export function PropertyEditor(
     set({ options: options.map((o, j) => (j === i ? { ...o, ...patch } : o)) });
 
   return (
-    <Popover onClose={onClose} className="w-[260px] p-2.5">
+    <Popover portal onClose={onClose} className="w-[260px] p-2.5">
       <div className="flex flex-col gap-2.5">
         {prop && onSort && (
           <div className="flex items-center gap-1">
