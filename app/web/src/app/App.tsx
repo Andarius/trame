@@ -10,6 +10,7 @@ import {
   getPlugins,
   getStatus,
   getUpdate,
+  restartApp,
   importPage,
   listPages,
   listUdbs,
@@ -349,6 +350,10 @@ export function App() {
     if (!update) return;
     if (!update.canSelfUpdate) {
       openInBrowser(update.releaseUrl);
+      return;
+    }
+    if (updateState === "done") {
+      restartApp().catch(() => {});
       return;
     }
     if (updateState !== "idle") return;

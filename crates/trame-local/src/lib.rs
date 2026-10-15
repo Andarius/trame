@@ -399,6 +399,7 @@ pub async fn run(
         web_dir: config.web_dir.clone(),
     };
     let notifier = tokio::spawn(notify::background(native.clone()));
+    let updater = (config.desktop && !offline).then(|| tokio::spawn(update::background()));
     let plugin_task = if oracle {
         None
     } else {
@@ -440,7 +441,7 @@ pub async fn run(
         }
     };
     let _ = shutdown_tx.send(());
-    for task in [plugin_task, sql_source_task, host_task]
+    for task in [plugin_task, sql_source_task, host_task, updater]
         .into_iter()
         .flatten()
     {

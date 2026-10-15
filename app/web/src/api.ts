@@ -566,6 +566,10 @@ export const applyUpdate = () =>
   post("/api/update", {}).then((r) =>
     r.json() as Promise<{ ok: boolean; error?: string }>
   );
+export const restartApp = () =>
+  post("/api/update/restart", {}).then((r) =>
+    r.json() as Promise<{ ok: boolean; error?: string }>
+  );
 
 // pages — the nestable tree: project | story | page
 

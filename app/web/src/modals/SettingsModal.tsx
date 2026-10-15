@@ -6,6 +6,7 @@ import {
   getPlugins,
   getSettings,
   getUpdate,
+  restartApp,
   openInBrowser,
   patchSettings,
   type PluginManifest,
@@ -216,6 +217,16 @@ export function SettingsModal(
     applyUpdate().then((r) => setUpdState(r.ok ? "done" : "idle")).catch(() => setUpdState("idle"));
   };
 
+  const restartBtn = (
+    <button
+      type="button"
+      className="rounded-md bg-copper px-2.5 py-1 text-[11.5px] font-medium text-copper-ink hover:brightness-110"
+      onClick={() => restartApp().catch(() => {})}
+    >
+      ✓ v{update?.latest} ready — restart
+    </button>
+  );
+
   const [hubTest, setHubTest] = useState<{ state: "idle" | "busy" | "ok" | "fail"; tls?: boolean; error?: string }>(
     { state: "idle" },
   );
@@ -276,7 +287,7 @@ export function SettingsModal(
               </button>
               <span className="flex-1" />
               {updState === "done"
-                ? <span className="text-[11px]" style={{ color: "var(--color-active)" }}>✓ updated — restart Trame</span>
+                ? restartBtn
                 : (
                   <button
                     type="button"
@@ -290,7 +301,7 @@ export function SettingsModal(
             </>
           )
           : update?.applied
-          ? <span className="text-[11px]" style={{ color: "var(--color-active)" }}>✓ updated — restart Trame</span>
+          ? restartBtn
           : update && <span className="text-[11px] text-ink-muted/70">· up to date</span>}
       </div>
 
