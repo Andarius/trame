@@ -4307,7 +4307,7 @@ dependencies = [
 
 [[package]]
 name = "trame-cli"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4334,7 +4334,7 @@ dependencies = [
 
 [[package]]
 name = "trame-desktop"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -4346,7 +4346,7 @@ dependencies = [
 
 [[package]]
 name = "trame-local"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "anyhow",
  "axum",
