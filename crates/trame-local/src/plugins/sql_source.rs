@@ -272,7 +272,12 @@ fn connect(dsn: &str) -> Result<postgres::Client> {
         ));
     config
         .connect(NoTls)
-        .or_else(|e| refuse(scrub(&e.to_string(), dsn)))
+        // Display hides the cause ("error connecting to server"); the source holds it
+        .or_else(|e| {
+            let cause = std::error::Error::source(&e)
+                .map_or_else(|| e.to_string(), |c| format!("{e}: {c}"));
+            refuse(scrub(&cause, dsn))
+        })
 }
 
 /// Run `query` read-only and return at most `max_rows` rows; refuses (never truncates) past it.
