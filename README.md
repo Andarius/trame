@@ -256,9 +256,11 @@ that spawns a terminal).
 > hub and never sent back to the UI, and each is bound to the forge host you configured.
 
 **SQL sources** fill a database from a query on a PostgreSQL you choose (local or tailnet; no TLS
-yet). On a database page, **⇣ Connect** opens a drawer: pick or paste a connection, run the query,
-choose the key column that matches rows, a schedule, and whether rows whose key disappears are
-removed; a dry run shows what the first fill will create before anything syncs. The query runs from
+yet). On a database page (or an inline database in **Edit**), **⇣ Connect** opens a drawer: pick
+or paste a connection, run the query, map each result column to a database column (existing, new
+or skipped) and pick the key that matches rows, a schedule (manual, or every 5 minutes to 30 days),
+and whether rows whose key disappears are removed; **Preview** shows the resulting table, row by
+row, before anything syncs. The query runs from
 this device in a read-only transaction (30 s timeout, at most 10 000 rows, refused beyond). Result
 columns become read-only columns of the database (also in `tramecli db rows`) until you **Detach**
 one; a refresh writes only the cells whose source value changed, so your own columns and comments
