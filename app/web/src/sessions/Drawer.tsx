@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { FRONTEND_PLUGINS } from "../plugins";
 import {
   addLog,
+  type AgentKind,
   type BoardData,
   deleteSession,
   deleteSessionLink,
@@ -29,18 +30,26 @@ import { renderInline } from "../md/md-inline";
 import { SpecsEditor } from "../page/SpecsEditor";
 import { TagEditor } from "../ui/TagEditor";
 
-const RESUME_MODE_CODEC = enumCodec<ResumeMode>(["window", "tab", "existing"]);
+const RESUME_MODE_CODEC = enumCodec<ResumeMode>(["window", "tab", "existing", "desktop"]);
+const AGENT_CODEC = enumCodec<AgentKind>(["claude", "codex"]);
+const AGENTS: { agent: AgentKind; label: string }[] = [
+  { agent: "claude", label: "Claude Code" },
+  { agent: "codex", label: "Codex" },
+];
+const agentLabel = (a?: AgentKind) => (a === "codex" ? "Codex" : "Claude");
 
 // How the Resume button places the session; the last pick is the default, persisted.
 const RESUME_MODES: { mode: ResumeMode; label: string; hint: string }[] = [
   { mode: "window", label: "New window", hint: "opens a fresh terminal window" },
   { mode: "tab", label: "New tab", hint: "adds a tab to your open terminal" },
   { mode: "existing", label: "Existing session", hint: "types into your focused konsole" },
+  { mode: "desktop", label: "Desktop app", hint: "opens Claude Desktop or Codex Desktop" },
 ];
 const RESUME_DONE: Record<ResumeMode, string> = {
   window: "terminal opened",
   tab: "tab opened",
   existing: "sent to terminal",
+  desktop: "desktop app opened",
 };
 
 const rowLbl = "shrink-0 pt-[5px] text-[11px] text-ink-muted";
@@ -152,6 +161,8 @@ export function Drawer(
   const [resumeInfo, setResumeInfo] = useState<ResumeInfo | null>(null);
   const [resumeMenu, setResumeMenu] = useState(false);
   const [resumeMode, setResumeMode] = useLocalStorage<ResumeMode>("trame:resumeMode", "window", RESUME_MODE_CODEC);
+  // the last picked agent drives the main button, like the open mode above
+  const [openAgent, setOpenAgent] = useLocalStorage<AgentKind>("trame:openAgent", "claude", AGENT_CODEC);
   const resumeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // probe on open so the button shows whether this session is resumable HERE vs on another device
@@ -166,20 +177,24 @@ export function Drawer(
     if (nsEditing) growNs();
   }, [nsEditing]);
 
-  const doResume = async (mode: ResumeMode = resumeMode) => {
+  // no `open` = plain resume of the card's own session (or copy its command when it can't run here)
+  const doResume = async (mode: ResumeMode = resumeMode, open?: AgentKind) => {
     setResumeMenu(false);
     setResumeMode(mode);
+    if (open) setOpenAgent(open);
     let msg: string;
     try {
-      const r = await resumeSession(session.id, mode);
+      const r = await resumeSession(session.id, mode, undefined, open);
       if (r.launched) {
-        msg = RESUME_DONE[mode];
+        msg = r.fresh ? `${agentLabel(r.agent)} started — ${RESUME_DONE[mode]}` : RESUME_DONE[mode];
       } else {
         // couldn't launch → copy the command as an escape hatch, then explain why
         try {
-          await navigator.clipboard?.writeText(r.cmd);
+          await navigator.clipboard?.writeText(r.reason === "no-desktop-app" && r.url ? r.url : r.cmd);
         } catch { /* clipboard blocked — still show why below */ }
-        msg = r.reason === "api-disabled"
+        msg = r.reason === "no-desktop-app"
+          ? `${agentLabel(r.agent)} desktop app not installed — link copied`
+          : r.reason === "api-disabled"
           ? "enable konsole D-Bus — copied"
           : r.local === false
           ? (r.homeNode ? `on ${r.homeNode} — copied` : "no transcript here — copied")
@@ -377,58 +392,87 @@ export function Drawer(
   );
 
   const resumeBlock = session.repo_path && (() => {
-    const foreign = resumeInfo?.local === false; // transcript lives on another device
-    // Foreign transcript: single button that copies the command (launch modes don't apply).
-    if (foreign) {
-      return (
-        <button type="button"
-          className="flex items-center justify-center gap-2 rounded-lg border border-line bg-transparent py-2 text-[12px] font-medium text-ink-muted transition-colors hover:border-chipline hover:text-ink-soft"
-          title={`This session's transcript lives on ${
-            resumeInfo?.homeNode ?? "another device"
-          } — resume it there. Click to copy the command.`}
-          onClick={() => doResume()}
-        >
-          <span className="text-[13px]">⧉</span>
-          {resumeMsg ??
-            (resumeInfo?.homeNode ? `On ${resumeInfo.homeNode}` : "No transcript on this device")}
-        </button>
-      );
-    }
+    // the last picked agent + mode: resumes the card's session when it owns a local one, else opens on the card
+    const resumable = resumeInfo?.local === true;
+    const foreign = resumeInfo?.local === false && !!resumeInfo.homeNode; // transcript on another device
+    const open = openAgent;
+    // Claude Desktop can't pick up a CLI transcript, so there it starts on the card
+    const resumes = (agent: AgentKind, mode = resumeMode) =>
+      resumable && resumeInfo?.agent === agent && !(mode === "desktop" && agent === "claude");
     const active = RESUME_MODES.find((m) => m.mode === resumeMode) ?? RESUME_MODES[0];
-    const agentLabel = resumeInfo?.agent === "codex" ? "Codex" : "Claude";
+    const mainLabel = `${resumes(open) ? "Resume" : "Open in"} ${agentLabel(open)} · ${active.label}`;
     const btn = "border-copper/40 bg-copper/[0.06] text-copper transition-colors hover:border-copper/60 hover:bg-copper/10";
+    const section = "px-2 pb-0.5 pt-1.5 text-[10px] font-medium uppercase tracking-wide text-ink-muted/70";
     return (
       <div className="relative flex">
         <button type="button"
           className={`flex flex-1 items-center justify-center gap-2 rounded-l-lg border border-r-0 py-2 text-[12px] font-medium ${btn}`}
-          title={`Resume in ${session.repo_path} — ${active.hint}`}
-          onClick={() => doResume()}
+          title={resumes(open)
+            ? `Resume in ${session.repo_path} — ${active.hint}`
+            : `Start ${agentLabel(open)} in ${session.repo_path} with this card's context — ${active.hint}${
+              foreign ? ` (its transcript lives on ${resumeInfo?.homeNode})` : ""
+            }`}
+          onClick={() => doResume(resumeMode, open)}
         >
           <span className="text-[13px]">⏵</span>
-          {resumeMsg ?? `Resume ${agentLabel} · ${active.label}`}
+          {resumeMsg ?? mainLabel}
         </button>
         <button type="button"
           className={`flex items-center rounded-r-lg border px-2 text-[10px] ${btn}`}
-          title="choose how to open"
+          title="choose the agent and how to open it"
+          aria-label="Open in agent"
           onClick={() => setResumeMenu((v) => !v)}
         >
           ▾
         </button>
         {resumeMenu && (
-          <Popover onClose={() => setResumeMenu(false)} className="left-auto right-0 min-w-[220px]">
-            {RESUME_MODES.map((m) => (
-              <MenuRow
-                key={m.mode}
-                className="items-start"
-                onClick={() => doResume(m.mode)}
-              >
+          <Popover onClose={() => setResumeMenu(false)} className="left-auto right-0 min-w-[240px]">
+            <div className={section}>Open in agent</div>
+            {AGENTS.map(({ agent, label }) => {
+              return (
+                <MenuRow key={agent} className="items-start" onClick={() => doResume(resumeMode, agent)}>
+                  <span className="pt-0.5"><AgentIcon a={{ harness: agent, icon: null }} /></span>
+                  <span className="flex-1">
+                    <span className="block text-xs text-ink-soft">{label}</span>
+                    <span className="block text-[10px] text-ink-muted/70">
+                      {resumes(agent) ? "resumes this session" : "new session with this card's context"}
+                    </span>
+                  </span>
+                  {open === agent && (
+                    <span className="pt-0.5 text-[10px] text-copper">✓</span>
+                  )}
+                </MenuRow>
+              );
+            })}
+            {foreign && (
+              <MenuRow className="items-start" onClick={() => doResume(resumeMode)}>
+                <span className="pt-0.5 text-[12px]">⧉</span>
                 <span className="flex-1">
-                  <span className="block text-xs text-ink-soft">{m.label}</span>
-                  <span className="block text-[10px] text-ink-muted/70">{m.hint}</span>
+                  <span className="block text-xs text-ink-soft">Copy resume command</span>
+                  <span className="block text-[10px] text-ink-muted/70">to resume on {resumeInfo?.homeNode}</span>
                 </span>
-                {m.mode === resumeMode && <span className="pt-0.5 text-[10px] text-copper">✓</span>}
               </MenuRow>
-            ))}
+            )}
+            <div className={section}>Open as</div>
+            {RESUME_MODES.map((m) => {
+              const missing = m.mode === "desktop" && resumeInfo?.desktop?.[open] === false;
+              return (
+                <MenuRow
+                  key={m.mode}
+                  className={`items-start ${missing ? "opacity-50" : ""}`}
+                  disabled={missing}
+                  onClick={() => doResume(m.mode, open)}
+                >
+                  <span className="flex-1">
+                    <span className="block text-xs text-ink-soft">{m.label}</span>
+                    <span className="block text-[10px] text-ink-muted/70">
+                      {missing ? `${agentLabel(open)} desktop app not installed` : m.hint}
+                    </span>
+                  </span>
+                  {m.mode === resumeMode && <span className="pt-0.5 text-[10px] text-copper">✓</span>}
+                </MenuRow>
+              );
+            })}
           </Popover>
         )}
       </div>

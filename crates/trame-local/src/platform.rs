@@ -269,9 +269,14 @@ fn resume(db: &mut Db, body: &Value) -> Result<(u16, Value)> {
     let mode = match body["mode"].as_str() {
         Some("tab") => "tab",
         Some("existing") => "existing",
+        Some("desktop") => "desktop",
         _ => "window",
     };
-    let (repo, cid, agent, local, home) = if let Some(repo) =
+    // `open` picks the agent: resume its own local transcript, else start it on the card
+    let pick = body["open"]
+        .as_str()
+        .filter(|a| matches!(*a, "claude" | "codex"));
+    let (repo, cid, agent, local, home, fresh) = if let Some(repo) =
         body["repoPath"].as_str().filter(|s| !s.is_empty())
     {
         (
@@ -284,10 +289,12 @@ fn resume(db: &mut Db, body: &Value) -> Result<(u16, Value)> {
             },
             true,
             Value::Null,
+            None,
         )
     } else {
         let rows = db.query(
-            "select repo_path,claude_id,agent from sessions where id=$1 and not deleted",
+            "select s.repo_path,s.claude_id,s.agent,s.title,s.next_step,s.branch,s.pr_url,s.summary,p.title as page_title \
+             from sessions s left join pages p on p.id=s.page_id where s.id=$1 and not s.deleted",
             &[json!(id)],
         )?;
         let row = rows.first();
@@ -320,9 +327,26 @@ fn resume(db: &mut Db, body: &Value) -> Result<(u16, Value)> {
             })
             .flatten();
         let local = imports::transcript_is_local(db, agent, &cid)?;
-        (repo, cid, agent, local, json!(home))
+        // Claude Desktop can't resume a CLI transcript, so it always starts on the card
+        match (pick, row) {
+            (Some(pick), Some(row))
+                if pick != agent || !local || (mode == "desktop" && pick == "claude") =>
+            {
+                (
+                    repo,
+                    cid,
+                    pick,
+                    true,
+                    json!(home),
+                    Some(agent_prompt(pick, id, row)),
+                )
+            }
+            _ => (repo, cid, agent, local, json!(home), None),
+        }
     };
-    let command = if agent == "codex" {
+    let command = if let Some(prompt) = &fresh {
+        format!("{agent} {}", terminal::shq(prompt))
+    } else if agent == "codex" {
         format!("codex resume {cid}")
     } else {
         format!("claude --resume {cid}")
@@ -339,9 +363,29 @@ fn resume(db: &mut Db, body: &Value) -> Result<(u16, Value)> {
         result["repo"] = repo.clone();
     }
     result["agent"] = json!(agent);
+    result["fresh"] = json!(fresh.is_some());
+    result["desktop"] =
+        json!({"claude":desktop_installed("claude"),"codex":desktop_installed("codex")});
+    let url = cwd
+        .filter(|_| mode == "desktop")
+        .map(|cwd| desktop_url(agent, cwd, fresh.as_deref(), &cid));
+    if let Some(url) = &url {
+        result["url"] = json!(url);
+    }
     if trame_core::truthy(&body["probe"]) || cwd.is_none() || !local {
         result["ok"] = json!(local && cwd.is_some());
         result["launched"] = json!(false);
+        return Ok((200, result));
+    }
+    if let Some(url) = url {
+        let installed = desktop_installed(agent);
+        let launched = installed && open(&url).is_ok();
+        result["ok"] = json!(launched);
+        result["launched"] = json!(launched);
+        result["mode"] = json!(mode);
+        if !installed {
+            result["reason"] = json!("no-desktop-app");
+        }
         return Ok((200, result));
     }
     let cwd = cwd.unwrap();
@@ -366,6 +410,82 @@ fn resume(db: &mut Db, body: &Value) -> Result<(u16, Value)> {
     result["local"] = json!(true);
     result["mode"] = json!(mode);
     Ok((200, result))
+}
+/// Deep link into the agent's desktop app: a new session on `prompt`, else the existing thread.
+fn desktop_url(agent: &str, cwd: &str, prompt: Option<&str>, cid: &str) -> String {
+    let (base, folder, text) = match (agent, prompt) {
+        ("codex", None) => return format!("codex://threads/{cid}"),
+        ("codex", Some(_)) => ("codex://threads/new", "path", "prompt"),
+        _ => ("claude://code/new", "folder", "q"),
+    };
+    let mut url = reqwest::Url::parse(base).unwrap();
+    url.query_pairs_mut().append_pair(folder, cwd);
+    if let Some(prompt) = prompt {
+        url.query_pairs_mut().append_pair(text, prompt);
+    }
+    url.as_str().replace('+', "%20")
+}
+/// Whether the agent's desktop app is installed (macOS bundles only).
+fn desktop_installed(agent: &str) -> bool {
+    if !cfg!(target_os = "macos") {
+        return false;
+    }
+    let bundles: &[&str] = if agent == "codex" {
+        &["Codex.app", "ChatGPT.app/Contents/Resources/codex-cli"]
+    } else {
+        &["Claude.app"]
+    };
+    let home = std::env::var("HOME").unwrap_or_default();
+    ["/Applications".to_owned(), format!("{home}/Applications")]
+        .iter()
+        .any(|dir| {
+            bundles
+                .iter()
+                .any(|b| std::path::Path::new(dir).join(b).exists())
+        })
+}
+/// Opening prompt for a freshly started agent: the `trame` skill on the card, else its context inline.
+fn agent_prompt(agent: &str, id: &str, row: &Value) -> String {
+    let (dir, sigil) = if agent == "codex" {
+        (".agents/skills/trame", '$')
+    } else {
+        (".claude/skills/trame", '/')
+    };
+    let home = std::env::var("HOME").unwrap_or_default();
+    if std::path::Path::new(&home)
+        .join(dir)
+        .join("SKILL.md")
+        .is_file()
+    {
+        return format!("{sigil}trame {id}");
+    }
+    let field = |key: &str| {
+        row[key]
+            .as_str()
+            .map(|s| s.split_whitespace().collect::<Vec<_>>().join(" "))
+            .filter(|s| !s.is_empty())
+    };
+    let mut parts = vec![format!(
+        "Work on the Trame card \"{}\" (id {id}).",
+        field("title").unwrap_or_default()
+    )];
+    for (key, label) in [
+        ("page_title", "Story"),
+        ("next_step", "Next step"),
+        ("branch", "Branch"),
+        ("pr_url", "PR"),
+        ("summary", "Summary so far"),
+    ] {
+        if let Some(value) = field(key) {
+            let value = if value.chars().count() > 800 {
+                format!("{}…", value.chars().take(800).collect::<String>())
+            } else {
+                value
+            };
+            parts.push(format!("{label}: {value}"));
+        }
+    }
+    parts.join(" ")
 }
 #[allow(
     clippy::unnecessary_wraps,

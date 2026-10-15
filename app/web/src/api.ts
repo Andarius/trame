@@ -64,6 +64,7 @@ export type AppStatus = {
   lastSync: { at: string; pulled: number; pushed: number } | null;
   dataDir?: string;
   desktop?: boolean;
+  debug?: boolean; // a debug (dev) build of the backend
   version?: string;
 };
 
@@ -311,7 +312,7 @@ export const completePath = (path: string) =>
     .then((r) => r.json() as Promise<{ dirs: string[] }>)
     .then((d) => d.dirs ?? [])
     .catch(() => [] as string[]);
-export type ResumeMode = "window" | "tab" | "existing";
+export type ResumeMode = "window" | "tab" | "existing" | "desktop";
 export type ResumeInfo = {
   ok: boolean;
   launched: boolean;
@@ -320,20 +321,27 @@ export type ResumeInfo = {
   cmd: string;
   repo?: string;
   mode?: ResumeMode;
-  reason?: "no-konsole" | "api-disabled";
-  agent?: "claude" | "codex";
+  reason?: "no-konsole" | "api-disabled" | "no-desktop-app";
+  url?: string; // desktop-app deep link (mode "desktop")
+  desktop?: Record<AgentKind, boolean>; // which agents' desktop apps are installed
+  agent?: AgentKind;
+  fresh?: boolean; // started the agent on the card's context instead of resuming
 };
+export type AgentKind = "claude" | "codex";
 // `local` carries {repoPath, agent} for a transcript found by scanning this machine's
 // own ~/.claude/~.codex (the Sessions view) — skips the sessions-table lookup entirely,
 // so it works whether or not the session has ever been tracked as a Trame card.
+// `open` picks the agent for a card: its own local transcript resumes, else it starts fresh.
 export const resumeSession = (
   id: string,
   mode?: ResumeMode,
   local?: { repoPath: string; agent: "claude" | "codex" },
+  open?: AgentKind,
 ) =>
   post("/api/resume", {
     id,
     mode,
+    open,
     repoPath: local?.repoPath,
     agent: local?.agent,
   }).then((r) => r.json() as Promise<ResumeInfo>);
