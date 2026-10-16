@@ -31,16 +31,4 @@ parts:
     override-build: |
       craftctl default
       dpkg-deb -x "${CRAFT_PROJECT_DIR}/dist/linux/trame.deb" "${CRAFT_PART_INSTALL}"
-    stage-packages:
-      - libwebkit2gtk-4.1-0
-      - libgtk-3-0t64
-      - libicu74
-      - liburing2
-      - libnuma1
-      - libxml2
-      - libldap2
-      - libpam0g
-      - libssl3t64
-      - libzstd1
-      - liblz4-1
-      - libpq5
+    # no stage-packages: classic and unpatched, so the binaries use the host's libraries like the deb

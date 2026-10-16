@@ -61,14 +61,14 @@ TRAME_LOCAL_DIR="$PWD/.scratch/migrated-app" TRAME_ISOLATED=1 TRAME_OFFLINE=1 \
   target/debug/trame-local migrate "$PWD/.scratch/stage0/pglite-copy"
 ```
 
-Packaged startup migrates an existing `pglite` subdirectory before starting the
-native server, then checks its source fingerprint on subsequent starts. A changed
-legacy source or interrupted private staging blocks startup for deliberate recovery.
-The bundled `trame-migrate-pglite` executable is a **one-shot legacy
-export helper** compiled from the proven PGlite exporter. It retains an embedded
-JavaScript/Wasm runtime because PGlite's Emscripten format cannot be opened by
-native PostgreSQL. No installed `deno` command is required. Normal app operation,
-CLI and MCP are Rust; this helper is used only during legacy conversion.
+Packaged startup migrates an existing `pglite` subdirectory when no PostgreSQL
+cluster exists yet; once migrated, the legacy source is ignored. Interrupted
+private staging blocks startup for deliberate recovery.
+Packages after v0.19.x no longer bundle the `trame-migrate-pglite` helper (a
+Deno-compiled PGlite exporter, ~140 MB): unmigrated `pglite/` data needs v0.19.x
+once. Debug builds fall back to `deno run scripts/rust-db-migrate.ts`, and
+`TRAME_MIGRATION_HELPER` points at a compiled helper. Normal app operation, CLI
+and MCP are Rust.
 
 ## Installed resources
 
@@ -89,7 +89,8 @@ bash scripts/rust-package.sh deb
 bash scripts/rust-package.sh appimage
 ```
 
-Packaging includes the native CLI, migration helper, PG18 resources and built
-frontend. Snapcraft extracts the Debian payload and stages its declared runtime
-libraries. Package verification and outstanding platform limits are recorded in
+Packaging includes the native CLI, PG18 resources (pruned to the server, `initdb`,
+`psql` and dump/recovery tools) and built frontend. Snapcraft extracts the Debian
+payload; like the deb, the classic snap uses the host's runtime libraries.
+Package verification and outstanding platform limits are recorded in
 `.scratch/full-packaging-report.html`.

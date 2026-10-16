@@ -27,8 +27,9 @@ and the native app starts with an empty cluster that the hub sync refills.
 
 On Linux, on first launch with legacy `pglite/` data and no PostgreSQL cluster, Trame checks that the
 source is stopped, copies it, exports the copy, imports it into a new PostgreSQL cluster,
-and verifies it before installing it. The bundled one-shot migration helper retains the
-PGlite JavaScript/Wasm runtime; the running backend uses Rust exclusively.
+and verifies it before installing it. Only v0.19.x packages bundle the migration helper (it
+retains the PGlite JavaScript/Wasm runtime); later packages refuse to start on unmigrated
+`pglite/` data, so run v0.19.x once first.
 
 Keep the original legacy data and the migration backup until the new installation has
 been verified. To roll back, stop Trame, preserve the new data root, and restore the saved
