@@ -81,7 +81,9 @@ fn main() -> anyhow::Result<()> {
         let window = window
             .on_navigation(move |url| {
                 url.scheme() == "tauri" || url.host_str() == Some("tauri.localhost") ||
-                    (url.scheme() == "http" && url.host_str() == Some("127.0.0.1") && url.port() == Some(nav_port.load(Ordering::SeqCst)))
+                    (url.scheme() == "http" && url.host_str() == Some("127.0.0.1") && url.port() == Some(nav_port.load(Ordering::SeqCst))) ||
+                    // demo-workspace prototype: let debug builds hop to the demo instance's port
+                    (cfg!(debug_assertions) && url.scheme() == "http" && url.host_str() == Some("127.0.0.1"))
             })
             .on_page_load(move |window, payload| {
                 if !matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) || started.swap(true, Ordering::SeqCst) { return; }
