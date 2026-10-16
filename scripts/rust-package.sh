@@ -25,6 +25,25 @@ if [[ "$mode" == cli ]]; then
     exit 0
 fi
 
+# Keep only what the app runs (postgres, initdb, psql) plus dump/recovery tools; no contrib, headers or docs.
+prune_pg() {
+    local root="$1" share="$2" file
+    for file in "$root"/bin/*; do
+        case "$(basename "$file")" in
+            postgres|initdb|psql|pg_dump|pg_restore|pg_resetwal|pg_controldata) ;;
+            *) rm -f "$file" ;;
+        esac
+    done
+    for file in "$root"/lib/*; do
+        case "$(basename "$file")" in
+            lib*.so*|lib*.dylib|plpgsql.*|dict_snowball.*|*_and_*) ;;
+            *) rm -rf "$file" ;;
+        esac
+    done
+    find "$share/extension" -mindepth 1 ! -name 'plpgsql*' -delete
+    rm -rf "$share/man" "$share/doc"
+}
+
 package="$PWD/.scratch/package"
 pg="$package/pg"
 mkdir -p "$package"
@@ -43,6 +62,8 @@ if [[ "$platform" == Darwin/arm64 ]]; then
     fi
     [[ "$($pg/usr/lib/postgresql/18/bin/postgres --version)" == 'postgres (PostgreSQL) 18.6'* ]]
     [[ -f "$pg/usr/lib/postgresql/18/share/postgres.bki" ]]
+    prune_pg "$pg/usr/lib/postgresql/18" "$pg/usr/lib/postgresql/18/share"
+    rm -rf "$pg/usr/lib/postgresql/18/include"
     triple=aarch64-apple-darwin
     [[ "$(rustc -vV | sed -n 's/^host: //p')" == "$triple" ]]
     if [[ "$mode" == prepare ]]; then
@@ -85,10 +106,11 @@ fi
 [[ "$($pg/usr/lib/postgresql/18/bin/postgres --version)" == 'postgres (PostgreSQL) 18.3'* ]]
 [[ -f "$pg/usr/share/postgresql/18/postgres.bki" ]]
 
+prune_pg "$pg/usr/lib/postgresql/18" "$pg/usr/share/postgresql/18"
+rm -rf "$pg/usr/share/doc" "$pg/usr/share/man" "$pg/usr/share/lintian" "$pg/etc"
+
 triple="$(rustc -vV | sed -n 's/^host: //p')"
 [[ "$triple" == x86_64-unknown-linux-gnu ]]
-command -v deno >/dev/null || { echo "Deno is required only to compile the legacy migration helper" >&2; exit 1; }
-deno compile -A --quiet --config app/deno.json --output "$package/trame-migrate-pglite-$triple" scripts/rust-db-migrate.ts
 if [[ "$mode" == prepare ]]; then
     cargo build -p trame-cli --locked
     cp target/debug/tramecli "$package/tramecli-$triple"
