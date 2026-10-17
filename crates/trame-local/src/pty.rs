@@ -58,6 +58,8 @@ pub struct Term {
     id: String,
     title: String,
     cwd: String,
+    /// The card this shell works for, so the card can list and show its terminals.
+    card: Option<String>,
     pid: Option<i32>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     // dropping the writer sends EOF to the shell, so it lives as long as the terminal
@@ -147,7 +149,7 @@ impl Term {
     }
 
     fn summary(&self) -> Value {
-        json!({"id":self.id,"title":self.title,"cwd":self.cwd,"exited":self.exited()})
+        json!({"id":self.id,"title":self.title,"cwd":self.cwd,"card":self.card,"exited":self.exited()})
     }
 }
 
@@ -169,7 +171,12 @@ pub fn get(id: &str) -> Option<Arc<Term>> {
 }
 
 /// Start the user's login shell in `cwd`, running `command` first and keeping the shell afterwards.
-pub fn spawn(cwd: &str, command: Option<&str>, title: &str) -> anyhow::Result<Arc<Term>> {
+pub fn spawn(
+    cwd: &str,
+    command: Option<&str>,
+    title: &str,
+    card: Option<String>,
+) -> anyhow::Result<Arc<Term>> {
     let pair = native_pty_system().openpty(PtySize {
         rows: 24,
         cols: 80,
@@ -207,6 +214,7 @@ pub fn spawn(cwd: &str, command: Option<&str>, title: &str) -> anyhow::Result<Ar
         id: uuid::Uuid::new_v4().to_string(),
         title: title.to_owned(),
         cwd: cwd.to_owned(),
+        card,
         pid: child.process_id().and_then(|p| i32::try_from(p).ok()),
         master: Mutex::new(pair.master),
         writer: Mutex::new(writer),
@@ -494,8 +502,15 @@ async fn create(root: &Path, body: &Value) -> Response {
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| cwd.clone())
         });
+    let card = match &body["card"] {
+        Value::Null => None,
+        card => match card.as_str().filter(|c| crate::routes::valid_uuid(c)) {
+            Some(card) => Some(card.to_owned()),
+            None => return json_response(400, json!({"error":"card must be a card id"})),
+        },
+    };
     let spawned = crate::blocking::spawn(move || {
-        spawn(&cwd, command.as_deref(), &title).map(|t| t.summary())
+        spawn(&cwd, command.as_deref(), &title, card).map(|t| t.summary())
     })
     .await;
     match spawned {

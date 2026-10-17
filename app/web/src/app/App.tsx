@@ -54,6 +54,7 @@ import { PluginsModal } from "../plugins/PluginsModal";
 import { PluginSettingsModal } from "../plugins/PluginSettingsModal";
 import { DatabaseView } from "../udb/DatabaseTable";
 import { buildClock } from "../build-info";
+import { TermCards } from "../term/TermCards";
 import { openTerminal, restoreTerminals, setDockMax, setDockOpen, useTermDock } from "../term/term-api";
 // d3-force/zoom only load when the graph tab opens
 const Graph = lazy(() => import("../sessions/Graph"));
@@ -133,6 +134,9 @@ export function App() {
   );
   // the side panel only; a full session is the card view (cardId)
   const [openId, setOpenId] = useState<string | null>(params.get("full") === "0" ? params.get("session") : null);
+  // the Terminals view's card: an id, "plain" for shells opened for no card, null to pick the first
+  const [termSel, setTermSel] = useState<string | null>(params.get("term"));
+  const [termDetails, setTermDetails] = useLocalStorage("trame:termDetails", true, BOOL_CODEC);
   const [cardId, setCardId] = useState<string | null>(
     params.get("card") ?? (params.get("full") !== "0" ? params.get("session") : null),
   );
@@ -282,6 +286,7 @@ export function App() {
     put("client", view === "client" ? clientId : null);
     put("plugin", view === "plugin" ? pluginId : null);
     put("card", view === "card" ? cardId : null);
+    put("term", view === "terminals" ? termSel : null);
     put("session", openId);
     put("full", openId ? (drawerFull ? "1" : "0") : null);
     put("group", group === "none" ? null : group);
@@ -294,7 +299,7 @@ export function App() {
       lastLoc.current = k;
       history.pushState(null, "", u);
     } else history.replaceState(null, "", u);
-  }, [view, pageId, dbId, clientId, pluginId, cardId, openId, drawerFull, group, sessionQuery, zen]);
+  }, [view, pageId, dbId, clientId, pluginId, cardId, termSel, openId, drawerFull, group, sessionQuery, zen]);
   // Browser Back from the full-screen ticket returns to the view behind it (the
   // board for a direct link) instead of leaving the app: the underlying view is
   // written as its own history entry beneath the ticket, and popstate closes it.
@@ -317,6 +322,7 @@ export function App() {
       if (v === "client") setClientId(q.get("client"));
       if (v === "plugin") setPluginId(q.get("plugin"));
       if (v === "card") setCardId(q.get("card"));
+      if (v === "terminals") setTermSel(q.get("term"));
       setOpenId(q.get("session"));
       setDrawerFull(false);
     };
@@ -535,6 +541,17 @@ export function App() {
   }, [currentPage, pages]);
 
   const isSessions = view === "board" || view === "list" || view === "graph";
+  const terminals = view === "terminals";
+  // Open in agent → Trame terminal lands here, on the card's shells
+  const openTerminals = (card: string) => {
+    setTermSel(card);
+    setOpenId(null);
+    setView("terminals");
+  };
+  const termCard = termSel === "plain"
+    ? null
+    : termSel ?? board?.sessions.find((s) => Object.values(termDock.terms).some((t) => t.card === s.id))?.id ?? null;
+  const termSession = termCard ? board?.sessions.find((s) => s.id === termCard) ?? null : null;
   const currentClient = view === "client"
     ? board?.projects.find((c) => c.id === clientId) ?? null
     : null;
@@ -601,7 +618,7 @@ export function App() {
             <ExpandIcon open />
           </button>
         )}
-        {!zen && (
+        {!zen && !terminals && (
         <header className="flex flex-col gap-2 border-b border-line px-6 py-3">
           <div className="flex items-center gap-3">
             <HeaderTitle
@@ -707,7 +724,13 @@ export function App() {
           )}
         </header>
         )}
-        <div className={`relative min-h-0 flex-1 flex-col ${termDock.open && termDock.max ? "hidden" : "flex"}`}>
+        {/* one fixed spot for the dock in every view, so entering Terminals never remounts a shell */}
+        <div className="flex min-h-0 flex-1">
+        {terminals && (
+          <TermCards board={board} selected={termCard} onSelect={(card) => setTermSel(card ?? "plain")} />
+        )}
+        <div className="flex min-w-0 flex-1 flex-col">
+        <div className={`relative min-h-0 flex-1 flex-col ${terminals || (termDock.open && termDock.max) ? "hidden" : "flex"}`}>
         {!board
           ? <EmptyState page>Loading…</EmptyState>
           : view === "board"
@@ -780,6 +803,7 @@ export function App() {
                 board={board}
                 embedded
                 onOpenPage={openPage}
+                onOpenTerminals={openTerminals}
                 // closing a card goes back to its story
                 onClose={() => (cardSession.page_id ? openPage(cardSession.page_id) : setView("board"))}
                 onSaved={refresh}
@@ -824,6 +848,8 @@ export function App() {
               )
               : <EmptyState page>Unknown plugin.</EmptyState>;
           })()
+          : view === "terminals"
+          ? null // the dock is the view (below)
           : view === "agents"
           ? <AgentSessions board={board} onOpenSession={(id) => openSession(id)} />
           : (
@@ -837,11 +863,40 @@ export function App() {
             />
           )}
         </div>
-        {(termDock.tabs.length > 0 || termDock.open) && (
+        {(terminals || termDock.tabs.length > 0 || termDock.open) && (
           <Suspense fallback={null}>
-            <TerminalDock board={board} />
+            <TerminalDock
+              board={board}
+              scope={terminals ? { card: termCard, cwd: termSession?.repo_path ?? null } : null}
+            />
           </Suspense>
         )}
+        </div>
+        {terminals && board && termSession && (termDetails
+          ? (
+            <Drawer
+              key={termSession.id}
+              session={termSession}
+              board={board}
+              docked
+              onOpenPage={openPage}
+              onOpenTerminals={openTerminals}
+              onClose={() => setTermDetails(false)}
+              onSaved={refresh}
+            />
+          )
+          : (
+            <button
+              type="button"
+              className="flex w-7 shrink-0 items-start justify-center border-l border-line bg-sidebar pt-3 text-xs text-ink-muted hover:text-ink"
+              title="show the card's details"
+              aria-label="Show card details"
+              onClick={() => setTermDetails(true)}
+            >
+              ‹
+            </button>
+          ))}
+        </div>
       </main>
       {isSessions && selected.size > 0 && (
         <SelectionBar count={selected.size} onDelete={deleteSelected} onClear={() => setSelected(new Set())} />
@@ -856,6 +911,7 @@ export function App() {
               board={board}
               onExpandedChange={(full) => full && openSession(session.id, true)}
               onOpenPage={openPage}
+              onOpenTerminals={openTerminals}
               onClose={() => setOpenId(null)}
               onSaved={refresh}
             />
