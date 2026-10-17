@@ -1,0 +1,327 @@
+import { useEffect, useRef, useState } from "react";
+import { AgentIcon } from "../agents/agents";
+import type { BoardData, Project } from "../api";
+import { projectFor } from "./project-for";
+import { EntityIcon, IconButton, MenuRow, Popover, useLocalStorage } from "../ui/ui";
+import { TerminalView } from "./TerminalView";
+import {
+  closeTab,
+  closeTerminal,
+  type DropSide,
+  focusPane,
+  leaves,
+  mergeTab,
+  MAX_PANES,
+  type PaneNode,
+  type TermTab,
+  openTerminal,
+  selectTab,
+  setDockMax,
+  setDockOpen,
+  splitTerminal,
+  type TermAgent,
+  termAgents,
+  useTermDock,
+} from "./term-api";
+
+function ProjectMark({ project }: { project: Project | null }) {
+  if (project?.icon) return <EntityIcon icon={project.icon} size={12} />;
+  if (project?.color) return <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: project.color }} />;
+  return null;
+}
+
+const HEIGHT_CODEC = { parse: (r: string) => Math.max(120, Number(r) || 300), stringify: String };
+
+// Bottom panel of embedded terminals: a tab strip that stays when collapsed, shells kept mounted.
+export default function TerminalDock({ board }: { board?: BoardData | null }) {
+  const { terms, tabs, active, open, max } = useTermDock();
+  const full = open && max;
+  const [height, setHeight] = useLocalStorage<number>("trame:termHeight", 300, HEIGHT_CODEC);
+  const drag = useRef<{ y: number; h: number } | null>(null);
+  const current = tabs.find((t) => t.id === active);
+  const canSplit = !!current && leaves(current.root).length < MAX_PANES;
+  const [menu, setMenu] = useState(false);
+  // the tab being dragged onto another tab's panes (Konsole-style layout)
+  const [dragTab, setDragTab] = useState<string | null>(null);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [agents, setAgents] = useState<TermAgent[] | null>(null);
+  // fetched with the dock: finding them runs the user's shell profile (~2s)
+  useEffect(() => {
+    void termAgents().then(setAgents);
+  }, [menu]);
+  const cwd = current ? terms[current.focus]?.cwd : null;
+  const launch = (agent?: TermAgent) => {
+    setMenu(false);
+    void openTerminal(agent ? { cwd, command: agent.command, title: agent.label } : { cwd });
+  };
+
+  const onDrag = (e: React.PointerEvent) => {
+    if (!drag.current) return;
+    const max = innerHeight - 120;
+    setHeight(Math.min(max, Math.max(120, drag.current.h + drag.current.y - e.clientY)));
+  };
+
+  return (
+    <section
+      className={`relative flex flex-col bg-panel ${full ? "min-h-0 flex-1" : "shrink-0 border-t border-line"}`}
+      style={open && !full ? { height } : undefined}
+      // ⌘D / ⌘⇧D split like iTerm and Ghostty, before the shell sees the key
+      onKeyDownCapture={(e) => {
+        if (e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "t") {
+          e.preventDefault();
+          e.stopPropagation();
+          launch();
+        } else if (e.metaKey && !e.altKey && !e.ctrlKey && e.key.toLowerCase() === "d") {
+          e.preventDefault();
+          e.stopPropagation();
+          void splitTerminal(e.shiftKey ? "col" : "row");
+        }
+      }}
+      // the shell owns the keyboard: Escape, ⌘P, ⌘Enter must not reach the app's window handlers
+      onKeyDown={(e) => {
+        if (!(e.ctrlKey && (e.key === "`" || e.key === "~"))) e.stopPropagation();
+      }}
+    >
+      {open && !full && (
+        <div
+          className="absolute -top-1 left-0 right-0 z-10 h-2 cursor-row-resize"
+          onPointerDown={(e) => {
+            e.currentTarget.setPointerCapture(e.pointerId);
+            drag.current = { y: e.clientY, h: height };
+          }}
+          onPointerMove={onDrag}
+          onPointerUp={() => (drag.current = null)}
+        />
+      )}
+      <div className="flex h-8 shrink-0 items-center gap-1 px-2 text-xs">
+        <span className="pr-1 text-[11px] font-medium text-ink-muted">Terminal</span>
+        <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto">
+          {tabs.map((t) => {
+            const panes = leaves(t.root);
+            const lead = terms[t.focus];
+            const project = projectFor(board, lead?.cwd);
+            const exited = panes.every((p) => terms[p]?.exited);
+            return (
+              <div
+                key={t.id}
+                draggable
+                title="drag onto a pane to split it with this tab"
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("application/x-trame-tab", t.id);
+                  e.dataTransfer.effectAllowed = "move";
+                  setDragTab(t.id);
+                }}
+                onDragEnd={() => {
+                  clearTimeout(hoverTimer.current);
+                  setDragTab(null);
+                }}
+                // hovering another tab while dragging shows it, to drop into its panes
+                onDragEnter={() => {
+                  clearTimeout(hoverTimer.current);
+                  if (dragTab && dragTab !== t.id) hoverTimer.current = setTimeout(() => selectTab(t.id), 400);
+                }}
+                onDragLeave={() => clearTimeout(hoverTimer.current)}
+                className={`group flex shrink-0 cursor-grab items-center gap-1 rounded-md px-2 py-0.5 ${
+                  t.id === active && open ? "bg-tab-active text-ink" : "text-ink-muted hover:text-ink-soft"
+                } ${dragTab === t.id ? "opacity-50" : ""}`}
+              >
+                <button
+                  type="button"
+                  title={project ? `${project.name} · ${lead?.cwd}` : lead?.cwd}
+                  className="flex items-center gap-1.5"
+                  onClick={() => (t.id === active && open ? setDockOpen(false) : selectTab(t.id))}
+                >
+                  <ProjectMark project={project} />
+                  <span className={exited ? "opacity-50" : ""}>{lead?.title}</span>
+                  {panes.length > 1 && <span className="pl-1 text-[10px] text-ink-faint">{panes.length}</span>}
+                </button>
+                <IconButton
+                  tone="close"
+                  aria-label={`Close ${lead?.title}`}
+                  title={panes.length > 1 ? "close the tab (ends its processes)" : "close (ends the process)"}
+                  className="opacity-0 group-hover:opacity-100"
+                  onClick={() => void closeTab(t.id)}
+                >
+                  ×
+                </IconButton>
+              </div>
+            );
+          })}
+        </div>
+        <div className="relative shrink-0">
+          <IconButton
+            tone="close"
+            className="px-1.5"
+            title="new terminal or agent"
+            aria-label="New terminal or agent"
+            aria-expanded={menu}
+            onClick={() => setMenu((m) => !m)}
+          >
+            +
+          </IconButton>
+          {menu && (
+            <Popover onClose={() => setMenu(false)} style={{ top: "auto", bottom: "100%", marginTop: 0, marginBottom: 4 }}>
+              <MenuRow onClick={() => launch()}>
+                <span className="w-3.5 text-center text-ink-muted">›_</span>
+                <span className="flex-1">New terminal</span>
+                <span className="text-[10px] text-ink-faint">⌘T</span>
+              </MenuRow>
+              {(agents === null || agents.length > 0) && <div className="my-1 h-px bg-line" />}
+              {agents === null && <div className="px-2 py-1.5 text-[11px] text-ink-muted">Looking for agents…</div>}
+              {agents?.map((a) => (
+                <MenuRow key={a.command} onClick={() => launch(a)} title={`runs \`${a.command}\` in ${cwd ?? "~"}`}>
+                  <AgentIcon a={{ harness: a.command, icon: null }} />
+                  <span className="flex-1">{a.label}</span>
+                </MenuRow>
+              ))}
+            </Popover>
+          )}
+        </div>
+        <div className="flex-1" />
+        {canSplit && (
+          <>
+            <IconButton tone="close" className="px-1" title="split right (⌘D)" aria-label="Split right" onClick={() => void splitTerminal("row")}>
+              ◫
+            </IconButton>
+            <IconButton tone="close" className="px-1" title="split down (⌘⇧D)" aria-label="Split down" onClick={() => void splitTerminal("col")}>
+              ⊟
+            </IconButton>
+          </>
+        )}
+        <IconButton
+          tone="close"
+          className="px-1"
+          title={full ? "restore (Ctrl+Shift+`)" : "fill the view (Ctrl+Shift+`)"}
+          aria-label={full ? "Restore terminal" : "Maximize terminal"}
+          onClick={() => setDockMax(!full)}
+        >
+          {full ? "⤡" : "⤢"}
+        </IconButton>
+        <IconButton
+          tone="close"
+          className="px-1"
+          title={open ? "hide (Ctrl+`)" : "show (Ctrl+`)"}
+          aria-label={open ? "Hide terminal" : "Show terminal"}
+          onClick={() => setDockOpen(!open)}
+        >
+          {open ? "▾" : "▴"}
+        </IconButton>
+      </div>
+      <div className={`relative min-h-0 flex-1 bg-block ${open ? "" : "hidden"}`}>
+        {tabs.map((t) => (
+          <div key={t.id} className={`absolute inset-0 ${open && t.id === active ? "" : "invisible"}`}>
+            <Panes
+              tab={t}
+              shown={open && t.id === active}
+              dragTab={dragTab && dragTab !== t.id ? dragTab : null}
+              onDropped={() => setDragTab(null)}
+            />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+type Rect = { x: number; y: number; w: number; h: number }; // percent of the tab body
+// splits halve their space; dividers sit on the split line
+function layout(n: PaneNode, r: Rect, panes: [string, Rect][], lines: Rect[]) {
+  if ("term" in n) {
+    panes.push([n.term, r]);
+    return;
+  }
+  if (n.dir === "row") {
+    const w = r.w / 2;
+    layout(n.a, { ...r, w }, panes, lines);
+    layout(n.b, { ...r, x: r.x + w, w }, panes, lines);
+    lines.push({ ...r, x: r.x + w, w: 0 });
+  } else {
+    const h = r.h / 2;
+    layout(n.a, { ...r, h }, panes, lines);
+    layout(n.b, { ...r, y: r.y + h, h }, panes, lines);
+    lines.push({ ...r, y: r.y + h, h: 0 });
+  }
+}
+const at = (r: Rect) => ({ left: `${r.x}%`, top: `${r.y}%`, width: `${r.w}%`, height: `${r.h}%` });
+
+// a tab's shells, absolutely placed so splitting never remounts (and replays) an existing one
+const SIDE_ZONE: Record<DropSide, React.CSSProperties> = {
+  left: { left: 0, top: 0, width: "50%", height: "100%" },
+  right: { right: 0, top: 0, width: "50%", height: "100%" },
+  top: { left: 0, top: 0, width: "100%", height: "50%" },
+  bottom: { left: 0, bottom: 0, width: "100%", height: "50%" },
+};
+// the edge of the pane nearest the pointer
+const sideAt = (e: React.DragEvent): DropSide => {
+  const r = e.currentTarget.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width;
+  const y = (e.clientY - r.top) / r.height;
+  const near: [DropSide, number][] = [["left", x], ["right", 1 - x], ["top", y], ["bottom", 1 - y]];
+  return near.reduce((a, b) => (b[1] < a[1] ? b : a))[0];
+};
+
+function Panes(
+  { tab, shown, dragTab, onDropped }: { tab: TermTab; shown: boolean; dragTab: string | null; onDropped: () => void },
+) {
+  const { terms } = useTermDock();
+  const [hover, setHover] = useState<{ id: string; side: DropSide } | null>(null);
+  const panes: [string, Rect][] = [];
+  const lines: Rect[] = [];
+  layout(tab.root, { x: 0, y: 0, w: 100, h: 100 }, panes, lines);
+  const split = panes.length > 1;
+  // stable order by id: React moves nothing when the tree changes shape
+  panes.sort(([a], [b]) => a.localeCompare(b));
+  return (
+    <>
+      {panes.map(([id, r]) => (
+        <div
+          key={id}
+          className={`group/pane absolute ${split && tab.focus !== id ? "opacity-80" : ""}`}
+          style={at(r)}
+        >
+          <TerminalView id={id} visible={shown} focused={tab.focus === id} onFocus={() => focusPane(tab.id, id)} />
+          {dragTab && shown && (
+            <div
+              className="absolute inset-0 z-20"
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                const side = sideAt(e);
+                if (hover?.id !== id || hover.side !== side) setHover({ id, side });
+              }}
+              onDragLeave={() => setHover(null)}
+              onDrop={(e) => {
+                e.preventDefault();
+                mergeTab(dragTab, tab.id, id, sideAt(e));
+                setHover(null);
+                onDropped();
+              }}
+            >
+              {hover?.id === id && (
+                <div className="pointer-events-none absolute border-2 border-copper bg-copper/15" style={SIDE_ZONE[hover.side]} />
+              )}
+            </div>
+          )}
+          {split && (
+            <IconButton
+              tone="close"
+              className="absolute right-1.5 top-1 z-10 px-1 text-xs opacity-0 group-hover/pane:opacity-100"
+              title="close this pane (ends its process)"
+              aria-label={`Close ${terms[id]?.title ?? "pane"}`}
+              onClick={() => void closeTerminal(id)}
+            >
+              ×
+            </IconButton>
+          )}
+        </div>
+      ))}
+      {lines.map((r, i) => (
+        <div
+          key={i}
+          className={`absolute bg-line ${r.w === 0 ? "w-px" : "h-px"}`}
+          style={r.w === 0 ? { left: `${r.x}%`, top: `${r.y}%`, height: `${r.h}%` } : { left: `${r.x}%`, top: `${r.y}%`, width: `${r.w}%` }}
+        />
+      ))}
+    </>
+  );
+}

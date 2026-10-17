@@ -25,6 +25,7 @@ export type Session = {
   last_touched: string;
   claude_id: string | null;
   agent: string | null;
+  origin?: string; // node that last wrote the card: where its agent ran
 };
 export type Story = {
   id: string;
@@ -312,13 +313,14 @@ export const completePath = (path: string) =>
     .then((r) => r.json() as Promise<{ dirs: string[] }>)
     .then((d) => d.dirs ?? [])
     .catch(() => [] as string[]);
-export type ResumeMode = "window" | "tab" | "existing" | "desktop";
+export type ResumeMode = "window" | "tab" | "existing" | "desktop" | "embedded";
 export type ResumeInfo = {
   ok: boolean;
   launched: boolean;
   local?: boolean;
   homeNode?: string | null;
   cmd: string;
+  command: string; // `cmd` without the leading cd, for a shell already in `repo`
   repo?: string;
   mode?: ResumeMode;
   reason?: "no-konsole" | "api-disabled" | "no-desktop-app";
@@ -355,6 +357,9 @@ export const probeResume = (
     repoPath: local?.repoPath,
     agent: local?.agent,
   }).then((r) => r.json() as Promise<ResumeInfo>);
+// The resume/open command without launching it, for an embedded terminal.
+export const resumeCommand = (id: string, open?: AgentKind) =>
+  post("/api/resume", { id, open, probe: true }).then((r) => r.json() as Promise<ResumeInfo>);
 // Bulk resume: konsole → one window with a tab per session; ghostty/others → one
 // window per session.
 export const resumeAllSessions = (

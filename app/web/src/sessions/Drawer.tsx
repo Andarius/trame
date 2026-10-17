@@ -13,6 +13,7 @@ import {
   probeResume,
   type ResumeInfo,
   type ResumeMode,
+  resumeCommand,
   resumeSession,
   saveSession,
   type Session,
@@ -29,8 +30,10 @@ import { PrChip, RepoLink } from "../md/chips";
 import { renderInline } from "../md/md-inline";
 import { SpecsEditor } from "../page/SpecsEditor";
 import { TagEditor } from "../ui/TagEditor";
+import { openTerminal, TermError } from "../term/term-api";
+import { type MissingFolder, MissingFolderDialog } from "../term/MissingFolderDialog";
 
-const RESUME_MODE_CODEC = enumCodec<ResumeMode>(["window", "tab", "existing", "desktop"]);
+const RESUME_MODE_CODEC = enumCodec<ResumeMode>(["window", "tab", "existing", "desktop", "embedded"]);
 const AGENT_CODEC = enumCodec<AgentKind>(["claude", "codex"]);
 const AGENTS: { agent: AgentKind; label: string }[] = [
   { agent: "claude", label: "Claude Code" },
@@ -39,17 +42,23 @@ const AGENTS: { agent: AgentKind; label: string }[] = [
 const agentLabel = (a?: AgentKind) => (a === "codex" ? "Codex" : "Claude");
 
 // How the Resume button places the session; the last pick is the default, persisted.
-const RESUME_MODES: { mode: ResumeMode; label: string; hint: string }[] = [
+const ALL_RESUME_MODES: { mode: ResumeMode; label: string; hint: string }[] = [
   { mode: "window", label: "New window", hint: "opens a fresh terminal window" },
   { mode: "tab", label: "New tab", hint: "adds a tab to your open terminal" },
   { mode: "existing", label: "Existing session", hint: "types into your focused konsole" },
   { mode: "desktop", label: "Desktop app", hint: "opens Claude Desktop or Codex Desktop" },
+  { mode: "embedded", label: "Trame terminal", hint: "opens in the terminal panel at the bottom" },
 ];
+// typing into an open session drives konsole over D-Bus: Linux only
+const RESUME_MODES = /Mac/.test(navigator.userAgent)
+  ? ALL_RESUME_MODES.filter((m) => m.mode !== "existing")
+  : ALL_RESUME_MODES;
 const RESUME_DONE: Record<ResumeMode, string> = {
   window: "terminal opened",
   tab: "tab opened",
   existing: "sent to terminal",
   desktop: "desktop app opened",
+  embedded: "opened below",
 };
 
 const rowLbl = "shrink-0 pt-[5px] text-[11px] text-ink-muted";
@@ -158,9 +167,12 @@ export function Drawer(
   const [flash, setFlash] = useState(false);
   const flashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [resumeMsg, setResumeMsg] = useState<string | null>(null);
+  const [missing, setMissing] = useState<MissingFolder | null>(null);
   const [resumeInfo, setResumeInfo] = useState<ResumeInfo | null>(null);
   const [resumeMenu, setResumeMenu] = useState(false);
-  const [resumeMode, setResumeMode] = useLocalStorage<ResumeMode>("trame:resumeMode", "window", RESUME_MODE_CODEC);
+  const [storedMode, setResumeMode] = useLocalStorage<ResumeMode>("trame:resumeMode", "window", RESUME_MODE_CODEC);
+  // a mode remembered from another platform falls back to a new window
+  const resumeMode = RESUME_MODES.some((m) => m.mode === storedMode) ? storedMode : "window";
   // the last picked agent drives the main button, like the open mode above
   const [openAgent, setOpenAgent] = useLocalStorage<AgentKind>("trame:openAgent", "claude", AGENT_CODEC);
   const resumeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -183,8 +195,23 @@ export function Drawer(
     setResumeMode(mode);
     if (open) setOpenAgent(open);
     let msg: string;
+    let failed = false; // an error stays up longer, to be read
     try {
-      const r = await resumeSession(session.id, mode, undefined, open);
+      const r = mode === "embedded" ? await resumeCommand(session.id, open) : await resumeSession(session.id, mode, undefined, open);
+      if (mode === "embedded" && r.ok && r.repo) {
+        const title = `${agentLabel(r.agent)} · ${session.title}`;
+        try {
+          await openTerminal({ cwd: r.repo, command: r.command, title });
+          r.launched = true;
+        } catch (e) {
+          // the card's folder isn't here: the dialog explains and offers the ways forward
+          if (!(e instanceof TermError && e.info.code === "missing_cwd")) throw e;
+          const { asked, repo, suggested } = e.info;
+          setMissing({ asked, repo, suggested, command: r.command, title, prUrl: session.pr_url, origin: session.origin ?? null });
+          setResumeMsg(null);
+          return;
+        }
+      }
       if (r.launched) {
         msg = r.fresh ? `${agentLabel(r.agent)} started — ${RESUME_DONE[mode]}` : RESUME_DONE[mode];
       } else {
@@ -200,12 +227,13 @@ export function Drawer(
           ? (r.homeNode ? `on ${r.homeNode} — copied` : "no transcript here — copied")
           : "command copied";
       }
-    } catch {
-      msg = "failed";
+    } catch (e) {
+      failed = true;
+      msg = e instanceof Error && e.message ? e.message : "failed";
     }
     setResumeMsg(msg);
     clearTimeout(resumeTimer.current);
-    resumeTimer.current = setTimeout(() => setResumeMsg(null), 2500);
+    resumeTimer.current = setTimeout(() => setResumeMsg(null), failed ? 6000 : 2500);
   };
 
   useEffect(() => {
@@ -475,6 +503,7 @@ export function Drawer(
             })}
           </Popover>
         )}
+        {missing && <MissingFolderDialog m={missing} onClose={() => setMissing(null)} />}
       </div>
     );
   })();

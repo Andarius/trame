@@ -1,4 +1,5 @@
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { BUILD_TIME } from "../build-info";
 import { DndContext, DragOverlay, type DragEndEvent, type DragStartEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { type AppStatus, getIdentity, type PageMeta, type PluginManifest, type UdbMeta, type UpdateInfo } from "../api";
 import { AgentIcon, Elapsed, useAgents } from "../agents/agents";
@@ -261,7 +262,11 @@ export function Sidebar(
       <div className="mb-3 flex items-center gap-2.5 px-2">
         <LogoMark debug={status?.debug} />
         <span className="text-[15px] font-semibold">Trame</span>
-        {status?.debug && <span className="text-[10px] font-medium uppercase text-[#5b8fd6]">debug</span>}
+        {status?.debug && (
+          <span className="text-[10px] font-medium uppercase text-[#5b8fd6]" title={`built ${BUILD_TIME.toLocaleString()}`}>
+            debug
+          </span>
+        )}
       </div>
       <div className={`px-2 pb-1.5 pt-0.5 ${SECTION_LABEL}`}>
         VIEWS
