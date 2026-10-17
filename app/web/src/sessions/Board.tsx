@@ -32,6 +32,7 @@ import {
 } from "../ui/ui";
 import { StaleChip } from "../md/chips";
 import { FRONTEND_PLUGINS } from "../plugins";
+import { ShellMarker } from "../term/ShellMarker";
 
 function TicketBody(
   { s, board, overlay = false, dense = false, showObjective = true, chipActive, onFilterStory }: {
@@ -58,7 +59,10 @@ function TicketBody(
       {shortAge(s.last_touched)}
     </span>
   );
-  const badges = FRONTEND_PLUGINS.map((p) => p.CardBadge && <p.CardBadge key={p.id} sessionId={s.id} />);
+  const badges = [
+    <ShellMarker key="shell" card={s.id} />,
+    ...FRONTEND_PLUGINS.map((p) => p.CardBadge && <p.CardBadge key={p.id} sessionId={s.id} />),
+  ];
   // one line: story icon, title, badges — the rest is a click away in the drawer
   if (dense) {
     const tags = sessionTagKeys(s, byId);
