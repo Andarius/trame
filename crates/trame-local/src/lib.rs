@@ -21,6 +21,7 @@ pub mod platform;
 pub mod plugin_host;
 pub mod plugins;
 pub mod proxy;
+pub mod pty;
 pub mod routes;
 pub mod runtime;
 pub mod sessions;
@@ -400,6 +401,10 @@ pub async fn run(
     };
     let notifier = tokio::spawn(notify::background(native.clone()));
     let updater = (config.desktop && !offline).then(|| tokio::spawn(update::background()));
+    // isolated (dev/test) runs must never touch the user's agent settings
+    if config.desktop && !isolated_mode() {
+        drop(tokio::task::spawn_blocking(startup::install_agent_hooks));
+    }
     let plugin_task = if oracle {
         None
     } else {
@@ -441,6 +446,8 @@ pub async fn run(
         }
     };
     let _ = shutdown_tx.send(());
+    // open terminals hold WebSocket connections the graceful shutdown would wait on
+    let _ = blocking::spawn(pty::shutdown).await;
     for task in [plugin_task, sql_source_task, host_task, updater]
         .into_iter()
         .flatten()

@@ -63,7 +63,7 @@ fn resume_probe_preserves_locality_agent_and_shell_quoting() {
         probe,
         (
             200,
-            json!({"local":true,"homeNode":null,"cmd":format!("cd '/scratch/a'\\''b' && codex resume {id}"),"repo":"/scratch/a'b","agent":"codex","fresh":false,"ok":true,"launched":false})
+            json!({"local":true,"homeNode":null,"cmd":format!("cd '/scratch/a'\\''b' && codex resume {id}"),"command":format!("codex resume {id}"),"repo":"/scratch/a'b","agent":"codex","fresh":false,"ok":true,"launched":false})
         )
     );
     let missing = platform::handle(&mut t.db, 0, "/api/resume", &json!({"id":id,"probe":true}))

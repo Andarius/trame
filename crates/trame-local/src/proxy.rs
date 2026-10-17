@@ -88,6 +88,9 @@ async fn forward(State(state): State<Proxy>, req: Request<Body>) -> Response {
         return (StatusCode::FORBIDDEN, "local request required").into_response();
     }
     if let Some(native) = &state.native {
+        if crate::pty::owns(req.uri().path()) {
+            return crate::pty::serve(&native.root, req).await;
+        }
         if crate::platform::owns(req.method().as_str(), req.uri().path()) {
             let response = crate::platform::serve(native.clone(), req).await;
             if response.status().is_success() {
