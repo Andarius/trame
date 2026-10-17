@@ -8,17 +8,19 @@ import { DUE_TONE_CLS, dueLabel, dueTone, focusBlock, useDue } from "../ui/due";
 import { recentRows } from "./recents";
 import { GearIcon, LogoMark } from "../ui/icons";
 import type { View } from "./view";
+import { useTermDock } from "../term/term-api";
 import { ArchivedFold, isSharedIn, type LiveCount, LiveCounts, LiveMarker, PageNode, RECENTS_KEY, RECENTS_LONG, RECENTS_SHORT, splitArchived, TreeCardsCtx, UnfiledZone } from "./sidebar-tree";
 import { SET_CODEC, useLocalStorage, EntityIcon, pageGlyph, SECTION_LABEL, timeAgo, PresenceDot } from "../ui/ui";
 
 const NAV: {
-  key: "sessions" | "agents" | "explore";
+  key: "sessions" | "agents" | "terminals" | "explore";
   glyph: string;
   label: string;
   view: View;
 }[] = [
   { key: "sessions", glyph: "▦", label: "Sessions", view: "board" },
   { key: "agents", glyph: "↻", label: "AI Sessions", view: "agents" },
+  { key: "terminals", glyph: "›_", label: "Terminals", view: "terminals" },
   { key: "explore", glyph: "✦", label: "Explore", view: "explore" },
 ];
 
@@ -97,6 +99,7 @@ export function Sidebar(
   },
 ) {
   const activeKey = view === "board" || view === "list" ? "sessions" : view;
+  const shells = Object.values(useTermDock().terms).filter((t) => !t.exited).length;
   const synced = status?.remote && status.lastSync;
   // my user id (null in dev / before hub login) — used to split off shared-in roots
   const [meId, setMeId] = useState<string | null>(null);
@@ -288,6 +291,11 @@ export function Sidebar(
               {item.glyph}
             </span>
             {item.label}
+            {item.key === "terminals" && shells > 0 && (
+              <span className="ml-auto rounded-full border border-chipline px-1.5 text-[10.5px] font-medium text-ink-soft">
+                {shells}
+              </span>
+            )}
             {item.key === "agents" && live.length > 0 && (
               <span className="ml-auto inline-flex items-center gap-1 rounded-full border border-chipline px-1.5 text-[10.5px] font-medium text-ink-soft">
                 <PresenceDot state="working" />

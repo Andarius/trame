@@ -12,12 +12,15 @@ export type MissingFolder = {
   title: string;
   prUrl: string | null;
   origin: string | null; // the machine that last tracked the card
+  card: string; // the card the shell is for
 };
 
 const shq = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
 
 // The card's folder isn't on this machine: say why, and offer the ways forward.
-export function MissingFolderDialog({ m, onClose }: { m: MissingFolder; onClose: () => void }) {
+export function MissingFolderDialog(
+  { m, onClose, onOpened }: { m: MissingFolder; onClose: () => void; onOpened?: () => void },
+) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const clone = cloneUrl(m.prUrl);
@@ -45,7 +48,8 @@ export function MissingFolderDialog({ m, onClose }: { m: MissingFolder; onClose:
       const picked = await pickFolder(m.repo);
       if ("cancelled" in picked) throw new Error("no folder chosen");
       if ("error" in picked) throw new Error(picked.error);
-      await openTerminal({ cwd: m.asked, command: m.command, title: m.title });
+      await openTerminal({ cwd: m.asked, command: m.command, title: m.title, card: m.card });
+      onOpened?.();
     });
 
   const option = "flex w-full flex-col items-start rounded-lg border border-line px-3 py-2 text-left hover:border-chipline hover:bg-panel disabled:opacity-50";
@@ -72,13 +76,15 @@ export function MissingFolderDialog({ m, onClose }: { m: MissingFolder; onClose:
           disabled={busy}
           className={option}
           onClick={() =>
-            run(() =>
-              openTerminal({
+            run(async () => {
+              await openTerminal({
                 cwd: null,
                 command: `mkdir -p ${shq(parent)} && git clone ${shq(clone.url)} ${shq(m.suggested)} && cd ${shq(m.suggested)} && ${m.command}`,
                 title: m.title,
-              })
-            )}
+                card: m.card,
+              });
+              onOpened?.();
+            })}
         >
           <span className="text-xs text-ink">Clone {clone.name}, then open</span>
           <span className="break-all text-[11px] text-ink-muted">
