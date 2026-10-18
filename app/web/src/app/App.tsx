@@ -53,8 +53,11 @@ import { hasTerm, queryValues, termOf, toggleTerm } from "../query";
 import { PluginsModal } from "../plugins/PluginsModal";
 import { PluginSettingsModal } from "../plugins/PluginSettingsModal";
 import { DatabaseView } from "../udb/DatabaseTable";
+import { buildClock } from "../build-info";
+import { openTerminal, restoreTerminals, setDockMax, setDockOpen, useTermDock } from "../term/term-api";
 // d3-force/zoom only load when the graph tab opens
 const Graph = lazy(() => import("../sessions/Graph"));
+const TerminalDock = lazy(() => import("../term/TerminalDock"));
 
 const post = (path: string, body: unknown) =>
   fetch(path, {
@@ -189,6 +192,21 @@ export function App() {
   const [shareFlash, setShareFlash] = useState<string | null>(null); // transient Export-button label
   const [sharePageId, setSharePageId] = useState<string | null>(null); // ShareModal target
   const shareFlashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const termDock = useTermDock();
+  useEffect(() => void restoreTerminals(), []);
+  // Ctrl+` toggles the terminal dock (opening a home shell when there is none), Ctrl+Shift+` maximizes it
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || (e.key !== "`" && e.key !== "~")) return;
+      e.preventDefault();
+      if (termDock.tabs.length === 0) void openTerminal({ cwd: null }).then(() => e.shiftKey && setDockMax(true));
+      else if (e.shiftKey) setDockMax(!(termDock.open && termDock.max));
+      else setDockOpen(!termDock.open);
+    };
+    addEventListener("keydown", h);
+    return () => removeEventListener("keydown", h);
+  }, [termDock]);
 
   // Ctrl/Cmd+P — Notion-style quick find (preventDefault beats the print dialog)
   useEffect(() => {
@@ -689,6 +707,7 @@ export function App() {
           )}
         </header>
         )}
+        <div className={`relative min-h-0 flex-1 flex-col ${termDock.open && termDock.max ? "hidden" : "flex"}`}>
         {!board
           ? <EmptyState page>Loading…</EmptyState>
           : view === "board"
@@ -817,6 +836,12 @@ export function App() {
               onBack={exploreReturn ? () => openPage(exploreReturn) : undefined}
             />
           )}
+        </div>
+        {(termDock.tabs.length > 0 || termDock.open) && (
+          <Suspense fallback={null}>
+            <TerminalDock board={board} />
+          </Suspense>
+        )}
       </main>
       {isSessions && selected.size > 0 && (
         <SelectionBar count={selected.size} onDelete={deleteSelected} onClear={() => setSelected(new Set())} />
@@ -890,8 +915,24 @@ export function App() {
       )}
       <UpdateBanner update={update} updateState={updateState} dismissed={updateDismissed} onUpdate={onUpdate} onDismiss={() => setUpdateDismissed(true)} />
       <ConfirmHost />
+      {status?.debug && <ReloadPill />}
     </div>
     </TreeCardsCtx.Provider>
     </AgentsContext.Provider>
+  );
+}
+
+// debug builds: a short pill on load, so a reload visibly picked up the new bundle
+function ReloadPill() {
+  const [shown, setShown] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setShown(false), 3000);
+    return () => clearTimeout(t);
+  }, []);
+  if (!shown) return null;
+  return (
+    <div className="pointer-events-none fixed top-3 left-1/2 z-50 -translate-x-1/2 rounded-full border border-[#5b8fd6]/40 bg-panel px-3 py-1 text-[11px] text-ink-soft shadow-lg">
+      <span className="text-[#5b8fd6]">●</span> Reloaded · built {buildClock()}
+    </div>
   );
 }

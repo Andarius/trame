@@ -112,6 +112,12 @@ fn native_assets_reports_and_report_files_preserve_http_contract() {
             .unwrap();
         assert_eq!(report.status(), 200);
         assert_eq!(report.headers()["content-type"], "text/html; charset=utf-8");
+        assert!(
+            report.headers()["content-security-policy"]
+                .to_str()
+                .unwrap()
+                .starts_with("sandbox allow-scripts")
+        );
         assert_eq!(report.text().await.unwrap(), "<h1>Raw report</h1>");
         assert_eq!(
             client
@@ -148,6 +154,7 @@ fn native_assets_reports_and_report_files_preserve_http_contract() {
             .await
             .unwrap();
         assert_eq!(file.status(), 200);
+        assert!(file.headers().contains_key("content-security-policy"));
         assert_eq!(file.text().await.unwrap(), "<p>fixture</p>");
         let editor = client
             .get(format!("{base}/report-file"))
@@ -156,6 +163,7 @@ fn native_assets_reports_and_report_files_preserve_http_contract() {
             .await
             .unwrap();
         assert_eq!(editor.status(), 200);
+        assert!(!editor.headers().contains_key("content-security-policy"));
         let body = editor.text().await.unwrap();
         assert!(body.contains("serializeAsJSON"));
         assert!(body.contains("id=\"scene\""));
