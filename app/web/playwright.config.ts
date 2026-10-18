@@ -3,9 +3,9 @@ import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 
-// E2E against the real Deno backend (PGlite included) in a fully isolated sandbox:
+// E2E against the native backend in a fully isolated sandbox:
 // data dir, port file, and settings all point at E2E_DIR so tests never touch real state.
-const E2E_DIR = process.env.TRAME_E2E_DIR ?? "/tmp/trame-e2e";
+const E2E_DIR = process.env.TRAME_E2E_DIR ?? resolve("../../.scratch/stage1/e2e-fixtures");
 
 // first free port at or above `start` — an unrelated service on the default port
 // must not kill the run (config code must be sync, hence the child probe)
@@ -50,7 +50,7 @@ export default defineConfig({
   ],
   globalSetup: "./e2e/global-setup.ts",
   timeout: 30_000,
-  expect: { timeout: 10_000 }, // CI runners cold-boot PGlite on the first request
+  expect: { timeout: 10_000 },
   retries: process.env.CI ? 1 : 0,
   workers: 1, // single backend instance — keep tests serialized
   use: {
@@ -59,13 +59,13 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   webServer: {
-    command: "deno run -A ../main.ts",
+    command: "../../target/debug/trame-local",
     port: PORT,
     reuseExistingServer: false,
-    timeout: 120_000, // first PGlite init downloads/extracts WASM
+    timeout: 120_000,
     env: {
       TRACKER_PORT: String(PORT),
-      TRACKER_DATA_DIR: `${E2E_DIR}/pglite`,
+      TRAME_LOCAL_DIR: process.env.TRAME_LOCAL_DIR ?? resolve("../../.scratch/stage1/e2e-db"),
       TRACKER_PORT_FILE: `${E2E_DIR}/port.json`,
       TRACKER_SETTINGS_FILE: `${E2E_DIR}/settings.json`,
       TRACKER_OUTBOX: `${E2E_DIR}/outbox.jsonl`,
@@ -74,8 +74,8 @@ export default defineConfig({
       TRACKER_ASSETS_DIR: `${E2E_DIR}/assets`,
       TRACKER_CLAUDE_DIR: `${E2E_DIR}/claude-projects`,
       TRACKER_CODEX_DIR: `${E2E_DIR}/codex-sessions`,
-      // deployments plugin never hits the network in e2e (path relative to the server cwd)
-      TRACKER_DEPLOYMENTS_FIXTURE: "../plugins/deployments/fixture.sample.json",
+      // deployments plugin never hits the network in e2e
+      TRACKER_DEPLOYMENTS_FIXTURE: resolve("../plugins/deployments/fixture.sample.json"),
     },
   },
 });

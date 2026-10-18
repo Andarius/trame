@@ -70,7 +70,8 @@ crates/trame-local/         axum API, supervised PostgreSQL, sync, plugins, file
 crates/trame-core/          shared markdown/merge/todo logic, also compiled to Wasm
 crates/trame-cli/           native tramecli writers, setup, watcher and MCP stdio server
 app/web/                   existing React app (Vite)
-app/, track/, mcp/          original TS regression oracles; not the production backend or CLI
+app/plugin-host.ts         TS plugin host, compiled and supervised by trame-local
+track/, mcp/               original TS CLI and MCP server; not the production CLI
 scripts/rust-db-migrate.ts  legacy PGlite export helper (dev/CI only; no longer bundled in packages)
 bin/quickstart.sh          curl-able laptop setup: clone + packaged app + agent integrations
 skills/trame-{track,page,watch}/ the agent skills (Claude Code, Codex & friends) — embedded in tramecli, installed by `tramecli setup`

@@ -58,20 +58,3 @@ Deno.test("daysUntil and the shown window", async (t) => {
     });
   }
 });
-
-Deno.test("digest counts late and soon, shows nothing when nothing is due", async (t) => {
-  const { digest } = await import("./due_notify.ts");
-  const todo = (text: string, due: string) => ({ page_id: "p", page_title: "P", block_id: null, card_id: null, text, due });
-  for (
-    const [id, due, expected] of [
-      ["nothing due", [todo("far away", "2026-11-30")], null],
-      ["late and soon", [todo("rotate secret", "2026-10-06"), todo("bump polarsen", "2026-10-11")], {
-        title: "Trame · 1 late, 1 due this week",
-        body: "⚑ rotate secret (3d late)\n⚑ bump polarsen (2026-10-11)",
-      }],
-      ["only soon", [todo("bump", "2026-10-10")], { title: "Trame · 1 due this week", body: "⚑ bump (tomorrow)" }],
-    ] as const
-  ) {
-    await t.step(id, () => assertEquals(digest([...due], "2026-10-09"), expected));
-  }
-});

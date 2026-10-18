@@ -139,26 +139,23 @@ test *args:
     deno test -A --config app/deno.json scripts/rust-db-export-test.ts
     deno test -A --config app/deno.json scripts/rust-db-migrate-test.ts
 
-# Retained TypeScript backend/core/CLI oracle checks in a clean scratch environment
+# Deno typecheck, tests and lint for the TS still shipped or shared (plugin host, core, CLI, MCP)
 [group('dev')]
-oracle-check: web-build
-    bash scripts/rust-oracle-check.sh
+deno-check:
+    bash scripts/deno-check.sh
 
-# Fresh synthetic migration and HTTP/CLI differential gate
+# Synthetic PGlite migration: source preservation and idempotency
 [group('dev')]
-differential: web-build
+migration:
     #!/usr/bin/env bash
     set -euo pipefail
     bash scripts/rust-package.sh prepare
-    bash scripts/rust-package.sh cli
     cargo build -p trame-local --locked
     dir="$(mktemp -d "$PWD/.scratch/cif.XXXXXX")"
     trap 'rm -rf -- "$dir"' EXIT
-    export TRAME_CI_FIXTURE_DIR="$dir" TRAME_DIFF_SOURCE="$dir/native"
-    export TRAME_ISOLATED=1 TRAME_OFFLINE=1 TRAME_DIFF_GROUPS=full
+    export TRAME_CI_FIXTURE_DIR="$dir" TRAME_ISOLATED=1 TRAME_OFFLINE=1
     export TRAME_PG_BIN="$PWD/.scratch/package/pg/usr/lib/postgresql/18/bin"
     deno run -A --config app/deno.json scripts/rust-ci-fixture.ts
-    deno run -A --config app/deno.json scripts/rust-pages-diff.ts
 
 # PostgreSQL ownership, crash recovery and startup failure gate
 [group('dev')]
@@ -214,7 +211,7 @@ check-hub:
 
 # Native and hub checks
 [group('dev')]
-ci: lint fmt-check-sql check test oracle-check check-hub e2e differential lifecycle
+ci: lint fmt-check-sql check test deno-check check-hub e2e migration lifecycle
 
 # Build the native CLI into dist/tramecli.
 [group('track')]

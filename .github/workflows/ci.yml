@@ -55,11 +55,9 @@ jobs:
 
       - uses: ./.github/actions/native-setup
 
-      # the differential replay's TypeScript oracle serves the embedded bundle
-      - name: Build frontend, embedded assets and backend
+      - name: Build frontend and backend
         run: |
           npm run build --prefix app/web
-          deno run --allow-read --allow-write=app/embed.ts scripts/gen-embed.ts
           cargo build -p trame-local --locked
 
       - name: Install Playwright Chromium (pinned to @playwright/test)
@@ -72,20 +70,16 @@ jobs:
           TRAME_WEB_DIR: ${{ github.workspace }}/app/web/dist
         run: bash scripts/rust-e2e.sh
 
-      - name: Synthetic migration, differential replay and lifecycle
+      - name: Synthetic migration and lifecycle
         env:
           TRAME_ISOLATED: "1"
           TRAME_OFFLINE: "1"
           TRAME_PG_BIN: ${{ github.workspace }}/.scratch/package/pg/usr/lib/postgresql/18/bin
-          TRAME_DIFF_GROUPS: full
         run: |
           set -euo pipefail
-          bash scripts/rust-package.sh cli
           dir="$(mktemp -d "$PWD/.scratch/cif.XXXXXX")"
           trap 'rm -rf -- "$dir"' EXIT
-          export TRAME_CI_FIXTURE_DIR="$dir" TRAME_DIFF_SOURCE="$dir/native"
-          deno run -A --config app/deno.json scripts/rust-ci-fixture.ts
-          deno run -A --config app/deno.json scripts/rust-pages-diff.ts
+          TRAME_CI_FIXTURE_DIR="$dir" deno run -A --config app/deno.json scripts/rust-ci-fixture.ts
           python3 scripts/rust-db-lifecycle-test.py
 
       - name: Upload Playwright artifacts
@@ -96,7 +90,7 @@ jobs:
           path: app/web/test-results
           if-no-files-found: ignore
 
-  oracle:
+  deno:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -113,7 +107,8 @@ jobs:
         with:
           deno-version: "2.9"
 
-      - name: Build frontend and retained oracle assets
+      # app/db.ts's schema fallback imports the generated embed.ts
+      - name: Build frontend and embedded assets
         run: |
           cd app/web && npm ci && cd ../..
           npm run build --prefix app/web
@@ -121,8 +116,8 @@ jobs:
           npm run build:link --prefix app/web
           deno run --allow-read --allow-write=hub/api/link-embed.ts scripts/gen-link-embed.ts
 
-      - name: Retained TypeScript backend, core and CLI oracle
-        run: bash scripts/rust-oracle-check.sh
+      - name: Plugin host, core, CLI and MCP typecheck + tests + lint
+        run: bash scripts/deno-check.sh
 
       - name: Legacy migration safety
         run: deno test -A --config app/deno.json scripts/rust-db-export-test.ts scripts/rust-db-migrate-test.ts
@@ -153,7 +148,7 @@ jobs:
   # the one required status check: green only when every job above passed or was skipped
   check:
     if: always()
-    needs: [rust, e2e, oracle, package, macos]
+    needs: [rust, e2e, deno, package, macos]
     runs-on: ubuntu-24.04
     steps:
       - name: All jobs passed

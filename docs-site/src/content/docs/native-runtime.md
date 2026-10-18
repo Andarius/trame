@@ -56,15 +56,13 @@ Debug builds always confine data, imports, settings and assets to this worktree'
 Do not point test commands at live data.
 
 `cargo test --workspace --locked` runs the Rust suites. `bash scripts/rust-e2e.sh` runs the
-unchanged Playwright suite through Rust. The retained TypeScript backend is a regression
-oracle used by the differential harness, not a production dependency.
+Playwright suite against the native backend.
 
 ## Verification and cutover
 
-`just oracle-check` retains the TypeScript backend, core and CLI typechecks, tests and lint in
-a clean scratch environment. `just differential` creates a synthetic PGlite source, migrates it
-twice, checks source preservation, and compares native HTTP/CLI behavior with the retained
-TypeScript oracle. `just lifecycle` checks owner refusal, parent death, WAL recovery and
+`just deno-check` typechecks, tests and lints the TypeScript still shipped or shared (plugin
+host, core, CLI, MCP) in a clean scratch environment. `just migration` creates a synthetic
+PGlite source, migrates it twice and checks source preservation. `just lifecycle` checks owner refusal, parent death, WAL recovery and
 failed startup without requiring a developer's copied database.
 
 The old `hack` recipe's Deno backend watcher is retired: `just web-dev` runs Vite against an

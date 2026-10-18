@@ -34,18 +34,9 @@ matching the existing local API.
 ```sh
 cargo test --workspace --locked
 bash scripts/rust-e2e.sh
-TRAME_DIFF_GROUPS=full deno run -A --config app/deno.json scripts/rust-pages-diff.ts
 python3 scripts/rust-db-lifecycle-test.py
 deno test -A --config app/deno.json scripts/rust-db-export-test.ts scripts/rust-db-migrate-test.ts
 ```
-
-The differential gate clones the stopped `.scratch/stage1/copied-app` database
-into two isolated roots. It compares response bytes, every public-table row,
-sequence state and PostgreSQL notifications after deterministic replay. Only the
-import listing's clone-specific directory prefixes are normalized. Test-only
-`TRAME_DIFF_TS_ORACLE=1` selects the original TypeScript handler in debug builds;
-release builds cannot select it. The original TS sources remain regression
-oracles and shared frontend/hub source, outside the production backend.
 
 ## Legacy data migration
 
