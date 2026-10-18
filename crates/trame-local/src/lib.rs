@@ -320,7 +320,10 @@ pub async fn run(
             }
             refuse_live_port(&published)?;
             // macOS leaves pglite/ untouched: a new cluster starts empty and the hub sync refills it
-            if cfg!(target_os = "linux") && legacy.join("PG_VERSION").is_file() {
+            if cfg!(target_os = "linux")
+                && legacy.join("PG_VERSION").is_file()
+                && !config.root.join("postgres").exists()
+            {
                 fs::create_dir_all(&config.root)?;
                 pg::migrate(&legacy, &config.root, &config.pg_bin)?;
             }
