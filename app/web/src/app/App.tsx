@@ -605,6 +605,9 @@ export function App() {
         update={update}
         updateState={updateState}
         onUpdate={onUpdate}
+        board={board}
+        onOpenSession={(id) => openSession(id)}
+        onOpenTerminals={openTerminals}
       />
       )}
       <main className="relative flex min-w-0 flex-1 flex-col">
