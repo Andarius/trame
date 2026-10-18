@@ -48,7 +48,7 @@ the hub. (Design + migration story: `docs-site/src/content/docs/hub-api.md`.)
 
 ## Requirements
 - **Linux x64** packaged app (deb, snap, or AppImage); no installed Deno runtime is required.
-- Source builds use **Rust**, Tauri/WebKitGTK build libraries, **Node/npm**, and **Deno 2.9+** only for hub tooling, tests and compiling the one-shot legacy migration helper.
+- Source builds use **Rust**, Tauri/WebKitGTK build libraries, **Node/npm**, and **Deno 2.9+** only for hub tooling and tests.
 - **Docker + openssl** on the hub machine (certs are generated there; the CA key never leaves it).
 - Laptops reach the hub's API over the **home LAN** (no Tailscale required;
   the hub binds to its LAN IP — install Tailscale there if you want sync away from home).
@@ -70,8 +70,9 @@ crates/trame-local/         axum API, supervised PostgreSQL, sync, plugins, file
 crates/trame-core/          shared markdown/merge/todo logic, also compiled to Wasm
 crates/trame-cli/           native tramecli writers, setup, watcher and MCP stdio server
 app/web/                   existing React app (Vite)
-app/, track/, mcp/          original TS regression oracles; not the production backend or CLI
-scripts/rust-db-migrate.ts  one-shot legacy PGlite export helper, compiled into packages
+app/plugin-host.ts         TS plugin host, compiled and supervised by trame-local
+track/, mcp/               original TS CLI and MCP server; not the production CLI
+scripts/rust-db-migrate.ts  legacy PGlite export helper (dev/CI only; no longer bundled in packages)
 bin/quickstart.sh          curl-able laptop setup: clone + packaged app + agent integrations
 skills/trame-{track,page,watch}/ the agent skills (Claude Code, Codex & friends) — embedded in tramecli, installed by `tramecli setup`
 ```
@@ -316,8 +317,8 @@ flowchart LR
 ## Packaging & releases
 
 Linux x64 packages contain the Tauri 2 desktop, native Rust backend and CLI, PostgreSQL 18,
-and React assets. The one-shot legacy PGlite migration helper is bundled separately; normal
-startup needs no Deno installation or TypeScript sidecar.
+and React assets; startup needs no Deno installation or TypeScript sidecar. Packages no longer
+bundle the legacy PGlite migration helper: run v0.19.x once to convert `pglite/` data, then upgrade.
 
 `just bundle` builds the deb, `snapcraft --destructive-mode` builds the classic snap, and
 `just bundle-appimage` builds the best-effort AppImage. Release publication requires a manual

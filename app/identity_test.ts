@@ -143,30 +143,6 @@ const { resolveClient } = await import("../core/sessions.ts");
   for (const o of owners) assertEquals(o.owner_id, SEED_USER);
 });
 
-// The "added a column to schema.sql but forgot app/sync.ts" failure mode is silent —
-// the column simply never syncs. Pin every declared sync column to a real one.
-Deno.test("every sync TABLES column exists in the schema", async () => {
-  const { db } = await import("./db.ts");
-  const { TABLES } = await import("./sync.ts");
-  const pg = await db();
-
-  for (const t of TABLES) {
-    const cols = new Set(
-      ((await pg.query(
-        `select column_name from information_schema.columns where table_name=$1`,
-        [t.name],
-      )).rows as { column_name: string }[]).map((r) => r.column_name),
-    );
-    assert(cols.size > 0, `table ${t.name} exists`);
-    for (const c of t.cols) {
-      assert(
-        cols.has(c),
-        `${t.name}.${c} declared in sync.ts but missing in schema`,
-      );
-    }
-  }
-});
-
 Deno.test("claimDevice stays unclaimed once a second user exists", async () => {
   const { db } = await import("./db.ts");
   const { claimDevice } = await import("./identity.ts");

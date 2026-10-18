@@ -1,7 +1,7 @@
 {
   "name": "trame",
   "version": "0.20.0",
-  "exports": "./main.ts",
+  "exports": "./plugin-host.ts",
   "unstable": [
     "raw-imports"
   ],

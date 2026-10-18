@@ -248,11 +248,6 @@ pub fn set_share(db: &mut Db, body: &Value) -> Result<Value> {
 pub fn create_link(db: &mut Db, page: &str) -> Result<(Value, String)> {
     let mut raw = [0u8; 32];
     std::fs::File::open("/dev/urandom")?.read_exact(&mut raw)?;
-    #[cfg(debug_assertions)]
-    if let Some(path) = std::env::var_os("TRAME_REPLAY_CLOCK") {
-        let path = crate::scratch_path(std::path::Path::new(&path))?;
-        raw.copy_from_slice(&Sha256::digest(std::fs::read(path)?));
-    }
     let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw);
     let hash = format!("{:x}", Sha256::digest(token.as_bytes()));
     let id=db.query("insert into page_links (page_id, token_hash, token, origin) values ($1,$2,$3,$4) returning id",&[json!(page),json!(hash),json!(token),json!(db.origin)])?[0]["id"].clone();

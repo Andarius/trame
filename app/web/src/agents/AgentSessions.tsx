@@ -6,10 +6,11 @@ import {
   scanClaudeImport,
 } from "../api";
 import { matchQuery, parseQuery } from "../query";
-import { clientColor, STRING_CODEC, useLocalStorage, Select, timeAgo } from "../ui/ui";
+import { clientColor, PresenceDot, STRING_CODEC, useLocalStorage, Select, timeAgo } from "../ui/ui";
+import { AgentIcon, Elapsed, type Live, useAgents } from "./agents";
 
 // This view never launches terminals (unlike Drawer.tsx's tracked-card resume) —
-// it just hands you the command to paste. Same shape as main.ts's resume cmd.
+// it just hands you the command to paste.
 const shq = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`; // POSIX single-quote
 const resumeCmd = (s: ClaudeSession) => {
   const cmd = s.source === "codex"
@@ -152,6 +153,42 @@ function SessionRow(
   );
 }
 
+// agents reporting presence right now — what the sidebar's "N live" pill counts
+function LiveAgents(
+  { live, onOpenSession }: { live: Live[]; onOpenSession: (id: string) => void },
+) {
+  return (
+    <div className="mb-4 flex flex-col gap-1 rounded-lg border border-line bg-well p-2.5">
+      <div className="px-1 pb-0.5 text-[12.5px] font-medium text-ink-soft">Live · {live.length}</div>
+      {live.map(({ a, state }) => (
+        <button
+          type="button"
+          key={a.session_id}
+          title="Open the tracked card"
+          onClick={() => onOpenSession(a.session_id)}
+          className={`flex items-center gap-2 rounded-md py-1 pl-2 pr-1 text-left text-[12px] hover:bg-active-row ${
+            state === "waiting" ? "bg-wait/[0.1]" : ""
+          }`}
+        >
+          <AgentIcon a={a} />
+          <PresenceDot state={state} />
+          <span className="min-w-0 flex-1 truncate text-ink-soft">{a.session_title}</span>
+          <span
+            className={`min-w-0 max-w-[40%] truncate text-[10.5px] ${
+              state === "waiting" ? "italic text-ink-soft" : "text-ink-muted"
+            }`}
+          >
+            {state === "waiting" ? `needs you: ${a.question ?? "waiting for input"}` : a.step ?? ""}
+          </span>
+          <span className="w-14 shrink-0 text-right font-mono text-[10.5px] tabular-nums text-ink-muted">
+            <Elapsed since={a.since} state={state} />
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ResumeButton(
   { session, onCopied }: { session: ClaudeSession; onCopied: () => void },
 ) {
@@ -198,6 +235,7 @@ export function AgentSessions(
     onOpenSession: (id: string) => void;
   },
 ) {
+  const { live } = useAgents();
   const [days, setDays] = useState(7);
   const [scan, setScan] = useState<ClaudeScan | null>(null);
   const [statusFilter, setStatusFilter] = useState<"active" | "paused" | "all">(
@@ -388,6 +426,7 @@ export function AgentSessions(
         </button>
       </div>
       <div className="flex-1 overflow-y-auto px-6 py-4">
+        {live.length > 0 && <LiveAgents live={live} onOpenSession={onOpenSession} />}
         {!scan && <p className="text-[12.5px] text-ink-muted">Scanning…</p>}
         {scan && !scan.groups.length && (
           <p className="py-8 text-center text-[12.5px] text-ink-muted">

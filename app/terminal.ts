@@ -1,6 +1,4 @@
-// Shared terminal launcher — used by /api/resume and by plugins that need an
-// interactive CLI flow (e.g. `gh auth login`). Extracted from main.ts so
-// plugins can import it without a module cycle.
+// Shared terminal launcher for plugins that need an interactive CLI flow (e.g. `gh auth login`).
 
 export const shq = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`; // POSIX single-quote
 
@@ -25,7 +23,6 @@ export function ghosttyRunning(): boolean {
 
 // Open a terminal at `cwd` running `command` (kept open afterwards). Best-effort:
 // returns false if no terminal could be launched, so the caller offers copy-to-clipboard.
-// `existing` is handled by resumeInExisting() in main.ts; this covers "window" and "tab".
 export function spawnTerminal(
   cwd: string,
   command: string,

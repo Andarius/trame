@@ -26,7 +26,11 @@ your own Ghostty look.
   (remembered per repo on this machine), clone the repo from the card's PR, or use the home folder.
 - **Presence hooks.** The desktop app installs the Claude Code and Codex presence hooks at launch, so
   agent pills appear without running `tramecli setup --presence`.
-- **Agents view:** copying a resume command highlights and unfolds its row for a minute.
+- **AI Sessions view:** a Live section lists the agents working now (state, step or question,
+  elapsed), and a row opens its card. Copying a resume command highlights and unfolds its row for a
+  minute.
+- **Smaller packages:** deb 51 → 15 MB, snap 189 → 16 MB, AppImage 138 → 94.5 MB, from a pruned
+  PostgreSQL, stripped binaries and dropping libraries the snap never loaded.
 
 ## Security
 
@@ -40,4 +44,6 @@ your own Ghostty look.
 ## Upgrading
 
 - No protocol or schema change: v0.14.0 to v0.20.0 nodes sync with each other.
+- The PGlite migration helper is no longer bundled. An install whose data is still in PGlite
+  refuses to start: run Trame v0.19.x once to migrate it, then upgrade.
 - The macOS app and the AppImage update themselves; deb and snap installs get a link to the release.

@@ -1,4 +1,4 @@
-// DESCRIPTION: Migrate a synthetic PGlite fixture for repeatable native differential checks.
+// DESCRIPTION: Migrate a synthetic PGlite fixture twice and check source preservation and idempotency.
 // USAGE: deno run -A --config app/deno.json scripts/rust-ci-fixture.ts
 import { PGlite } from "@electric-sql/pglite";
 import { fingerprint } from "./rust-db-migrate.ts";
@@ -75,5 +75,5 @@ if (await fingerprint(source) !== before) {
   throw new Error("migration changed the synthetic source");
 }
 console.log(
-  "PASS: synthetic migration, source preservation and idempotency; ready for differential replay",
+  "PASS: synthetic migration, source preservation and idempotency",
 );

@@ -46,3 +46,8 @@ use_self = "warn"
 
 # Diagnostics are not actionable: Enable once https://github.com/rust-lang/rust-clippy/issues/13774 is resolved.
 large_stack_arrays = "allow"
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1

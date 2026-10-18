@@ -27,8 +27,9 @@ and the native app starts with an empty cluster that the hub sync refills.
 
 On Linux, on first launch with legacy `pglite/` data and no PostgreSQL cluster, Trame checks that the
 source is stopped, copies it, exports the copy, imports it into a new PostgreSQL cluster,
-and verifies it before installing it. The bundled one-shot migration helper retains the
-PGlite JavaScript/Wasm runtime; the running backend uses Rust exclusively.
+and verifies it before installing it. Only v0.19.x packages bundle the migration helper (it
+retains the PGlite JavaScript/Wasm runtime); later packages refuse to start on unmigrated
+`pglite/` data, so run v0.19.x once first.
 
 Keep the original legacy data and the migration backup until the new installation has
 been verified. To roll back, stop Trame, preserve the new data root, and restore the saved
@@ -55,15 +56,13 @@ Debug builds always confine data, imports, settings and assets to this worktree'
 Do not point test commands at live data.
 
 `cargo test --workspace --locked` runs the Rust suites. `bash scripts/rust-e2e.sh` runs the
-unchanged Playwright suite through Rust. The retained TypeScript backend is a regression
-oracle used by the differential harness, not a production dependency.
+Playwright suite against the native backend.
 
 ## Verification and cutover
 
-`just oracle-check` retains the TypeScript backend, core and CLI typechecks, tests and lint in
-a clean scratch environment. `just differential` creates a synthetic PGlite source, migrates it
-twice, checks source preservation, and compares native HTTP/CLI behavior with the retained
-TypeScript oracle. `just lifecycle` checks owner refusal, parent death, WAL recovery and
+`just deno-check` typechecks, tests and lints the TypeScript still shipped or shared (plugin
+host, core, CLI, MCP) in a clean scratch environment. `just migration` creates a synthetic
+PGlite source, migrates it twice and checks source preservation. `just lifecycle` checks owner refusal, parent death, WAL recovery and
 failed startup without requiring a developer's copied database.
 
 The old `hack` recipe's Deno backend watcher is retired: `just web-dev` runs Vite against an
