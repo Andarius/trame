@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# DESCRIPTION: Run the unchanged Playwright suite through Rust with a fresh scratch database.
+# DESCRIPTION: Run the Playwright suite against the native backend with a fresh scratch database.
 # USAGE: bash scripts/rust-e2e.sh [Playwright arguments]
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -17,4 +17,4 @@ cleanup() {
 }
 trap cleanup EXIT
 cd app/web
-npx playwright test --config playwright.rust.config.ts "$@"
+npx playwright test "$@"

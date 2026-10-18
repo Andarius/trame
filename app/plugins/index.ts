@@ -1,4 +1,4 @@
-// Compile-time plugin registry. main.ts routes /api/plugins/* here and calls
+// Compile-time plugin registry. plugin-host.ts routes /api/plugins/* here and calls
 // startPlugins() once at boot; nothing else in the app knows about plugins.
 import type { Plugin, PluginContext, PluginManifest } from "./types.ts";
 import {

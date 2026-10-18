@@ -10,7 +10,7 @@ import { clientColor, PresenceDot, STRING_CODEC, useLocalStorage, Select, timeAg
 import { AgentIcon, Elapsed, type Live, useAgents } from "./agents";
 
 // This view never launches terminals (unlike Drawer.tsx's tracked-card resume) —
-// it just hands you the command to paste. Same shape as main.ts's resume cmd.
+// it just hands you the command to paste.
 const shq = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`; // POSIX single-quote
 const resumeCmd = (s: ClaudeSession) => {
   const cmd = s.source === "codex"
