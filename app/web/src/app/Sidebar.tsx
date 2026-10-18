@@ -4,7 +4,6 @@ import { DndContext, DragOverlay, type DragEndEvent, type DragStartEvent, Pointe
 import { type AppStatus, type BoardData, getIdentity, type PageMeta, type PluginManifest, type UdbMeta, type UpdateInfo } from "../api";
 import { useAgents } from "../agents/agents";
 import { WorkingNow } from "./WorkingNow";
-import { stripMarks } from "../../../../core/todo-marks.ts";
 import { DUE_TONE_CLS, dueLabel, dueTone, focusBlock, useDue } from "../ui/due";
 import { recentRows } from "./recents";
 import { GearIcon, LogoMark } from "../ui/icons";
