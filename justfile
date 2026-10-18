@@ -207,7 +207,7 @@ check:
 # The hub API is its own Deno project (own deps) — check/test/lint it too (matches CI)
 [group('dev')]
 check-hub:
-    cd hub/api && deno check main.ts && deno test -A && deno lint
+    cd hub/api && bun install --frozen-lockfile && bun run typecheck && bun test && deno lint --ignore=link-embed.ts
 
 # Native and hub checks
 [group('dev')]

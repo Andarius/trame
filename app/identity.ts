@@ -1,6 +1,6 @@
 // Device→user identity (hub-API migration, phase 1). A device (NODE_ID) maps to a
 // users row through the synced devices table; writes stamp the resolved user id.
-import { v5 } from "@std/uuid";
+import { uuidV5 } from "../core/uuid.ts";
 import type { Q } from "../core/ctx.ts";
 import { type Identity, identityOf } from "../core/identity.ts";
 import { APP_CTX } from "./ctx.ts";
@@ -12,7 +12,7 @@ import { getHubApi } from "./files.ts";
 // row instead of forking (same reason statusId derives from the status key).
 const DEVICE_NS = "9c2f6a71-4b8e-4d05-a3c9-2e61d7f0b842";
 export const deviceId = (nodeId: string) =>
-  v5.generate(DEVICE_NS, new TextEncoder().encode(nodeId));
+  uuidV5(DEVICE_NS, new TextEncoder().encode(nodeId));
 
 // Claim this NODE_ID for the sole user. With several users we can't guess — the
 // device stays unclaimed until the hub API's claim flow (phase 3). Runs inside db()

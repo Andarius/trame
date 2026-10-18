@@ -1,12 +1,12 @@
 ---
 title: 'Hub API & sync'
-description: 'The hub Deno/TS API server and the changeset sync protocol, with a guided walkthrough.'
+description: 'The hub TypeScript API server (Bun) and the changeset sync protocol, with a guided walkthrough.'
 ---
 
 import SyncFlow from '../../components/SyncFlow.astro';
 
 Trame is local-first: each laptop runs the native Trame app (Tauri + Rust) over a bundled PostgreSQL 18 and works
-fully offline. Laptops sync through a **Deno/TS API server on the hub**, which fronts the hub
+fully offline. Laptops sync through a **TypeScript API server on the hub** (Bun), which fronts the hub
 Postgres as the auth/authz boundary and the realtime fan-out — laptops never talk to the hub
 database directly. `LISTEN/NOTIFY` runs between Postgres and the API only.
 
@@ -30,13 +30,13 @@ design and the LWW envelope.
 
 | Concern | Use | Note |
 | :--- | :--- | :--- |
-| HTTP routing + middleware | **Hono** | Auth/logging/error chain in front of `/sync` + the WS upgrade; `Deno.serve(app.fetch)` |
-| WebSocket | **`Deno.upgradeWebSocket`** | Token re-checked at the handshake |
-| Postgres driver | **postgres.js** | Same driver as the client (`app/sync.ts`) |
-| Payload validation | **zod** | Mutation/response schemas in the shared, versioned `sync/protocol` package |
+| HTTP routing + middleware | **Hono** | Auth/logging/error chain in front of `/sync` + the WS upgrade; `Bun.serve({ fetch: app.fetch, websocket })` |
+| WebSocket | **Bun `server.upgrade`** | Token re-checked at the handshake |
+| Postgres driver | **postgres.js** | Pure TypeScript, runs on Bun unchanged |
+| Payload validation | **zod** | Mutation/response schemas in `hub/api/schema.ts` |
 | Auth | **opaque revocable session tokens** (argon2id passwords) | App-level authz; Postgres RLS only as defense-in-depth |
 | Change tracking | server `change_log` + monotonic revision cursor | Ordering authority; not client `updated_at` |
-| TLS / deploy | **Deno terminates TLS + WSS itself** (`Deno.serve({cert,key})`) | No reverse proxy on the LAN hub |
+| TLS / deploy | **Bun terminates TLS + WSS itself** (`Bun.serve({ tls })`) | No reverse proxy on the LAN hub |
 
 ## Sync protocol
 

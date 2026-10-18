@@ -1,7 +1,6 @@
-// Runtime validation of the wire types — imported by the SERVER only (zod stays out
-// of the app bundle). Structure + envelope checks; Postgres remains the type authority.
+// Runtime validation of the wire types. Structure + envelope checks; Postgres remains the type authority.
 import { z } from "zod";
-import { ENTITIES } from "./entities.ts";
+import { ENTITIES } from "../../protocol/entities.ts";
 
 const entityName = z.enum(
   ENTITIES.map((e) => e.name) as [string, ...string[]],
