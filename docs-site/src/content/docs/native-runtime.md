@@ -61,7 +61,7 @@ Playwright suite against the native backend.
 ## Verification and cutover
 
 `just deno-check` typechecks, tests and lints the TypeScript still shipped or shared (plugin
-host, core, CLI, MCP) in a clean scratch environment. `just migration` creates a synthetic
+host, core, protocol) in a clean scratch environment. `just migration` creates a synthetic
 PGlite source, migrates it twice and checks source preservation. `just lifecycle` checks owner refusal, parent death, WAL recovery and
 failed startup without requiring a developer's copied database.
 

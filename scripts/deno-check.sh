@@ -15,12 +15,12 @@ clean_env=(env -i PATH="$PATH" DENO_DIR="$cache" TMPDIR="$run_dir/tmp"
     TRAME_ISOLATED=1 TRAME_OFFLINE=1 TRAME_LOCAL_DIR="$run_dir/native"
     TRACKER_DATA_DIR="$run_dir/pglite" TRACKER_SETTINGS_FILE="$run_dir/settings.json"
     TRACKER_PORT_FILE="$run_dir/port.json" TRACKER_OUTBOX="$run_dir/outbox.jsonl"
-    TRACKER_TLS_DIR="$run_dir/certs" TRACKER_CLAUDE_MAP="$run_dir/claude-map.json"
+    TRACKER_TLS_DIR="$run_dir/certs"
     TRACKER_ASSETS_DIR="$run_dir/assets" TRACKER_CLAUDE_DIR="$run_dir/claude-projects"
     TRACKER_CODEX_DIR="$run_dir/codex-sessions" TRACKER_REPORT_PATHS="$run_dir/reports"
     TRACKER_PORT=0 TRACKER_NODE_ID=deno-check TRACKER_UPDATE_CHECK=0
 )
-"${clean_env[@]}" "$deno_bin" check plugin-host.ts ../track/track.ts ../track/page.ts ../track/comment.ts ../track/watch.ts ../track/cli.ts ../mcp/server.ts
+"${clean_env[@]}" "$deno_bin" check plugin-host.ts
 "${clean_env[@]}" "$deno_bin" test -A
 "$deno_bin" lint
-"$deno_bin" lint ../core ../track ../mcp
+"$deno_bin" lint ../core ../protocol

@@ -18,11 +18,6 @@ export const DATA_DIR = Deno.env.get("TRACKER_DATA_DIR") ?? `${dataHome}/trame/p
 export const OUTBOX = Deno.env.get("TRACKER_OUTBOX") ?? `${dataHome}/trame/outbox.jsonl`;
 // Written by the app on startup so the CLI/MCP can find the (possibly random) port.
 export const PORT_FILE = Deno.env.get("TRACKER_PORT_FILE") ?? `${dataHome}/trame/port.json`;
-// cwd → current Claude session map, written by the UserPromptSubmit hook (track/claude-hook.ts)
-// and read by track/track.ts to attach the Claude session UUID to tracked cards.
-export const CLAUDE_MAP = Deno.env.get("TRACKER_CLAUDE_MAP") ?? `${dataHome}/trame/claude-sessions.json`;
-// Persisted window geometry (desktop mode).
-export const WINDOW_FILE = `${dataHome}/trame/window.json`;
 // App settings editable from the UI (report folders, …). Device-local, not synced.
 // Overridable for test isolation.
 export const SETTINGS_FILE = Deno.env.get("TRACKER_SETTINGS_FILE") ??

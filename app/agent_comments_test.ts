@@ -1,9 +1,4 @@
-import {
-  assert,
-  assertEquals,
-  assertStringIncludes,
-  assertThrows,
-} from "@std/assert";
+import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
 import { agentIdentity, resolveCommentBlock } from "../core/agent-comments.ts";
 
 const CONTENT = [
@@ -69,14 +64,4 @@ Deno.test("unbranded models attribute themselves with a generated initial avatar
   assertStringIncludes(svg, ">Q</text>", "initial in the circle");
   // case-insensitive and independent of the seat
   assertEquals(agentIdentity("QWEN").name, "QWEN");
-});
-
-Deno.test("watcher can run codex/claude built in; other models need a command", async () => {
-  const { hasCommand } = await import("../track/watch.ts");
-  assert(hasCommand("codex"));
-  assert(hasCommand("claude"));
-  assertEquals(hasCommand("glm"), false, "no runner → not answerable");
-  Deno.env.set("TRAME_WATCH_GLM_CMD", "glm -p {}");
-  assert(hasCommand("glm"), "configured runner → answerable");
-  Deno.env.delete("TRAME_WATCH_GLM_CMD");
 });
