@@ -47,7 +47,7 @@ const ALL_RESUME_MODES: { mode: ResumeMode; label: string; hint: string }[] = [
   { mode: "tab", label: "New tab", hint: "adds a tab to your open terminal" },
   { mode: "existing", label: "Existing session", hint: "types into your focused konsole" },
   { mode: "desktop", label: "Desktop app", hint: "opens Claude Desktop or Codex Desktop" },
-  { mode: "embedded", label: "Trame terminal", hint: "opens in the terminal panel at the bottom" },
+  { mode: "embedded", label: "Trame terminal", hint: "opens in Trame's Terminals view" },
 ];
 // typing into an open session drives konsole over D-Bus: Linux only
 const RESUME_MODES = /Mac/.test(navigator.userAgent)
@@ -58,7 +58,7 @@ const RESUME_DONE: Record<ResumeMode, string> = {
   tab: "tab opened",
   existing: "sent to terminal",
   desktop: "desktop app opened",
-  embedded: "opened below",
+  embedded: "opened in Terminals",
 };
 
 const rowLbl = "shrink-0 pt-[5px] text-[11px] text-ink-muted";
@@ -80,7 +80,7 @@ const TOP_BTN =
   "shrink-0 whitespace-nowrap rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft";
 
 export function Drawer(
-  { session, board, onClose, onSaved, defaultExpanded, onExpandedChange, onOpenPage, embedded = false }: {
+  { session, board, onClose, onSaved, defaultExpanded, onExpandedChange, onOpenPage, embedded = false, docked = false, onOpenTerminals }: {
     session: Session;
     board: BoardData;
     onClose: () => void;
@@ -90,6 +90,9 @@ export function Drawer(
     embedded?: boolean;
     onExpandedChange?: (v: boolean) => void; // App mirrors it into the URL
     onOpenPage?: (id: string) => void; // navigate to a linked page
+    // the Terminals view's right column: narrower, no overlay shadow, specs inline
+    docked?: boolean;
+    onOpenTerminals?: (card: string) => void; // show the card's shells (Trame terminal mode)
   },
 ) {
   const { live, recent } = useAgents();
@@ -201,13 +204,14 @@ export function Drawer(
       if (mode === "embedded" && r.ok && r.repo) {
         const title = `${agentLabel(r.agent)} · ${session.title}`;
         try {
-          await openTerminal({ cwd: r.repo, command: r.command, title });
+          await openTerminal({ cwd: r.repo, command: r.command, title, card: session.id });
           r.launched = true;
+          onOpenTerminals?.(session.id);
         } catch (e) {
           // the card's folder isn't here: the dialog explains and offers the ways forward
           if (!(e instanceof TermError && e.info.code === "missing_cwd")) throw e;
           const { asked, repo, suggested } = e.info;
-          setMissing({ asked, repo, suggested, command: r.command, title, prUrl: session.pr_url, origin: session.origin ?? null });
+          setMissing({ asked, repo, suggested, command: r.command, title, prUrl: session.pr_url, origin: session.origin ?? null, card: session.id });
           setResumeMsg(null);
           return;
         }
@@ -503,7 +507,9 @@ export function Drawer(
             })}
           </Popover>
         )}
-        {missing && <MissingFolderDialog m={missing} onClose={() => setMissing(null)} />}
+        {missing && (
+          <MissingFolderDialog m={missing} onClose={() => setMissing(null)} onOpened={() => onOpenTerminals?.(session.id)} />
+        )}
       </div>
     );
   })();
@@ -950,7 +956,11 @@ export function Drawer(
   }
 
   return (
-    <div className="flex h-full w-[400px] shrink-0 flex-col overflow-y-auto border-l border-line bg-sidebar shadow-[-16px_0_40px_rgba(0,0,0,0.35)]">
+    <div
+      className={`flex h-full shrink-0 flex-col overflow-y-auto border-l border-line bg-sidebar ${
+        docked ? "w-[340px]" : "w-[400px] shadow-[-16px_0_40px_rgba(0,0,0,0.35)]"
+      }`}
+    >
       {headerBar}
 
       <div className="flex flex-col gap-3 px-4 pb-4">
@@ -969,6 +979,12 @@ export function Drawer(
         {/* Next step — the imperative line for future-you, as a banner below the fields */}
         <div className="mt-2">{nextBanner}</div>
       </div>
+
+      {docked && (
+        <div className="flex flex-col gap-2 border-t border-line-soft px-4 py-3.5">
+          <SpecsEditor sessionId={session.id} specsPageId={session.specs_page_id} onLinked={onSaved} onOpenPage={onOpenPage} />
+        </div>
+      )}
 
       <div className="flex flex-1 flex-col gap-2.5 border-t border-line-soft px-4 py-3.5">
         <span className={FIELD_LABEL}>ACTIVITY</span>

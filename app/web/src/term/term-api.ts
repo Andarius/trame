@@ -3,7 +3,9 @@
 import { useSyncExternalStore } from "react";
 import { readStore, writeStore } from "../ui/storage";
 
-export type TermInfo = { id: string; title: string; cwd: string; exited: boolean };
+// `card`: the card the shell was opened for (Open in agent, the Terminals view), else null
+export type TermInfo = { id: string; title: string; cwd: string; card: string | null; exited: boolean };
+export type TermOpts = { cwd?: string | null; command?: string; title?: string; card?: string | null };
 export const TOKEN_HEADER = "x-trame-term";
 // close codes from pty.rs
 export const CLOSE_AUTH = 4401;
@@ -96,6 +98,13 @@ const subscribe = (l: () => void) => {
 export const useTermDock = () => useSyncExternalStore(subscribe, () => state);
 
 export const leaves = (n: PaneNode): string[] => ("term" in n ? [n.term] : [...leaves(n.a), ...leaves(n.b)]);
+// the cards a tab works for (a merged tab can hold several); empty for plain shells
+export const tabCards = (t: TermTab, terms: Record<string, TermInfo>) => [
+  ...new Set(leaves(t.root).map((id) => terms[id]?.card).filter((c): c is string => !!c)),
+];
+// cards with a shell still running, for the board's live-shell marker
+export const liveCards = (terms: Record<string, TermInfo>) =>
+  new Set(Object.values(terms).filter((t) => t.card && !t.exited).map((t) => t.card!));
 // the tree without `term`, or null when nothing is left; keeps only shells `keep` accepts
 const prune = (n: PaneNode, keep: (term: string) => boolean): PaneNode | null => {
   if (typeof n !== "object" || n === null) return null; // saved layouts are untrusted input
@@ -141,14 +150,14 @@ export async function restoreTerminals() {
   set({ terms, tabs, active: tabs[0].id });
 }
 
-const create = async (opts: { cwd?: string | null; command?: string; title?: string }) => {
+const create = async (opts: TermOpts) => {
   const info = (await call("/api/term", { method: "POST", body: JSON.stringify(opts) })) as TermInfo;
   state = { ...state, terms: { ...state.terms, [info.id]: info } };
   return info;
 };
 
 // no cwd starts in the home directory; `command` runs first, then the shell stays
-export async function openTerminal(opts: { cwd?: string | null; command?: string; title?: string }) {
+export async function openTerminal(opts: TermOpts) {
   const info = await create(opts);
   const t = tab({ term: info.id });
   set({ tabs: [...state.tabs, t], active: t.id, open: true });
@@ -160,7 +169,8 @@ export async function splitTerminal(dir: SplitDir) {
   const current = activeTab();
   if (!current) return openTerminal({ cwd: null });
   if (leaves(current.root).length >= MAX_PANES) return;
-  const info = await create({ cwd: state.terms[current.focus]?.cwd ?? null });
+  const lead = state.terms[current.focus];
+  const info = await create({ cwd: lead?.cwd ?? null, card: lead?.card ?? null });
   const next = { ...current, root: splitAt(current.root, current.focus, dir, info.id), focus: info.id };
   set({ tabs: state.tabs.map((t) => (t.id === current.id ? next : t)), open: true });
 }

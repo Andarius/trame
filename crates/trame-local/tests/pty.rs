@@ -9,6 +9,8 @@ use tokio_tungstenite::{
 };
 use trame_local::pty::{CLOSE_AUTH, CLOSE_SUPERSEDED, TOKEN_HEADER};
 
+const CARD: &str = "12345678-1234-4234-8234-123456789abc";
+
 type Ws = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
 struct Frames {
@@ -99,6 +101,8 @@ fn terminal_requires_token_and_streams_reattaches_and_closes() {
                 json!({"cwd":"/nonexistent-trame-test/missing"}),
                 400,
             ),
+            (Some(token.as_str()), json!({"cwd":cwd,"card":"not-a-card"}), 400),
+            (Some(token.as_str()), json!({"cwd":cwd,"card":7}), 400),
         ] {
             let mut req = client.post(format!("{base}/api/term")).json(&body);
             if let Some(h) = header {
@@ -114,7 +118,7 @@ fn terminal_requires_token_and_streams_reattaches_and_closes() {
         let created: Value = client
             .post(format!("{base}/api/term"))
             .header(TOKEN_HEADER, &token)
-            .json(&json!({"cwd":cwd,"command":"printf 'ready-%s%s%s%s\\n' $((40+2)) \"$CLAUDECODE\" \"$ANTHROPIC_BASE_URL\" \"$CODEX_THREAD_ID\"","title":"probe"}))
+            .json(&json!({"cwd":cwd,"command":"printf 'ready-%s%s%s%s\\n' $((40+2)) \"$CLAUDECODE\" \"$ANTHROPIC_BASE_URL\" \"$CODEX_THREAD_ID\"","title":"probe","card":CARD}))
             .send()
             .await
             .unwrap()
@@ -123,6 +127,7 @@ fn terminal_requires_token_and_streams_reattaches_and_closes() {
             .unwrap();
         let id = created["id"].as_str().unwrap().to_owned();
         assert_eq!(created["title"], "probe");
+        assert_eq!(created["card"], CARD);
 
         let mut bad = attach(&base, &id, "wrong", None).await;
         assert_eq!(
@@ -155,6 +160,7 @@ fn terminal_requires_token_and_streams_reattaches_and_closes() {
             .unwrap();
         assert_eq!(listed[0]["id"], id.as_str());
         assert_eq!(listed[0]["exited"], false);
+        assert_eq!(listed[0]["card"], CARD);
 
         // a second attachment from offset 0 replays everything and supersedes the first
         let mut second = attach(&base, &id, &token, Some(0)).await;
