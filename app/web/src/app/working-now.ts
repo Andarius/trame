@@ -51,7 +51,7 @@ export function workingNow(
     ...[...shellsOf.entries()].filter(([, list]) => list.some((s) => !s.exited)).map(([id]) => id),
   ]);
   // a fork's ancestors join, even when nothing runs on them, so the fork has a home
-  for (const child of [...active]) {
+  for (const child of active) {
     for (let p = parentOf.get(child); p; p = parentOf.get(p)) active.add(p);
   }
 
