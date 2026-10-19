@@ -406,6 +406,7 @@ export default function Graph(
       focusRef.current = null;
       setTip(null);
     };
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- `shape` stands in for the graph and its extras
   }, [shape]); // `shape` stands in for `graph`
 
   const focus = openId ? `card:${openId}` : peek;

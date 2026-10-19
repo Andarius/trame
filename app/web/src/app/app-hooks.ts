@@ -35,6 +35,7 @@ export function useAgentsPoll(settingsEpoch: number) {
     const key = JSON.stringify([presenceCfg, live.map((l) => [l.a, l.state]), agents.map((a) => [a.session_id, a.name])]);
     if (liveRef.current?.key !== key) liveRef.current = { key, value: { live, recent: agents, cfg: presenceCfg } };
     return liveRef.current.value;
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- tick re-evaluates liveness on every poll
   }, [agents, presenceCfg, tick]);
   return agentsCtx;
 }

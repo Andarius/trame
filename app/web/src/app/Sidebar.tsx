@@ -178,6 +178,7 @@ export function Sidebar(
       }
       return next;
     });
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- useLocalStorage's setter is recreated each render
   }, [pageId, byId]);
 
   const onToggle = (id: string) =>

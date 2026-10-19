@@ -474,6 +474,7 @@ export function BlockEditor(
     if (!insertDrag) return;
     startInsert(insertDrag);
     onInsertStarted?.();
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- start once per requested insert
   }, [insertDrag]);
   // a comment target picked in place (💬 on a table row or a text selection),
   // awaiting its body
@@ -510,6 +511,7 @@ export function BlockEditor(
       document.removeEventListener("keydown", key);
       document.removeEventListener("mousedown", clear);
     };
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- remove is recreated each render; the handler re-binds with the selection
   }, [selectedId, blocks]);
   // swap an image block's asset via a file picker, keeping the alt text
   const replaceImage = (i: number) => {

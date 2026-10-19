@@ -40,6 +40,7 @@ export function ShareModal(
       clearTimeout(flashTimer.current);
       clearTimeout(copiedTimer.current);
     };
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- fetch once per opened page
   }, [pageId]);
 
   const flash = (msg: string) => {

@@ -87,6 +87,7 @@ export function Explore(
       }),
     ]).finally(() => setRefreshing(false));
   };
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- load once on mount
   useEffect(() => load(false, true), []);
 
   const toggleFilter = () => {
@@ -167,6 +168,7 @@ export function Explore(
         .catch(() => {});
     }
     onConsumed?.();
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- open the requested file once the list arrives
   }, [initialPath, files]);
 
   const needle = q.trim().toLowerCase();

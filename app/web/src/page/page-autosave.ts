@@ -76,6 +76,7 @@ export function usePageAutosave(
         updatePage(pageId, { content: blocksRef.current }).catch(() => {});
       }
     };
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- load once per page
   }, [pageId]);
 
   const changeBlocks = (next: Block[]) => {

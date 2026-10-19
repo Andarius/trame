@@ -29,13 +29,9 @@
     "react/no-danger": "error",
     "react/set-state-in-effect": "off",
     "react/refs": "off",
-    "react-hooks/exhaustive-deps": "off",
     "react/immutability": "off",
     "react/purity": "off",
-    "react/preserve-manual-memoization": "off",
-    "react/jsx-key": "off",
-    "react/use-memo": "off",
-    "react/static-components": "off"
+    "react/preserve-manual-memoization": "off"
   },
   "ignorePatterns": [
     "**/dist/**",

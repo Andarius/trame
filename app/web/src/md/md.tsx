@@ -65,6 +65,7 @@ function EditableItem(
       setVal(raw);
       setEditing(true);
     }
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- open on the prop flip only
   }, [startEditing]);
   const grow = (el: HTMLTextAreaElement) => {
     el.style.height = "auto";

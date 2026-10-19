@@ -59,6 +59,7 @@ export function FolderBlock(
         .then((r) => setThumbs((t) => ({ ...t, [e.path]: r.html ?? "" })))
         .catch(() => setThumbs((t) => ({ ...t, [e.path]: "" })));
     }
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- thumbs is filled by this effect
   }, [view, entries]);
 
   const commitPath = () => {
@@ -67,7 +68,7 @@ export function FolderBlock(
     if (v !== block.path) onPatch({ path: v });
   };
 
-  const Toggle = () => (
+  const toggle = (
     <div className="flex overflow-hidden rounded-md border border-chipline text-[10.5px]">
       {(["list", "gallery"] as const).map((v) => (
         <button
@@ -128,7 +129,7 @@ export function FolderBlock(
             {entries.length} fichier{entries.length > 1 ? "s" : ""}
           </span>
         )}
-        {entries && <Toggle />}
+        {entries && toggle}
         <IconButton onClick={onRemove}
           title="retirer le bloc"
           className="shrink-0 rounded px-1 text-ink-muted/60 hover:bg-panel hover:text-blocked"

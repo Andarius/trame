@@ -110,6 +110,7 @@ export function Drawer(
   };
   const [status, setStatus] = useState<Status>(session.status);
   const [client, setClient] = useState(board.projects.find((c) => c.id === session.client_id)?.name ?? "");
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- the board polls; resync only when the card's project changes
   useEffect(() => setClient(board.projects.find((c) => c.id === session.client_id)?.name ?? ""), [session.client_id]);
   const [pageId, setPageId] = useState(session.page_id ?? "");
   const [tags, setTags] = useState(session.tags ?? []);
@@ -134,11 +135,13 @@ export function Drawer(
   }, [defaultExpanded]);
   useEffect(() => {
     onExpandedChange?.(expanded);
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- notify on change only
   }, [expanded]);
   const nsRef = useRef<HTMLTextAreaElement>(null);
   const [nsEditing, setNsEditing] = useState(false);
   useEffect(() => {
     if (!nsEditing) setNextStep(session.next_step ?? "");
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- never clobber an edit in progress
   }, [session.next_step]);
   const growNs = () => {
     const el = nsRef.current;
@@ -339,12 +342,14 @@ export function Drawer(
   const active = cardAgents.length > 0;
   useEffect(() => {
     loadJournal();
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- reload when the card is touched
   }, [session.last_touched]);
   // linked sessions' entries don't touch this card, so poll the journal while an agent works on it
   useEffect(() => {
     if (!active) return;
     const t = setInterval(loadJournal, 5000);
     return () => clearInterval(t);
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- restart the poll only when activity flips
   }, [active, session.id]);
   const titleInput = (
     <div className="flex items-start gap-1.5">
@@ -617,6 +622,14 @@ export function Drawer(
       placeholder="none"
     />
   );
+  const repoField = session.repo_path
+    ? <RepoLink path={session.repo_path} prUrl={session.pr_url} />
+    : <span className="text-[12px] text-ink-faint">none</span>;
+  const touchedField = (
+    <span className="text-[12px] text-ink-muted" title={new Date(session.last_touched).toLocaleString()}>
+      {timeAgo(session.last_touched)}
+    </span>
+  );
   // past 2 PRs, collapse to the first one + a "+N more" toggle
   const prCollapsed = prLinks.length > 2 && !prOpen;
   const prField = (
@@ -867,16 +880,8 @@ export function Drawer(
                         ["Project", projectPill],
                         ["PR / MR", prField],
                         ["User story", storyPill],
-                        ["Repo", (
-                          session.repo_path
-                            ? <RepoLink path={session.repo_path} prUrl={session.pr_url} />
-                            : <span className="text-[12px] text-ink-faint">none</span>
-                        )],
-                        ["Last touched", (
-                          <span className="text-[12px] text-ink-muted" title={new Date(session.last_touched).toLocaleString()}>
-                            {timeAgo(session.last_touched)}
-                          </span>
-                        )],
+                        ["Repo", repoField],
+                        ["Last touched", touchedField],
                         ["Tags", sessionTags],
                       ] as [string, ReactNode][]).map(([label, value]) => (
                         <FieldRow key={label} label={label}>{value}</FieldRow>

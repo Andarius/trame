@@ -90,6 +90,7 @@ export function useFinishedCards(open: Session[]): Set<string> {
     return () => {
       alive = false;
     };
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- keyed by the cards' ids and PR urls
   }, [key]);
   return done;
 }

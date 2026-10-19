@@ -277,6 +277,7 @@ export function AgentSessions(
     if (scan && sourceFilter !== "all" && !sources.includes(sourceFilter)) {
       setSourceFilter("all");
     }
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- reset only when a new scan lands
   }, [scan]);
 
   // board query syntax: bare words hit repo/title/branch, `-word` hides, repo:/title:/branch: scope

@@ -96,6 +96,7 @@ export function useBlockDrag(
     };
     document.addEventListener("mouseup", up);
     return () => document.removeEventListener("mouseup", up);
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- the handler re-binds with the drag state
   }, [dragIdx, overIdx, blocks, inserting]);
   useEffect(() => {
     if (tabDrag === null) return;

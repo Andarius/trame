@@ -872,6 +872,7 @@ export function useLocalStorage<T>(key: string, init: T, codec: Codec<T>) {
   }
   useEffect(() => {
     writeStore(cur.key, codec.stringify(cur.value));
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- codec is a fixed constant per call site
   }, [cur.key, cur.value]);
   const setValue = useCallback(
     (v: T | ((prev: T) => T)) =>
