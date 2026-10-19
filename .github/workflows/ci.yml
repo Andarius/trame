@@ -106,11 +106,6 @@ jobs:
         with:
           bun-version: "1.3.11"
 
-      # deno stays for lint only until the oxlint swap
-      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
-        with:
-          deno-version: "2.9"
-
       - name: Build link viewer assets for the hub
         run: |
           cd app/web && npm ci && cd ../..
@@ -123,8 +118,8 @@ jobs:
       - name: Legacy migration safety
         run: bun test ./scripts
 
-      - name: Hub API typecheck + tests + lint
-        run: cd hub/api && bun install --frozen-lockfile && bun run typecheck && bun test && deno lint --ignore=link-embed.ts
+      - name: Hub API typecheck + tests
+        run: cd hub/api && bun install --frozen-lockfile && bun run typecheck && bun test
 
       - name: Lint SQL schema (sqlfluff, pinned)
         run: pipx run sqlfluff==4.2.2 lint db/schema.sql

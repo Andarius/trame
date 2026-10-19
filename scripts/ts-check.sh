@@ -20,4 +20,4 @@ for test_file in app/*_test.ts; do
     "${clean_env[@]}" bun test "./$test_file"
 done
 "${clean_env[@]}" bun test ./app/plugins ./app/web/src ./scripts
-deno lint app core protocol
+bun run --silent lint

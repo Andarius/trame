@@ -88,7 +88,11 @@ function Connections() {
                 disabled={!dsn.trim()}
                 onClick={async () => {
                   const ok = await save([...conns.map(keep), { name: name.trim() || "Connection", dsn: dsn.trim() }]);
-                  if (ok) (setAdding(false), setName(""), setDsn(""));
+                  if (ok) {
+                    setAdding(false);
+                    setName("");
+                    setDsn("");
+                  }
                 }}
               >
                 Save

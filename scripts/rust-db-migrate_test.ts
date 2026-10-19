@@ -3,7 +3,10 @@ import { mkdtemp, open as openFile, rm, symlink, writeFile } from "node:fs/promi
 import { join } from "node:path";
 import { fingerprint, requireStopped } from "./rust-db-migrate.ts";
 
-test("migration refuses open sources and symlink entries without modifying source", async () => {
+// requireStopped scans /proc, which only Linux has
+const linuxOnly = test.skipIf(process.platform !== "linux");
+
+linuxOnly("migration refuses open sources and symlink entries without modifying source", async () => {
   const scratch = new URL("../.scratch/", import.meta.url).pathname;
   const root = await mkdtemp(join(scratch, "migration-safety-"));
   const path = `${root}/PG_VERSION`;
@@ -60,7 +63,7 @@ test("migration refuses open sources and symlink entries without modifying sourc
   }
 });
 
-test("stopped fake postmaster PID and the migrator's own source override are safe", async () => {
+linuxOnly("stopped fake postmaster PID and the migrator's own source override are safe", async () => {
   const root = await mkdtemp(join(new URL("../.scratch/", import.meta.url).pathname, "migration-stopped-"));
   const before = process.env.TRACKER_DATA_DIR;
   try {
