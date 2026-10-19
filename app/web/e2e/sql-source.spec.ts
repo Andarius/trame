@@ -63,6 +63,20 @@ test("a re-run writes nothing and a user column stays editable", async ({ page, 
   }).toEqual(["mine"]);
 });
 
+test("the sources panel shows the source type, edits on click and asks before deleting", async ({ page }) => {
+  await page.goto("/?plugin=sql-source");
+  const row = page.locator("main div.cursor-pointer").first();
+  await expect(row.getByRole("img", { name: "PostgreSQL" })).toBeVisible();
+  await row.click();
+  await expect(page.getByRole("heading", { name: "Fill from a SQL query" })).toBeVisible();
+  await expect(page.getByLabel("Query")).toHaveValue(/Alpha/);
+  await page.getByTitle("close (esc)").click();
+
+  await row.getByRole("button", { name: "Delete" }).click();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(row).toBeVisible();
+});
+
 test("disconnect keeps the rows and frees the columns", async ({ page }) => {
   await openDb(page);
   await page.getByRole("button", { name: "Source menu" }).click();
