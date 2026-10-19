@@ -10,7 +10,7 @@ test("board renders the empty shell", async ({ page }) => {
   await expect(page.getByText("Welcome to Trame")).toBeVisible();
   await expect(page.getByRole("button", { name: /Import your Claude Code/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /Explore a demo workspace/ })).toHaveCount(0);
-  await page.getByTitle("show the empty board").click();
+  await page.getByRole("button", { name: "Skip", exact: true }).click();
   for (const col of ["Active", "Paused", "Blocked", "Done"]) {
     await expect(page.getByText(col, { exact: true })).toBeVisible();
   }

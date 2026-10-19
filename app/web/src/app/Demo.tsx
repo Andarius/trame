@@ -88,15 +88,7 @@ export function WelcomeCard({ onImport, onDismiss }: { onImport: () => void; onD
   };
   return (
     <div className="flex flex-1 items-center justify-center p-6">
-      <div className="relative w-full max-w-md rounded-xl border border-line bg-panel p-7">
-        <button
-          type="button"
-          onClick={onDismiss}
-          title="show the empty board"
-          className="absolute right-3 top-3 rounded px-1.5 text-ink-muted hover:text-ink"
-        >
-          ×
-        </button>
+      <div className="w-full max-w-md rounded-xl border border-line bg-panel p-7">
         <h2 className="text-lg font-semibold text-ink">Welcome to Trame</h2>
         <p className="mt-2 text-sm text-ink-muted">
           Your board is empty. Sessions show up here as soon as a coding agent starts tracking its work.
@@ -120,6 +112,14 @@ export function WelcomeCard({ onImport, onDismiss }: { onImport: () => void; onD
             className="rounded-md border border-line px-3 py-2 text-sm text-ink-soft hover:text-ink"
           >
             Import your Claude Code or Codex sessions
+          </button>
+          <button
+            type="button"
+            onClick={onDismiss}
+            title="show the empty board"
+            className="self-center rounded-md px-3 py-1.5 text-sm text-ink-muted hover:text-ink"
+          >
+            Skip
           </button>
         </div>
         {canDemo && (
