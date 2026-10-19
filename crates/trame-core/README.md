@@ -8,4 +8,3 @@ The native `rust-core` binary reads one JSON request per line from stdin or a fi
 
 Native builds reproduce default Deno object semantics, including its disabled `Object.prototype.__proto__` getter returning undefined. Wasm builds reproduce browser object semantics, where that getter returns the prototype. This affects synthetic `__proto__` marks; every original fixture and copied page is checked independently on both targets.
 
-Run native fixtures with `deno test -A --config app/deno.json scripts/rust-core-diff.ts`. Generate web bindings using the matching `wasm-bindgen` CLI, then run the same full fixture corpus with `deno test -A --unsafe-proto --config app/deno.json scripts/rust-core-diff.ts -- --wasm`. The Wasm run executes web bindings in Deno with browser prototype semantics; it does not verify Chromium or WebKit integration.

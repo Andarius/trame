@@ -1,4 +1,4 @@
-import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
+import { expect, test } from "bun:test";
 import { agentIdentity, resolveCommentBlock } from "../core/agent-comments.ts";
 
 const CONTENT = [
@@ -8,35 +8,24 @@ const CONTENT = [
   { type: "folder", path: "/tmp", id: "not-commentable" },
 ];
 
-Deno.test("comment targets resolve by id, exact quote, then unique substring", () => {
-  assertEquals(resolveCommentBlock(CONTENT, { block_id: "b1" }), {
+test("comment targets resolve by id, exact quote, then unique substring", () => {
+  expect(resolveCommentBlock(CONTENT, { block_id: "b1" })).toStrictEqual({
     id: "b1",
     text: "Plan",
   });
-  assertEquals(
-    resolveCommentBlock(CONTENT, { block_text: "Ship the first release" }),
-    { id: "b3", text: "Ship the first release" },
-  );
-  assertEquals(resolveCommentBlock(CONTENT, { block_text: "safely" }), {
+  expect(resolveCommentBlock(CONTENT, { block_text: "Ship the first release" })).toStrictEqual({ id: "b3", text: "Ship the first release" });
+  expect(resolveCommentBlock(CONTENT, { block_text: "safely" })).toStrictEqual({
     id: "b2",
     text: "Ship the first release safely.",
   });
 });
 
-Deno.test("ambiguous or missing comment targets fail instead of guessing", () => {
-  assertThrows(
-    () => resolveCommentBlock(CONTENT, { block_text: "Ship" }),
-    Error,
-    "matches multiple blocks",
-  );
-  assertThrows(
-    () => resolveCommentBlock(CONTENT, {}),
-    Error,
-    "block_id or unique block_text is required",
-  );
+test("ambiguous or missing comment targets fail instead of guessing", () => {
+  expect(() => resolveCommentBlock(CONTENT, { block_text: "Ship" })).toThrow("matches multiple blocks");
+  expect(() => resolveCommentBlock(CONTENT, {})).toThrow("block_id or unique block_text is required");
 });
 
-Deno.test("agent identities contain self-contained branded SVG avatars", () => {
+test("agent identities contain self-contained branded SVG avatars", () => {
   for (
     const [agent, title, name] of [
       ["codex", "OpenAI", "Codex"],
@@ -45,23 +34,23 @@ Deno.test("agent identities contain self-contained branded SVG avatars", () => {
     ] as const
   ) {
     const identity = agentIdentity(agent);
-    assertEquals(identity.name, name);
+    expect(identity.name).toStrictEqual(name);
     const prefix = "data:image/svg+xml;base64,";
-    assertStringIncludes(identity.avatar, prefix);
+    expect(identity.avatar).toContain(prefix);
     const svg = atob(identity.avatar.slice(prefix.length));
-    assertStringIncludes(svg, `<title>${title}</title>`);
-    assertStringIncludes(svg, "<circle");
-    assertStringIncludes(svg, 'fill="white"');
+    expect(svg).toContain(`<title>${title}</title>`);
+    expect(svg).toContain("<circle");
+    expect(svg).toContain('fill="white"');
   }
 });
 
-Deno.test("unbranded models attribute themselves with a generated initial avatar", () => {
+test("unbranded models attribute themselves with a generated initial avatar", () => {
   const qwen = agentIdentity("qwen");
-  assertEquals(qwen.name, "QWEN", "short ids upper-case");
-  assertEquals(agentIdentity("gemini").name, "Gemini", "longer ids title-case");
+  expect(qwen.name, "short ids upper-case").toStrictEqual("QWEN");
+  expect(agentIdentity("gemini").name, "longer ids title-case").toStrictEqual("Gemini");
   const svg = atob(qwen.avatar.slice("data:image/svg+xml;base64,".length));
-  assertStringIncludes(svg, "<circle");
-  assertStringIncludes(svg, ">Q</text>", "initial in the circle");
+  expect(svg).toContain("<circle");
+  expect(svg, "initial in the circle").toContain(">Q</text>");
   // case-insensitive and independent of the seat
-  assertEquals(agentIdentity("QWEN").name, "QWEN");
+  expect(agentIdentity("QWEN").name).toStrictEqual("QWEN");
 });

@@ -39,7 +39,7 @@ never replace a running database directory.
 ## Out-of-tree plugins
 
 Private plugins listed in `plugins.local.json` never compile into release builds. `just plugins-install`
-builds them into the live data root: `plugins/plugin-host` (a compiled Deno program running the
+builds them into the live data root: `plugins/plugin-host` (a Bun-compiled program running the
 TypeScript plugin registry) and `plugins/web/plugins.{js,css}` (their frontend, built against
 `window.__trame`). On startup the app starts the host with a per-launch token and its PostgreSQL socket,
 forwards `/api/plugins/<id>/*` to it, lists its plugins and registers their mark roles. The frontend
@@ -60,7 +60,7 @@ Playwright suite against the native backend.
 
 ## Verification and cutover
 
-`just deno-check` typechecks, tests and lints the TypeScript still shipped or shared (plugin
+`just ts-check` typechecks, tests and lints the TypeScript still shipped or shared (plugin
 host, core, protocol) in a clean scratch environment. `just migration` creates a synthetic
 PGlite source, migrates it twice and checks source preservation. `just lifecycle` checks owner refusal, parent death, WAL recovery and
 failed startup without requiring a developer's copied database.

@@ -1,6 +1,6 @@
-// Minimal first-party plugin contract. Plugins are in-tree and compile-time
-// registered (deno desktop --compress embeds the whole import graph, so there
-// is no runtime loading); per-device enablement lives in the settings JSON.
+// Minimal first-party plugin contract. Plugins are compile-time registered (the compiled
+// plugin host embeds the whole import graph, so there is no runtime loading); per-device
+// enablement lives in the settings JSON.
 
 export type PluginSettings = Record<string, unknown>;
 

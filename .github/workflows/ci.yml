@@ -26,7 +26,7 @@ jobs:
 
       - name: Public build composes no private plugin
         run: |
-          deno run -A --config app/deno.json scripts/gen-plugins.ts
+          bun scripts/gen-plugins.ts
           git diff --exit-code -- app/plugins/local.gen.ts app/web/src/plugins/ core/mark-roles.gen.ts
 
       - name: Build and typecheck frontend (TS 7)
@@ -42,8 +42,8 @@ jobs:
 
       - name: Shared protocol and frontend unit tests
         run: |
-          deno run --allow-read scripts/rust-protocol.ts --check
-          deno test --config app/deno.json app/web/src/
+          bun scripts/rust-protocol.ts --check
+          bun test ./app/web/src
 
   e2e:
     runs-on: ubuntu-24.04
@@ -78,7 +78,7 @@ jobs:
           set -euo pipefail
           dir="$(mktemp -d "$PWD/.scratch/cif.XXXXXX")"
           trap 'rm -rf -- "$dir"' EXIT
-          TRAME_CI_FIXTURE_DIR="$dir" deno run -A --config app/deno.json scripts/rust-ci-fixture.ts
+          TRAME_CI_FIXTURE_DIR="$dir" bun scripts/rust-ci-fixture.ts
           python3 scripts/rust-db-lifecycle-test.py
 
       - name: Upload Playwright artifacts
@@ -89,7 +89,7 @@ jobs:
           path: app/web/test-results
           if-no-files-found: ignore
 
-  deno:
+  ts:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -102,28 +102,26 @@ jobs:
           cache: npm
           cache-dependency-path: app/web/package-lock.json
 
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.11"
+
+      # deno stays for lint only until the oxlint swap
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
           deno-version: "2.9"
 
-      # app/db.ts's schema fallback imports the generated embed.ts
-      - name: Build frontend and embedded assets
+      - name: Build link viewer assets for the hub
         run: |
           cd app/web && npm ci && cd ../..
-          npm run build --prefix app/web
-          deno run --allow-read --allow-write=app/embed.ts scripts/gen-embed.ts
           npm run build:link --prefix app/web
-          deno run --allow-read --allow-write=hub/api/link-embed.ts scripts/gen-link-embed.ts
+          bun scripts/gen-link-embed.ts
 
-      - name: Plugin host and core typecheck + tests + lint
-        run: bash scripts/deno-check.sh
+      - name: Plugin host, core and scripts typecheck + tests + lint
+        run: bash scripts/ts-check.sh
 
       - name: Legacy migration safety
-        run: deno test -A --config app/deno.json scripts/rust-db-export-test.ts scripts/rust-db-migrate-test.ts
-
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: "1.3.11"
+        run: bun test ./scripts
 
       - name: Hub API typecheck + tests + lint
         run: cd hub/api && bun install --frozen-lockfile && bun run typecheck && bun test && deno lint --ignore=link-embed.ts
@@ -151,7 +149,7 @@ jobs:
   # the one required status check: green only when every job above passed or was skipped
   check:
     if: always()
-    needs: [rust, e2e, deno, package, macos]
+    needs: [rust, e2e, ts, package, macos]
     runs-on: ubuntu-24.04
     steps:
       - name: All jobs passed
@@ -174,9 +172,9 @@ jobs:
           cache: npm
           cache-dependency-path: app/web/package-lock.json
 
-      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          deno-version: "2.9"
+          bun-version: "1.3.11"
 
       - name: Build frontend
         run: cd app/web && npm ci && npm run build

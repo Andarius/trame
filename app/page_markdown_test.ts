@@ -1,10 +1,10 @@
-import { assertEquals, assertMatch } from "@std/assert";
+import { expect, test } from "bun:test";
 import { markdownToPageBlocks, pageBlocksToMarkdown } from "../core/page-markdown.ts";
 
 const withoutIds = (blocks: ReturnType<typeof markdownToPageBlocks>) =>
   blocks.map(({ id: _id, ...block }) => block);
 
-Deno.test("Markdown becomes native headings and todos without losing other syntax", () => {
+test("Markdown becomes native headings and todos without losing other syntax", () => {
   const blocks = markdownToPageBlocks(
     `# Release plan
 
@@ -23,7 +23,7 @@ console.log(answer);
     "Release plan",
   );
 
-  assertEquals(withoutIds(blocks), [
+  expect(withoutIds(blocks)).toStrictEqual([
     { type: "text", text: "Intro with **formatting**." },
     { type: "heading", text: "Checklist" },
     { type: "todo", text: "Ship writer", done: true },
@@ -34,38 +34,29 @@ console.log(answer);
     },
   ]);
   for (const block of blocks) {
-    assertMatch(
-      block.id,
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-    );
+    expect(block.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   }
 });
 
-Deno.test("indented todos keep their nesting level", () => {
-  assertEquals(
-    withoutIds(markdownToPageBlocks(
+test("indented todos keep their nesting level", () => {
+  expect(withoutIds(markdownToPageBlocks(
       "- [ ] parent\n  - [x] child\n\t- [ ] tab child\n      - [ ] deep",
-    )),
-    [
+    ))).toStrictEqual([
       { type: "todo", text: "parent", done: false },
       { type: "todo", text: "child", done: true, indent: 1 },
       { type: "todo", text: "tab child", done: false, indent: 1 },
       { type: "todo", text: "deep", done: false, indent: 3 },
-    ],
-  );
+    ]);
 });
 
-Deno.test("a non-matching leading H1 remains content", () => {
-  assertEquals(
-    withoutIds(markdownToPageBlocks("# Different title\n\nBody", "Page title")),
-    [
+test("a non-matching leading H1 remains content", () => {
+  expect(withoutIds(markdownToPageBlocks("# Different title\n\nBody", "Page title"))).toStrictEqual([
       { type: "heading", text: "Different title" },
       { type: "text", text: "Body" },
-    ],
-  );
+    ]);
 });
 
-Deno.test("pageBlocksToMarkdown round-trips through markdownToPageBlocks", () => {
+test("pageBlocksToMarkdown round-trips through markdownToPageBlocks", () => {
   const markdown = `Intro paragraph.
 
 ## Checklist
@@ -82,38 +73,31 @@ console.log(answer);
 `;
   const blocks = markdownToPageBlocks(markdown);
   const rendered = pageBlocksToMarkdown(blocks);
-  assertEquals(withoutIds(markdownToPageBlocks(rendered)), withoutIds(blocks));
+  expect(withoutIds(markdownToPageBlocks(rendered))).toStrictEqual(withoutIds(blocks));
   // structural blocks are skipped, never serialized
-  assertEquals(
-    pageBlocksToMarkdown([{ type: "subpage", page_id: "x" }, {
+  expect(pageBlocksToMarkdown([{ type: "subpage", page_id: "x" }, {
       type: "heading",
       text: "Goal",
-    }]),
-    "## Goal\n",
-  );
-  assertEquals(pageBlocksToMarkdown([]), "");
+    }])).toStrictEqual("## Goal\n");
+  expect(pageBlocksToMarkdown([])).toStrictEqual("");
 });
 
-Deno.test("a lone {{trame:folder=...}} line becomes a folder block", () => {
-  assertEquals(
-    withoutIds(markdownToPageBlocks(
+test("a lone {{trame:folder=...}} line becomes a folder block", () => {
+  expect(withoutIds(markdownToPageBlocks(
       `## Artefacts
 
 {{trame:folder=~/LLMS/Soren/compliance}}
 
 {{trame:folder=./reports}} {{trame:view=gallery}}`,
-    )),
-    [
+    ))).toStrictEqual([
       { type: "heading", text: "Artefacts" },
       { type: "folder", path: "~/LLMS/Soren/compliance", view: "list" },
       { type: "folder", path: "./reports", view: "gallery" },
-    ],
-  );
+    ]);
 });
 
-Deno.test("a folder mark that is not a whole line stays text", () => {
-  assertEquals(
-    withoutIds(markdownToPageBlocks(
+test("a folder mark that is not a whole line stays text", () => {
+  expect(withoutIds(markdownToPageBlocks(
       `Files live in {{trame:folder=~/reports}}.
 
 {{trame:folder=}}
@@ -121,34 +105,25 @@ Deno.test("a folder mark that is not a whole line stays text", () => {
 \`\`\`md
 {{trame:folder=~/reports}}
 \`\`\``,
-    )),
-    [
+    ))).toStrictEqual([
       { type: "text", text: "Files live in {{trame:folder=~/reports}}." },
       { type: "text", text: "{{trame:folder=}}" },
       { type: "text", text: "```md\n{{trame:folder=~/reports}}\n```" },
-    ],
-  );
+    ]);
 });
 
-Deno.test("folder blocks round-trip, the default view staying implicit", () => {
+test("folder blocks round-trip, the default view staying implicit", () => {
   const markdown =
     "## Artefacts\n\n{{trame:folder=~/reports}} {{trame:view=gallery}}\n";
   const blocks = markdownToPageBlocks(markdown);
-  assertEquals(pageBlocksToMarkdown(blocks), markdown);
-  assertEquals(
-    pageBlocksToMarkdown([{ type: "folder", path: "~/reports", view: "list" }]),
-    "{{trame:folder=~/reports}}\n",
-  );
+  expect(pageBlocksToMarkdown(blocks)).toStrictEqual(markdown);
+  expect(pageBlocksToMarkdown([{ type: "folder", path: "~/reports", view: "list" }])).toStrictEqual("{{trame:folder=~/reports}}\n");
   // a half-configured block (the editor creates one with an empty path) has no line
-  assertEquals(
-    pageBlocksToMarkdown([{ type: "folder", path: "", view: "list" }]),
-    "",
-  );
+  expect(pageBlocksToMarkdown([{ type: "folder", path: "", view: "list" }])).toStrictEqual("");
 });
 
-Deno.test("a lone {{trame:embed=...}} line becomes an embed block", () => {
-  assertEquals(
-    withoutIds(markdownToPageBlocks(
+test("a lone {{trame:embed=...}} line becomes an embed block", () => {
+  expect(withoutIds(markdownToPageBlocks(
       `{{trame:embed=https://grafana.example.com/d/abc?kiosk}}
 
 {{trame:embed=https://grafana.example.com/d/xyz}} {{trame:height=900}}
@@ -156,19 +131,16 @@ Deno.test("a lone {{trame:embed=...}} line becomes an embed block", () => {
 {{trame:embed=https://grafana.example.com/d/def}} {{trame:height=600}}
 
 {{trame:embed=https://grafana.example.com/d/ghi}} {{trame:height=tall}}`,
-    )),
-    [
+    ))).toStrictEqual([
       { type: "embed", url: "https://grafana.example.com/d/abc?kiosk" },
       { type: "embed", url: "https://grafana.example.com/d/xyz", height: 900 },
       { type: "embed", url: "https://grafana.example.com/d/def" },
       { type: "embed", url: "https://grafana.example.com/d/ghi" },
-    ],
-  );
+    ]);
 });
 
-Deno.test("an embed mark that is not an https whole line stays text", () => {
-  assertEquals(
-    withoutIds(markdownToPageBlocks(
+test("an embed mark that is not an https whole line stays text", () => {
+  expect(withoutIds(markdownToPageBlocks(
       `See {{trame:embed=https://grafana.example.com/d/abc}}.
 
 {{trame:embed=http://grafana.example.com/d/abc}}
@@ -182,38 +154,33 @@ Deno.test("an embed mark that is not an https whole line stays text", () => {
 \`\`\`md
 {{trame:embed=https://grafana.example.com/d/abc}}
 \`\`\``,
-    )),
-    [
+    ))).toStrictEqual([
       { type: "text", text: "See {{trame:embed=https://grafana.example.com/d/abc}}." },
       { type: "text", text: "{{trame:embed=http://grafana.example.com/d/abc}}" },
       { type: "text", text: "{{trame:embed=javascript:alert(1)}}" },
       { type: "text", text: "{{trame:embed=https://a.example.com/x y}}" },
       { type: "text", text: "{{trame:embed=}}" },
       { type: "text", text: "```md\n{{trame:embed=https://grafana.example.com/d/abc}}\n```" },
-    ],
-  );
+    ]);
 });
 
-Deno.test("embed blocks round-trip, the default height staying implicit", () => {
+test("embed blocks round-trip, the default height staying implicit", () => {
   const markdown =
     "## Metrics\n\n{{trame:embed=https://grafana.example.com/d/abc}} {{trame:height=900}}\n\n{{trame:embed=https://grafana.example.com/d/xyz}}\n";
-  assertEquals(pageBlocksToMarkdown(markdownToPageBlocks(markdown)), markdown);
-  assertEquals(
-    pageBlocksToMarkdown([{ type: "embed", url: "https://a.example.com/", height: 600 }]),
-    "{{trame:embed=https://a.example.com/}}\n",
-  );
+  expect(pageBlocksToMarkdown(markdownToPageBlocks(markdown))).toStrictEqual(markdown);
+  expect(pageBlocksToMarkdown([{ type: "embed", url: "https://a.example.com/", height: 600 }])).toStrictEqual("{{trame:embed=https://a.example.com/}}\n");
   // a half-configured block (the editor creates one with an empty url) has no line
-  assertEquals(pageBlocksToMarkdown([{ type: "embed", url: "" }]), "");
+  expect(pageBlocksToMarkdown([{ type: "embed", url: "" }])).toStrictEqual("");
 });
 
-Deno.test("a lone {{trame:db=...}} line becomes a database block and round-trips", () => {
+test("a lone {{trame:db=...}} line becomes a database block and round-trips", () => {
   const markdown = "## Decision\n\n{{trame:db=db-1}}\n\nInline {{trame:db=db-2}} stays text.\n";
   const blocks = markdownToPageBlocks(`${markdown}\n{{trame:db= }}`);
-  assertEquals(withoutIds(blocks), [
+  expect(withoutIds(blocks)).toStrictEqual([
     { type: "heading", text: "Decision" },
     { type: "database", db_id: "db-1" },
     { type: "text", text: "Inline {{trame:db=db-2}} stays text." },
     { type: "text", text: "{{trame:db= }}" },
   ]);
-  assertEquals(pageBlocksToMarkdown(blocks.slice(0, 3)), markdown);
+  expect(pageBlocksToMarkdown(blocks.slice(0, 3))).toStrictEqual(markdown);
 });

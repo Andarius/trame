@@ -1,16 +1,16 @@
+import { expect, test } from "bun:test";
 import { testTempDir } from "./test_tmp.ts";
 const tmp = testTempDir("trame-specs-page-test-");
-Deno.env.set("TRACKER_DATA_DIR", `${tmp}/pglite`);
-Deno.env.set("TRACKER_NODE_ID", "specs-page-test");
-Deno.env.set("TRACKER_OUTBOX", `${tmp}/outbox.jsonl`);
-Deno.env.set("TRACKER_SETTINGS_FILE", `${tmp}/settings.json`);
-Deno.env.set("TRACKER_PORT_FILE", `${tmp}/port.json`);
-Deno.env.set("TRACKER_APP_ROOT", new URL(".", import.meta.url).pathname);
+process.env.TRACKER_DATA_DIR = `${tmp}/pglite`;
+process.env.TRACKER_NODE_ID = "specs-page-test";
+process.env.TRACKER_OUTBOX = `${tmp}/outbox.jsonl`;
+process.env.TRACKER_SETTINGS_FILE = `${tmp}/settings.json`;
+process.env.TRACKER_PORT_FILE = `${tmp}/port.json`;
+process.env.TRACKER_APP_ROOT = new URL(".", import.meta.url).pathname;
 const { APP_CTX } = await import("./ctx.ts");
 
-import { assert, assertEquals, assertRejects } from "@std/assert";
 
-Deno.test("ensureSpecsPage: deterministic subpage of the story, idempotent, resurrects", async () => {
+test("ensureSpecsPage: deterministic subpage of the story, idempotent, resurrects", async () => {
   const { db } = await import("./db.ts");
 const { ensureSpecsPage, resolveClient, specsPageId, upsertSession } = await import("../core/sessions.ts");
   const { createPage, deletePage, getPage } = await import("../core/pages.ts");
@@ -26,30 +26,30 @@ const { ensureSpecsPage, resolveClient, specsPageId, upsertSession } = await imp
   });
 
   const pid = await ensureSpecsPage(APP_CTX, id);
-  assertEquals(pid, await specsPageId(id)); // deterministic — nodes converge
-  assertEquals(await ensureSpecsPage(APP_CTX, id), pid); // idempotent
+  expect(pid).toStrictEqual(await specsPageId(id)); // deterministic — nodes converge
+  expect(await ensureSpecsPage(APP_CTX, id)).toStrictEqual(pid); // idempotent
   const page = await getPage(APP_CTX, pid) as unknown as { title: string; parent_id: string | null; kind: string };
-  assertEquals(page.parent_id, storyId);
-  assertEquals(page.kind, "page");
-  assert(page.title.includes("acme api — auth"));
+  expect(page.parent_id).toStrictEqual(storyId);
+  expect(page.kind).toStrictEqual("page");
+  expect(page.title.includes("acme api — auth")).toBeTruthy();
   const linked = (await pg.query(`select specs_page_id from sessions where id=$1`, [id]))
     .rows[0] as { specs_page_id: string };
-  assertEquals(linked.specs_page_id, pid);
+  expect(linked.specs_page_id).toStrictEqual(pid);
 
   // deleting the spec page and asking again resurrects the SAME row
   await deletePage(APP_CTX, pid);
-  assertEquals(await ensureSpecsPage(APP_CTX, id), pid);
+  expect(await ensureSpecsPage(APP_CTX, id)).toStrictEqual(pid);
   const revived = (await pg.query(`select deleted from pages where id=$1`, [pid]))
     .rows[0] as { deleted: boolean };
-  assertEquals(revived.deleted, false);
+  expect(revived.deleted).toStrictEqual(false);
 
   // no story → falls back to the project page; neither → detached
   const onProject = await upsertSession(APP_CTX, { title: "loose", client_id: clientId, repo_path: "/repos/a" });
   const onProjectPage = await getPage(APP_CTX, await ensureSpecsPage(APP_CTX, onProject)) as unknown as { parent_id: string | null };
-  assertEquals(onProjectPage.parent_id, clientId);
+  expect(onProjectPage.parent_id).toStrictEqual(clientId);
   const detached = await upsertSession(APP_CTX, { title: "orphan", repo_path: "/repos/b" });
   const detachedPage = await getPage(APP_CTX, await ensureSpecsPage(APP_CTX, detached)) as unknown as { parent_id: string | null };
-  assertEquals(detachedPage.parent_id, null);
+  expect(detachedPage.parent_id).toStrictEqual(null);
 
-  await assertRejects(() => ensureSpecsPage(APP_CTX, crypto.randomUUID()), Error, "unknown session");
+  await expect(ensureSpecsPage(APP_CTX, crypto.randomUUID())).rejects.toThrow("unknown session");
 });

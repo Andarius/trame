@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "bun:test";
 import type { PageMeta } from "../api.ts";
 import { recentRows } from "./recents.ts";
 
@@ -42,4 +42,4 @@ for (
       want: ["db[d,c,b,a]", "x"],
     },
   ]
-) Deno.test(`recentRows: ${name}`, () => assertEquals(shape(pages), want));
+) test(`recentRows: ${name}`, () => expect(shape(pages)).toStrictEqual(want));

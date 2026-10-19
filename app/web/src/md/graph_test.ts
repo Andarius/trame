@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "bun:test";
 import {
   edgeGeometry,
   graphStyleOf,
@@ -27,22 +27,22 @@ step Create: web>api, api>pg
 step Stream: worker->llm, pg
 `;
 
-Deno.test("parseGraph: labels, edges, steps and column ranks", () => {
+test("parseGraph: labels, edges, steps and column ranks", () => {
   const g = parseGraph(SRC)!;
-  assertEquals(g.nodes.get("web"), {
+  expect(g.nodes.get("web")).toStrictEqual({
     id: "web",
     title: "Web app",
     sub: "SPA · REST + SSE",
   });
-  assertEquals(g.nodes.get("worker"), {
+  expect(g.nodes.get("worker")).toStrictEqual({
     id: "worker",
     title: "worker",
     sub: undefined,
   });
-  assertEquals(g.edges[0], { from: "web", to: "api", label: "REST + SSE" });
-  assertEquals(g.edges[4].label, undefined);
+  expect(g.edges[0]).toStrictEqual({ from: "web", to: "api", label: "REST + SSE" });
+  expect(g.edges[4].label).toStrictEqual(undefined);
   // longest path: sources | api | pg | worker | llm
-  assertEquals(g.columns.map((c) => c.map((n) => n.id)), [
+  expect(g.columns.map((c) => c.map((n) => n.id))).toStrictEqual([
     ["web", "cli"],
     ["api"],
     ["pg"],
@@ -50,20 +50,17 @@ Deno.test("parseGraph: labels, edges, steps and column ranks", () => {
     ["llm"],
   ]);
   // blank line = paragraph break (beat 1 reads as scenario + detail), `>` = side note
-  assertEquals(
-    g.steps[0].body,
-    "Alice submits the task.\n\n`POST /tasks` inserts it, then NOTIFY wakes a worker.",
-  );
-  assertEquals(g.steps[0].note, "What the console shows.");
-  assertEquals(g.steps[1], {
+  expect(g.steps[0].body).toStrictEqual("Alice submits the task.\n\n`POST /tasks` inserts it, then NOTIFY wakes a worker.");
+  expect(g.steps[0].note).toStrictEqual("What the console shows.");
+  expect(g.steps[1]).toStrictEqual({
     title: "Stream",
     nodes: ["pg"],
     edges: ["worker>llm"],
   });
 });
 
-Deno.test("parseGraph: nothing to draw", () => {
-  assertEquals(parseGraph("  \n// just a comment\n"), null);
+test("parseGraph: nothing to draw", () => {
+  expect(parseGraph("  \n// just a comment\n")).toStrictEqual(null);
 });
 
 const rect = (left: number, top: number): Rect => ({
@@ -75,7 +72,7 @@ const rect = (left: number, top: number): Rect => ({
   height: 40,
 });
 
-Deno.test("edgeGeometry: converging edges fan out over the shared side", () => {
+test("edgeGeometry: converging edges fan out over the shared side", () => {
   const boxes: Record<string, Rect> = {
     web: rect(0, 0),
     cli: rect(0, 60),
@@ -86,26 +83,26 @@ Deno.test("edgeGeometry: converging edges fan out over the shared side", () => {
     (id) => boxes[id] ?? null,
     [{ from: "web", to: "api", label: "REST" }, { from: "cli", to: "api" }],
   );
-  assertEquals(geo.map((e) => e.id), ["web>api", "cli>api"]);
+  expect(geo.map((e) => e.id)).toStrictEqual(["web>api", "cli>api"]);
   // both land on api's left side, at 1/3 and 2/3 of its height — not one point
   const y = geo.map((e) => Math.round(Number(e.d.match(/ ([\d.]+)$/)![1])));
-  assertEquals(y, [43, 57]);
-  assertEquals(geo[0].anchor, "middle");
-  assertEquals(geo[1].label, undefined);
+  expect(y).toStrictEqual([43, 57]);
+  expect(geo[0].anchor).toStrictEqual("middle");
+  expect(geo[1].label).toStrictEqual(undefined);
 });
 
-Deno.test("edgeGeometry: a stacked pair connects bottom to top", () => {
+test("edgeGeometry: a stacked pair connects bottom to top", () => {
   const boxes: Record<string, Rect> = { a: rect(0, 0), b: rect(0, 100) };
   const [e] = edgeGeometry(
     { left: 0, top: 0 },
     (id) => boxes[id] ?? null,
     [{ from: "a", to: "b", label: "down" }],
   );
-  assertEquals(e.d, "M50 40 C 50 70, 50 70, 50 100");
-  assertEquals(e.anchor, "start");
+  expect(e.d).toStrictEqual("M50 40 C 50 70, 50 70, 50 100");
+  expect(e.anchor).toStrictEqual("start");
 });
 
-Deno.test("parseGraph: groups, tones, dashed edges and style", () => {
+test("parseGraph: groups, tones, dashed edges and style", () => {
   const g = parseGraph(`
 style neon
 group dev[saas-dev|dev · stg]: apps, dumps
@@ -115,16 +112,16 @@ apps -> graf[Grafana] : metrics + logs
 ci[CI runners]#warn ..> pg[pg-ro replica] : option B #bad
 dev -> ext : #123
 `)!;
-  assertEquals(g.style, "neon");
-  assertEquals(g.groups.map((gp) => [gp.id, gp.tone, gp.members]), [
+  expect(g.style).toStrictEqual("neon");
+  expect(g.groups.map((gp) => [gp.id, gp.tone, gp.members])).toStrictEqual([
     ["dev", undefined, ["apps", "dumps"]],
     ["ops", "bad", ["graf", "ci"]],
   ]);
   // group ids are not nodes; an edge may still target one
-  assertEquals(g.nodes.has("dev"), false);
-  assertEquals(g.nodes.get("dumps")?.tone, "bad");
-  assertEquals(g.nodes.get("ci")?.tone, "warn");
-  assertEquals(g.edges[1], {
+  expect(g.nodes.has("dev")).toStrictEqual(false);
+  expect(g.nodes.get("dumps")?.tone).toStrictEqual("bad");
+  expect(g.nodes.get("ci")?.tone).toStrictEqual("warn");
+  expect(g.edges[1]).toStrictEqual({
     from: "ci",
     to: "pg",
     label: "option B",
@@ -132,14 +129,14 @@ dev -> ext : #123
     tone: "bad",
   });
   // `#123` is an issue ref, not a tone
-  assertEquals(g.edges[2], { from: "dev", to: "ext", label: "#123" });
+  expect(g.edges[2]).toStrictEqual({ from: "dev", to: "ext", label: "#123" });
   // one column per group, then the ungrouped nodes by rank
-  assertEquals(g.columns.map((c) => c.map((n) => n.id)), [
+  expect(g.columns.map((c) => c.map((n) => n.id))).toStrictEqual([
     ["apps", "dumps"],
     ["graf", "ci"],
     ["pg", "ext"],
   ]);
-  assertEquals(g.columnGroups.map((gp) => gp?.id), ["dev", "ops", undefined]);
+  expect(g.columnGroups.map((gp) => gp?.id)).toStrictEqual(["dev", "ops", undefined]);
 });
 
 for (
@@ -149,29 +146,29 @@ for (
     ["plain drops it", "```graph\nstyle neon\na -> b\n```", "plain", "```graph\na -> b\n```"],
   ] as const
 ) {
-  Deno.test(`setGraphStyle: ${name}`, () => {
+  test(`setGraphStyle: ${name}`, () => {
     const out = setGraphStyle(fence, style);
-    assertEquals(out, want);
-    assertEquals(graphStyleOf(out), style);
+    expect(out).toStrictEqual(want);
+    expect(graphStyleOf(out)).toStrictEqual(style);
   });
 }
 
-Deno.test("setGraphWide: toggles the line and the parse reads it", () => {
+test("setGraphWide: toggles the line and the parse reads it", () => {
   const fence = "```graph\nstyle neon\na -> b\n```";
   const on = setGraphWide(fence, true);
-  assertEquals(on, "```graph\nwide\nstyle neon\na -> b\n```");
-  assertEquals(graphWideOf(on), true);
-  assertEquals(parseGraph("wide\na -> b")?.wide, true);
-  assertEquals(setGraphWide(on, false), fence);
-  assertEquals(graphWideOf(fence), false);
+  expect(on).toStrictEqual("```graph\nwide\nstyle neon\na -> b\n```");
+  expect(graphWideOf(on)).toStrictEqual(true);
+  expect(parseGraph("wide\na -> b")?.wide).toStrictEqual(true);
+  expect(setGraphWide(on, false)).toStrictEqual(fence);
+  expect(graphWideOf(fence)).toStrictEqual(false);
 });
 
-Deno.test("setGraphWidth: a width replaces wide, wide replaces a width", () => {
+test("setGraphWidth: a width replaces wide, wide replaces a width", () => {
   const fence = "```graph\nwide\na -> b\n```";
   const sized = setGraphWidth(fence, 1100.4);
-  assertEquals(sized, "```graph\nwidth 1100\na -> b\n```");
-  assertEquals([graphWidthOf(sized), graphWideOf(sized)], [1100, false]);
-  assertEquals(parseGraph("width 1100\na -> b")?.width, 1100);
-  assertEquals(setGraphWide(sized, true), "```graph\nwide\na -> b\n```");
-  assertEquals(setGraphWidth(sized, undefined), "```graph\na -> b\n```");
+  expect(sized).toStrictEqual("```graph\nwidth 1100\na -> b\n```");
+  expect([graphWidthOf(sized), graphWideOf(sized)]).toStrictEqual([1100, false]);
+  expect(parseGraph("width 1100\na -> b")?.width).toStrictEqual(1100);
+  expect(setGraphWide(sized, true)).toStrictEqual("```graph\nwide\na -> b\n```");
+  expect(setGraphWidth(sized, undefined)).toStrictEqual("```graph\na -> b\n```");
 });

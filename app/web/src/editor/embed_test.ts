@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "bun:test";
 import { allowedEmbedHost } from "./embed.ts";
 
 const HOSTS = ["grafana.saas-ops.galactix.ninja"];
@@ -17,7 +17,7 @@ for (
     ["not a url", "grafana", HOSTS, null],
   ] as const
 ) {
-  Deno.test(`allowedEmbedHost: ${id}`, () => {
-    assertEquals(allowedEmbedHost(url, hosts), want);
+  test(`allowedEmbedHost: ${id}`, () => {
+    expect(allowedEmbedHost(url, hosts)).toStrictEqual(want);
   });
 }

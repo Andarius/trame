@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "types": ["bun"],
+    "paths": {
+      "@trame/plugin-api": ["./app/plugins/api.ts"],
+      "@trame/plugin-test": ["./app/test_tmp.ts"]
+    }
+  },
+  "include": ["app/*.ts", "app/plugins", "core", "protocol", "scripts", "app/web/src/**/*_test.ts", "types.d.ts"]
+}

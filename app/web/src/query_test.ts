@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "bun:test";
 import {
   applySuggestion,
   filterSessions,
@@ -42,11 +42,11 @@ for (
     ["-status:", true],
   ] as const
 ) {
-  Deno.test(`matchQuery: ${q || "(empty)"}`, () => assertEquals(matches(q), want));
+  test(`matchQuery: ${q || "(empty)"}`, () => expect(matches(q)).toStrictEqual(want));
 }
 
-Deno.test("parseQuery: flags unknown keys", () => {
-  assertEquals(parseQuery("colour:red topbar").errors, ['unknown key "colour"']);
+test("parseQuery: flags unknown keys", () => {
+  expect(parseQuery("colour:red topbar").errors).toStrictEqual(['unknown key "colour"']);
 });
 
 const board = {
@@ -83,14 +83,14 @@ for (
     ["-assigner:nobody", ["under story", "loose"]],
   ] as const
 ) {
-  Deno.test(`filterSessions: ${q}`, () =>
-    assertEquals(filterSessions(sessions, board, q, assigners).map((s) => s.title), [...want]));
+  test(`filterSessions: ${q}`, () =>
+    expect(filterSessions(sessions, board, q, assigners).map((s) => s.title)).toStrictEqual([...want]));
 }
 
-Deno.test("filterSessions: a parent story or project matches its whole subtree", () => {
+test("filterSessions: a parent story or project matches its whole subtree", () => {
   const nested = { ...board, pages: [...board.pages, { id: "sub", parent_id: "st", kind: "story", title: "Sub", icon: null }] };
   const deep = [{ ...base, id: "s3", title: "deep", page_id: "sub", specs_page_id: null }];
-  assertEquals(["story:cli", "story:sub", "project:trame"].map((q) => filterSessions(deep, nested, q).length), [1, 1, 1]);
+  expect(["story:cli", "story:sub", "project:trame"].map((q) => filterSessions(deep, nested, q).length)).toStrictEqual([1, 1, 1]);
 });
 
 for (
@@ -102,7 +102,7 @@ for (
     ["title:assigner", false],
   ] as const
 ) {
-  Deno.test(`needsAssigners: ${q}`, () => assertEquals(needsAssigners(parseQuery(q).terms), want));
+  test(`needsAssigners: ${q}`, () => expect(needsAssigners(parseQuery(q).terms)).toStrictEqual(want));
 }
 
 const values = {
@@ -130,50 +130,47 @@ for (
     ['"fix top|', [], null],
   ] as const
 ) {
-  Deno.test(`suggestQuery: ${q}`, () => {
+  test(`suggestQuery: ${q}`, () => {
     const cursor = q.indexOf("|"), text = q.replace("|", "");
     const got = suggestQuery(text, cursor, values);
-    assertEquals(got.map((s) => s.label), [...labels]);
+    expect(got.map((s) => s.label)).toStrictEqual([...labels]);
     if (applied) {
       const next = applySuggestion(text, got[0]);
-      assertEquals(next.query.slice(0, next.cursor) + "|" + next.query.slice(next.cursor), applied);
+      expect(next.query.slice(0, next.cursor) + "|" + next.query.slice(next.cursor)).toStrictEqual(applied);
     }
   });
 }
 
-Deno.test("queryValues: reads the board and the assigners", () => {
+test("queryValues: reads the board and the assigners", () => {
   const got = queryValues({ ...board, sessions: [{ ...sessions[0], agent: "codex" }, sessions[1]] }, assigners);
-  assertEquals(
-    [got.status, got.story, got.tag, got.agent, got.assigner],
-    [
+  expect([got.status, got.story, got.tag, got.agent, got.assigner]).toStrictEqual([
       [{ value: "active", hint: "In progress" }],
       [{ value: "CLI rollout", icon: null, color: null }],
       [{ value: "p1" }],
       [{ value: "codex" }],
       [{ value: "Carlo Rossi", avatar: null }],
-    ],
-  );
+    ]);
 });
 
-Deno.test("queryValues: one assigner row per person, with a picture when any card has one", () => {
+test("queryValues: one assigner row per person, with a picture when any card has one", () => {
   const faces = { a: { name: "Carlo Rossi" }, b: { name: "Carlo Rossi", avatar: "c.png" }, c: { name: "Ana" } };
   const got = queryValues({ ...board, sessions: [] }, faces);
-  assertEquals(got.assigner, [{ value: "Ana", avatar: null }, { value: "Carlo Rossi", avatar: "c.png" }]);
-  assertEquals(suggestQuery("assigner:car", 12, got).map((s) => [s.label, s.value?.avatar]), [["Carlo Rossi", "c.png"]]);
+  expect(got.assigner).toStrictEqual([{ value: "Ana", avatar: null }, { value: "Carlo Rossi", avatar: "c.png" }]);
+  expect(suggestQuery("assigner:car", 12, got).map((s) => [s.label, s.value?.avatar])).toStrictEqual([["Carlo Rossi", "c.png"]]);
 });
 
-Deno.test("queryValues: projects and stories carry their icon and color", () => {
+test("queryValues: projects and stories carry their icon and color", () => {
   const got = queryValues({
     ...board,
     sessions,
     pages: board.pages.map((p) => p.id === "st" ? { ...p, icon: "🧪" } : p),
     projects: [{ id: "pr", name: "Trame", icon: "🚂", color: "#f00" }],
   });
-  assertEquals([got.project, got.story], [
+  expect([got.project, got.story]).toStrictEqual([
     [{ value: "Trame", icon: "🚂", color: "#f00" }],
     [{ value: "CLI rollout", icon: "🧪", color: null }],
   ]);
-  assertEquals(suggestQuery("project:tr", 10, got).map((s) => [s.key, s.value]), [["project", got.project[0]]]);
+  expect(suggestQuery("project:tr", 10, got).map((s) => [s.key, s.value])).toStrictEqual([["project", got.project[0]]]);
 });
 
 for (
@@ -183,5 +180,5 @@ for (
     ["tag:p1  status:active", "tag:p2", "tag:p1 status:active tag:p2"],
   ] as const
 ) {
-  Deno.test(`toggleTerm: ${q} ± ${term}`, () => assertEquals(toggleTerm(q, term), want));
+  test(`toggleTerm: ${q} ± ${term}`, () => expect(toggleTerm(q, term)).toStrictEqual(want));
 }

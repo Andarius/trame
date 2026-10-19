@@ -27,7 +27,7 @@ if [ -n "$staged" ]; then
   # or src/… (tsc, relative to app/web)
   staged_re=$(echo "$staged" | sed 's|.*/||' | sed 's/\./\\./g' | paste -sd'|' -)
   gate "deno lint"  "$( (cd app && deno lint) 2>&1 || true )"
-  gate "deno check" "$( (cd app && deno check plugin-host.ts) 2>&1 || true )"
+  gate "tsc (app)" "$(bunx tsc --noEmit -p . 2>&1 || true)"
   if echo "$staged" | grep -q '^app/web/src/'; then
     gate "tsc --noEmit" "$( (cd app/web && npx tsc --noEmit) 2>&1 || true )"
   fi

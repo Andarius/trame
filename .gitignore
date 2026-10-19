@@ -1,7 +1,6 @@
 # desktop build artifacts
 app/app/
 dist/
-app/embed.ts
 *.so
 *.AppImage
 *.app/
