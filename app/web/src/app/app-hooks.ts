@@ -29,7 +29,7 @@ export function useAgentsPoll(settingsEpoch: number) {
   // same states as before → same object, so the page editor doesn't re-render every poll
   const liveRef = useRef<
     { key: string; value: { live: Live[]; recent: LiveAgent[]; cfg: AgentPresenceSettings | null } }
-  >();
+  >(undefined);
   const agentsCtx = useMemo(() => {
     const live = liveAgents(agents, presenceCfg);
     const key = JSON.stringify([presenceCfg, live.map((l) => [l.a, l.state]), agents.map((a) => [a.session_id, a.name])]);

@@ -1,4 +1,4 @@
-import { type CSSProperties, useState } from "react";
+import { type CSSProperties, type JSX, useState } from "react";
 import { Popover } from "../ui/ui";
 
 // Lucide paths inlined (GearIcon-style) — a static lucide-react import would pull
