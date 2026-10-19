@@ -8,7 +8,6 @@ import { DeploymentsCardPath } from "./deployments/CardPath";
 import { DeploymentsPanel } from "./deployments/Panel";
 import { DeploymentsSettings } from "./deployments/Settings";
 import { SqlSourceDatabaseActions, SqlSourceDatabaseEmpty } from "./sql-source/Actions";
-import { SqlSourcePanel } from "./sql-source/Panel";
 import { SqlSourceSettings } from "./sql-source/Settings";
 import { LOCAL_PLUGINS } from "./local.gen";
 
@@ -24,7 +23,8 @@ export type CardFace = { name: string; avatar: string | null };
 /** What a plugin shows in the host's own views; the host renders these and never names a plugin. */
 export type FrontendPlugin = {
   id: string;
-  Panel: ComponentType<PanelProps>;
+  /** its own sidebar view; without one the plugin lives in Settings and its host hooks */
+  Panel?: ComponentType<PanelProps>;
   Settings?: ComponentType;
   /** under a page's brief */
   PageHeader?: ComponentType<{ page: PageDetail; onDone: () => void }>;
@@ -44,7 +44,7 @@ export type FrontendPlugin = {
 
 export const FRONTEND_PLUGINS: FrontendPlugin[] = [
   { id: "deployments", Panel: DeploymentsPanel, Settings: DeploymentsSettings, CardFields: DeploymentsCardPath },
-  { id: "sql-source", Panel: SqlSourcePanel, Settings: SqlSourceSettings, DatabaseActions: SqlSourceDatabaseActions, DatabaseEmpty: SqlSourceDatabaseEmpty },
+  { id: "sql-source", Settings: SqlSourceSettings, DatabaseActions: SqlSourceDatabaseActions, DatabaseEmpty: SqlSourceDatabaseEmpty },
   ...LOCAL_PLUGINS,
 ];
 
