@@ -1,9 +1,9 @@
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { BUILD_TIME } from "../build-info";
 import { DndContext, DragOverlay, type DragEndEvent, type DragStartEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
-import { type AppStatus, getIdentity, type PageMeta, type PluginManifest, type UdbMeta, type UpdateInfo } from "../api";
-import { AgentIcon, Elapsed, useAgents } from "../agents/agents";
-import { stripMarks } from "../../../../core/todo-marks.ts";
+import { type AppStatus, type BoardData, getIdentity, type PageMeta, type PluginManifest, type UdbMeta, type UpdateInfo } from "../api";
+import { useAgents } from "../agents/agents";
+import { WorkingNow } from "./WorkingNow";
 import { DUE_TONE_CLS, dueLabel, dueTone, focusBlock, useDue } from "../ui/due";
 import { recentRows } from "./recents";
 import { GearIcon, LogoMark } from "../ui/icons";
@@ -72,6 +72,9 @@ export function Sidebar(
     update,
     updateState,
     onUpdate,
+    board,
+    onOpenSession,
+    onOpenTerminals,
   }: {
     view: View;
     onNav: (v: View) => void;
@@ -96,6 +99,9 @@ export function Sidebar(
     update: UpdateInfo | null;
     updateState: "idle" | "busy" | "done";
     onUpdate: () => void;
+    board: BoardData | null;
+    onOpenSession: (id: string) => void;
+    onOpenTerminals: (card: string) => void;
   },
 ) {
   const activeKey = view === "board" || view === "list" ? "sessions" : view;
@@ -154,7 +160,7 @@ export function Sidebar(
     }
     return m;
   }, [live, byId]);
-  const runningRef = useRef<HTMLElement>(null);
+  const runningRef = useRef<HTMLDivElement>(null);
 
   // the whole tree by mtime — sliced short/long at render
   const recentsOpen = expanded.has(RECENTS_KEY);
@@ -330,42 +336,9 @@ export function Sidebar(
           </button>
         );
       })}
-      {live.length > 0 && (
-        <nav ref={runningRef} aria-label="Running agents" className="flex flex-col gap-0.5">
-          <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
-            RUNNING
-          </div>
-          {live.map(({ a, state }) => {
-            const link = a.links.find((l) => a.block_id ? l.block_id === a.block_id : l.block_id) ?? a.links[0];
-            const what = (link?.anchor && stripMarks(link.anchor).trim()) || a.session_title;
-            return (
-              <button
-                type="button"
-                key={a.session_id}
-                disabled={!link}
-                onClick={() => link && onOpenPage(link.page_id)}
-                title={`${a.harness} · ${a.session_title}${link ? ` — ${link.page_title}` : ""}`}
-                className={`grid grid-cols-[auto_1fr_auto] items-center gap-x-2 rounded-md px-2 py-[5px] text-left hover:bg-active-row ${
-                  state === "waiting" ? "bg-wait/[0.1]" : ""
-                }`}
-              >
-                <AgentIcon a={a} />
-                <span className="truncate text-[13px] text-ink">{what}</span>
-                <span className="font-mono text-[10.5px] font-semibold tabular-nums text-ink-soft">
-                  <Elapsed since={a.since} state={state} />
-                </span>
-                <span
-                  className={`col-span-2 col-start-2 truncate text-[11.5px] ${
-                    state === "waiting" ? "italic text-ink-soft" : "text-ink-muted"
-                  }`}
-                >
-                  {state === "waiting" ? `needs you: ${a.question ?? "waiting for input"}` : link?.page_title ?? "no linked todo"}
-                </span>
-              </button>
-            );
-          })}
-        </nav>
-      )}
+      <div ref={runningRef}>
+        <WorkingNow board={board} onOpenSession={onOpenSession} onOpenTerminals={onOpenTerminals} onOpenPage={onOpenPage} />
+      </div>
       {due.length > 0 && (
         <nav aria-label="Due todos" className="flex flex-col gap-0.5">
           <div className={`flex items-center px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>

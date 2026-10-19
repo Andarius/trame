@@ -35,6 +35,9 @@ For tracking actions:
 3. Read the current working directory and Git branch, compose every field from THIS
    conversation (do not ask the user), and pipe one JSON object to `tramecli track`.
    If the output has a `story:` line naming a better existing story, re-track with it.
+   A session started from another one to do part of its card (a fork, a side session)
+   adds `links: [{"page_id": "<that card's specs_page_id>"}]`, so Trame nests it under
+   that card in Working now.
 4. Write the spec page when the writer contract (Specs, in that `--help`) says so,
    with the session id from the writer output (`tramecli page`, see its `--help`).
 5. Report one line from the writer output: tracked/queued, title, status, and the
