@@ -63,14 +63,23 @@ test("a re-run writes nothing and a user column stays editable", async ({ page, 
   }).toEqual(["mine"]);
 });
 
-test("the sources panel shows the source type, edits on click and asks before deleting", async ({ page }) => {
-  await page.goto("/?plugin=sql-source");
-  const row = page.locator("main div.cursor-pointer").first();
+test("sources live in Settings: no sidebar entry, edit on click, Delete asks first", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Explore" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "SQL sources" })).toHaveCount(0);
+
+  await page.getByTitle("Settings").click();
+  await page.getByRole("button", { name: "Manage plugins →" }).click();
+  await page.getByRole("button", { name: /SQL sources/ }).click();
+  const row = page.locator("div.cursor-pointer", { hasText: `→ ${DB}` });
   await expect(row.getByRole("img", { name: "PostgreSQL" })).toBeVisible();
   await row.click();
   await expect(page.getByRole("heading", { name: "Fill from a SQL query" })).toBeVisible();
-  await expect(page.getByLabel("Query")).toHaveValue(/Alpha/);
-  await page.getByTitle("close (esc)").click();
+  await expect(page.getByLabel("Query", { exact: true })).toHaveValue(/Alpha/);
+  // Esc closes the drawer only; the plugins window stays
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("heading", { name: "Fill from a SQL query" })).toHaveCount(0);
+  await expect(row).toBeVisible();
 
   await row.getByRole("button", { name: "Delete" }).click();
   await page.getByRole("button", { name: "Cancel" }).click();

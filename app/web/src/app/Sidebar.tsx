@@ -8,6 +8,7 @@ import { DUE_TONE_CLS, dueLabel, dueTone, focusBlock, useDue } from "../ui/due";
 import { recentRows } from "./recents";
 import { GearIcon, LogoMark } from "../ui/icons";
 import type { View } from "./view";
+import { FRONTEND_PLUGINS } from "../plugins";
 import { useTermDock } from "../term/term-api";
 import { ArchivedFold, isSharedIn, type LiveCount, LiveCounts, LiveMarker, PageNode, RECENTS_KEY, RECENTS_LONG, RECENTS_SHORT, splitArchived, TreeCardsCtx, UnfiledZone } from "./sidebar-tree";
 import { SET_CODEC, useLocalStorage, EntityIcon, pageGlyph, SECTION_LABEL, timeAgo, PresenceDot } from "../ui/ui";
@@ -311,7 +312,7 @@ export function Sidebar(
           </button>
         );
       })}
-      {plugins.filter((p) => p.enabled).map((p) => {
+      {plugins.filter((p) => p.enabled && FRONTEND_PLUGINS.some((f) => f.id === p.id && f.Panel)).map((p) => {
         const active = view === "plugin" && p.id === pluginId;
         return (
           <button

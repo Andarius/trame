@@ -133,11 +133,16 @@ export function SqlSourceDrawer({ dbId, editId, onClose, onDone }: {
     }).catch(() => {});
   }, [dbId, editId]);
 
-  // Esc closes the large editor / preview first, then the drawer
+  // Esc closes the large editor / preview first, then the drawer; captured so a host modal or edit mode keeps it
   useEffect(() => {
-    const h = (e: KeyboardEvent) => e.key === "Escape" && !view && onClose();
-    addEventListener("keydown", h);
-    return () => removeEventListener("keydown", h);
+    const h = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopImmediatePropagation();
+      if (view) setView(null);
+      else onClose();
+    };
+    addEventListener("keydown", h, true);
+    return () => removeEventListener("keydown", h, true);
   }, [onClose, view]);
 
   const isNew = connId === NEW;
@@ -292,7 +297,7 @@ export function SqlSourceDrawer({ dbId, editId, onClose, onDone }: {
   // on body: an inline database sits in the page editor, maybe under a transform
   return createPortal(
     // React bubbles portal events to the inline database, whose Esc would unmount this drawer
-    <div onKeyDown={(e) => e.key === "Escape" && e.preventDefault()} className="fixed inset-y-0 right-0 z-40 flex w-[480px] max-w-full flex-col overflow-y-auto border-l border-line bg-sidebar shadow-[-16px_0_40px_rgba(0,0,0,0.35)]">
+    <div className="fixed inset-y-0 right-0 z-50 flex w-[480px] max-w-full flex-col overflow-y-auto border-l border-line bg-sidebar shadow-[-16px_0_40px_rgba(0,0,0,0.35)]">
       <div className="flex items-center gap-2 px-4 pb-1 pt-3.5">
         <span className="text-[13px] text-copper">⇣</span>
         <h2 className="m-0 flex-1 text-[13px] font-semibold">Fill from a SQL query</h2>
