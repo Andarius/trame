@@ -370,6 +370,7 @@ fn boot_poll_starts_without_request_and_stops_before_database_shutdown() {
         ),
         port: 0,
         desktop: false,
+        demo: trame_local::demo::Demo::default(),
     };
     let rt = tokio::runtime::Runtime::new().unwrap();
     let poller = rt.block_on(async { plugins::start(state.clone()).expect("fixture poller") });

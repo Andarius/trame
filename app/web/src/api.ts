@@ -66,6 +66,20 @@ export type AppStatus = {
   desktop?: boolean;
   debug?: boolean; // a debug (dev) build of the backend
   version?: string;
+  demo?: boolean; // the demo workspace is running
+  boot?: string; // changes on every backend start
+};
+
+export type DemoState = {
+  available: boolean; // desktop app: the backend can switch to the demo root
+  active: boolean;
+  seeded: boolean;
+  phase: "idle" | "downloading" | "downloaded" | "seeding" | "ready" | "failed";
+  received: number;
+  total: number | null;
+  done: number;
+  ops: number;
+  error: string | null;
 };
 
 export type ReportMeta = {
@@ -251,6 +265,13 @@ const post = (path: string, body: unknown) =>
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
+
+export const getDemo = () =>
+  fetch("/api/demo").then((r) => r.json() as Promise<DemoState>);
+export const demoAction = async (action: "download" | "enter" | "exit" | "reset") => {
+  const r = await post(`/api/demo/${action}`, {});
+  if (!r.ok) throw new Error(((await r.json()) as { error?: string }).error ?? `demo ${action}: ${r.status}`);
+};
 
 // Pasted images — raw bytes up, {id} back; referenced as /api/assets/<id>.
 export const uploadAsset = (file: Blob) =>

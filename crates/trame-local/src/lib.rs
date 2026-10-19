@@ -9,6 +9,7 @@ pub mod blocking;
 pub mod cli;
 pub mod comments;
 pub mod db;
+pub mod demo;
 pub mod files;
 pub mod forge;
 pub mod imports;
@@ -126,12 +127,17 @@ fn refuse_live_port(path: &Path) -> Result<()> {
     Ok(())
 }
 
+#[derive(Clone)]
 pub struct Config {
     pub root: PathBuf,
     pub pg_bin: PathBuf,
     pub port: u16,
     pub web_dir: PathBuf,
     pub desktop: bool,
+    /// The demo workspace: offline, seeded from its bundle, every file under `root`.
+    pub demo: bool,
+    /// Asks the desktop supervisor to restart on another root (set by the desktop app).
+    pub switch: Option<tokio::sync::mpsc::UnboundedSender<demo::Switch>>,
 }
 impl Config {
     pub fn from_env() -> Result<Self> {
@@ -162,12 +168,16 @@ impl Config {
             .map(PathBuf::from)
             .unwrap_or_else(|| workspace().join("app/web/dist"));
         let desktop = std::env::var("TRACKER_DESKTOP").as_deref() == Ok("1");
+        // the demo workspace of this data dir, as the desktop app runs it
+        let demo = std::env::var("TRAME_DEMO").as_deref() == Ok("1");
         Ok(Self {
-            root,
+            root: if demo { demo::root(&root) } else { root },
             pg_bin,
             port,
             web_dir,
             desktop,
+            demo,
+            switch: None,
         })
     }
 }
@@ -300,6 +310,7 @@ pub async fn run(
     );
     let oracle =
         cfg!(debug_assertions) && std::env::var("TRAME_DIFF_TS_ORACLE").as_deref() == Ok("1");
+    demo::ACTIVE.store(config.demo, std::sync::atomic::Ordering::SeqCst);
     let (config, mut pg, mut child, upstream, token, settings, origin) =
         crate::blocking::spawn(move || -> Result<_> {
             if isolated_mode() {
@@ -311,22 +322,20 @@ pub async fn run(
             if isolated_mode() {
                 scratch_path(&legacy)?;
             }
-            let published = std::env::var_os("TRACKER_PORT_FILE")
-                .map(PathBuf::from)
+            let published = demo::env_path("TRACKER_PORT_FILE")
                 .unwrap_or_else(|| config.root.join("port.json"));
             if isolated_mode() {
                 scratch_path(&published)?;
             }
             refuse_live_port(&published)?;
             // macOS leaves pglite/ untouched: a new cluster starts empty and the hub sync refills it
-            if cfg!(target_os = "linux") && legacy.join("PG_VERSION").is_file() {
+            if cfg!(target_os = "linux") && !config.demo && legacy.join("PG_VERSION").is_file() {
                 fs::create_dir_all(&config.root)?;
                 pg::migrate(&legacy, &config.root, &config.pg_bin)?;
             }
             pg::check_staging(&config.root)?;
             let pg = pg::Pg::start(&config.root, &config.pg_bin)?;
-            let settings = std::env::var_os("TRACKER_SETTINGS_FILE")
-                .map(PathBuf::from)
+            let settings = demo::env_path("TRACKER_SETTINGS_FILE")
                 .unwrap_or_else(|| config.root.join("settings.json"));
             if isolated_mode() {
                 scratch_path(&settings)?;
@@ -359,9 +368,8 @@ pub async fn run(
     }
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", config.port)).await?;
     let port = listener.local_addr()?.port();
-    let published = std::env::var_os("TRACKER_PORT_FILE")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| config.root.join("port.json"));
+    let published =
+        demo::env_path("TRACKER_PORT_FILE").unwrap_or_else(|| config.root.join("port.json"));
     if isolated_mode() {
         scratch_path(&published)?;
     }
@@ -379,8 +387,9 @@ pub async fn run(
         "{}",
         serde_json::json!({"port":port,"pid":std::process::id()})
     )?;
-    let offline =
-        std::env::var("TRAME_OFFLINE").as_deref() == Ok("1") || scratch_path(&config.root).is_ok();
+    let offline = config.demo
+        || std::env::var("TRAME_OFFLINE").as_deref() == Ok("1")
+        || scratch_path(&config.root).is_ok();
     let sync = sync::Sync::new(
         config.root.clone(),
         settings.clone(),
@@ -397,16 +406,21 @@ pub async fn run(
         port,
         desktop: config.desktop,
         web_dir: config.web_dir.clone(),
+        demo: demo::Demo::new(config.demo, config.switch.clone()),
     };
-    let notifier = tokio::spawn(notify::background(native.clone()));
+    // demo due dates must not raise desktop notifications
+    let notifier = (!config.demo).then(|| tokio::spawn(notify::background(native.clone())));
+    let seeder = config
+        .demo
+        .then(|| tokio::spawn(demo::seed(native.clone())));
     let updater = (config.desktop && !offline).then(|| tokio::spawn(update::background()));
-    let plugin_task = if oracle {
+    let plugin_task = if oracle || config.demo {
         None
     } else {
         plugins::start(native.clone())
     };
     let sql_source_task = (!oracle).then(|| plugins::sql_source::start(&native));
-    let host_task = if oracle {
+    let host_task = if oracle || config.demo {
         None
     } else {
         plugin_host::start(native.clone())
@@ -441,19 +455,24 @@ pub async fn run(
         }
     };
     let _ = shutdown_tx.send(());
-    for task in [plugin_task, sql_source_task, host_task, updater]
-        .into_iter()
-        .flatten()
+    for task in [
+        plugin_task,
+        sql_source_task,
+        host_task,
+        updater,
+        notifier,
+        seeder,
+    ]
+    .into_iter()
+    .flatten()
     {
         task.abort();
         let _ = task.await;
     }
     background.abort();
     realtime.abort();
-    notifier.abort();
     let _ = background.await;
     let _ = realtime.await;
-    let _ = notifier.await;
     if !server_done {
         let _ = server.await;
     }
@@ -471,6 +490,95 @@ pub async fn run(
         let _ = fs::remove_file(published);
     }
     result
+}
+
+/// Runs the backend on `main` and restarts it on the demo root (or back) when a demo route
+/// asks, always on the first bound port so the webview origin never changes.
+pub async fn supervise(
+    mut main: Config,
+    ready: oneshot::Sender<u16>,
+    mut stop: oneshot::Receiver<()>,
+) -> Result<()> {
+    let (switch_tx, mut switches) = tokio::sync::mpsc::unbounded_channel();
+    main.switch = Some(switch_tx);
+    let mut current = main.clone();
+    let mut ready = Some(ready);
+    // held while the demo runs, so no other instance claims the real root meanwhile
+    let mut main_lock = None;
+    loop {
+        if !current.demo {
+            main_lock = None;
+        }
+        let (bound_tx, bound_rx) = oneshot::channel();
+        let (stop_tx, stop_rx) = oneshot::channel();
+        let mut backend = tokio::spawn(run(current.clone(), bound_tx, stop_rx));
+        let bound = tokio::select! {
+            _ = &mut stop => {
+                let _ = stop_tx.send(());
+                return backend.await.context("backend task")?;
+            }
+            bound = bound_rx => bound,
+        };
+        let Ok(port) = bound else {
+            let error = match backend.await.context("backend task")? {
+                Ok(()) => anyhow::anyhow!("backend stopped before binding"),
+                Err(error) => error,
+            };
+            if current.demo {
+                eprintln!("demo workspace failed to start: {error:#}");
+                current = main.clone();
+                continue;
+            }
+            return Err(error);
+        };
+        main.port = port;
+        if let Some(ready) = ready.take() {
+            let _ = ready.send(port);
+        }
+        let next = tokio::select! {
+            _ = &mut stop => {
+                let _ = stop_tx.send(());
+                return backend.await.context("backend task")?;
+            }
+            Some(next) = switches.recv() => {
+                let _ = stop_tx.send(());
+                backend.await.context("backend task")??;
+                next
+            }
+            result = &mut backend => {
+                let result = result.context("backend task")?;
+                if !current.demo {
+                    return result;
+                }
+                eprintln!("demo workspace stopped: {:#}", result.err().unwrap_or_else(|| anyhow::anyhow!("no error")));
+                demo::Switch::Main
+            }
+        };
+        current = match next {
+            demo::Switch::Main => main.clone(),
+            demo::Switch::Demo { reset } => {
+                if main_lock.is_none() {
+                    let root = main.root.clone();
+                    main_lock = Some(
+                        blocking::spawn(move || {
+                            pg::lock_root_within(&root, Duration::from_secs(15))
+                        })
+                        .await??,
+                    );
+                }
+                // a replay that stopped halfway would duplicate data on the next try
+                if reset || !demo::seeded(&main.root) {
+                    let root = main.root.clone();
+                    blocking::spawn(move || demo::wipe(&root)).await??;
+                }
+                Config {
+                    root: demo::root(&main.root),
+                    demo: true,
+                    ..main.clone()
+                }
+            }
+        };
+    }
 }
 
 #[cfg(test)]

@@ -34,7 +34,7 @@ import { List } from "../sessions/List";
 import { filterSessionBoard, sortSessionBoard, type Sort } from "../sessions/SessionSort";
 import { SessionBar } from "../sessions/SessionBar";
 import { ImportClaudeModal } from "../modals/ImportClaudeModal";
-import { DemoBanner, isDemo, WelcomeCard } from "./DemoPreview";
+import { DemoBanner, WelcomeCard } from "./Demo";
 import { NewSessionModal, NewUdbModal } from "../modals/modals";
 import { SettingsModal } from "../modals/SettingsModal";
 import { DbActions, HeaderTitle, PageActions } from "./AppHeader";
@@ -117,6 +117,7 @@ export function App() {
   // only "hide empty" stays a per-device preference.
   const [dense, setDense] = useLocalStorage("trame:denseBoard", false, BOOL_CODEC);
   const [hideEmpty, setHideEmpty] = useLocalStorage("trame:hideEmpty", false, BOOL_CODEC);
+  const [welcomeHidden, setWelcomeHidden] = useLocalStorage("trame:welcomeHidden", false, BOOL_CODEC);
   const [modal, setModal] = useState<
     | "session"
     | "settings"
@@ -574,7 +575,7 @@ export function App() {
       />
       )}
       <main className="relative flex min-w-0 flex-1 flex-col">
-        {isDemo(status) && <DemoBanner />}
+        {status?.demo && <DemoBanner />}
         {zen && (
           <button
             type="button"
@@ -693,8 +694,8 @@ export function App() {
         )}
         {!board
           ? <EmptyState page>Loading…</EmptyState>
-          : view === "board" && !isDemo(status) && board.sessions.length === 0
-          ? <WelcomeCard />
+          : view === "board" && !status?.demo && !welcomeHidden && board.sessions.length === 0
+          ? <WelcomeCard onImport={() => setModal("import")} onDismiss={() => setWelcomeHidden(true)} />
           : view === "board"
           ? (
             <Board

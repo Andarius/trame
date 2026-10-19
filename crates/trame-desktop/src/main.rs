@@ -81,9 +81,7 @@ fn main() -> anyhow::Result<()> {
         let window = window
             .on_navigation(move |url| {
                 url.scheme() == "tauri" || url.host_str() == Some("tauri.localhost") ||
-                    (url.scheme() == "http" && url.host_str() == Some("127.0.0.1") && url.port() == Some(nav_port.load(Ordering::SeqCst))) ||
-                    // demo-workspace prototype: let debug builds hop to the demo instance's port
-                    (cfg!(debug_assertions) && url.scheme() == "http" && url.host_str() == Some("127.0.0.1"))
+                    (url.scheme() == "http" && url.host_str() == Some("127.0.0.1") && url.port() == Some(nav_port.load(Ordering::SeqCst)))
             })
             .on_page_load(move |window, payload| {
                 if !matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) || started.swap(true, Ordering::SeqCst) { return; }
@@ -93,7 +91,7 @@ fn main() -> anyhow::Result<()> {
                 let error_window = window.clone();
                 let backend_exit_code = setup_exit_code.clone();
                 let backend = setup_runtime.spawn(async move {
-                    let result = trame_local::run(config, ready_tx, stop_rx).await;
+                    let result = trame_local::supervise(config, ready_tx, stop_rx).await;
                     if let Err(error) = &result {
                         backend_exit_code.store(1, Ordering::SeqCst);
                         eprintln!("Local backend failed: {error:#}");

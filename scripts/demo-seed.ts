@@ -1,17 +1,38 @@
 // DESCRIPTION: seed a Trame instance with the synthetic demo dataset used for the README
-// screenshots (docs/*.png). Fictional projects only — never point this at a real instance.
-// USAGE: TRAME_URL=http://127.0.0.1:8799 deno run -A scripts/demo-seed.ts
+// screenshots (docs/*.png) and the in-app demo workspace. Fictional projects only — never
+// point this at a real instance. With DEMO_RECORD set, also write the calls as a demo bundle
+// the app replays (UUIDs keyed by JSON pointer, dates shifted from recorded_on).
+// USAGE: TRAME_URL=http://127.0.0.1:8799 [DEMO_RECORD=demo.json] deno run -A scripts/demo-seed.ts
 // EXAMPLES: just demo   (spins up an isolated instance, seeds it, and serves it)
+//           just demo-bundle   (records .scratch/demo-bundle/demo.json)
 const base = Deno.env.get("TRAME_URL") ?? "http://127.0.0.1:8799";
+const record = Deno.env.get("DEMO_RECORD");
+// bump with the app's DEMO_FORMAT when the bundle shape or a replayed route changes
+const DEMO_FORMAT = 1;
+
+type Op = { method: "GET" | "POST"; path: string; body?: unknown; ids: Record<string, string> };
+const ops: Op[] = [];
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const uuids = (value: unknown, pointer = "", out: Record<string, string> = {}) => {
+  if (typeof value === "string" && UUID.test(value)) out[pointer] = value;
+  else if (Array.isArray(value)) value.forEach((v, i) => uuids(v, `${pointer}/${i}`, out));
+  else if (value && typeof value === "object") {
+    for (const [k, v] of Object.entries(value)) uuids(v, `${pointer}/${k.replaceAll("~", "~0").replaceAll("/", "~1")}`, out);
+  }
+  return out;
+};
 
 const api = async (path: string, body?: unknown) => {
+  const method = body === undefined ? "GET" : "POST";
   const res = await fetch(`${base}${path}`, {
-    method: body === undefined ? "GET" : "POST",
+    method,
     headers: body === undefined ? {} : { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`${path} → ${res.status} ${await res.text()}`);
-  return res.json();
+  const json = await res.json();
+  if (record) ops.push({ method, path, body, ids: uuids(json) });
+  return json;
 };
 
 const PROJECT_COLOR: Record<string, string> = {
@@ -273,5 +294,11 @@ await api(`/api/udb/${modelsDb}`, {
     ],
   },
 });
+
+if (record) {
+  const recorded_on = new Date().toISOString().slice(0, 10);
+  await Deno.writeTextFile(record, JSON.stringify({ format: DEMO_FORMAT, recorded_on, ops }));
+  console.log(`recorded ${ops.length} calls → ${record}`);
+}
 
 console.log(`seeded ${base}: ${SESSIONS.length} sessions, 3 projects, 2 pages, 3 databases, ${runN} eval runs`);

@@ -31,6 +31,18 @@ pub fn owns(method: &str, path: &str) -> bool {
 }
 pub async fn serve(state: Native, req: Request<Body>) -> Response {
     let path = req.uri().path().to_owned();
+    // agents launched from the demo would write to the real app or hub
+    if state.demo.active
+        && matches!(
+            path.as_str(),
+            "/api/resume" | "/api/resume-all" | "/api/watcher/start"
+        )
+    {
+        return crate::routes::json_response(
+            409,
+            json!({"error":"not available in the demo workspace"}),
+        );
+    }
     let Ok(bytes) = axum::body::to_bytes(req.into_body(), usize::MAX).await else {
         return (StatusCode::BAD_REQUEST, "body unavailable").into_response();
     };

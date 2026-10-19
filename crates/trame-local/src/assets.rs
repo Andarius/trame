@@ -38,9 +38,7 @@ fn text(status: u16, body: &'static str) -> Response {
     (StatusCode::from_u16(status).unwrap(), body).into_response()
 }
 fn assets_dir(root: &Path) -> Result<PathBuf> {
-    let path = std::env::var_os("TRACKER_ASSETS_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| root.join("assets"));
+    let path = crate::demo::env_path("TRACKER_ASSETS_DIR").unwrap_or_else(|| root.join("assets"));
     if crate::isolated_mode() || crate::scratch_path(root).is_ok() {
         crate::scratch_path(&path)
     } else {
@@ -311,7 +309,12 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
         if bytes.len() > MAX_BYTES {
             return json_response(413, json!({"error":"too large (10 MB max)"}));
         }
-        let s3 = S3::config();
+        // demo uploads stay in the demo root
+        let s3 = if crate::demo::active() {
+            None
+        } else {
+            S3::config()
+        };
         if s3.as_ref().is_some_and(|s3| s3_blocked_offline(&state, s3)) {
             return json_response(503, json!({"error":"unavailable in offline mode"}));
         }

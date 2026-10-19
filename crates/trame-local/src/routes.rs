@@ -16,6 +16,7 @@ pub struct Native {
     pub sync: crate::sync::Sync,
     pub port: u16,
     pub desktop: bool,
+    pub demo: crate::demo::Demo,
 }
 
 pub fn owns(method: &str, path: &str) -> bool {
