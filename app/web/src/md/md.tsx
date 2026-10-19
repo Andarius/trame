@@ -7,6 +7,7 @@
 // Underscore emphasis is intentionally NOT supported so snake_case survives.
 import {
   Fragment,
+  type JSX,
   type ReactNode,
   useEffect,
   useRef,
