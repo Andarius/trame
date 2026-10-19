@@ -200,10 +200,10 @@ check:
     cargo check --workspace --locked
     npm run typecheck --prefix app/web
 
-# The hub API is its own Bun project (own deps) — check/test/lint it too (matches CI)
+# The hub API is its own Bun project (own deps) — check and test it too (matches CI; `just ts-check` lints it)
 [group('dev')]
 check-hub:
-    cd hub/api && bun install --frozen-lockfile && bun run typecheck && bun test && deno lint --ignore=link-embed.ts
+    cd hub/api && bun install --frozen-lockfile && bun run typecheck && bun test
 
 # Native and hub checks
 [group('dev')]

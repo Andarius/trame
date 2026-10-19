@@ -83,7 +83,7 @@ await pg.query(
 
 const app = createLinkApp(q(pg));
 
-// deno-lint-ignore no-explicit-any
+// oxlint-disable-next-line typescript/no-explicit-any
 async function payloadOf(path: string): Promise<any> {
   const html = await (await app.request(path)).text();
   const m = html.match(/window\.__TRAME_LINK__ = (.*);<\/script>/);

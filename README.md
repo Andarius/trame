@@ -48,7 +48,7 @@ the hub. (Design + migration story: `docs-site/src/content/docs/hub-api.md`.)
 
 ## Requirements
 - **Linux x64** packaged app (deb, snap, or AppImage); no installed Deno runtime is required.
-- Source builds use **Rust**, Tauri/WebKitGTK build libraries, **Node/npm**, and **Bun 1.3+** for the hub API, plugin host, tooling and tests (**Deno 2.9+** only for lint, until oxlint).
+- Source builds use **Rust**, Tauri/WebKitGTK build libraries, **Node/npm**, and **Bun 1.3+** for the hub API, plugin host, tooling and tests.
 - **Docker + openssl** on the hub machine (certs are generated there; the CA key never leaves it).
 - Laptops reach the hub's API over the **home LAN** (no Tailscale required;
   the hub binds to its LAN IP — install Tailscale there if you want sync away from home).

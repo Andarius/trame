@@ -55,7 +55,7 @@ export function MermaidBlock({ text }: { text: string }) {
     ? (
       <div
         className="my-1.5 overflow-x-auto [&_svg]:max-w-full"
-        // deno-lint-ignore react-no-danger
+        // oxlint-disable-next-line react/no-danger
         dangerouslySetInnerHTML={{ __html: svg }}
       />
     )
