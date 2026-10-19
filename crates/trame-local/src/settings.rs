@@ -127,6 +127,8 @@ pub fn explore(path: &Path) -> Result<Value> {
         strings(&s["reportPaths"])?
     } else {
         std::env::var("TRACKER_REPORT_PATHS")
+            .ok()
+            .filter(|_| !crate::demo::active())
             .unwrap_or_default()
             .split(':')
             .map(trim)

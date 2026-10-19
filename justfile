@@ -254,6 +254,42 @@ demo: web-build
     echo "demo → http://127.0.0.1:8799  (ctrl-c to stop)"
     wait
 
+# Record the in-app demo bundle (.scratch/demo-bundle/demo.json) from a fresh seeded instance
+[group('docs')]
+demo-bundle:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dir="$PWD/.scratch/demo-bundle"
+    bash scripts/rust-package.sh prepare
+    cargo build -p trame-local --locked
+    rm -rf -- "$dir"
+    mkdir -p "$dir/claude-projects"
+    export TRACKER_HUB_API= TRACKER_HUB_API_TOKEN= TRACKER_NODE_ID=demo TRACKER_UPDATE_CHECK=0
+    export TRAME_ISOLATED=1 TRAME_OFFLINE=1 TRAME_LOCAL_DIR="$dir/root" TRAME_WEB_DIR="$PWD/app/web/dist"
+    export TRAME_PG_BIN="$PWD/.scratch/package/pg/usr/lib/postgresql/18/bin"
+    export TRACKER_PORT=8797 TRACKER_HOST=127.0.0.1 TRACKER_PORT_FILE="$dir/root/port.json"
+    export TRACKER_SETTINGS_FILE="$dir/root/settings.json" TRACKER_CLAUDE_DIR="$dir/claude-projects"
+    ./target/debug/trame-local &
+    server_pid=$!
+    trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true' EXIT
+    until curl -sf http://127.0.0.1:8797/api/status >/dev/null 2>&1; do
+      if ! kill -0 "$server_pid" 2>/dev/null; then wait "$server_pid"; exit 1; fi
+      sleep 1
+    done
+    DEMO_RECORD="$dir/demo.json" TRAME_URL=http://127.0.0.1:8797 \
+      bun scripts/demo-seed.ts
+
+# Upload the recorded bundle to the demo-f<format> release the app downloads from
+[group('docs')]
+demo-publish:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bundle="$PWD/.scratch/demo-bundle/demo.json"
+    tag="demo-f$(jq -r .format "$bundle")"
+    gh release view "$tag" >/dev/null 2>&1 \
+      || gh release create "$tag" --title "Demo workspace data ($tag)" --notes "Sample data the desktop app downloads for its demo workspace." --latest=false
+    gh release upload "$tag" "$bundle" --clobber
+
 # Serve the docs site with HMR (Astro + Starlight, http://localhost:4321)
 [group('docs')]
 docs:

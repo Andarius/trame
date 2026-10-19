@@ -34,6 +34,7 @@ import { List } from "../sessions/List";
 import { filterSessionBoard, sortSessionBoard, type Sort } from "../sessions/SessionSort";
 import { SessionBar } from "../sessions/SessionBar";
 import { ImportClaudeModal } from "../modals/ImportClaudeModal";
+import { DemoBanner, WelcomeCard } from "./Demo";
 import { NewSessionModal, NewUdbModal } from "../modals/modals";
 import { SettingsModal } from "../modals/SettingsModal";
 import { DbActions, HeaderTitle, PageActions } from "./AppHeader";
@@ -120,6 +121,7 @@ export function App() {
   // only "hide empty" stays a per-device preference.
   const [dense, setDense] = useLocalStorage("trame:denseBoard", false, BOOL_CODEC);
   const [hideEmpty, setHideEmpty] = useLocalStorage("trame:hideEmpty", false, BOOL_CODEC);
+  const [welcomeHidden, setWelcomeHidden] = useLocalStorage("trame:welcomeHidden", false, BOOL_CODEC);
   const [modal, setModal] = useState<
     | "session"
     | "settings"
@@ -226,6 +228,21 @@ export function App() {
     addEventListener("keydown", h);
     return () => removeEventListener("keydown", h);
   }, []);
+
+  // Ctrl/Cmd+R and F5 reload the desktop window (WebKitGTK has no reload shortcut)
+  useEffect(() => {
+    if (!status?.desktop) return;
+    const h = (e: KeyboardEvent) => {
+      const reload = e.key === "F5" ||
+        ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "r");
+      if (reload) {
+        e.preventDefault();
+        location.reload();
+      }
+    };
+    addEventListener("keydown", h);
+    return () => removeEventListener("keydown", h);
+  }, [status?.desktop]);
 
   const onPalettePick = (h: SearchHit) => {
     setPaletteOpen(false);
@@ -611,6 +628,7 @@ export function App() {
       />
       )}
       <main className="relative flex min-w-0 flex-1 flex-col">
+        {status?.demo && <DemoBanner />}
         {zen && (
           <button
             type="button"
@@ -736,6 +754,8 @@ export function App() {
         <div className={`relative min-h-0 flex-1 flex-col ${terminals || (termDock.open && termDock.max) ? "hidden" : "flex"}`}>
         {!board
           ? <EmptyState page>Loading…</EmptyState>
+          : view === "board" && !status?.demo && !welcomeHidden && board.sessions.length === 0
+          ? <WelcomeCard onImport={() => setModal("import")} onDismiss={() => setWelcomeHidden(true)} />
           : view === "board"
           ? (
             <Board

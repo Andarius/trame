@@ -60,6 +60,9 @@ async fn forward(State(state): State<Proxy>, req: Request<Body>) -> Response {
         return (StatusCode::FORBIDDEN, "local request required").into_response();
     }
     let native = &state.native;
+    if crate::demo::owns(req.uri().path()) {
+        return crate::demo::serve(native, &req);
+    }
     if crate::pty::owns(req.uri().path()) {
         return crate::pty::serve(&native.root, req).await;
     }

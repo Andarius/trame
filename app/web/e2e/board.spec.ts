@@ -6,6 +6,11 @@ test.describe.configure({ mode: "serial" });
 test("board renders the empty shell", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByText("Trame", { exact: true })).toBeVisible();
+  // an empty board greets first; the demo button needs the desktop app
+  await expect(page.getByText("Welcome to Trame")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Import your Claude Code/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Explore a demo workspace/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "Skip", exact: true }).click();
   for (const col of ["Active", "Paused", "Blocked", "Done"]) {
     await expect(page.getByText(col, { exact: true })).toBeVisible();
   }

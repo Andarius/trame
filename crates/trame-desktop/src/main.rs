@@ -91,7 +91,7 @@ fn main() -> anyhow::Result<()> {
                 let error_window = window.clone();
                 let backend_exit_code = setup_exit_code.clone();
                 let backend = setup_runtime.spawn(async move {
-                    let result = trame_local::run(config, ready_tx, stop_rx).await;
+                    let result = trame_local::supervise(config, ready_tx, stop_rx).await;
                     if let Err(error) = &result {
                         backend_exit_code.store(1, Ordering::SeqCst);
                         eprintln!("Local backend failed: {error:#}");

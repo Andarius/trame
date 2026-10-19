@@ -33,9 +33,8 @@ pub fn initialize(root: &Path, origin: &str, settings: &Path) -> Result<()> {
         .batch_execute(include_str!("../../../db/schema.sql"))?;
     crate::udb::formula::ensure_role(&mut db)?;
     crate::local::claim_device(&mut db)?;
-    let outbox = std::env::var_os("TRACKER_OUTBOX")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| root.join("outbox.jsonl"));
+    let outbox =
+        crate::demo::env_path("TRACKER_OUTBOX").unwrap_or_else(|| root.join("outbox.jsonl"));
     if crate::isolated_mode() {
         crate::scratch_path(&outbox)?;
     }
