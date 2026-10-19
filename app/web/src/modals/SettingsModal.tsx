@@ -20,6 +20,7 @@ import { applyTheme, getTheme, type Theme } from "../ui/theme";
 import { CheckRow, Footer, label, pill, seg, segTrack } from "./modal-ui";
 import { Modal, IconButton } from "../ui/ui";
 import { dataUriToIcon } from "../udb/cells";
+import { DemoLauncher, useDemoAvailable } from "../app/Demo";
 
 // One folder input with directory autocomplete: typing fetches sub-dir suggestions
 // (debounced), ↑/↓ to move, Enter/Tab to accept, Esc to dismiss, click to pick.
@@ -178,6 +179,7 @@ export function SettingsModal(
   const [theme, setTheme] = useState(getTheme);
   const [authorName, setAuthorName] = useState("");
   const [authorAvatar, setAuthorAvatar] = useState("");
+  const demoAvailable = useDemoAvailable();
   const [pluginList, setPluginList] = useState<PluginManifest[]>([]);
   const [presence, setPresence] = useState<AgentPresenceSettings | null>(null);
   const setP = (patch: Partial<AgentPresenceSettings>) => setPresence((p) => p && { ...p, ...patch });
@@ -460,6 +462,18 @@ export function SettingsModal(
           Manage plugins →
         </button>
       </div>
+
+      {demoAvailable && (
+        <>
+          <div className="h-px bg-line" />
+          <div className="text-[14px] font-semibold">Demo workspace</div>
+          <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
+            Sample projects, pages and databases in a separate workspace. Your data stays untouched; exit from
+            the demo banner to come back.
+          </p>
+          <DemoLauncher className="self-start" />
+        </>
+      )}
 
       <div className="h-px bg-line" />
       <div className="text-[14px] font-semibold">Embeds</div>

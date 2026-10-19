@@ -71,13 +71,19 @@ function Progress({ pct, label }: { pct: number; label: string }) {
   );
 }
 
-export function WelcomeCard({ onImport, onDismiss }: { onImport: () => void; onDismiss: () => void }) {
-  const [canDemo, setCanDemo] = useState(false);
+// true in the desktop app, outside the demo itself
+export function useDemoAvailable() {
+  const [available, setAvailable] = useState(false);
+  useEffect(() => {
+    quiet(() => Promise.all([getDemo(), getStatus()])).then((r) => setAvailable(!!r && r[0].available && !r[1].demo));
+  }, []);
+  return available;
+}
+
+// "Explore a demo workspace" button with download/restart progress
+export function DemoLauncher({ className }: { className?: string }) {
   const [progress, setProgress] = useState<{ pct: number; label: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    quiet(getDemo).then((d) => setCanDemo(!!d?.available));
-  }, []);
   const explore = () => {
     setError(null);
     setProgress({ pct: 0, label: "Downloading sample data" });
@@ -87,6 +93,24 @@ export function WelcomeCard({ onImport, onDismiss }: { onImport: () => void; onD
     });
   };
   return (
+    <div className={`flex flex-col gap-2.5 ${className ?? ""}`}>
+      {progress ? <Progress pct={progress.pct} label={progress.label} /> : (
+        <button
+          type="button"
+          onClick={explore}
+          className="rounded-md bg-copper px-3 py-2 text-sm font-medium text-copper-ink"
+        >
+          {error ? "Try the demo again" : "Explore a demo workspace"}
+        </button>
+      )}
+      {error && <p className="m-0 text-xs text-blocked">{error}</p>}
+    </div>
+  );
+}
+
+export function WelcomeCard({ onImport, onDismiss }: { onImport: () => void; onDismiss: () => void }) {
+  const canDemo = useDemoAvailable();
+  return (
     <div className="flex flex-1 items-center justify-center p-6">
       <div className="w-full max-w-md rounded-xl border border-line bg-panel p-7">
         <h2 className="text-lg font-semibold text-ink">Welcome to Trame</h2>
@@ -94,18 +118,7 @@ export function WelcomeCard({ onImport, onDismiss }: { onImport: () => void; onD
           Your board is empty. Sessions show up here as soon as a coding agent starts tracking its work.
         </p>
         <div className="mt-6 flex flex-col gap-2.5">
-          {canDemo && (progress
-            ? <Progress pct={progress.pct} label={progress.label} />
-            : (
-              <button
-                type="button"
-                onClick={explore}
-                className="rounded-md bg-copper px-3 py-2 text-sm font-medium text-copper-ink"
-              >
-                {error ? "Try the demo again" : "Explore a demo workspace"}
-              </button>
-            ))}
-          {error && <p className="text-xs text-blocked">{error}</p>}
+          {canDemo && <DemoLauncher />}
           <button
             type="button"
             onClick={onImport}
@@ -125,7 +138,7 @@ export function WelcomeCard({ onImport, onDismiss }: { onImport: () => void; onD
         {canDemo && (
           <p className="mt-4 text-xs text-ink-muted/70">
             The demo opens in this window with sample projects, pages and databases. Your workspace stays untouched;
-            exit at any time to come back.
+            exit at any time to come back. It is also in Settings.
           </p>
         )}
       </div>
