@@ -1,5 +1,6 @@
 // "Fill from a SQL query": the right-side drawer that connects (or edits) a source for one database.
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { getUdb } from "../../api";
 import { FIELD_LABEL, IconButton, Select } from "../../ui/ui";
 import {
@@ -154,7 +155,8 @@ export function SqlSourceDrawer({ dbId, editId, onClose, onDone }: {
     { value: NEW, label: "＋ new connection" },
   ];
 
-  return (
+  // on body: an inline database sits in the page editor, maybe under a transform
+  return createPortal(
     <div className="fixed inset-y-0 right-0 z-40 flex w-[400px] max-w-full flex-col overflow-y-auto border-l border-line bg-sidebar shadow-[-16px_0_40px_rgba(0,0,0,0.35)]">
       <div className="flex items-center gap-2 px-4 pb-1 pt-3.5">
         <span className="text-[13px] text-copper">⇣</span>
@@ -307,6 +309,7 @@ export function SqlSourceDrawer({ dbId, editId, onClose, onDone }: {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

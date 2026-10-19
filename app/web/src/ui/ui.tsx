@@ -193,14 +193,35 @@ export function Modal(
 const popoverStack: symbol[] = [];
 
 export function Popover(
-  { onClose, children, className, style }: {
+  { onClose, children, className, style, portal = false }: {
     onClose: () => void;
     children: ReactNode;
     className?: string;
     style?: CSSProperties;
+    portal?: boolean; // rendered on body, below its anchor: escapes a scrolling (clipping) parent
   },
 ) {
   const ref = useRef<HTMLDivElement>(null);
+  const anchor = useRef<HTMLSpanElement>(null);
+  const [at, setAt] = useState<{ left: number; top: number } | null>(null);
+  useEffect(() => {
+    if (!portal) return;
+    const place = () => {
+      const r = anchor.current?.parentElement?.getBoundingClientRect();
+      if (!r) return;
+      const w = ref.current?.offsetWidth ?? 0, h = ref.current?.offsetHeight ?? 0;
+      // flips above the anchor when it would run off the bottom
+      const top = r.bottom + 4 + h > innerHeight ? Math.max(8, r.top - 4 - h) : r.bottom + 4;
+      setAt({ left: Math.max(8, Math.min(r.left, innerWidth - w - 8)), top });
+    };
+    place();
+    addEventListener("scroll", place, true);
+    addEventListener("resize", place);
+    return () => {
+      removeEventListener("scroll", place, true);
+      removeEventListener("resize", place);
+    };
+  }, [portal]);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   useEffect(() => {
@@ -224,10 +245,27 @@ export function Popover(
       document.removeEventListener("keydown", k, true);
     };
   }, []);
+  const box = "min-w-[210px] rounded-lg border border-chipline bg-panel-modal p-1.5 shadow-2xl shadow-black/60";
+  if (portal) {
+    return (
+      <span ref={anchor} hidden>
+        {createPortal(
+          <div
+            ref={ref}
+            className={`fixed z-50 ${box} ${className ?? ""}`}
+            style={{ ...style, left: at?.left ?? 0, top: at?.top ?? 0, visibility: at ? undefined : "hidden" }}
+          >
+            {children}
+          </div>,
+          document.body,
+        )}
+      </span>
+    );
+  }
   return (
     <div
       ref={ref}
-      className={`absolute left-0 top-full z-40 mt-1 min-w-[210px] rounded-lg border border-chipline bg-panel-modal p-1.5 shadow-2xl shadow-black/60 ${className ?? ""}`}
+      className={`absolute left-0 top-full z-40 mt-1 ${box} ${className ?? ""}`}
       style={style}
     >
       {children}

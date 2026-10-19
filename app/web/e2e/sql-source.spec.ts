@@ -74,3 +74,16 @@ test("disconnect keeps the rows and frees the columns", async ({ page }) => {
   await expect(rows).toHaveCount(2);
   await expect(rows.first().locator("input").first()).toHaveValue("Alpha");
 });
+
+test("an inline database offers Connect and an unclipped column editor while editing", async ({ page, request }) => {
+  const { id: pageId } = await (await request.post("/api/pages", { data: { title: "Inline SQL", kind: "page" } })).json();
+  const { id: dbId } = await (await request.post("/api/udb", { data: { name: "Inline metrics" } })).json();
+  await request.post(`/api/udb/${dbId}`, { data: { page_id: pageId } });
+  for (let i = 0; i < 3; i++) await request.post(`/api/udb/${dbId}/rows`, { data: {} });
+  await page.goto(`/?view=page&page=${pageId}`);
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await expect(page.getByRole("button", { name: "⇣ Connect" })).toBeVisible();
+  // the short table's scroll pane used to clip the column editor
+  await page.getByRole("button", { name: /^Aa\s*Name/ }).click();
+  await expect(page.getByRole("button", { name: "Save" })).toBeInViewport({ ratio: 1 });
+});
