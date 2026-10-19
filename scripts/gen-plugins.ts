@@ -2,8 +2,9 @@
 //   { "plugins": ["../my-plugin"] }   (paths relative to the repo root, or absolute)
 // A plugin checkout may hold mod.ts (backend), web/index.ts (frontend), e2e/*.spec.ts and
 // mark-roles.json (what its page marks mean to the hierarchy, see core/mark-roles.ts).
-// Writes the registries the app imports statically (no runtime loading: deno desktop + WebKitGTK).
+// Writes the registries the app imports statically (no runtime loading).
 // Without the file the registries are written empty, which is what the committed copies hold.
+import { lstat, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 
 const ROOT = new URL("..", import.meta.url).pathname;
@@ -13,20 +14,20 @@ const OUT = {
   css: join(ROOT, "app/web/src/plugins/local.gen.css"),
   roles: join(ROOT, "core/mark-roles.gen.ts"),
 };
-const exists = (p: string) => Deno.stat(p).then(() => true, () => false);
+const exists = (p: string) => stat(p).then(() => true, () => false);
 
 let paths: string[] = [];
 try {
-  paths = JSON.parse(await Deno.readTextFile(join(ROOT, "plugins.local.json"))).plugins ?? [];
+  paths = JSON.parse(await readFile(join(ROOT, "plugins.local.json"), "utf8")).plugins ?? [];
 } catch (e) {
-  if (!(e instanceof Deno.errors.NotFound)) throw e;
+  if (!((e as NodeJS.ErrnoException).code === "ENOENT")) throw e;
 }
 
 const dirs = paths.map((p) => resolve(ROOT, p));
 for (const d of dirs) {
   if (!await exists(d)) {
     console.error(`gen-plugins: ${d} (from plugins.local.json) does not exist`);
-    Deno.exit(1);
+    process.exit(1);
   }
 }
 
@@ -49,7 +50,7 @@ async function markRoles() {
   const rules: { mark: string; value: string; role: string }[] = [];
   for (const d of dirs) {
     const f = join(d, "mark-roles.json");
-    if (await exists(f)) rules.push(...JSON.parse(await Deno.readTextFile(f)));
+    if (await exists(f)) rules.push(...JSON.parse(await readFile(f, "utf8")));
   }
   return rules.map((r) =>
     `\n  { mark: ${JSON.stringify(r.mark)}, value: new RegExp(${JSON.stringify(r.value)}), role: ${JSON.stringify(r.role)} },`
@@ -66,22 +67,19 @@ const files: [string, string][] = [
   [OUT.roles, HEADER + `import type { MarkRule } from "./mark-roles.ts";\n\n` +
     `export const LOCAL_MARK_ROLES: MarkRule[] = [${await markRoles()}];\n`],
 ];
-for (const [path, text] of files) await Deno.writeTextFile(path, text);
+for (const [path, text] of files) await writeFile(path, text);
 
 // a plugin resolves react / @playwright/test from the app's own node_modules (one copy of each)
 for (const d of dirs) {
   const link = join(d, "node_modules");
-  const isLink = await Deno.lstat(link).then((s) => s.isSymlink, () => null);
+  const isLink = await lstat(link).then((s) => s.isSymbolicLink(), () => null);
   if (isLink === false) continue; // the plugin's own node_modules
-  if (isLink) await Deno.remove(link);
-  await Deno.symlink(join(ROOT, "app/web/node_modules"), link);
+  if (isLink) await rm(link);
+  await symlink(join(ROOT, "app/web/node_modules"), link);
 }
 
 // the committed copies stay empty: keep a composed checkout's copies out of commits
 const flag = dirs.length ? "--skip-worktree" : "--no-skip-worktree";
-await new Deno.Command("git", {
-  args: ["update-index", flag, ...Object.values(OUT).map((p) => relative(ROOT, p))],
-  cwd: ROOT,
-}).output();
+Bun.spawnSync(["git", "update-index", flag, ...Object.values(OUT).map((p) => relative(ROOT, p))], { cwd: ROOT });
 
 console.log(`gen-plugins: ${dirs.length ? dirs.join(", ") : "no local plugins"}`);

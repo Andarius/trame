@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { drag } from "d3-drag";
 import {
   forceCollide,
@@ -99,9 +99,8 @@ export default function Graph(
     graph.links.map((l) => `${l.source}>${l.target}`),
   ]);
 
-  useEffect(() => {
-    const el = svgRef.current;
-    if (!el) return;
+  // reads the latest graph and extras; the effect below rebuilds only when `shape` changes
+  const buildSimulation = useEffectEvent((el: SVGSVGElement) => {
     const { width, height } = el.getBoundingClientRect();
     const nodes: Node[] = graph.nodes.map((n) => ({ ...n, ...placed.get(n.id) }));
     const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -406,7 +405,11 @@ export default function Graph(
       focusRef.current = null;
       setTip(null);
     };
-  }, [shape]); // `shape` stands in for `graph`
+  });
+  useEffect(() => {
+    const el = svgRef.current;
+    if (el) return buildSimulation(el);
+  }, [shape]);
 
   const focus = openId ? `card:${openId}` : peek;
   useEffect(() => focusRef.current?.(focus, peek ? -PEEK_W / 2 : 0), [focus, peek, shape]);

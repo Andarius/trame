@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "bun:test";
 import { repoTitle } from "./repo-title.ts";
 
 for (
@@ -9,5 +9,5 @@ for (
     ["no separator", "Product tools", { repo: null, title: "Product tools" }],
   ] as const
 ) {
-  Deno.test(`repoTitle: ${id}`, () => assertEquals(repoTitle({ title }), want));
+  test(`repoTitle: ${id}`, () => expect(repoTitle({ title })).toStrictEqual(want));
 }

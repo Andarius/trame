@@ -3,6 +3,7 @@ export type View =
   | "list"
   | "graph"
   | "agents"
+  | "terminals"
   | "explore"
   | "database"
   | "page"

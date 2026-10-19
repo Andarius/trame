@@ -34,6 +34,21 @@ fn html(status: u16, body: String) -> Response {
     )
         .into_response()
 }
+// agent-written HTML runs on an opaque origin, so its scripts can't drive the local API
+fn report_html(body: String) -> Response {
+    (
+        StatusCode::OK,
+        [
+            ("content-type", "text/html; charset=utf-8"),
+            (
+                "content-security-policy",
+                "sandbox allow-scripts allow-popups allow-modals allow-downloads",
+            ),
+        ],
+        body,
+    )
+        .into_response()
+}
 fn text(status: u16, body: &'static str) -> Response {
     (StatusCode::from_u16(status).unwrap(), body).into_response()
 }
@@ -445,7 +460,7 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
         .await;
         return match result {
             Ok(Ok(value)) if !value.is_null() => {
-                html(200, value["html"].as_str().unwrap_or("").to_owned())
+                report_html(value["html"].as_str().unwrap_or("").to_owned())
             }
             Ok(Ok(_)) => html(404, "report not found".into()),
             _ => text(500, "Internal Server Error"),
@@ -472,14 +487,11 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
             };
         }
         return match files::read_report(&state.settings, &file) {
-            Ok(Some(content)) => html(
-                200,
-                if file.ends_with(".excalidraw") {
-                    excalidraw_page(&content, &file)
-                } else {
-                    content
-                },
-            ),
+            // the excalidraw wrapper is ours and saves back to /report-file, so it keeps the origin
+            Ok(Some(content)) if file.ends_with(".excalidraw") => {
+                html(200, excalidraw_page(&content, &file))
+            }
+            Ok(Some(content)) => report_html(content),
             Ok(None) => html(404, "not allowed or not found".into()),
             Err(_) => text(500, "Internal Server Error"),
         };

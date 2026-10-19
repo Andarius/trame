@@ -21,7 +21,7 @@ scp -q "$HERE/../db/schema.sql" "$HOST:$DIR/schema.sql"
 scp -q "$HERE/pg_hba.conf" "$HOST:$DIR/pg_hba.conf"
 scp -q "$HERE/gen-certs.sh" "$HOST:$DIR/gen-certs.sh"
 ssh "$HOST" "mkdir -p ~/$DIR/api ~/$DIR/protocol ~/$DIR/core"
-scp -q "$HERE/api/"*.ts "$HERE/api/deno.json" "$HERE/api/deno.lock" "$HOST:$DIR/api/"
+scp -q "$HERE/api/"*.ts "$HERE/api/package.json" "$HERE/api/bun.lock" "$HOST:$DIR/api/"
 scp -q "$HERE/../protocol/"*.ts "$HOST:$DIR/protocol/"
 scp -q "$HERE/../core/"*.ts "$HOST:$DIR/core/"
 ssh "$HOST" "chmod +x ~/$DIR/gen-certs.sh"
@@ -61,11 +61,11 @@ echo "schema.sql applied"
 # pg_hba.conf is a bind mount — reload so new rules (e.g. the formula role) apply
 docker exec trame-db psql -q -U tracker -d tracker -c "select pg_reload_conf()" > /dev/null
 # api/ + protocol/ + core/ are bind mounts — compose sees no config change, so the running
-# Deno keeps its old in-memory modules; restart to load the freshly copied source
+# Bun keeps its old in-memory modules; restart to load the freshly copied source
 docker restart trame-api > /dev/null
 echo "trame-api restarted"
 echo "hub ready — laptops sync through the API: https://$TRACKER_BIND:8443"
 echo "per laptop: fetch the CA once (just hub-ca), mint a device token:"
-echo "  docker exec trame-api deno run -A --config /srv/hub/api/deno.json /srv/hub/api/main.ts mint <node-id>"
+echo "  docker exec trame-api bun /srv/hub/api/main.ts mint <node-id>"
 echo "then set hubApi/hubApiToken in the laptop's settings.json"
 REMOTE

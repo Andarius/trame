@@ -1,7 +1,6 @@
 // The pure half of database views: value extraction, filtering, multi-sort,
-// grouping and aggregation. Split out of view.tsx so `deno test` can reach it —
-// Deno has no JSX types configured, so a test that transitively imports a .tsx
-// fails to type check. view.tsx re-exports everything here, so import sites are
+// grouping and aggregation. Split out of view.tsx so its unit test stays React-free.
+// view.tsx re-exports everything here, so import sites are
 // unchanged.
 import type { UdbProp, UdbRow } from "../api.ts";
 import type { ChartConfig } from "./chart.ts";

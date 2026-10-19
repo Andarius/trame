@@ -6,7 +6,7 @@ import { appConfirm, SET_CODEC, useLocalStorage } from "../ui/ui";
 /** Polls live agents every 5s and returns the memoised AgentsContext value. */
 export function useAgentsPoll(settingsEpoch: number) {
   const [agents, setAgents] = useState<LiveAgent[]>([]);
-  const [tick, setTick] = useState(0); // re-derives liveness even when a poll fails
+  const [now, setNow] = useState(Date.now); // re-derives liveness even when a poll fails
   const [presenceCfg, setPresenceCfg] = useState<AgentPresenceSettings | null>(null);
   useEffect(() => {
     getSettings().then((s) => setPresenceCfg(s.agentPresence)).catch(() => {});
@@ -14,7 +14,7 @@ export function useAgentsPoll(settingsEpoch: number) {
   useEffect(() => {
     let busy = false; // one request at a time, so an old answer can't land last
     const load = () => {
-      setTick((n) => n + 1);
+      setNow(Date.now());
       if (busy) return;
       busy = true;
       getAgentPresence()
@@ -29,13 +29,13 @@ export function useAgentsPoll(settingsEpoch: number) {
   // same states as before → same object, so the page editor doesn't re-render every poll
   const liveRef = useRef<
     { key: string; value: { live: Live[]; recent: LiveAgent[]; cfg: AgentPresenceSettings | null } }
-  >();
+  >(undefined);
   const agentsCtx = useMemo(() => {
-    const live = liveAgents(agents, presenceCfg);
+    const live = liveAgents(agents, presenceCfg, now);
     const key = JSON.stringify([presenceCfg, live.map((l) => [l.a, l.state]), agents.map((a) => [a.session_id, a.name])]);
     if (liveRef.current?.key !== key) liveRef.current = { key, value: { live, recent: agents, cfg: presenceCfg } };
     return liveRef.current.value;
-  }, [agents, presenceCfg, tick]);
+  }, [agents, presenceCfg, now]);
   return agentsCtx;
 }
 

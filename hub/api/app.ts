@@ -1,13 +1,14 @@
 // Hono app factory — takes the DB adapter so tests run it on PGlite.
 import { type Context, Hono, type Next } from "hono";
 import { PROTOCOL_VERSION } from "../../protocol/entities.ts";
-import { syncRequestSchema } from "../../protocol/schema.ts";
+import { syncRequestSchema } from "./schema.ts";
 import type { SyncRequest } from "../../protocol/types.ts";
 import type { DB } from "./db.ts";
 import { type Caller, verifyToken } from "./auth.ts";
 import { handleCoreApi } from "../../core/api.ts";
 import type { Q as CoreQ } from "../../core/ctx.ts";
 import { formulasDisabled } from "./formula.ts";
+import type { WsServer } from "./realtime.ts";
 
 type Env = { Variables: { caller: Caller } };
 
@@ -101,7 +102,7 @@ export function createApp(
     const caller = await verifyToken(db, c.req.query("token") ?? "");
     if (!caller) return c.json({ error: "invalid or missing token" }, 401);
     const { handleWs } = await import("./realtime.ts");
-    return handleWs(db, c.req.raw, caller.nodeId);
+    return handleWs(db, c.req.raw, caller.nodeId, c.env as WsServer);
   });
 
   app.post("/sync", async (c) => {

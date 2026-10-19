@@ -23,11 +23,11 @@ gate() {                       # $1 label, $2 tool output
 }
 
 if [ -n "$staged" ]; then
-  # match on basenames so it works whether the tool prints web/src/… (deno, absolute)
+  # match on basenames so it works whether the tool prints web/src/… (oxlint, repo-relative)
   # or src/… (tsc, relative to app/web)
   staged_re=$(echo "$staged" | sed 's|.*/||' | sed 's/\./\\./g' | paste -sd'|' -)
-  gate "deno lint"  "$( (cd app && deno lint) 2>&1 || true )"
-  gate "deno check" "$( (cd app && deno check main.ts) 2>&1 || true )"
+  gate "oxlint"     "$(bun run --silent lint 2>&1 || true)"
+  gate "tsc (app)" "$(bunx tsc --noEmit -p . 2>&1 || true)"
   if echo "$staged" | grep -q '^app/web/src/'; then
     gate "tsc --noEmit" "$( (cd app/web && npx tsc --noEmit) 2>&1 || true )"
   fi

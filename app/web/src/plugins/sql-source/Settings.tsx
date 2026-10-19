@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { listUdbs, type UdbMeta } from "../../api";
 import { FIELD_LABEL, timeAgo } from "../../ui/ui";
 import { type Connection, getSettings, saveConnections, scheduleLabel, useSources } from "./api";
+import { SourceLogo } from "./Logo";
 
 const field =
   "w-full rounded-md border border-line bg-panel px-2.5 py-1.5 text-[12px] text-ink outline-none focus:border-chipline";
@@ -38,6 +39,7 @@ function Connections() {
       {conns.length === 0 && <span className="text-[11.5px] text-ink-muted/70">None yet.</span>}
       {conns.map((c) => (
         <div key={c.id} className="flex items-center gap-2 rounded-lg border border-line px-3 py-1.5">
+          <SourceLogo size={18} />
           {renaming === c.id
             ? (
               <input
@@ -88,7 +90,11 @@ function Connections() {
                 disabled={!dsn.trim()}
                 onClick={async () => {
                   const ok = await save([...conns.map(keep), { name: name.trim() || "Connection", dsn: dsn.trim() }]);
-                  if (ok) (setAdding(false), setName(""), setDsn(""));
+                  if (ok) {
+                    setAdding(false);
+                    setName("");
+                    setDsn("");
+                  }
                 }}
               >
                 Save
@@ -123,6 +129,7 @@ export function SqlSourceSettings() {
         {sources?.length === 0 && <span className="text-[11.5px] text-ink-muted/70">No source yet.</span>}
         {sources?.map((s) => (
           <div key={s.id} className="flex items-center gap-2.5 rounded-lg border border-line px-3 py-2">
+            <SourceLogo />
             <span className={`h-[7px] w-[7px] shrink-0 rounded-full ${s.last?.error ? "bg-blocked" : "bg-active"}`} />
             <span className="min-w-0 flex-1 truncate text-[12.5px]">
               {s.name || s.id} <span className="text-ink-muted/70">→ {dbName(s.db_id)}</span>

@@ -1,7 +1,7 @@
-import { assertEquals } from "@std/assert";
+import { describe, expect, test } from "bun:test";
 import { splitTagLabel, TAG_COLORS, tagColor } from "../core/tags.ts";
 
-Deno.test("splitTagLabel only splits a real namespace", async (t) => {
+describe("splitTagLabel only splits a real namespace", () => {
   const cases: [string, string, { ns: string | null; value: string }][] = [
     ["namespaced", "team:devops", { ns: "team", value: "devops" }],
     ["plain", "infra", { ns: null, value: "infra" }],
@@ -17,13 +17,13 @@ Deno.test("splitTagLabel only splits a real namespace", async (t) => {
     ["two colons", "a:b:c", { ns: "a", value: "b:c" }],
   ];
   for (const [name, label, want] of cases) {
-    await t.step(name, () => assertEquals(splitTagLabel(label), want));
+    test(name, () => expect(splitTagLabel(label)).toStrictEqual(want));
   }
 });
 
-Deno.test("tagColor is stable per key and stays in the palette", () => {
-  assertEquals(tagColor("team-devops"), tagColor("team-devops"));
+test("tagColor is stable per key and stays in the palette", () => {
+  expect(tagColor("team-devops")).toStrictEqual(tagColor("team-devops"));
   for (const key of ["a", "infra", "team-devops", "", "zzz-9"]) {
-    assertEquals(TAG_COLORS.includes(tagColor(key) as never), true);
+    expect(TAG_COLORS.includes(tagColor(key) as never)).toStrictEqual(true);
   }
 });

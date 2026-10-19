@@ -1,6 +1,6 @@
 // The /sync core + auth + Hono app, run against real PGlite with the real shared
 // schema — triggers, change_log and the LWW rule all exercised, no Postgres needed.
-import { assert, assertEquals } from "@std/assert";
+import { afterAll, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import type { DB, Q } from "./db.ts";
 import { ensureAuthSchema, mintToken } from "./auth.ts";
@@ -28,7 +28,7 @@ function pgliteAdapter(pg: PGlite): DB {
 const pg = new PGlite();
 await pg.waitReady;
 await pg.exec(
-  await Deno.readTextFile(new URL("../../db/schema.sql", import.meta.url)),
+  await Bun.file(new URL("../../db/schema.sql", import.meta.url)).text(),
 );
 const db = pgliteAdapter(pg);
 await ensureAuthSchema(db);
@@ -81,58 +81,55 @@ const page = (id: string, title: string, updatedAt: string) => ({
 
 const P1 = "00000000-0000-4000-8000-0000000000a1";
 
-Deno.test("health is open, /sync requires a valid token", async () => {
-  assertEquals((await app.request("/health")).status, 200);
-  assertEquals(
-    (await sync({ cursor: null, mutations: [] }, { token: "nope" })).status,
-    401,
-  );
+test("health is open, /sync requires a valid token", async () => {
+  expect((await app.request("/health")).status).toStrictEqual(200);
+  expect((await sync({ cursor: null, mutations: [] }, { token: "nope" })).status).toStrictEqual(401);
 });
 
-Deno.test("protocol version mismatch is a clear 400", async () => {
+test("protocol version mismatch is a clear 400", async () => {
   const res = await sync({ cursor: null, mutations: [] }, { protocol: "99" });
-  assertEquals(res.status, 400);
-  assert(((await res.json()).error as string).includes("protocol mismatch"));
+  expect(res.status).toStrictEqual(400);
+  expect(((await res.json()).error as string).includes("protocol mismatch")).toBeTruthy();
 });
 
-Deno.test("null cursor returns a full snapshot with a resumable cursor", async () => {
+test("null cursor returns a full snapshot with a resumable cursor", async () => {
   const res = await sync({ cursor: null, mutations: [] });
-  assertEquals(res.status, 200);
+  expect(res.status).toStrictEqual(200);
   const body = await res.json() as SyncResponse;
   const entities = new Set(body.changes.map((c) => c.entity));
-  assert(entities.has("statuses"), "seeded statuses in the snapshot");
-  assert(entities.has("users"), "seeded user in the snapshot");
-  assertEquals(body.hasMore, false);
-  assert(Number.isFinite(body.nextCursor));
+  expect(entities.has("statuses")).toBeTruthy();
+  expect(entities.has("users")).toBeTruthy();
+  expect(body.hasMore).toStrictEqual(false);
+  expect(Number.isFinite(body.nextCursor)).toBeTruthy();
 });
 
-Deno.test("push applies LWW, stamps actor/source via the triggers, acks stale writes", async () => {
+test("push applies LWW, stamps actor/source via the triggers, acks stale writes", async () => {
   const r1 = await sync({
     cursor: null,
     mutations: [page(P1, "v1", "2026-07-16T10:00:00Z")],
   });
   const b1 = await r1.json() as SyncResponse;
-  assertEquals(b1.acknowledgements.length, 1);
+  expect(b1.acknowledgements.length).toStrictEqual(1);
 
   const logged = (await pg.query(
     `select actor, source from change_log where row_id=$1 order by rev desc limit 1`,
     [P1],
   )).rows[0] as { actor: string; source: string };
-  assertEquals(logged.source, "api");
-  assertEquals(logged.actor, SEED_USER);
+  expect(logged.source).toStrictEqual("api");
+  expect(logged.actor).toStrictEqual(SEED_USER);
 
   // an OLDER updated_at must lose the value but still be acknowledged
   const r2 = await sync({
     cursor: null,
     mutations: [page(P1, "stale", "2026-07-16T09:00:00Z")],
   });
-  assertEquals(((await r2.json()) as SyncResponse).acknowledgements.length, 1);
+  expect(((await r2.json()) as SyncResponse).acknowledgements.length).toStrictEqual(1);
   const row = (await pg.query(`select title from pages where id=$1`, [P1]))
     .rows[0] as { title: string };
-  assertEquals(row.title, "v1");
+  expect(row.title).toStrictEqual("v1");
 });
 
-Deno.test("a bad mutation is rejected alone — the rest of the batch lands", async () => {
+test("a bad mutation is rejected alone — the rest of the batch lands", async () => {
   const bad = {
     mutationId: "test:bad",
     entity: "session_events",
@@ -156,15 +153,15 @@ Deno.test("a bad mutation is rejected alone — the rest of the batch lands", as
   );
   const res = await sync({ cursor: null, mutations: [bad, good] });
   const body = await res.json() as SyncResponse;
-  assertEquals(body.rejectedMutations.length, 1);
-  assertEquals(body.rejectedMutations[0].mutationId, "test:bad");
-  assertEquals(body.acknowledgements, [good.mutationId]);
+  expect(body.rejectedMutations.length).toStrictEqual(1);
+  expect(body.rejectedMutations[0].mutationId).toStrictEqual("test:bad");
+  expect(body.acknowledgements).toStrictEqual([good.mutationId]);
   const row = (await pg.query(`select title from pages where id=$1`, [good.id]))
     .rows[0] as { title: string };
-  assertEquals(row.title, "survives");
+  expect(row.title).toStrictEqual("survives");
 });
 
-Deno.test("incremental pull returns coalesced changes and hard-delete tombstones", async () => {
+test("incremental pull returns coalesced changes and hard-delete tombstones", async () => {
   const cursor = ((await (await sync({ cursor: null, mutations: [] }))
     .json()) as SyncResponse).nextCursor;
 
@@ -184,18 +181,18 @@ Deno.test("incremental pull returns coalesced changes and hard-delete tombstones
   const forA3 = body.changes.filter((c) =>
     c.id === "00000000-0000-4000-8000-0000000000a3"
   );
-  assertEquals(forA3.length, 1, "two writes coalesce to one change");
-  assertEquals((forA3[0].value as { title: string }).title, "ext2");
+  expect(forA3.length).toStrictEqual(1);
+  expect((forA3[0].value as { title: string }).title).toStrictEqual("ext2");
   const tomb = body.changes.find((c) => c.id === P1);
-  assertEquals(tomb?.value, null, "hard delete arrives as a tombstone");
-  assert(body.nextCursor > cursor);
+  expect(tomb?.value).toStrictEqual(null);
+  expect(body.nextCursor > cursor).toBeTruthy();
 
   // caught up: same cursor again after consuming → empty
   const idle = await sync({ cursor: body.nextCursor, mutations: [] });
-  assertEquals(((await idle.json()) as SyncResponse).changes.length, 0);
+  expect(((await idle.json()) as SyncResponse).changes.length).toStrictEqual(0);
 });
 
-Deno.test("a same-title project from a second node merges into the incumbent", async () => {
+test("a same-title project from a second node merges into the incumbent", async () => {
   const OLD = "00000000-0000-4000-8000-0000000000c1";
   const DUP = "00000000-0000-4000-8000-0000000000c2";
   const STORY = "00000000-0000-4000-8000-0000000000c3";
@@ -243,31 +240,30 @@ Deno.test("a same-title project from a second node merges into the incumbent", a
     mutations: [proj(DUP, "2026-07-17T11:00:00Z"), story, sess],
   });
   const body = await res.json() as SyncResponse;
-  assertEquals(body.rejectedMutations, []);
+  expect(body.rejectedMutations).toStrictEqual([]);
 
   const dup = (await pg.query(
     `select deleted, origin from pages where id=$1`,
     [DUP],
   )).rows[0] as { deleted: boolean; origin: string };
-  assertEquals(dup, { deleted: true, origin: "hub" });
+  expect(dup).toStrictEqual({ deleted: true, origin: "hub" });
   const st = (await pg.query(
     `select client_id, parent_id from pages where id=$1`,
     [STORY],
   )).rows[0] as { client_id: string; parent_id: string };
-  assertEquals(st, { client_id: OLD, parent_id: OLD });
+  expect(st).toStrictEqual({ client_id: OLD, parent_id: OLD });
   const se = (await pg.query(
     `select client_id, tags from sessions where id=$1`,
     [SESS],
   )).rows[0] as { client_id: string; tags: string[] };
-  assertEquals(se.client_id, OLD);
-  assertEquals(se.tags, ["priority-p1", "infra"]);
+  expect(se.client_id).toStrictEqual(OLD);
+  expect(se.tags).toStrictEqual(["priority-p1", "infra"]);
   const snapshot = await (await sync({ cursor: null, mutations: [] })).json() as SyncResponse;
-  assertEquals(
-    snapshot.changes.find((c) => c.entity === "sessions" && c.id === SESS)?.value?.tags,
-    ["priority-p1", "infra"],
-  );
+  expect(snapshot.changes.find((c) => c.entity === "sessions" && c.id === SESS)?.value?.tags).toStrictEqual(["priority-p1", "infra"]);
   const live = (await pg.query(
     `select id from pages where kind='project' and title='Obitrain' and not deleted`,
   )).rows;
-  assertEquals(live, [{ id: OLD }]);
+  expect(live).toStrictEqual([{ id: OLD }]);
 });
+
+afterAll(() => pg.close());

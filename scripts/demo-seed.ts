@@ -2,11 +2,12 @@
 // screenshots (docs/*.png) and the in-app demo workspace. Fictional projects only — never
 // point this at a real instance. With DEMO_RECORD set, also write the calls as a demo bundle
 // the app replays (UUIDs keyed by JSON pointer, dates shifted from recorded_on).
-// USAGE: TRAME_URL=http://127.0.0.1:8799 [DEMO_RECORD=demo.json] deno run -A scripts/demo-seed.ts
+// USAGE: TRAME_URL=http://127.0.0.1:8799 [DEMO_RECORD=demo.json] bun scripts/demo-seed.ts
 // EXAMPLES: just demo   (spins up an isolated instance, seeds it, and serves it)
 //           just demo-bundle   (records .scratch/demo-bundle/demo.json)
-const base = Deno.env.get("TRAME_URL") ?? "http://127.0.0.1:8799";
-const record = Deno.env.get("DEMO_RECORD");
+import { mkdir, writeFile } from "node:fs/promises";
+const base = process.env.TRAME_URL ?? "http://127.0.0.1:8799";
+const record = process.env.DEMO_RECORD;
 // bump with the app's DEMO_FORMAT when the bundle shape or a replayed route changes
 const DEMO_FORMAT = 1;
 
@@ -77,21 +78,18 @@ const avatar = (color: string, letter: string) =>
 const board0 = await api("/api/board");
 if (board0.sessions.length) {
   console.error("instance already has sessions — refusing to seed over it");
-  Deno.exit(1);
+  process.exit(1);
 }
 
 // With DEMO_CLAUDE_DIR set (and the app's TRACKER_CLAUDE_DIR pointing at it), plant a
 // transcript so the Checkout card is genuinely resumable — the drawer screenshot would
 // otherwise read "No transcript on this device". The app only checks the file exists.
 const AGENT_ID = "9f1c7c8e-3b2a-4d5e-8a1f-2c6b0d4e7a13";
-const claudeDir = Deno.env.get("DEMO_CLAUDE_DIR");
+const claudeDir = process.env.DEMO_CLAUDE_DIR;
 if (claudeDir) {
   const dir = `${claudeDir}/-Users-demo-code-acme-web`;
-  await Deno.mkdir(dir, { recursive: true });
-  await Deno.writeTextFile(
-    `${dir}/${AGENT_ID}.jsonl`,
-    JSON.stringify({ type: "user", cwd: "/Users/demo/code/acme-web" }) + "\n",
-  );
+  await mkdir(dir, { recursive: true });
+  await writeFile(`${dir}/${AGENT_ID}.jsonl`, JSON.stringify({ type: "user", cwd: "/Users/demo/code/acme-web" }) + "\n");
 }
 
 const sessionIds: Record<string, string> = {};
@@ -297,7 +295,7 @@ await api(`/api/udb/${modelsDb}`, {
 
 if (record) {
   const recorded_on = new Date().toISOString().slice(0, 10);
-  await Deno.writeTextFile(record, JSON.stringify({ format: DEMO_FORMAT, recorded_on, ops }));
+  await writeFile(record, JSON.stringify({ format: DEMO_FORMAT, recorded_on, ops }));
   console.log(`recorded ${ops.length} calls → ${record}`);
 }
 

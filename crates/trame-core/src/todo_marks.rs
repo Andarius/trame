@@ -32,7 +32,7 @@ fn inherited(key: &str) -> bool {
 pub fn read_marks(text: &str) -> Map<String, Value> {
     let mut out = Map::new();
     for m in READ.captures_iter(text) {
-        // Deno's disabled prototype getter returns undefined, so reading creates an own mark.
+        // native: a disabled prototype getter returns undefined, so reading creates an own mark.
         let absent = !inherited(&m[1]) || (!cfg!(target_arch = "wasm32") && &m[1] == "__proto__");
         if absent && !out.contains_key(&m[1]) {
             out.insert(m[1].to_owned(), Value::String(trim(&m[2]).to_owned()));

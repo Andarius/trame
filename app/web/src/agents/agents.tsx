@@ -77,9 +77,8 @@ export const AgentsContext = createContext<{ live: Live[]; recent: LiveAgent[]; 
 export const useAgents = () => useContext(AgentsContext);
 
 // live agents, the ones waiting on you first, then the most recently active
-export function liveAgents(agents: LiveAgent[], cfg: AgentPresenceSettings | null): Live[] {
+export function liveAgents(agents: LiveAgent[], cfg: AgentPresenceSettings | null, now = Date.now()): Live[] {
   if (!cfg) return [];
-  const now = Date.now();
   return agents
     .flatMap((a) => {
       const state = liveState(a, cfg, now);

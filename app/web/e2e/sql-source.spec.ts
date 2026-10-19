@@ -27,10 +27,9 @@ test("connect a database to a query from its page", async ({ page, request }) =>
   await page.getByLabel("Query").fill(QUERY);
   await page.getByRole("button", { name: "▶ Run" }).click();
   await expect(page.getByText("2 rows ·")).toBeVisible();
-  await page.getByRole("button", { name: "pick the key column" }).click();
-  await page.getByRole("button", { name: "key", exact: true }).click();
-  await expect(page.getByText("＋ create 2 rows")).toBeVisible();
-  await expect(page.getByText(/fill the existing\s*Name\s*column/)).toBeVisible();
+  await page.getByRole("radio", { name: "Key: key" }).check();
+  await expect(page.getByText(/＋2 new/)).toBeVisible();
+  await expect(page.getByText(/fills existing:\s*Name/)).toBeVisible();
   await page.getByRole("button", { name: "Connect & fill" }).click();
 
   const rows = page.locator("main div.group\\/row");
@@ -64,6 +63,20 @@ test("a re-run writes nothing and a user column stays editable", async ({ page, 
   }).toEqual(["mine"]);
 });
 
+test("the sources panel shows the source type, edits on click and asks before deleting", async ({ page }) => {
+  await page.goto("/?plugin=sql-source");
+  const row = page.locator("main div.cursor-pointer").first();
+  await expect(row.getByRole("img", { name: "PostgreSQL" })).toBeVisible();
+  await row.click();
+  await expect(page.getByRole("heading", { name: "Fill from a SQL query" })).toBeVisible();
+  await expect(page.getByLabel("Query")).toHaveValue(/Alpha/);
+  await page.getByTitle("close (esc)").click();
+
+  await row.getByRole("button", { name: "Delete" }).click();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(row).toBeVisible();
+});
+
 test("disconnect keeps the rows and frees the columns", async ({ page }) => {
   await openDb(page);
   await page.getByRole("button", { name: "Source menu" }).click();
@@ -73,4 +86,17 @@ test("disconnect keeps the rows and frees the columns", async ({ page }) => {
   const rows = page.locator("main div.group\\/row");
   await expect(rows).toHaveCount(2);
   await expect(rows.first().locator("input").first()).toHaveValue("Alpha");
+});
+
+test("an inline database offers Connect and an unclipped column editor while editing", async ({ page, request }) => {
+  const { id: pageId } = await (await request.post("/api/pages", { data: { title: "Inline SQL", kind: "page" } })).json();
+  const { id: dbId } = await (await request.post("/api/udb", { data: { name: "Inline metrics" } })).json();
+  await request.post(`/api/udb/${dbId}`, { data: { page_id: pageId } });
+  for (let i = 0; i < 3; i++) await request.post(`/api/udb/${dbId}/rows`, { data: {} });
+  await page.goto(`/?view=page&page=${pageId}`);
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await expect(page.getByRole("button", { name: "⇣ Connect" })).toBeVisible();
+  // the short table's scroll pane used to clip the column editor
+  await page.getByRole("button", { name: /^Aa\s*Name/ }).click();
+  await expect(page.getByRole("button", { name: "Save" })).toBeInViewport({ ratio: 1 });
 });

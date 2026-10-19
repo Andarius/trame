@@ -29,7 +29,7 @@ Every one of those lives on the server side of a line the current design doesn't
 - **Identity & onboarding** — today a new person needs a client cert + the raw DB password +
   LAN/Tailscale. Accounts + tokens replace that.
 
-**Decision: put a Deno/TS API server on the hub in front of Postgres.** Laptops sync through it;
+**Decision: put a TypeScript API server on the hub in front of Postgres.** (Written for Deno; the hub has run the same code on Bun since the native runtime.) Laptops sync through it;
 it is the auth/authz boundary and the realtime fan-out. The mTLS-direct-to-PG model was a
 transport hack for a single user; the API is the correct abstraction.
 
@@ -40,8 +40,8 @@ between Postgres and laptops.
 
 | Area | Decision |
 | :--- | :--- |
-| Hub | Deno/TS **API server** in front of Postgres (not raw PG access) |
-| Language | **Deno/TypeScript** — share `db/schema.sql`, row types, and the LWW module between client and hub |
+| Hub | TypeScript **API server** in front of Postgres (not raw PG access); Deno then, Bun now |
+| Language | **TypeScript** — share `db/schema.sql`, row types, and the LWW module between client and hub |
 | Sync | **Changeset-based** `POST /sync` (mutations up, changes down) — see [Sync protocol](#sync-protocol) |
 | Pull cursor | **Server-issued opaque monotonic revision**, *not* client `updated_at` (client clocks are unsafe with multiple writers) |
 | Offline | The local PostgreSQL stays the source of truth; a **push watermark** advances only on acknowledgement; the app works fully offline |
@@ -61,17 +61,17 @@ replication isn't a client-sync tool (no offline, no conflict resolution).
 
 | Concern | Use | Note |
 | :--- | :--- | :--- |
-| HTTP routing + middleware | **Hono** | Auth/logging/error chain in front of `/sync` + the WS upgrade; `Deno.serve(app.fetch)` |
-| WebSocket | **`Deno.upgradeWebSocket`** | Built-in; re-check the token at the handshake (not deprecated `std/ws`) |
-| Postgres driver | **postgres.js** | Already used in `app/sync.ts` — reuse (not `@neondatabase/serverless`) |
-| Payload validation | **zod** | Mutation/response schemas in the shared, versioned `sync/protocol` package |
+| HTTP routing + middleware | **Hono** | Auth/logging/error chain in front of `/sync` + the WS upgrade; `Bun.serve({ fetch: app.fetch, websocket })` |
+| WebSocket | **Bun `server.upgrade`** | Built-in; re-check the token at the handshake |
+| Postgres driver | **postgres.js** | Pure TypeScript, runs on Bun unchanged (not `@neondatabase/serverless`) |
+| Payload validation | **zod** | Mutation/response schemas in `hub/api/schema.ts` |
 | Auth | **opaque revocable session tokens** (argon2id passwords) | App-level authz; Postgres RLS only as defense-in-depth — not JWT+RLS |
 | Change tracking | server `change_log` + monotonic revision cursor | Ordering authority; not client `updated_at` |
-| TLS / deploy | **Deno terminates TLS + WSS itself** (`Deno.serve({cert,key})`, reuse `gen-certs.sh`) | **No reverse proxy** on the LAN hub until it earns its place — cert rotation without app restarts, a shared `:443` for multiple services, or HTTP/3. Then **Caddy** (`tls internal` or the existing certs). nginx/HAProxy/Traefik don't fit a fixed single-service LAN hub. |
+| TLS / deploy | **Bun terminates TLS + WSS itself** (`Bun.serve({ tls })`, reuse `gen-certs.sh`) | **No reverse proxy** on the LAN hub until it earns its place — cert rotation without app restarts, a shared `:443` for multiple services, or HTTP/3. Then **Caddy** (`tls internal` or the existing certs). nginx/HAProxy/Traefik don't fit a fixed single-service LAN hub. |
 
 Second opinion (Vibe) independently reached the same build-vs-buy call and the same core stack.
 A reverse proxy is deferred: the hub is a private-CA LAN box (no public DNS / port 80), so
-auto-Let's-Encrypt — every proxy's headline feature — doesn't apply, and one Deno service can
+auto-Let's-Encrypt — every proxy's headline feature — doesn't apply, and one Bun service can
 terminate TLS+WSS on its own.
 
 ## Topology
@@ -84,7 +84,7 @@ flowchart LR
         app --- outbox[push watermark: rows not yet acked]
     end
     subgraph hub [Hub — home server]
-        api[Deno API server<br/>auth · authz · fan-out] <--> pg[(Postgres 18)]
+        api[Bun API server<br/>auth · authz · fan-out] <--> pg[(Postgres 18)]
         api -. LISTEN/NOTIFY .- pg
     end
     app <==>|HTTPS POST /sync<br/>mutations up · changes down| api

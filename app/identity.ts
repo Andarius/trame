@@ -1,18 +1,34 @@
 // Device→user identity (hub-API migration, phase 1). A device (NODE_ID) maps to a
 // users row through the synced devices table; writes stamp the resolved user id.
-import { v5 } from "@std/uuid";
+import { uuidV5 } from "../core/uuid.ts";
 import type { Q } from "../core/ctx.ts";
 import { type Identity, identityOf } from "../core/identity.ts";
 import { APP_CTX } from "./ctx.ts";
 import { db } from "./db.ts";
+import { readFile } from "node:fs/promises";
 import { NODE_ID, SETTINGS_FILE } from "./config.ts";
-import { getHubApi } from "./files.ts";
+
+// Hub API sync config: settings.json wins over env; re-read on every sync pass
+// so a settings change applies without a restart. Unconfigured = offline-only.
+export async function getHubApi(): Promise<
+  { url: string; token: string } | null
+> {
+  let s: Record<string, unknown> = {};
+  try {
+    s = JSON.parse(await readFile(SETTINGS_FILE, "utf8"));
+  } catch { /* no settings file yet */ }
+  const url = (typeof s.hubApi === "string" && s.hubApi.trim()) ||
+    process.env.TRACKER_HUB_API || "";
+  const token = (typeof s.hubApiToken === "string" && s.hubApiToken.trim()) ||
+    process.env.TRACKER_HUB_API_TOKEN || "";
+  return url && token ? { url: url.replace(/\/$/, ""), token } : null;
+}
 
 // Deterministic device ids: two racing claims of the same NODE_ID converge on one
 // row instead of forking (same reason statusId derives from the status key).
 const DEVICE_NS = "9c2f6a71-4b8e-4d05-a3c9-2e61d7f0b842";
 export const deviceId = (nodeId: string) =>
-  v5.generate(DEVICE_NS, new TextEncoder().encode(nodeId));
+  uuidV5(DEVICE_NS, new TextEncoder().encode(nodeId));
 
 // Claim this NODE_ID for the sole user. With several users we can't guess — the
 // device stays unclaimed until the hub API's claim flow (phase 3). Runs inside db()
@@ -43,7 +59,7 @@ export async function localAuthorSettings(): Promise<
   { name: string; avatar: string }
 > {
   try {
-    const s = JSON.parse(await Deno.readTextFile(SETTINGS_FILE));
+    const s = JSON.parse(await readFile(SETTINGS_FILE, "utf8"));
     return {
       name: typeof s.authorName === "string" ? s.authorName.trim() : "",
       avatar: typeof s.authorAvatar === "string" ? s.authorAvatar.trim() : "",

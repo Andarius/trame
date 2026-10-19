@@ -21,7 +21,7 @@ use std::sync::LazyLock;
 #[derive(Clone)]
 pub struct TrameMcp;
 static MCP_CONTRACTS: LazyLock<Value> = LazyLock::new(|| {
-    serde_json::from_str(include_str!("mcp-contracts.json")).expect("generated MCP contracts")
+    serde_json::from_str(include_str!("mcp-contracts.json")).expect("MCP contracts")
 });
 fn tool(name: &'static str, fields: &[(&str, &str, bool)]) -> Tool {
     let mut properties = Map::new();
@@ -256,7 +256,7 @@ async fn page_id(args: &Value, target: &Target) -> Result<String> {
 }
 pub async fn execute(name: &str, args: &Value) -> Result<Value> {
     if name == "trame_capabilities" {
-        return Ok(json!(include_str!("capabilities.txt")));
+        return Ok(json!(crate::help::topic("CAPABILITIES")));
     }
     let target = resolve_target().await?;
     match name {
@@ -366,7 +366,7 @@ async fn html(args: &Value, target: &Target) -> Result<Value> {
     if html.len()
         > MCP_CONTRACTS["htmlBlockMaxBytes"]
             .as_u64()
-            .expect("generated HTML limit") as usize
+            .expect("HTML limit") as usize
     {
         bail!("html is over 512 KB");
     }
@@ -469,4 +469,15 @@ pub async fn serve() -> Result<()> {
     let service = TrameMcp.serve(stdio()).await?;
     service.waiting().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn html_block_limit_matches_protocol() {
+        let limit = MCP_CONTRACTS["htmlBlockMaxBytes"].as_u64().unwrap();
+        let protocol = include_str!("../../../protocol/html.ts");
+        assert!(protocol.contains(&format!("HTML_BLOCK_MAX_BYTES = {} * 1024;", limit / 1024)));
+    }
 }

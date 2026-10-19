@@ -1,4 +1,4 @@
-// Compile-time plugin registry. main.ts routes /api/plugins/* here and calls
+// Compile-time plugin registry. plugin-host.ts routes /api/plugins/* here and calls
 // startPlugins() once at boot; nothing else in the app knows about plugins.
 import type { Plugin, PluginContext, PluginManifest } from "./types.ts";
 import {
@@ -7,10 +7,9 @@ import {
   savePluginSettings,
   setPluginEnabled,
 } from "./settings.ts";
-import deployments from "./deployments/mod.ts";
 import { LOCAL_PLUGINS } from "./local.gen.ts";
 
-export const PLUGINS: Plugin[] = [deployments, ...LOCAL_PLUGINS];
+export const PLUGINS: Plugin[] = LOCAL_PLUGINS;
 
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {

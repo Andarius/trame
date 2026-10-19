@@ -1,4 +1,4 @@
-import { assert } from "@std/assert";
+import { describe, expect, test } from "bun:test";
 import {
   similarStories,
   STORY_REUSE,
@@ -7,7 +7,7 @@ import {
 } from "../core/story-match.ts";
 
 // Real story titles from the Soren board (2026-09-29).
-Deno.test("story similarity bands", async (t) => {
+describe("story similarity bands", () => {
   const cases: [string, string, string, (score: number) => boolean][] = [
     [
       "same topic, reworded",
@@ -37,18 +37,18 @@ Deno.test("story similarity bands", async (t) => {
     ],
   ];
   for (const [name, a, b, ok] of cases) {
-    await t.step(name, () => {
+    test(name, () => {
       const score = storySimilarity(a, b);
-      assert(ok(score), `${a} ~ ${b} = ${score}`);
+      expect(ok(score), `${a} ~ ${b} = ${score}`).toBeTruthy();
     });
   }
 });
 
-Deno.test("similarStories ranks above the floor, best first", () => {
+test("similarStories ranks above the floor, best first", () => {
   const hits = similarStories("soren-dev cutover", [
     { id: "1", title: "Monitoring" },
     { id: "2", title: "Migration soren-dev" },
     { id: "3", title: "soren-dev cutover plan" },
   ]);
-  assert(hits.map((h) => h.id).join() === "3,2", JSON.stringify(hits));
+  expect(hits.map((h) => h.id).join() === "3,2", JSON.stringify(hits)).toBeTruthy();
 });

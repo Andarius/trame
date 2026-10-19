@@ -23,7 +23,7 @@ db:
 [group('infra')]
 link-build:
     cd app/web && npm install && npm run build:link
-    deno run -A scripts/gen-link-embed.ts
+    bun scripts/gen-link-embed.ts
 
 # Deploy the Postgres hub over ssh (~/Apps/trame) and start it — host via TRACKER_HUB_HOST in .env
 [group('infra')]
@@ -48,7 +48,7 @@ psql host=env_var_or_default('TRACKER_HUB_HOST', 'hub'):
 # Compose the out-of-tree plugins listed in plugins.local.json (then rebuild)
 [group('dev')]
 plugins:
-    cd app && deno run -A ../scripts/gen-plugins.ts
+    bun scripts/gen-plugins.ts
 
 # Install plugins.local.json plugins for the installed app (host binary + web bundle); then restart Trame
 [group('setup')]
@@ -59,10 +59,8 @@ plugins-install: plugins
     mkdir -p .scratch "$dest"
     tmp="$(mktemp -d "$PWD/.scratch/plugins.XXXXXX")"
     trap 'rm -rf -- "$tmp"' EXIT
-    # db.ts's schema fallback imports the generated embed.ts, which must match the current web build
-    npm run build --prefix app/web --silent
-    deno run --allow-read --allow-write=app/embed.ts scripts/gen-embed.ts
-    (cd app && deno compile -A --quiet --config deno.json --output "$tmp/plugin-host" plugin-host.ts)
+    bun install --frozen-lockfile --silent
+    bun scripts/build-plugin-host.ts "$tmp/plugin-host"
     (cd app/web && TRAME_PLUGINS_WEB_OUT="$tmp/web" npx vite build -c vite.plugins.config.ts --logLevel warn)
     rm -rf "$dest/web.old" && { [[ ! -d "$dest/web" ]] || mv "$dest/web" "$dest/web.old"; }
     mv "$tmp/web" "$dest/web" && rm -rf "$dest/web.old"
@@ -96,9 +94,8 @@ bundle-appimage:
 web-build:
     npm ci --prefix app/web
     npm run build --prefix app/web
-    deno run --allow-read --allow-write=app/embed.ts scripts/gen-embed.ts
     npm run build:link --prefix app/web
-    deno run --allow-read --allow-write=hub/api/link-embed.ts scripts/gen-link-embed.ts
+    bun scripts/gen-link-embed.ts
 
 # Frontend dev server with HMR
 [group('dev')]
@@ -134,31 +131,27 @@ web-live:
 test *args:
     bash scripts/rust-package.sh prepare
     TRAME_ISOLATED=1 TRAME_OFFLINE=1 TRAME_LOCAL_DIR="$PWD/.scratch/test" TRAME_PG_BIN="$PWD/.scratch/package/pg/usr/lib/postgresql/18/bin" cargo test --workspace --locked {{ args }}
-    deno run --allow-read scripts/rust-protocol.ts --check
-    deno test --config app/deno.json app/web/src/
-    deno test -A --config app/deno.json scripts/rust-db-export-test.ts
-    deno test -A --config app/deno.json scripts/rust-db-migrate-test.ts
+    bun install --frozen-lockfile --silent
+    bun scripts/rust-protocol.ts --check
+    bun test ./app/web/src ./scripts
 
-# Retained TypeScript backend/core/CLI oracle checks in a clean scratch environment
+# Typecheck, tests and lint for the TS still shipped or shared (plugin host, core, protocol)
 [group('dev')]
-oracle-check: web-build
-    bash scripts/rust-oracle-check.sh
+ts-check:
+    bash scripts/ts-check.sh
 
-# Fresh synthetic migration and HTTP/CLI differential gate
+# Synthetic PGlite migration: source preservation and idempotency
 [group('dev')]
-differential: web-build
+migration:
     #!/usr/bin/env bash
     set -euo pipefail
     bash scripts/rust-package.sh prepare
-    bash scripts/rust-package.sh cli
     cargo build -p trame-local --locked
     dir="$(mktemp -d "$PWD/.scratch/cif.XXXXXX")"
     trap 'rm -rf -- "$dir"' EXIT
-    export TRAME_CI_FIXTURE_DIR="$dir" TRAME_DIFF_SOURCE="$dir/native"
-    export TRAME_ISOLATED=1 TRAME_OFFLINE=1 TRAME_DIFF_GROUPS=full
+    export TRAME_CI_FIXTURE_DIR="$dir" TRAME_ISOLATED=1 TRAME_OFFLINE=1
     export TRAME_PG_BIN="$PWD/.scratch/package/pg/usr/lib/postgresql/18/bin"
-    deno run -A --config app/deno.json scripts/rust-ci-fixture.ts
-    deno run -A --config app/deno.json scripts/rust-pages-diff.ts
+    bun scripts/rust-ci-fixture.ts
 
 # PostgreSQL ownership, crash recovery and startup failure gate
 [group('dev')]
@@ -207,14 +200,14 @@ check:
     cargo check --workspace --locked
     npm run typecheck --prefix app/web
 
-# The hub API is its own Deno project (own deps) — check/test/lint it too (matches CI)
+# The hub API is its own Bun project (own deps) — check and test it too (matches CI; `just ts-check` lints it)
 [group('dev')]
 check-hub:
-    cd hub/api && deno check main.ts && deno test -A && deno lint
+    cd hub/api && bun install --frozen-lockfile && bun run typecheck && bun test
 
 # Native and hub checks
 [group('dev')]
-ci: lint fmt-check-sql check test oracle-check check-hub e2e differential lifecycle
+ci: lint fmt-check-sql check test ts-check check-hub e2e migration lifecycle
 
 # Build the native CLI into dist/tramecli.
 [group('track')]
@@ -257,7 +250,7 @@ demo: web-build
       sleep 1
     done
     DEMO_CLAUDE_DIR="$dir/claude-projects" TRAME_URL=http://127.0.0.1:8799 \
-      deno run --config app/deno.json -A scripts/demo-seed.ts
+      bun scripts/demo-seed.ts
     echo "demo → http://127.0.0.1:8799  (ctrl-c to stop)"
     wait
 
@@ -284,7 +277,7 @@ demo-bundle:
       sleep 1
     done
     DEMO_RECORD="$dir/demo.json" TRAME_URL=http://127.0.0.1:8797 \
-      deno run --config app/deno.json -A scripts/demo-seed.ts
+      bun scripts/demo-seed.ts
 
 # Upload the recorded bundle to the demo-f<format> release the app downloads from
 [group('docs')]

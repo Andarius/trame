@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "bun:test";
 import type { UdbProp, UdbRow } from "../api.ts";
 import { type ChartSeries, chartData, sanitizeChart } from "./chart.ts";
 
@@ -53,34 +53,34 @@ const COUNT_AND_SUM = [
   { propId: "p3", agg: "sum" as const },
 ];
 
-Deno.test("chartData: groups are the categories, measures are the columns", () => {
+test("chartData: groups are the categories, measures are the columns", () => {
   const d = chartData(ROWS, PROPS, {
     kind: "bar",
     x: "p2",
     series: COUNT_AND_SUM,
   });
-  assertEquals(d.xLabel, "Status");
-  assertEquals(d.series.map((s) => [s.key, s.label]), [
+  expect(d.xLabel).toStrictEqual("Status");
+  expect(d.series.map((s) => [s.key, s.label])).toStrictEqual([
     ["s0", "Count"],
     ["s1", "Points (sum)"],
   ]);
   // select groups keep the option order and colour; the empty one trails
-  assertEquals(d.rows, [
+  expect(d.rows).toStrictEqual([
     { x: "Todo", k: "st1", c: "#7a9ee7", s0: 2, s1: 30 },
     { x: "Done", k: "st2", c: "#7bd88f", s0: 1, s1: 5 },
     { x: "(empty)", k: "\0", c: undefined, s0: 1, s1: null },
   ]);
-  assertEquals(d.hidden, 0);
+  expect(d.hidden).toStrictEqual(0);
 });
 
-Deno.test("chartData: no grouping draws one category per row, gaps stay null", () => {
+test("chartData: no grouping draws one category per row, gaps stay null", () => {
   const d = chartData(ROWS, PROPS, {
     kind: "line",
     x: null,
     series: [{ propId: "p3", agg: "sum" }],
   });
-  assertEquals(d.xLabel, "Name");
-  assertEquals(d.rows.map((r) => [r.x, r.s0]), [
+  expect(d.xLabel).toStrictEqual("Name");
+  expect(d.rows.map((r) => [r.x, r.s0])).toStrictEqual([
     ["a", 10],
     ["b", 20],
     ["c", 5],
@@ -88,7 +88,7 @@ Deno.test("chartData: no grouping draws one category per row, gaps stay null", (
   ]);
 });
 
-Deno.test("chartData: a deleted column drops, a deleted x falls back to per-row", () => {
+test("chartData: a deleted column drops, a deleted x falls back to per-row", () => {
   const d = chartData(ROWS, PROPS, {
     kind: "bar",
     x: "gone",
@@ -98,11 +98,11 @@ Deno.test("chartData: a deleted column drops, a deleted x falls back to per-row"
       { propId: null, agg: "count" },
     ],
   });
-  assertEquals(d.series.map((s) => s.label), ["Count"]);
-  assertEquals(d.rows.length, 4);
+  expect(d.series.map((s) => s.label)).toStrictEqual(["Count"]);
+  expect(d.rows.length).toStrictEqual(4);
 });
 
-Deno.test("chartData: a pie folds its tail without losing the total", () => {
+test("chartData: a pie folds its tail without losing the total", () => {
   const rows = Array.from(
     { length: 9 },
     (_, i) => row(`r${i}`, `n${i}`, null, i + 1),
@@ -112,12 +112,12 @@ Deno.test("chartData: a pie folds its tail without losing the total", () => {
     x: null,
     series: [{ propId: "p3", agg: "sum" }],
   });
-  assertEquals(d.rows.length, 6);
-  assertEquals(d.rows[5].x, "Other (4)");
-  assertEquals(d.rows.reduce((n, r) => n + Number(r.s0), 0), 45);
+  expect(d.rows.length).toStrictEqual(6);
+  expect(d.rows[5].x).toStrictEqual("Other (4)");
+  expect(d.rows.reduce((n, r) => n + Number(r.s0), 0)).toStrictEqual(45);
 });
 
-Deno.test("chartData: a bar caps the categories and says how many are left", () => {
+test("chartData: a bar caps the categories and says how many are left", () => {
   const rows = Array.from(
     { length: 30 },
     (_, i) => row(`r${i}`, `n${i}`, null, 1),
@@ -127,11 +127,11 @@ Deno.test("chartData: a bar caps the categories and says how many are left", () 
     x: null,
     series: [{ propId: null, agg: "count" }],
   });
-  assertEquals(d.rows.length, 24);
-  assertEquals(d.hidden, 6);
+  expect(d.rows.length).toStrictEqual(24);
+  expect(d.hidden).toStrictEqual(6);
 });
 
-Deno.test("chartData: the series list caps at the palette", () => {
+test("chartData: the series list caps at the palette", () => {
   const d = chartData(ROWS, PROPS, {
     kind: "bar",
     x: "p2",
@@ -140,29 +140,26 @@ Deno.test("chartData: the series list caps at the palette", () => {
       agg: "sum" as const,
     })),
   });
-  assertEquals(d.series.length, 8);
-  assertEquals(d.series[7].key, "s7");
+  expect(d.series.length).toStrictEqual(8);
+  expect(d.series[7].key).toStrictEqual("s7");
 });
 
-Deno.test("sanitizeChart: junk from localStorage never reaches the renderer", () => {
-  assertEquals(sanitizeChart({ kind: "sankey", series: [] }), undefined);
-  assertEquals(sanitizeChart({ kind: "bar", series: "nope" }), undefined);
-  assertEquals(sanitizeChart(null), undefined);
-  assertEquals(sanitizeChart(42), undefined);
-  assertEquals(
-    sanitizeChart({
+test("sanitizeChart: junk from localStorage never reaches the renderer", () => {
+  expect(sanitizeChart({ kind: "sankey", series: [] })).toStrictEqual(undefined);
+  expect(sanitizeChart({ kind: "bar", series: "nope" })).toStrictEqual(undefined);
+  expect(sanitizeChart(null)).toStrictEqual(undefined);
+  expect(sanitizeChart(42)).toStrictEqual(undefined);
+  expect(sanitizeChart({
       kind: "pie",
       x: 7,
       donut: true,
       series: [{ propId: "p3", agg: "sum" }, { propId: "p3", agg: "median" }],
-    }),
-    {
+    })).toStrictEqual({
       kind: "pie",
       x: null,
       series: [{ propId: "p3", agg: "sum" }],
       donut: true,
-    },
-  );
+    });
 });
 
 const BREAKS = prop("p4", "Breaks", "number", {
@@ -174,7 +171,7 @@ const SCALED = prop("p5", "Scaled", "number", {
   color: "#111111",
 });
 
-Deno.test("chartData: series colour is explicit, then column fixed, then palette", () => {
+test("chartData: series colour is explicit, then column fixed, then palette", () => {
   const cases: [string, ChartSeries, UdbProp[], string | null][] = [
     ["explicit wins", { propId: "p4", agg: "sum", color: "#00ff00" }, [BREAKS], "#00ff00"],
     ["column fixed", { propId: "p4", agg: "sum" }, [BREAKS], "#e06c75"],
@@ -185,11 +182,11 @@ Deno.test("chartData: series colour is explicit, then column fixed, then palette
   ];
   for (const [name, s, props, want] of cases) {
     const d = chartData(ROWS, props, { kind: "bar", x: null, series: [s] });
-    assertEquals(d.series[0].color, want, name);
+    expect(d.series[0].color, name).toStrictEqual(want);
   }
 });
 
-Deno.test("sanitizeChart: keeps a valid series colour, drops an invalid one", () => {
+test("sanitizeChart: keeps a valid series colour, drops an invalid one", () => {
   const out = sanitizeChart({
     kind: "bar",
     series: [
@@ -197,5 +194,5 @@ Deno.test("sanitizeChart: keeps a valid series colour, drops an invalid one", ()
       { propId: "p3", agg: "sum", color: "javascript:x" },
     ],
   });
-  assertEquals(out?.series.map((s) => s.color), ["#e06c75", undefined]);
+  expect(out?.series.map((s) => s.color)).toStrictEqual(["#e06c75", undefined]);
 });

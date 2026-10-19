@@ -28,6 +28,12 @@ async function apiTarget(): Promise<string> {
   return base;
 }
 
+// terminals attach over a WebSocket, which the plain /api entry doesn't forward
+async function devProxy() {
+  const target = await apiTarget();
+  return { "/api/term": { target, ws: true }, "/api": target };
+}
+
 // out-of-tree plugin checkouts (scripts/gen-plugins.ts): the dev server may serve their files
 function localPlugins(): string[] {
   try {
@@ -39,6 +45,8 @@ function localPlugins(): string[] {
 // Builds read no runtime discovery files; Vite HMR uses only the scratch backend.
 export default defineConfig(async ({ command }) => ({
   plugins: [react(), tailwindcss()],
+  // shown by debug builds so a reload visibly picked up the new bundle
+  define: { __BUILD_TIME__: JSON.stringify(new Date().toISOString()) },
   resolve: {
     alias: { "@trame/web-api": resolve("src/plugin-api.ts") },
     dedupe: ["react", "react-dom"],
@@ -52,6 +60,6 @@ export default defineConfig(async ({ command }) => ({
     // ~5MB); we only use exportToSvg — keep it out of the embedded bundle
     rollupOptions: { external: [/@excalidraw\/mermaid-to-excalidraw/] },
   },
-  // the editor shares app/todo-marks.ts with the Deno side
-  server: { fs: { allow: ["..", "../../core", ...localPlugins()] }, proxy: command === "serve" ? { "/api": await apiTarget() } : undefined },
+  // the editor imports core/, shared with the hub
+  server: { fs: { allow: ["..", "../../core", ...localPlugins()] }, proxy: command === "serve" ? await devProxy() : undefined },
 }));

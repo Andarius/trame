@@ -15,7 +15,11 @@ use std::{
 pub const ID: &str = "sql-source";
 pub const MAX_ROWS: usize = 10_000;
 const TIMEOUT_MS: u64 = 30_000;
-const PREVIEW_ROWS: usize = 5;
+const PREVIEW_ROWS: usize = 50;
+/// rows a dry run's table preview lists
+const DRY_ROWS: usize = 200;
+const MIN_INTERVAL_MIN: u32 = 5;
+const MAX_INTERVAL_MIN: u32 = 43_200; // 30 days
 const WRITABLE: [&str; 6] = ["title", "text", "url", "number", "checkbox", "date"];
 
 static RUNNING: Mutex<Option<HashSet<String>>> = Mutex::new(None);
@@ -56,6 +60,8 @@ pub struct Source {
     pub query: String,
     pub db_id: String,
     pub key_column: String,
+    /// query column → database column name (`None` skips it); unlisted columns keep their name
+    pub columns: Vec<(String, Option<String>)>,
     pub interval_min: u32,
     pub delete_missing: bool,
     pub paused: bool,
@@ -86,7 +92,7 @@ fn is_uuid(s: &str) -> bool {
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    reason = "clamped to 0..=10080 first"
+    reason = "clamped to 0..=MAX_INTERVAL_MIN first"
 )]
 fn parse_source(v: &Value) -> Option<Source> {
     let id = text(&v["id"]);
@@ -105,16 +111,35 @@ fn parse_source(v: &Value) -> Option<Source> {
             String::new()
         },
         key_column: text(&v["key_column"]),
-        interval_min: v["interval_min"]
-            .as_f64()
-            .map_or(0, |n| n.round().clamp(0.0, 10_080.0) as u32),
+        columns: v["columns"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|c| {
+                let from = text(&c["from"]);
+                let to = text(&c["to"]);
+                (!from.is_empty()).then(|| (from, (!to.is_empty()).then_some(to)))
+            })
+            .collect(),
+        interval_min: v["interval_min"].as_f64().map_or(0, |n| {
+            // anything scheduled runs at most every MIN_INTERVAL_MIN
+            match n.round().clamp(0.0, f64::from(MAX_INTERVAL_MIN)) as u32 {
+                0 => 0,
+                m => m.max(MIN_INTERVAL_MIN),
+            }
+        }),
         delete_missing: v["delete_missing"] == true,
         paused: v["paused"] == true,
     })
 }
 
 fn source_json(s: &Source) -> Value {
-    json!({"id":s.id,"name":s.name,"connection_id":s.connection_id,"query":s.query,"db_id":s.db_id,"key_column":s.key_column,"interval_min":s.interval_min,"delete_missing":s.delete_missing,"paused":s.paused})
+    let columns: Vec<_> = s
+        .columns
+        .iter()
+        .map(|(from, to)| json!({"from": from, "to": to}))
+        .collect();
+    json!({"id":s.id,"name":s.name,"connection_id":s.connection_id,"query":s.query,"db_id":s.db_id,"key_column":s.key_column,"columns":columns,"interval_min":s.interval_min,"delete_missing":s.delete_missing,"paused":s.paused})
 }
 
 pub fn sources(slice: &Value) -> Vec<Source> {
@@ -391,6 +416,9 @@ pub struct Counts {
     pub deleted: usize,
     pub new_columns: Vec<(String, String)>,
     pub claimed_columns: Vec<String>,
+    pub released_columns: Vec<String>,
+    /// the database as the write leaves it, row by row; dry runs only
+    pub preview: Option<Value>,
 }
 
 impl Counts {
@@ -399,6 +427,7 @@ impl Counts {
             "rows": self.rows, "created": self.created, "updated": self.updated, "deleted": self.deleted,
             "new_columns": self.new_columns.iter().map(|(n, t)| json!({"name": n, "type": t})).collect::<Vec<_>>(),
             "claimed_columns": self.claimed_columns,
+            "released_columns": self.released_columns,
         })
     }
 }
@@ -406,16 +435,18 @@ impl Counts {
 struct Plan {
     prop_id: Option<String>,
     column: String,
+    target: String,
     kind: String,
     claim: bool,
 }
 
 /// Write `result` into the source's database inside one transaction; `dry_run` rolls it back.
-/// Columns match by the result column they were made for, then by name; rows match by key.
+/// Columns match by the mapping, else by the result column they were made for, then by name;
+/// rows match by key.
 pub fn apply(db: &mut Db, source: &Source, result: &SourceResult, dry_run: bool) -> Result<Counts> {
     db.exclusive(|db| {
         db.batch_execute("begin")?;
-        let outcome = apply_inner(db, source, result);
+        let outcome = apply_inner(db, source, result, dry_run);
         db.batch_execute(if dry_run || outcome.is_err() {
             "rollback"
         } else {
@@ -425,7 +456,22 @@ pub fn apply(db: &mut Db, source: &Source, result: &SourceResult, dry_run: bool)
     })
 }
 
-fn apply_inner(db: &mut Db, source: &Source, result: &SourceResult) -> Result<Counts> {
+/// The database column a query column fills: its mapping, else its own name; `None` skips it.
+fn target_of(source: &Source, column: &str) -> Option<String> {
+    source
+        .columns
+        .iter()
+        .find(|(from, _)| from == column)
+        .map_or_else(|| Some(column.to_owned()), |(_, to)| to.clone())
+}
+
+#[allow(clippy::too_many_lines, reason = "one transaction, read top to bottom")]
+fn apply_inner(
+    db: &mut Db,
+    source: &Source,
+    result: &SourceResult,
+    preview: bool,
+) -> Result<Counts> {
     let (status, data) = udb::read(db, &source.db_id)?;
     if status != 200 {
         return refuse("the target database no longer exists");
@@ -437,19 +483,37 @@ fn apply_inner(db: &mut Db, source: &Source, result: &SourceResult) -> Result<Co
             source.key_column
         ));
     }
+    if target_of(source, &source.key_column).is_none() {
+        return refuse("the key column can't be skipped");
+    }
     let mut plans = Vec::new();
+    let mut targets = HashSet::new();
     for (column, kind) in &result.columns {
-        let prop = props
-            .iter()
-            .find(|p| {
-                p["config"]["source"] == source.id.as_str()
-                    && p["config"]["source_column"] == column.as_str()
-            })
-            .or_else(|| props.iter().find(|p| p["name"] == column.as_str()));
+        let Some(target) = target_of(source, column) else {
+            continue;
+        };
+        if !targets.insert(target.clone()) {
+            return refuse(format!(
+                "two query columns fill \"{target}\" — map one elsewhere"
+            ));
+        }
+        let by_name = || props.iter().find(|p| p["name"] == target.as_str());
+        let prop = if source.columns.iter().any(|(from, _)| from == column) {
+            by_name()
+        } else {
+            props
+                .iter()
+                .find(|p| {
+                    p["config"]["source"] == source.id.as_str()
+                        && p["config"]["source_column"] == column.as_str()
+                })
+                .or_else(by_name)
+        };
         let Some(prop) = prop else {
             plans.push(Plan {
                 prop_id: None,
                 column: column.clone(),
+                target,
                 kind: kind.clone(),
                 claim: false,
             });
@@ -470,8 +534,10 @@ fn apply_inner(db: &mut Db, source: &Source, result: &SourceResult) -> Result<Co
         plans.push(Plan {
             prop_id: prop["id"].as_str().map(str::to_owned),
             column: column.clone(),
+            target,
             kind: prop_type.to_owned(),
-            claim: config["source"] != source.id.as_str(),
+            claim: config["source"] != source.id.as_str()
+                || config["source_column"] != column.as_str(),
         });
     }
 
@@ -510,29 +576,45 @@ fn apply_inner(db: &mut Db, source: &Source, result: &SourceResult) -> Result<Co
         rows: result.rows.len(),
         ..Counts::default()
     };
+    // columns this source filled but no longer maps go back to the user
+    let kept: HashSet<&str> = plans.iter().filter_map(|p| p.prop_id.as_deref()).collect();
+    for prop in &props {
+        let id = prop["id"].as_str().unwrap_or("");
+        if prop["config"]["source"] == source.id.as_str() && !kept.contains(id) {
+            db.query(
+                "update udb_properties set config = config - 'source' - 'source_column' - 'source_name', origin=$2, updated_at=now() where id=$1",
+                &[json!(id), json!(db.origin)],
+            )?;
+            counts
+                .released_columns
+                .push(prop["name"].as_str().unwrap_or("").to_owned());
+        }
+    }
     for plan in &mut plans {
         let config =
             json!({"source": source.id, "source_column": plan.column, "source_name": source.name});
         match &plan.prop_id {
             Some(id) if plan.claim => {
                 udb::update_prop(db, id, &json!({"config": config}))?;
-                counts.claimed_columns.push(plan.column.clone());
+                counts.claimed_columns.push(plan.target.clone());
             }
             Some(_) => {}
             None => {
                 let created = udb::create_prop(
                     db,
                     &source.db_id,
-                    &json!({"name": plan.column, "type": plan.kind, "config": config}),
+                    &json!({"name": plan.target, "type": plan.kind, "config": config}),
                 )?;
                 plan.prop_id = created["id"].as_str().map(str::to_owned);
                 counts
                     .new_columns
-                    .push((plan.column.clone(), plan.kind.clone()));
+                    .push((plan.target.clone(), plan.kind.clone()));
             }
         }
     }
 
+    // row id → (op, previous values of the cells it changes), for the preview
+    let mut ops: HashMap<String, (&str, Map<String, Value>)> = HashMap::new();
     for (row, key) in result.rows.iter().zip(&keys) {
         let vals: Map<String, Value> = plans
             .iter()
@@ -540,29 +622,81 @@ fn apply_inner(db: &mut Db, source: &Source, result: &SourceResult) -> Result<Co
             .collect();
         let Some(current) = existing.get(key) else {
             let vals: Map<_, _> = vals.into_iter().filter(|(_, v)| !v.is_null()).collect();
-            udb::create_row(db, &source.db_id, &json!({"vals": vals}))?;
+            let created = udb::create_row(db, &source.db_id, &json!({"vals": vals}))?;
             counts.created += 1;
+            if let Some(id) = created["id"].as_str() {
+                ops.insert(id.to_owned(), ("new", Map::new()));
+            }
             continue;
         };
+        let id = current["id"].as_str().context("row id")?;
         let patch: Map<_, _> = vals
             .into_iter()
-            .filter(|(id, v)| !same(&current["vals"][id], v))
+            .filter(|(prop, v)| !same(&current["vals"][prop], v))
             .collect();
-        if !patch.is_empty() {
-            let id = current["id"].as_str().context("row id")?;
-            udb::patch_row(db, id, &json!({"vals": patch}))?;
-            counts.updated += 1;
+        if patch.is_empty() {
+            ops.insert(id.to_owned(), ("same", Map::new()));
+            continue;
         }
+        let old = patch
+            .keys()
+            .map(|prop| (prop.clone(), current["vals"][prop].clone()))
+            .collect();
+        udb::patch_row(db, id, &json!({"vals": patch}))?;
+        counts.updated += 1;
+        ops.insert(id.to_owned(), ("changed", old));
     }
+    let mut removed = Vec::new();
     if source.delete_missing {
         for (key, row) in &existing {
             if !seen.contains(key) {
                 udb::delete_row(db, row["id"].as_str().context("row id")?)?;
                 counts.deleted += 1;
+                removed.push((*row).clone());
             }
         }
     }
+    if preview {
+        counts.preview = Some(preview_json(db, source, &ops, &removed)?);
+    }
     Ok(counts)
+}
+
+/// The database after the (uncommitted) write: columns, then rows tagged new/changed/same/kept/removed.
+fn preview_json(
+    db: &mut Db,
+    source: &Source,
+    ops: &HashMap<String, (&str, Map<String, Value>)>,
+    removed: &[Value],
+) -> Result<Value> {
+    let (_, data) = udb::read(db, &source.db_id)?;
+    let columns: Vec<_> = data["properties"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|p| {
+            json!({"id": p["id"], "name": p["name"], "type": p["type"],
+                   "source": p["config"]["source"] == source.id.as_str()})
+        })
+        .collect();
+    let rows = data["rows"].as_array().cloned().unwrap_or_default();
+    let mut out: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            let (op, old) = ops
+                .get(r["id"].as_str().unwrap_or(""))
+                .map_or(("kept", Map::new()), |(op, old)| (*op, old.clone()));
+            json!({"id": r["id"], "op": op, "vals": r["vals"], "old": old})
+        })
+        .collect();
+    out.extend(
+        removed
+            .iter()
+            .map(|r| json!({"id": r["id"], "op": "removed", "vals": r["vals"], "old": {}})),
+    );
+    let total = out.len();
+    out.truncate(DRY_ROWS);
+    Ok(json!({"columns": columns, "rows": out, "total": total}))
 }
 
 // Refresh and status
@@ -817,7 +951,9 @@ pub fn handle(env: &Env, method: &str, sub: &str, body: &Value) -> Result<(u16, 
                 let fresh = text(&body["dsn"]);
                 if body["dry_run"] == true {
                     let counts = run_and_apply(env, &source, Some(&dsn), true)?;
-                    return Ok((200, json!({"ok": true, "dry_run": counts.json()})));
+                    let mut dry = counts.json();
+                    dry["preview"] = counts.preview.unwrap_or(Value::Null);
+                    return Ok((200, json!({"ok": true, "dry_run": dry})));
                 }
                 let saved = save_source(
                     env,
@@ -887,6 +1023,20 @@ pub fn start(state: &Native) -> tokio::task::JoinHandle<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn intervals_are_manual_or_between_five_minutes_and_thirty_days() {
+        for (given, kept) in [
+            (json!(0), 0),
+            (json!(1), 5),
+            (json!(90), 90),
+            (json!(1e9), 43_200),
+            (json!(-3), 0),
+        ] {
+            let source = parse_source(&json!({"id": "s", "interval_min": given})).unwrap();
+            assert_eq!(source.interval_min, kept, "{given}");
+        }
+    }
 
     #[test]
     fn cell_values_take_the_column_shape() {

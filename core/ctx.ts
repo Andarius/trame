@@ -3,7 +3,7 @@
 
 // The PGlite query shape; the hub adapts postgres.js to it.
 export type Q = {
-  // deno-lint-ignore no-explicit-any
+  // oxlint-disable-next-line typescript/no-explicit-any
   query<T = Record<string, any>>(
     text: string,
     params?: unknown[],

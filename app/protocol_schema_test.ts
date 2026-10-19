@@ -1,15 +1,16 @@
+import { expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 import { testTempDir } from "./test_tmp.ts";
 // Isolated PGlite in a temp dir — set the env BEFORE importing any app module.
 const tmp = testTempDir("trame-proto-test-");
-Deno.env.set("TRACKER_DATA_DIR", `${tmp}/pglite`);
-Deno.env.set("TRACKER_NODE_ID", "proto-test");
-Deno.env.set("TRACKER_OUTBOX", `${tmp}/outbox.jsonl`);
-Deno.env.set("TRACKER_SETTINGS_FILE", `${tmp}/settings.json`);
-Deno.env.set("TRACKER_PORT_FILE", `${tmp}/port.json`);
-Deno.env.set("TRACKER_APP_ROOT", new URL(".", import.meta.url).pathname);
+process.env.TRACKER_DATA_DIR = `${tmp}/pglite`;
+process.env.TRACKER_NODE_ID = "proto-test";
+process.env.TRACKER_OUTBOX = `${tmp}/outbox.jsonl`;
+process.env.TRACKER_SETTINGS_FILE = `${tmp}/settings.json`;
+process.env.TRACKER_PORT_FILE = `${tmp}/port.json`;
+process.env.TRACKER_APP_ROOT = new URL(".", import.meta.url).pathname;
 const { APP_CTX } = await import("./ctx.ts");
 
-import { assertEquals, assertRejects } from "@std/assert";
 import { ENTITIES } from "../protocol/entities.ts";
 
 /**
@@ -19,7 +20,7 @@ import { ENTITIES } from "../protocol/entities.ts";
  * left the laptop. This walks the real database and checks every declared
  * column exists.
  */
-Deno.test("every synced column exists in the database", async () => {
+test("every synced column exists in the database", async () => {
   const { db } = await import("./db.ts");
   const pg = await db();
 
@@ -38,53 +39,49 @@ Deno.test("every synced column exists in the database", async () => {
     for (const c of e.cols) if (!have.has(c)) missing.push(`${e.name}.${c}`);
   }
 
-  assertEquals(
-    missing,
-    [],
-    "declared in protocol/entities.ts but not in db/schema.sql",
-  );
+  expect(missing, "declared in protocol/entities.ts but not in db/schema.sql").toStrictEqual([]);
 });
 
-Deno.test("a page keeps its tags through create and update", async () => {
+test("a page keeps its tags through create and update", async () => {
   const { createPage, getPage, updatePage } = await import("../core/pages.ts");
   // getPage spreads an untyped row, so the column is not on the inferred type.
   const tagsOf = async (id: string) =>
     (await getPage(APP_CTX, id) as unknown as { tags: string[] }).tags;
 
   const id = await createPage(APP_CTX, { title: "Tagged", tags: ["devops"] });
-  assertEquals(await tagsOf(id), ["devops"]);
+  expect(await tagsOf(id), "untouched by an unrelated patch").toStrictEqual(["devops"]);
 
   // The conditional-write trap: a patch that does not mention tags must leave
   // them alone, exactly like icon and color.
   await updatePage(APP_CTX, id, { title: "Renamed" });
-  assertEquals(await tagsOf(id), ["devops"], "untouched by an unrelated patch");
+  expect(await tagsOf(id)).toStrictEqual(["devops"]);
 
   await updatePage(APP_CTX, id, { tags: ["devops", "mobile"] });
-  assertEquals(await tagsOf(id), ["devops", "mobile"]);
+  expect(await tagsOf(id)).toStrictEqual(["devops", "mobile"]);
 
   await updatePage(APP_CTX, id, { tags: [] });
-  assertEquals(await tagsOf(id), [], "clearing is possible");
+  expect(await tagsOf(id), "clearing is possible").toStrictEqual([]);
 });
 
-Deno.test("session tags survive tracking, replacement, clearing, and schema reapplication", async () => {
+test("session tags survive tracking, replacement, clearing, and schema reapplication", async () => {
   const { db } = await import("./db.ts");
 const { getSession, upsertSession } = await import("../core/sessions.ts");
   const pg = await db();
   // labels slug to keys on the way in, so `priority:P1` and `priority-p1` are one tag
   const id = await upsertSession(APP_CTX, { title: "Tagged session", tags: ["priority:P1", "priority-p1", "infra"] });
   const otherId = await upsertSession(APP_CTX, { title: "Untagged session" });
-  assertEquals((await getSession(APP_CTX, id))?.tags, ["priority-p1", "infra"]);
-  assertEquals((await getSession(APP_CTX, otherId))?.tags, []);
+  expect((await getSession(APP_CTX, id))?.tags).toStrictEqual(["priority-p1", "infra"]);
+  expect((await getSession(APP_CTX, otherId))?.tags).toStrictEqual([]);
 
   await upsertSession(APP_CTX, { id, title: "Renamed session", summary: "Tracking update" });
-  await pg.exec(await Deno.readTextFile(new URL("../db/schema.sql", import.meta.url)));
-  assertEquals((await getSession(APP_CTX, id))?.tags, ["priority-p1", "infra"]);
+  await pg.exec(await readFile(new URL("../db/schema.sql", import.meta.url), "utf8"));
+  expect((await getSession(APP_CTX, id))?.tags).toStrictEqual(["priority-p1", "infra"]);
 
   await upsertSession(APP_CTX, { id, title: "Renamed session", tags: ["priority-p2"] });
-  assertEquals((await getSession(APP_CTX, id))?.tags, ["priority-p2"]);
-  assertEquals((await getSession(APP_CTX, otherId))?.tags, []);
+  expect((await getSession(APP_CTX, id))?.tags).toStrictEqual(["priority-p2"]);
+  expect((await getSession(APP_CTX, otherId))?.tags).toStrictEqual([]);
   await upsertSession(APP_CTX, { id, title: "Renamed session", tags: [] });
-  assertEquals((await getSession(APP_CTX, id))?.tags, []);
+  expect((await getSession(APP_CTX, id))?.tags).toStrictEqual([]);
 });
 
 for (const [name, tags] of [
@@ -93,15 +90,12 @@ for (const [name, tags] of [
   ["non-string key", [42]],
   ["blank key", [" "]],
 ] as const) {
-  Deno.test(`invalid session tags (${name}) cannot mutate a session`, async () => {
+  test(`invalid session tags (${name}) cannot mutate a session`, async () => {
     const { getSession, SessionTagsError, upsertSession } = await import("../core/sessions.ts");
     const id = await upsertSession(APP_CTX, { title: "Original", tags: ["priority-p1"] });
-    await assertRejects(
-      () => upsertSession(APP_CTX, { id, title: "Invalid update", tags }),
-      SessionTagsError,
-    );
+    await expect(upsertSession(APP_CTX, { id, title: "Invalid update", tags })).rejects.toThrow(SessionTagsError);
     const session = await getSession(APP_CTX, id);
-    assertEquals(session?.title, "Original");
-    assertEquals(session?.tags, ["priority-p1"]);
+    expect(session?.title).toStrictEqual("Original");
+    expect(session?.tags).toStrictEqual(["priority-p1"]);
   });
 }

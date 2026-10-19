@@ -10,7 +10,7 @@ Code or Codex. Opt-in **plugins** add side panels — the first one lists GitHub
 **deployments waiting for approval**.
 
 Stack: **Tauri 2 + Rust** app → **bundled PostgreSQL 18** (offline read+write) →
-custom **changeset LWW sync over HTTPS** → a small **Deno API in front of Postgres** on a home
+custom **changeset LWW sync over HTTPS** → a small **Bun API in front of Postgres** on a home
 server (the hub), with **WebSocket nudges** so edits propagate between machines in seconds.
 No PowerSync, no Electric. Everything is Postgres, so the SQL is identical on the laptop and
 the hub. (Design + migration story: `docs-site/src/content/docs/hub-api.md`.)
@@ -19,7 +19,7 @@ the hub. (Design + migration story: `docs-site/src/content/docs/hub-api.md`.)
  laptop A (Tauri app)                          laptop B (Tauri app)
    ├─ local PG18    ◀── read/write offline ──▶  local PG18
    └─ sync ─┐  POST /sync (mutations ⇅ changes)  ┌─ sync
-            ├──────────▶  Deno API @ hub  ◀──────┤   (auth boundary; Docker, home LAN)
+            ├──────────▶  Bun API @ hub   ◀──────┤   (auth boundary; Docker, home LAN)
             └── WSS ◀──  "changed, pull now"  ──▶┘        └─▶ Postgres (source of truth)
  /trame-track ─▶ local app if running, else local outbox.jsonl (app drains on launch)
 ```
@@ -47,8 +47,8 @@ the hub. (Design + migration story: `docs-site/src/content/docs/hub-api.md`.)
 | [![reminders](docs/reminders.png)](docs/reminders.png) | |
 
 ## Requirements
-- **Linux x64** packaged app (deb, snap, or AppImage); no installed Deno runtime is required.
-- Source builds use **Rust**, Tauri/WebKitGTK build libraries, **Node/npm**, and **Deno 2.9+** only for hub tooling, tests and compiling the one-shot legacy migration helper.
+- **Linux x64** packaged app (deb, snap, or AppImage); nothing else to install.
+- Source builds use **Rust**, Tauri/WebKitGTK build libraries, **Node/npm**, and **Bun 1.3+** for the hub API, plugin host, tooling and tests.
 - **Docker + openssl** on the hub machine (certs are generated there; the CA key never leaves it).
 - Laptops reach the hub's API over the **home LAN** (no Tailscale required;
   the hub binds to its LAN IP — install Tailscale there if you want sync away from home).
@@ -59,7 +59,7 @@ the hub. (Design + migration story: `docs-site/src/content/docs/hub-api.md`.)
 db/schema.sql              shared schema (hub AND local PostgreSQL) — idempotent; re-applying it IS the migration
 docs-site/                 Astro + Starlight docs (data model, hub API design, release notes) — `just docs`
 protocol/                  versioned sync protocol shared by app and hub (entities, LWW rule, html-block bridge)
-hub/docker-compose.yml     the hub: Postgres (docker-network only) + the Deno API in front of it
+hub/docker-compose.yml     the hub: Postgres (docker-network only) + the Bun API in front of it
 hub/api/                   the API: device tokens, changeset /sync, per-page ACLs, WSS nudges, public /l/* pages
 hub/deploy.sh              deploy the hub over ssh (~/Apps/trame) — `just db-deploy`
 hub/gen-certs.sh           private CA + server certs, runs on the hub (called by deploy)
@@ -70,8 +70,8 @@ crates/trame-local/         axum API, supervised PostgreSQL, sync, plugins, file
 crates/trame-core/          shared markdown/merge/todo logic, also compiled to Wasm
 crates/trame-cli/           native tramecli writers, setup, watcher and MCP stdio server
 app/web/                   existing React app (Vite)
-app/, track/, mcp/          original TS regression oracles; not the production backend or CLI
-scripts/rust-db-migrate.ts  one-shot legacy PGlite export helper, compiled into packages
+app/plugin-host.ts         TS plugin host, compiled and supervised by trame-local
+scripts/rust-db-migrate.ts  legacy PGlite export helper (dev/CI only; no longer bundled in packages)
 bin/quickstart.sh          curl-able laptop setup: clone + packaged app + agent integrations
 skills/trame-{track,page,watch}/ the agent skills (Claude Code, Codex & friends) — embedded in tramecli, installed by `tramecli setup`
 ```
@@ -97,7 +97,7 @@ just db-deploy       # ssh: copies compose+schema+hba+api to ~/Apps/trame, creat
 just hub-ca          # per laptop: fetch ca.crt (trusts the API's TLS)
 ```
 First run generates the password and the CA/server certs, and binds to the hub's LAN IP
-(never 0.0.0.0). Postgres itself has **no host port** — laptops talk to the Deno API on
+(never 0.0.0.0). Postgres itself has **no host port** — laptops talk to the Bun API on
 `:8443`, which terminates TLS with the same private-CA cert. Idempotent — rerun to redeploy
 (re-applies the schema and restarts the API).
 
@@ -105,7 +105,7 @@ First run generates the password and the CA/server certs, and binds to the hub's
 Mint a device token on the hub (`<node-id>` = the laptop's `TRACKER_NODE_ID`), then point the app at the API:
 ```bash
 # e.g. for the laptop whose TRACKER_NODE_ID is "mbp-14"
-ssh <hub> "docker exec trame-api deno run -A --config /srv/hub/api/deno.json /srv/hub/api/main.ts mint mbp-14"
+ssh <hub> "docker exec trame-api bun /srv/hub/api/main.ts mint mbp-14"
 # → prints the token ONCE (only its sha-256 is stored); re-run mint for a fresh one, revoke old rows in api_tokens
 ```
 Paste the URL + token in ⚙ Settings → Sync hub, or add to `~/.local/share/trame/settings.json` (chmod 600):
@@ -153,7 +153,7 @@ tramecli list            # open sessions grouped by story (--json for jq)
 
 It ships in the snap (aliased to `tramecli` by `bin/snap-install-release.sh`) and as
 a per-platform release asset. With the binary on PATH, install the agent docs from
-it — no checkout or deno needed:
+it — no checkout needed:
 
 ```bash
 tramecli setup                   # interactive target picker
@@ -256,9 +256,11 @@ that spawns a terminal).
 > hub and never sent back to the UI, and each is bound to the forge host you configured.
 
 **SQL sources** fill a database from a query on a PostgreSQL you choose (local or tailnet; no TLS
-yet). On a database page, **⇣ Connect** opens a drawer: pick or paste a connection, run the query,
-choose the key column that matches rows, a schedule, and whether rows whose key disappears are
-removed; a dry run shows what the first fill will create before anything syncs. The query runs from
+yet). On a database page (or an inline database in **Edit**), **⇣ Connect** opens a drawer: pick
+or paste a connection, run the query, map each result column to a database column (existing, new
+or skipped) and pick the key that matches rows, a schedule (manual, or every 5 minutes to 30 days),
+and whether rows whose key disappears are removed; **Preview** shows the resulting table, row by
+row, before anything syncs. The query runs from
 this device in a read-only transaction (30 s timeout, at most 10 000 rows, refused beyond). Result
 columns become read-only columns of the database (also in `tramecli db rows`) until you **Detach**
 one; a refresh writes only the cells whose source value changed, so your own columns and comments
@@ -278,7 +280,7 @@ Hub and clients must use the same protocol version. Deploy the hub schema and AP
 before restarting updated clients; older clients keep local data but cannot sync
 until upgraded. Session tags require protocol 6.
 
-- **Transport**: HTTPS to the Deno API on `:8443` (TLS terminated by the API with the hub's
+- **Transport**: HTTPS to the Bun API on `:8443` (TLS terminated by the API with the hub's
   private-CA cert — `just hub-ca` fetches the CA once per laptop). Every request carries a
   **per-device bearer token**, minted on the hub and stored sha-256 at rest, revocable.
   Postgres itself has no host port — the API is the only way in.
@@ -304,7 +306,7 @@ flowchart LR
         rt[Rust WSS client]
     end
     subgraph hub [Hub — home server, Docker]
-        api[Deno API :8443<br/>device tokens + ACLs] --> pg[(Postgres 18<br/>docker-network only)]
+        api[Bun API :8443<br/>device tokens + ACLs] --> pg[(Postgres 18<br/>docker-network only)]
         links[:8444 — public /l/* pages<br/>behind any reverse proxy]
         pg -. LISTEN/NOTIFY .-> api
         pg --> links
@@ -316,8 +318,8 @@ flowchart LR
 ## Packaging & releases
 
 Linux x64 packages contain the Tauri 2 desktop, native Rust backend and CLI, PostgreSQL 18,
-and React assets. The one-shot legacy PGlite migration helper is bundled separately; normal
-startup needs no Deno installation or TypeScript sidecar.
+and React assets; startup needs no JavaScript runtime or TypeScript sidecar. Packages no longer
+bundle the legacy PGlite migration helper: run v0.19.x once to convert `pglite/` data, then upgrade.
 
 `just bundle` builds the deb, `snapcraft --destructive-mode` builds the classic snap, and
 `just bundle-appimage` builds the best-effort AppImage. Release publication requires a manual

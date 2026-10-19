@@ -12,17 +12,6 @@ use std::{
     reason = "values fit by construction (timestamps, ids, pids, JS-number parity)"
 )]
 fn now() -> i64 {
-    #[cfg(debug_assertions)]
-    if let Some(path) = std::env::var_os("TRAME_REPLAY_CLOCK") {
-        let path = std::path::PathBuf::from(path);
-        if crate::scratch_path(&path).is_ok() {
-            if let Ok(contents) = std::fs::read_to_string(path) {
-                if let Ok(time) = chrono::DateTime::parse_from_rfc3339(contents.trim()) {
-                    return time.timestamp_millis();
-                }
-            }
-        }
-    }
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()

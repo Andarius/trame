@@ -151,3 +151,21 @@ fn write_outbox(path: &Path, lines: &[String]) -> Result<()> {
     }
     result
 }
+
+/// Keep Claude Code and Codex reporting agent presence: runs the CLI bundled next to the
+/// desktop binary, which only writes a settings file when a hook is missing.
+pub fn install_agent_hooks() {
+    let Some(cli) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("tramecli")))
+        .filter(|cli| cli.is_file())
+    else {
+        return;
+    };
+    let _ = std::process::Command::new(cli)
+        .args(["setup", "--presence"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+}

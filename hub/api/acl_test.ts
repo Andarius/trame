@@ -1,6 +1,6 @@
 // Guest access through the full /sync stack on PGlite: what a guest sees, what
 // they may write, and how grants/revokes reach an already-synced replica.
-import { assert, assertEquals } from "@std/assert";
+import { afterAll, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import type { DB, Q } from "./db.ts";
 import { ensureAuthSchema, mintToken } from "./auth.ts";
@@ -28,7 +28,7 @@ function pgliteAdapter(pg: PGlite): DB {
 const pg = new PGlite();
 await pg.waitReady;
 await pg.exec(
-  await Deno.readTextFile(new URL("../../db/schema.sql", import.meta.url)),
+  await Bun.file(new URL("../../db/schema.sql", import.meta.url)).text(),
 );
 const db = pgliteAdapter(pg);
 await ensureAuthSchema(db);
@@ -60,7 +60,7 @@ const sync = async (token: string, body: unknown) => {
     },
     body: JSON.stringify(body),
   });
-  assertEquals(res.status, 200);
+  expect(res.status).toStrictEqual(200);
   return await res.json() as SyncResponse;
 };
 
@@ -117,20 +117,16 @@ const page = (
   },
 });
 
-Deno.test("an unshared guest sees only profiles (and nothing of the workspace)", async () => {
+test("an unshared guest sees only profiles (and nothing of the workspace)", async () => {
   const r = await sync(guestToken, { cursor: null, mutations: [] });
   const entities = new Set(r.changes.map((c) => c.entity));
-  assertEquals([...entities].sort(), ["devices", "users"]);
-  assertEquals(
-    r.changes.filter((c) => c.entity === "devices").map((c) =>
+  expect([...entities].sort()).toStrictEqual(["devices", "users"]);
+  expect(r.changes.filter((c) => c.entity === "devices").map((c) =>
       (c.value as { node_id: string }).node_id
-    ),
-    ["guest-dev"],
-    "only their own device",
-  );
+    )).toStrictEqual(["guest-dev"]);
 });
 
-Deno.test("sharing a page exposes exactly its subtree + attached database", async () => {
+test("sharing a page exposes exactly its subtree + attached database", async () => {
   await pg.query(
     `insert into page_shares (page_id, user_id, role, origin) values ($1, $2, 'editor', 'member-dev')`,
     [SHARED, GUEST],
@@ -138,13 +134,13 @@ Deno.test("sharing a page exposes exactly its subtree + attached database", asyn
   const r = await sync(guestToken, { cursor: null, mutations: [] });
   const pages = r.changes.filter((c) => c.entity === "pages").map((c) => c.id)
     .sort();
-  assertEquals(pages, [SHARED, SUB], "subtree yes, private page no");
-  assertEquals(r.changes.filter((c) => c.entity === "udb_databases").length, 1);
-  assertEquals(r.changes.filter((c) => c.entity === "page_comments").length, 1);
-  assertEquals(r.changes.filter((c) => c.entity === "sessions").length, 0);
+  expect(pages).toStrictEqual([SHARED, SUB]);
+  expect(r.changes.filter((c) => c.entity === "udb_databases").length).toStrictEqual(1);
+  expect(r.changes.filter((c) => c.entity === "page_comments").length).toStrictEqual(1);
+  expect(r.changes.filter((c) => c.entity === "sessions").length).toStrictEqual(0);
 });
 
-Deno.test("editor can write inside the subtree, nowhere else; own profile ok", async () => {
+test("editor can write inside the subtree, nowhere else; own profile ok", async () => {
   const inside = page("00000000-0000-4000-8000-0000000000d5", "guest sub", {
     parent_id: SUB,
   });
@@ -191,20 +187,16 @@ Deno.test("editor can write inside the subtree, nowhere else; own profile ok", a
     cursor: null,
     mutations: [inside, comment, outside, shareGrab],
   });
-  assertEquals(r.acknowledgements.length, 2, "inside page + comment land");
-  assertEquals(
-    r.rejectedMutations.map((m) => m.reason),
-    ["forbidden", "forbidden"],
-    "writing under the private page and self-granting a share are both rejected",
-  );
+  expect(r.acknowledgements.length).toStrictEqual(2);
+  expect(r.rejectedMutations.map((m) => m.reason)).toStrictEqual(["forbidden", "forbidden"]);
   const c = (await pg.query(`select author_id from page_comments where id=$1`, [
     comment.id,
   ]))
     .rows[0] as { author_id: string };
-  assertEquals(c.author_id, GUEST);
+  expect(c.author_id).toStrictEqual(GUEST);
 });
 
-Deno.test("a guest cannot write a comment as someone else", async () => {
+test("a guest cannot write a comment as someone else", async () => {
   const spoof = {
     mutationId: "g:spoof:1",
     entity: "page_comments",
@@ -226,10 +218,10 @@ Deno.test("a guest cannot write a comment as someone else", async () => {
     },
   };
   const r = await sync(guestToken, { cursor: null, mutations: [spoof] });
-  assertEquals(r.rejectedMutations.map((m) => m.reason), ["forbidden"]);
+  expect(r.rejectedMutations.map((m) => m.reason)).toStrictEqual(["forbidden"]);
 });
 
-Deno.test("viewer can read but every write is rejected", async () => {
+test("viewer can read but every write is rejected", async () => {
   await pg.query(
     `update page_shares set role='viewer', updated_at=now() where page_id=$1 and user_id=$2`,
     [SHARED, GUEST],
@@ -243,15 +235,15 @@ Deno.test("viewer can read but every write is rejected", async () => {
       }),
     ],
   });
-  assertEquals(r.rejectedMutations.length, 1);
-  assert(r.changes.some((c) => c.id === SHARED), "still reads the subtree");
+  expect(r.rejectedMutations.length).toStrictEqual(1);
+  expect(r.changes.some((c) => c.id === SHARED)).toBeTruthy();
   await pg.query(
     `update page_shares set role='editor', updated_at=now() where page_id=$1 and user_id=$2`,
     [SHARED, GUEST],
   );
 });
 
-Deno.test("a grant mid-cursor back-fills rows older than the cursor", async () => {
+test("a grant mid-cursor back-fills rows older than the cursor", async () => {
   // guest is caught up, then a share lands on PRIVATE (created long before)
   const cur =
     (await sync(guestToken, { cursor: null, mutations: [] })).nextCursor;
@@ -260,15 +252,12 @@ Deno.test("a grant mid-cursor back-fills rows older than the cursor", async () =
     [PRIVATE, GUEST],
   );
   const r = await sync(guestToken, { cursor: cur, mutations: [] });
-  assert(
-    r.changes.some((c) =>
+  expect(r.changes.some((c) =>
       c.entity === "pages" && c.id === PRIVATE && c.value !== null
-    ),
-    "the old page arrives despite predating the cursor",
-  );
+    )).toBeTruthy();
 });
 
-Deno.test("a revoke tombstones the subtree, sparing overlapping grants", async () => {
+test("a revoke tombstones the subtree, sparing overlapping grants", async () => {
   const cur =
     (await sync(guestToken, { cursor: null, mutations: [] })).nextCursor;
   await pg.query(
@@ -277,10 +266,12 @@ Deno.test("a revoke tombstones the subtree, sparing overlapping grants", async (
   );
   const r = await sync(guestToken, { cursor: cur, mutations: [] });
   const tomb = r.changes.filter((c) => c.value === null).map((c) => c.id);
-  assert(tomb.includes(PRIVATE), "revoked page tombstoned");
-  assert(!tomb.includes(SHARED), "the still-shared subtree is untouched");
+  expect(tomb.includes(PRIVATE)).toBeTruthy();
+  expect(!tomb.includes(SHARED)).toBeTruthy();
 
   // and the member is entirely unaffected by any of this
   const m = await sync(memberToken, { cursor: null, mutations: [] });
-  assert(m.changes.some((c) => c.id === PRIVATE && c.value !== null));
+  expect(m.changes.some((c) => c.id === PRIVATE && c.value !== null)).toBeTruthy();
 });
+
+afterAll(() => pg.close());

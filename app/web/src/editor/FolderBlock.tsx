@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import { type Block, type FolderEntry, getReportFileContent, listFolder, openPath } from "../api";
 import { IconButton, LIVE_PILL } from "../ui/ui";
 
@@ -51,14 +51,16 @@ export function FolderBlock(
   }, [block.path]);
 
   // Lazily fetch HTML for gallery thumbnails once the gallery view is shown.
-  useEffect(() => {
-    if (view !== "gallery" || !entries) return;
-    for (const e of entries) {
+  const fetchMissingThumbs = useEffectEvent((list: FolderEntry[]) => {
+    for (const e of list) {
       if (!e.isHtml || e.path in thumbs) continue;
       getReportFileContent(e.path)
         .then((r) => setThumbs((t) => ({ ...t, [e.path]: r.html ?? "" })))
         .catch(() => setThumbs((t) => ({ ...t, [e.path]: "" })));
     }
+  });
+  useEffect(() => {
+    if (view === "gallery" && entries) fetchMissingThumbs(entries);
   }, [view, entries]);
 
   const commitPath = () => {
@@ -67,7 +69,7 @@ export function FolderBlock(
     if (v !== block.path) onPatch({ path: v });
   };
 
-  const Toggle = () => (
+  const toggle = (
     <div className="flex overflow-hidden rounded-md border border-chipline text-[10.5px]">
       {(["list", "gallery"] as const).map((v) => (
         <button
@@ -128,7 +130,7 @@ export function FolderBlock(
             {entries.length} fichier{entries.length > 1 ? "s" : ""}
           </span>
         )}
-        {entries && <Toggle />}
+        {entries && toggle}
         <IconButton onClick={onRemove}
           title="retirer le bloc"
           className="shrink-0 rounded px-1 text-ink-muted/60 hover:bg-panel hover:text-blocked"

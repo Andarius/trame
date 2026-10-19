@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useEffectEvent, useState } from "react";
 import { type PageChild, type Session, setStatus } from "../api";
 import { type Live, LiveAgentChip } from "../agents/agents";
 import { getPrInfo, StaleChip } from "../md/chips";
@@ -79,14 +79,18 @@ export function PageRow({ c, hideTag, live, onOpen }: {
 export function useFinishedCards(open: Session[]): Set<string> {
   const [done, setDone] = useState<Set<string>>(new Set());
   const key = open.map((s) => `${s.id}:${s.pr_url ?? ""}`).join(",");
-  useEffect(() => {
-    let alive = true;
+  const finishedIds = useEffectEvent(() =>
     Promise.all(
       open.filter((s) => s.pr_url).map(async (s) => {
         const { state } = await getPrInfo(s.pr_url as string).catch(() => ({ state: "unknown" }));
         return state === "merged" || state === "closed" ? s.id : null;
       }),
-    ).then((ids) => alive && setDone(new Set(ids.filter((i): i is string => i !== null))));
+    )
+  );
+  // keyed by the cards' ids and PR urls, not the array identity
+  useEffect(() => {
+    let alive = true;
+    finishedIds().then((ids) => alive && setDone(new Set(ids.filter((i): i is string => i !== null))));
     return () => {
       alive = false;
     };

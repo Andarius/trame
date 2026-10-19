@@ -15,7 +15,7 @@ and `port.json`. An exclusive owner lock prevents two app instances from opening
 same database. PostgreSQL listens on a private Unix socket and stops with the app.
 
 Packaged deb, classic snap and AppImage builds include PostgreSQL, React assets and the
-native CLI. No installed Deno runtime is needed. On macOS arm64, an ad-hoc signed DMG bundles a
+native CLI; nothing else needs installing. On macOS arm64, an ad-hoc signed DMG bundles a
 relocatable PostgreSQL 18 (theseus-rs/postgresql-binaries) and the native CLI; install it with the
 quickstart, which does not quarantine the download. A DMG downloaded through a browser needs
 right-click → Open the first time.
@@ -27,8 +27,9 @@ and the native app starts with an empty cluster that the hub sync refills.
 
 On Linux, on first launch with legacy `pglite/` data and no PostgreSQL cluster, Trame checks that the
 source is stopped, copies it, exports the copy, imports it into a new PostgreSQL cluster,
-and verifies it before installing it. The bundled one-shot migration helper retains the
-PGlite JavaScript/Wasm runtime; the running backend uses Rust exclusively.
+and verifies it before installing it. Only v0.19.x packages bundle the migration helper (it
+retains the PGlite JavaScript/Wasm runtime); later packages refuse to start on unmigrated
+`pglite/` data, so run v0.19.x once first.
 
 Keep the original legacy data and the migration backup until the new installation has
 been verified. To roll back, stop Trame, preserve the new data root, and restore the saved
@@ -38,7 +39,7 @@ never replace a running database directory.
 ## Out-of-tree plugins
 
 Private plugins listed in `plugins.local.json` never compile into release builds. `just plugins-install`
-builds them into the live data root: `plugins/plugin-host` (a compiled Deno program running the
+builds them into the live data root: `plugins/plugin-host` (a Bun-compiled program running the
 TypeScript plugin registry) and `plugins/web/plugins.{js,css}` (their frontend, built against
 `window.__trame`). On startup the app starts the host with a per-launch token and its PostgreSQL socket,
 forwards `/api/plugins/<id>/*` to it, lists its plugins and registers their mark roles. The frontend
@@ -55,18 +56,16 @@ Debug builds always confine data, imports, settings and assets to this worktree'
 Do not point test commands at live data.
 
 `cargo test --workspace --locked` runs the Rust suites. `bash scripts/rust-e2e.sh` runs the
-unchanged Playwright suite through Rust. The retained TypeScript backend is a regression
-oracle used by the differential harness, not a production dependency.
+Playwright suite against the native backend.
 
 ## Verification and cutover
 
-`just oracle-check` retains the TypeScript backend, core and CLI typechecks, tests and lint in
-a clean scratch environment. `just differential` creates a synthetic PGlite source, migrates it
-twice, checks source preservation, and compares native HTTP/CLI behavior with the retained
-TypeScript oracle. `just lifecycle` checks owner refusal, parent death, WAL recovery and
+`just ts-check` typechecks, tests and lints the TypeScript still shipped or shared (plugin
+host, core, protocol) in a clean scratch environment. `just migration` creates a synthetic
+PGlite source, migrates it twice and checks source preservation. `just lifecycle` checks owner refusal, parent death, WAL recovery and
 failed startup without requiring a developer's copied database.
 
-The old `hack` recipe's Deno backend watcher is retired: `just web-dev` runs Vite against an
+The old `hack` recipe's TypeScript backend watcher is retired: `just web-dev` runs Vite against an
 isolated backend, starting one for its lifetime unless `just serve` already runs. Restart it
 after Rust changes. `just web-live` runs Vite against the running Trame app instead: real data
 and real writes, with the installed backend. The old standalone

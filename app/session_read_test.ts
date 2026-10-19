@@ -1,18 +1,18 @@
+import { expect, test } from "bun:test";
 import { testTempDir } from "./test_tmp.ts";
 const tmp = testTempDir("trame-session-read-test-");
-Deno.env.set("TRACKER_DATA_DIR", `${tmp}/pglite`);
-Deno.env.set("TRACKER_NODE_ID", "session-read-test");
-Deno.env.set("TRACKER_OUTBOX", `${tmp}/outbox.jsonl`);
-Deno.env.set("TRACKER_SETTINGS_FILE", `${tmp}/settings.json`);
-Deno.env.set("TRACKER_PORT_FILE", `${tmp}/port.json`);
-Deno.env.set("TRACKER_APP_ROOT", new URL(".", import.meta.url).pathname);
+process.env.TRACKER_DATA_DIR = `${tmp}/pglite`;
+process.env.TRACKER_NODE_ID = "session-read-test";
+process.env.TRACKER_OUTBOX = `${tmp}/outbox.jsonl`;
+process.env.TRACKER_SETTINGS_FILE = `${tmp}/settings.json`;
+process.env.TRACKER_PORT_FILE = `${tmp}/port.json`;
+process.env.TRACKER_APP_ROOT = new URL(".", import.meta.url).pathname;
 const { APP_CTX } = await import("./ctx.ts");
 
-import { assert, assertEquals } from "@std/assert";
 
 // The whole point of getSession: an agent handed one id sees the card the drawer shows —
 // project and story by name, plus the links and worklog /api/board omits.
-Deno.test("getSession resolves the card the drawer shows", async () => {
+test("getSession resolves the card the drawer shows", async () => {
   const { db } = await import("./db.ts");
 const { addEvent, addSessionLink, addTrackEvent, deleteSession, ensureSpecsPage, getSession, resolveClient, upsertSession } = await import("../core/sessions.ts");
   const { createPage, updatePage } = await import("../core/pages.ts");
@@ -42,66 +42,66 @@ const { addEvent, addSessionLink, addTrackEvent, deleteSession, ensureSpecsPage,
   await (await db()).query(`update session_events set at='2026-01-01T00:00:00Z' where session_id=$1`, [id]);
 
   const card = await getSession(APP_CTX, id);
-  assert(card);
-  assertEquals(card.project, { id: clientId, name: "Acme" });
-  assertEquals((card.story as { title: string }).title, "Ship the thing");
-  assertEquals(card.branch, "feat/auth");
-  assertEquals(card.next_step, "wire the callback");
-  assertEquals(card.specs_page_id, specsPageId);
-  assert(String(card.specs).includes("Token exchange"));
-  assertEquals((card.links as { anchor: string }[]).map((l) => l.anchor), [
+  if (!card) throw new Error("session not found");
+  expect(card.project).toStrictEqual({ id: clientId, name: "Acme" });
+  expect((card.story as { title: string }).title).toStrictEqual("Ship the thing");
+  expect(card.branch).toStrictEqual("feat/auth");
+  expect(card.next_step).toStrictEqual("wire the callback");
+  expect(card.specs_page_id).toStrictEqual(specsPageId);
+  expect(String(card.specs).includes("Token exchange")).toBeTruthy();
+  expect((card.links as { anchor: string }[]).map((l) => l.anchor)).toStrictEqual([
     "Ship the thing",
   ]);
-  assertEquals((card.activity as { summary: string }[]).map((e) => e.summary), [
+  expect((card.activity as { summary: string }[]).map((e) => e.summary)).toStrictEqual([
     "third",
     "second",
     "first",
   ]);
-  assertEquals(card.activity_total, 3);
+  expect(card.activity_total).toStrictEqual(3);
 
   // the harness's own session id reads the same card (the Claude Code status band does this)
   const harnessId = crypto.randomUUID();
   await (await db()).query(`update sessions set claude_id=$2 where id=$1`, [id, harnessId]);
   const viaHarness = await getSession(APP_CTX, harnessId);
-  assertEquals([viaHarness?.id, viaHarness?.activity_total], [id, 3]);
+  expect([viaHarness?.id, viaHarness?.activity_total]).toStrictEqual([id, 3]);
 
   // a truncated feed still reports the real count, so the agent knows it is truncated
   const capped = await getSession(APP_CTX, id, 2);
-  assertEquals((capped!.activity as { summary: string }[]).map((e) => e.summary), ["third", "second"]);
-  assertEquals(capped!.activity_total, 3);
+  expect((capped!.activity as { summary: string }[]).map((e) => e.summary)).toStrictEqual(["third", "second"]);
+  expect(capped!.activity_total).toStrictEqual(3);
 
   // re-tracking resends the same summary: only a changed one is a new worklog entry
   await addTrackEvent(APP_CTX, id, "third", "claude");
-  assertEquals((await getSession(APP_CTX, id))!.activity_total, 3);
+  expect((await getSession(APP_CTX, id))!.activity_total).toStrictEqual(3);
   await addTrackEvent(APP_CTX, id, "fourth", "claude");
-  assertEquals((await getSession(APP_CTX, id))!.activity_total, 4);
+  expect((await getSession(APP_CTX, id))!.activity_total).toStrictEqual(4);
   // a human typing the same line in the drawer means it, and is never swallowed
   await addEvent(APP_CTX, id, "fourth", "log");
   await addEvent(APP_CTX, id, "fourth", "log");
-  assertEquals((await getSession(APP_CTX, id))!.activity_total, 6);
+  expect((await getSession(APP_CTX, id))!.activity_total).toStrictEqual(6);
   // …and a manual log does not hide a track that repeats it
   await addEvent(APP_CTX, id, "fifth", "log");
   await addTrackEvent(APP_CTX, id, "fifth", "claude");
-  assertEquals((await getSession(APP_CTX, id))!.activity_total, 8);
+  expect((await getSession(APP_CTX, id))!.activity_total).toStrictEqual(8);
   // …nor does the same text from another agent: the worklog must show the handoff
   await addTrackEvent(APP_CTX, id, "fifth", "codex");
-  assertEquals((await getSession(APP_CTX, id))!.activity_total, 9);
+  expect((await getSession(APP_CTX, id))!.activity_total).toStrictEqual(9);
 
   // an unfiled card resolves to nulls rather than blowing up
   const bare = await upsertSession(APP_CTX, { title: "loose", status: "active", repo_path: "/repos/loose" });
   const bareCard = await getSession(APP_CTX, bare);
-  assertEquals(bareCard!.project, null);
-  assertEquals(bareCard!.story, null);
-  assertEquals(bareCard!.activity, []);
+  expect(bareCard!.project).toStrictEqual(null);
+  expect(bareCard!.story).toStrictEqual(null);
+  expect(bareCard!.activity).toStrictEqual([]);
 
-  assertEquals(await getSession(APP_CTX, crypto.randomUUID()), null);
+  expect(await getSession(APP_CTX, crypto.randomUUID())).toStrictEqual(null);
   await deleteSession(APP_CTX, id);
-  assertEquals(await getSession(APP_CTX, id), null);
+  expect(await getSession(APP_CTX, id)).toStrictEqual(null);
 });
 
 // The page-level feed: every linked session's worklog on one timeline. A session
 // linked to several lines must still contribute each entry once.
-Deno.test("listPageEvents merges the page's sessions, once per entry", async () => {
+test("listPageEvents merges the page's sessions, once per entry", async () => {
   const { addEvent, addSessionLink, listPageEvents, resolveClient, upsertSession } = await import("../core/sessions.ts");
   const { createPage } = await import("../core/pages.ts");
 
@@ -132,9 +132,9 @@ Deno.test("listPageEvents merges the page's sessions, once per entry", async () 
     session_status: string;
   }[];
 
-  assertEquals(feed.map((e) => e.summary), ["a2", "b1", "a1"]); // newest first
-  assertEquals(new Set(feed.map((e) => e.id)).size, 3); // two links ≠ two copies
-  assertEquals(feed.find((e) => e.summary === "b1")!.session_title, "b — two");
-  assertEquals(feed.find((e) => e.summary === "b1")!.session_status, "done");
-  assert(!feed.some((e) => e.session_id === off)); // another page's session stays out
+  expect(feed.map((e) => e.summary)).toStrictEqual(["a2", "b1", "a1"]); // newest first
+  expect(new Set(feed.map((e) => e.id)).size).toStrictEqual(3); // two links ≠ two copies
+  expect(feed.find((e) => e.summary === "b1")!.session_title).toStrictEqual("b — two");
+  expect(feed.find((e) => e.summary === "b1")!.session_status).toStrictEqual("done");
+  expect(!feed.some((e) => e.session_id === off)).toBeTruthy(); // another page's session stays out
 });

@@ -1,22 +1,23 @@
+import schema from "../db/schema.sql" with { type: "text" };
+import { expect, test } from "bun:test";
 import { testTempDir } from "./test_tmp.ts";
 // Isolated PGlite in a temp dir — set the env BEFORE importing any app module (config
 // reads it at load), so app code is pulled in via dynamic import inside the test.
 const tmp = testTempDir("trame-changelog-test-");
-Deno.env.set("TRACKER_DATA_DIR", `${tmp}/pglite`);
-Deno.env.set("TRACKER_NODE_ID", "cl-test");
-Deno.env.set("TRACKER_OUTBOX", `${tmp}/outbox.jsonl`);
-Deno.env.set("TRACKER_SETTINGS_FILE", `${tmp}/settings.json`);
-Deno.env.set("TRACKER_PORT_FILE", `${tmp}/port.json`);
-Deno.env.set("TRACKER_APP_ROOT", new URL(".", import.meta.url).pathname);
+process.env.TRACKER_DATA_DIR = `${tmp}/pglite`;
+process.env.TRACKER_NODE_ID = "cl-test";
+process.env.TRACKER_OUTBOX = `${tmp}/outbox.jsonl`;
+process.env.TRACKER_SETTINGS_FILE = `${tmp}/settings.json`;
+process.env.TRACKER_PORT_FILE = `${tmp}/port.json`;
+process.env.TRACKER_APP_ROOT = new URL(".", import.meta.url).pathname;
 const { APP_CTX } = await import("./ctx.ts");
 
-import { assert, assertEquals } from "@std/assert";
 
 type LogRow = { rev: number; entity: string; row_id: string; op: string };
 
 // These run in order and clean up after themselves (one PGlite for the file).
 
-Deno.test("writes append to change_log in order: upsert, upsert, delete", async () => {
+test("writes append to change_log in order: upsert, upsert, delete", async () => {
   const { db } = await import("./db.ts");
   const { createPage, updatePage, deletePage } = await import("../core/pages.ts");
   const pg = await db();
@@ -29,12 +30,12 @@ Deno.test("writes append to change_log in order: upsert, upsert, delete", async 
     `select rev, entity, row_id, op from change_log where row_id=$1 order by rev`,
     [id],
   )).rows as LogRow[];
-  assertEquals(log.map((l) => l.op), ["upsert", "upsert", "delete"]);
-  assertEquals(log.map((l) => l.entity), ["pages", "pages", "pages"]);
-  assert(log[0].rev < log[1].rev && log[1].rev < log[2].rev, "rev is monotonic");
+  expect(log.map((l) => l.op)).toStrictEqual(["upsert", "upsert", "delete"]);
+  expect(log.map((l) => l.entity)).toStrictEqual(["pages", "pages", "pages"]);
+  expect(log[0].rev < log[1].rev && log[1].rev < log[2].rev, "rev is monotonic").toBeTruthy();
 });
 
-Deno.test("foreign-origin upserts are captured too", async () => {
+test("foreign-origin upserts are captured too", async () => {
   const { db } = await import("./db.ts");
   const pg = await db();
 
@@ -46,13 +47,13 @@ Deno.test("foreign-origin upserts are captured too", async () => {
   const log = (await pg.query(
     `select op, actor, source from change_log where row_id='00000000-0000-4000-8000-00000000cccc'`,
   )).rows as { op: string; actor: string | null; source: string | null }[];
-  assertEquals(log.length, 1);
-  assertEquals(log[0].op, "upsert");
-  assertEquals(log[0].actor, null, "no actor until the API stamps trame.actor");
-  assertEquals(log[0].source, null, "no source for direct SQL");
+  expect(log.length).toStrictEqual(1);
+  expect(log[0].op).toStrictEqual("upsert");
+  expect(log[0].actor, "no actor until the API stamps trame.actor").toStrictEqual(null);
+  expect(log[0].source, "no source for direct SQL").toStrictEqual(null);
 });
 
-Deno.test("trame.actor/trame.source settings are stamped when set", async () => {
+test("trame.actor/trame.source settings are stamped when set", async () => {
   const { db } = await import("./db.ts");
   const pg = await db();
 
@@ -67,13 +68,12 @@ Deno.test("trame.actor/trame.source settings are stamped when set", async () => 
   const row = (await pg.query(
     `select actor, source from change_log where row_id='00000000-0000-4000-8000-00000000dddd'`,
   )).rows[0] as { actor: string; source: string };
-  assertEquals(row.actor, "00000000-0000-4000-8000-000000000101");
-  assertEquals(row.source, "api");
+  expect(row.actor).toStrictEqual("00000000-0000-4000-8000-000000000101");
+  expect(row.source).toStrictEqual("api");
 });
 
-Deno.test("schema re-run keeps triggers idempotent and compacts >30d rows", async () => {
+test("schema re-run keeps triggers idempotent and compacts >30d rows", async () => {
   const { db } = await import("./db.ts");
-  const { APP_ROOT } = await import("./config.ts");
   const pg = await db();
 
   await pg.query(
@@ -82,14 +82,14 @@ Deno.test("schema re-run keeps triggers idempotent and compacts >30d rows", asyn
   );
   const before = (await pg.query(`select count(*)::int as n from change_log`)).rows[0] as { n: number };
 
-  await pg.exec(await Deno.readTextFile(`${APP_ROOT}/../db/schema.sql`));
+  await pg.exec(schema);
 
   const old = (await pg.query(
     `select 1 from change_log where row_id='00000000-0000-4000-8000-00000000eeee'`,
   )).rows;
-  assertEquals(old.length, 0, "40-day-old row compacted away");
+  expect(old.length, "40-day-old row compacted away").toStrictEqual(0);
   const after = (await pg.query(`select count(*)::int as n from change_log`)).rows[0] as { n: number };
-  assertEquals(after.n, before.n - 1, "re-run only compacted — no duplicate trigger firings, no lost rows");
+  expect(after.n, "re-run only compacted — no duplicate trigger firings, no lost rows").toStrictEqual(before.n - 1);
 
   // triggers still fire (create or replace left exactly one per table)
   await pg.query(
@@ -98,5 +98,5 @@ Deno.test("schema re-run keeps triggers idempotent and compacts >30d rows", asyn
   const fresh = (await pg.query(
     `select count(*)::int as n from change_log where row_id='00000000-0000-4000-8000-00000000ffff'`,
   )).rows[0] as { n: number };
-  assertEquals(fresh.n, 1);
+  expect(fresh.n).toStrictEqual(1);
 });

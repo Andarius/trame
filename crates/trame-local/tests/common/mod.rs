@@ -14,6 +14,10 @@ pub(crate) struct TestDb {
 }
 impl TestDb {
     pub(crate) fn new() -> Self {
+        Self::with_env(&[])
+    }
+    /// Start the server with extra environment, e.g. a predictable `SHELL`.
+    pub(crate) fn with_env(env: &[(&str, &str)]) -> Self {
         let root = trame_local::workspace().join(format!(
             ".scratch/t2-{}",
             &uuid::Uuid::new_v4().simple().to_string()[..8]
@@ -28,6 +32,7 @@ impl TestDb {
             .env("TRACKER_NODE_ID", "rust-slice2-test")
             .env("TRACKER_SETTINGS_FILE", root.join("settings.json"))
             .env_remove("TRACKER_DEPLOYMENTS_FIXTURE")
+            .envs(env.iter().copied())
             .stdout(Stdio::from(log.try_clone().unwrap()))
             .stderr(Stdio::from(log))
             .spawn()

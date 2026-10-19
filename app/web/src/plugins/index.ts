@@ -59,5 +59,6 @@ export const isMetadataMark = (key: string) => FRONTEND_PLUGINS.some((p) => p.me
 // every plugin's card faces merged; the registry is static, so the hook order never changes
 export function useCardFaces(): Record<string, CardFace> {
   const maps = FRONTEND_PLUGINS.map((p) => p.useCardFaces?.());
+  // oxlint-disable-next-line react/use-memo, react-hooks/exhaustive-deps -- one entry per static plugin
   return useMemo(() => Object.assign({}, ...maps), maps);
 }

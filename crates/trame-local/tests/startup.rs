@@ -31,7 +31,6 @@ fn native_schema_and_outbox_retry_preserve_failed_writes() {
     );
     assert!(!path.exists());
     assert_eq!(t.db.query("select count(*)::int as n from sessions where id='00000000-0000-4000-8000-00000000aa01'",&[]).unwrap()[0]["n"],1);
-    assert!(!t.root.join("sidecar.json").exists());
 }
 #[test]
 fn stamped_outbox_receipt_prevents_replay_of_idless_session() {

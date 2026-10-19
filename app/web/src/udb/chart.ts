@@ -1,6 +1,5 @@
 // `chart` view tabs: the config a tab carries and the transform that turns rows
-// into marks. Pure — no React, no recharts — so `deno test` can reach it (Deno
-// has no JSX types, so a test that touches a .tsx fails to type check).
+// into marks. Pure — no React, no recharts — so its unit test stays a plain .ts test.
 import type { PropConfig, UdbProp, UdbRow } from "../api.ts";
 import {
   type Agg,

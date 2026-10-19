@@ -234,6 +234,35 @@ fn pick_bundle(name: Option<&str>) -> Value {
     };
     dialog(commands, false)
 }
+/// Native folder chooser: the path, or `{cancelled}`.
+pub(crate) fn pick_folder(prompt: &str) -> Value {
+    let commands = if cfg!(target_os = "macos") {
+        let prompt = prompt.replace(['"', '\\'], "");
+        vec![strings(&[
+            "osascript",
+            "-e",
+            &format!("POSIX path of (choose folder with prompt \"{prompt}\")"),
+        ])]
+    } else {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+        vec![
+            strings(&[
+                "zenity",
+                "--file-selection",
+                "--directory",
+                &format!("--title={prompt}"),
+            ]),
+            strings(&[
+                "kdialog",
+                "--getexistingdirectory",
+                &home,
+                "--title",
+                prompt,
+            ]),
+        ]
+    };
+    dialog(commands, false)
+}
 fn pick_image() -> Value {
     let commands = if cfg!(target_os = "macos") {
         vec![strings(&[
@@ -370,7 +399,7 @@ fn resume(db: &mut Db, body: &Value) -> Result<(u16, Value)> {
     let full = cwd
         .map(|p| format!("cd {} && {command}", terminal::shq(p)))
         .unwrap_or_else(|| command.clone());
-    let mut result = json!({"local":local,"homeNode":home,"cmd":full});
+    let mut result = json!({"local":local,"homeNode":home,"cmd":full,"command":command});
     if let Some(repo) = &repo {
         result["repo"] = repo.clone();
     }

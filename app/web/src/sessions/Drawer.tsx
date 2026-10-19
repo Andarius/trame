@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FRONTEND_PLUGINS } from "../plugins";
 import {
@@ -13,6 +13,7 @@ import {
   probeResume,
   type ResumeInfo,
   type ResumeMode,
+  resumeCommand,
   resumeSession,
   saveSession,
   type Session,
@@ -29,8 +30,10 @@ import { PrChip, RepoLink } from "../md/chips";
 import { renderInline } from "../md/md-inline";
 import { SpecsEditor } from "../page/SpecsEditor";
 import { TagEditor } from "../ui/TagEditor";
+import { openTerminal, TermError } from "../term/term-api";
+import { type MissingFolder, MissingFolderDialog } from "../term/MissingFolderDialog";
 
-const RESUME_MODE_CODEC = enumCodec<ResumeMode>(["window", "tab", "existing", "desktop"]);
+const RESUME_MODE_CODEC = enumCodec<ResumeMode>(["window", "tab", "existing", "desktop", "embedded"]);
 const AGENT_CODEC = enumCodec<AgentKind>(["claude", "codex"]);
 const AGENTS: { agent: AgentKind; label: string }[] = [
   { agent: "claude", label: "Claude Code" },
@@ -39,17 +42,23 @@ const AGENTS: { agent: AgentKind; label: string }[] = [
 const agentLabel = (a?: AgentKind) => (a === "codex" ? "Codex" : "Claude");
 
 // How the Resume button places the session; the last pick is the default, persisted.
-const RESUME_MODES: { mode: ResumeMode; label: string; hint: string }[] = [
+const ALL_RESUME_MODES: { mode: ResumeMode; label: string; hint: string }[] = [
   { mode: "window", label: "New window", hint: "opens a fresh terminal window" },
   { mode: "tab", label: "New tab", hint: "adds a tab to your open terminal" },
   { mode: "existing", label: "Existing session", hint: "types into your focused konsole" },
   { mode: "desktop", label: "Desktop app", hint: "opens Claude Desktop or Codex Desktop" },
+  { mode: "embedded", label: "Trame terminal", hint: "opens in Trame's Terminals view" },
 ];
+// typing into an open session drives konsole over D-Bus: Linux only
+const RESUME_MODES = /Mac/.test(navigator.userAgent)
+  ? ALL_RESUME_MODES.filter((m) => m.mode !== "existing")
+  : ALL_RESUME_MODES;
 const RESUME_DONE: Record<ResumeMode, string> = {
   window: "terminal opened",
   tab: "tab opened",
   existing: "sent to terminal",
   desktop: "desktop app opened",
+  embedded: "opened in Terminals",
 };
 
 const rowLbl = "shrink-0 pt-[5px] text-[11px] text-ink-muted";
@@ -71,7 +80,7 @@ const TOP_BTN =
   "shrink-0 whitespace-nowrap rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft";
 
 export function Drawer(
-  { session, board, onClose, onSaved, defaultExpanded, onExpandedChange, onOpenPage, embedded = false }: {
+  { session, board, onClose, onSaved, defaultExpanded, onExpandedChange, onOpenPage, embedded = false, docked = false, onOpenTerminals }: {
     session: Session;
     board: BoardData;
     onClose: () => void;
@@ -81,6 +90,9 @@ export function Drawer(
     embedded?: boolean;
     onExpandedChange?: (v: boolean) => void; // App mirrors it into the URL
     onOpenPage?: (id: string) => void; // navigate to a linked page
+    // the Terminals view's right column: narrower, no overlay shadow, specs inline
+    docked?: boolean;
+    onOpenTerminals?: (card: string) => void; // show the card's shells (Trame terminal mode)
   },
 ) {
   const { live, recent } = useAgents();
@@ -98,7 +110,9 @@ export function Drawer(
   };
   const [status, setStatus] = useState<Status>(session.status);
   const [client, setClient] = useState(board.projects.find((c) => c.id === session.client_id)?.name ?? "");
-  useEffect(() => setClient(board.projects.find((c) => c.id === session.client_id)?.name ?? ""), [session.client_id]);
+  // the board polls: resync only when the card's project changes
+  const projectName = useEffectEvent((id: string | null | undefined) => board.projects.find((c) => c.id === id)?.name ?? "");
+  useEffect(() => setClient(projectName(session.client_id)), [session.client_id]);
   const [pageId, setPageId] = useState(session.page_id ?? "");
   const [tags, setTags] = useState(session.tags ?? []);
   useEffect(() => setTags(session.tags ?? []), [session.tags]);
@@ -120,14 +134,17 @@ export function Drawer(
   useEffect(() => {
     if (defaultExpanded) setExpanded(true);
   }, [defaultExpanded]);
+  const notifyExpanded = useEffectEvent((v: boolean) => onExpandedChange?.(v));
   useEffect(() => {
-    onExpandedChange?.(expanded);
+    notifyExpanded(expanded);
   }, [expanded]);
   const nsRef = useRef<HTMLTextAreaElement>(null);
   const [nsEditing, setNsEditing] = useState(false);
-  useEffect(() => {
-    if (!nsEditing) setNextStep(session.next_step ?? "");
-  }, [session.next_step]);
+  // never clobber an edit in progress
+  const syncNextStep = useEffectEvent((v: string) => {
+    if (!nsEditing) setNextStep(v);
+  });
+  useEffect(() => syncNextStep(session.next_step ?? ""), [session.next_step]);
   const growNs = () => {
     const el = nsRef.current;
     if (!el) return;
@@ -158,9 +175,12 @@ export function Drawer(
   const [flash, setFlash] = useState(false);
   const flashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [resumeMsg, setResumeMsg] = useState<string | null>(null);
+  const [missing, setMissing] = useState<MissingFolder | null>(null);
   const [resumeInfo, setResumeInfo] = useState<ResumeInfo | null>(null);
   const [resumeMenu, setResumeMenu] = useState(false);
-  const [resumeMode, setResumeMode] = useLocalStorage<ResumeMode>("trame:resumeMode", "window", RESUME_MODE_CODEC);
+  const [storedMode, setResumeMode] = useLocalStorage<ResumeMode>("trame:resumeMode", "window", RESUME_MODE_CODEC);
+  // a mode remembered from another platform falls back to a new window
+  const resumeMode = RESUME_MODES.some((m) => m.mode === storedMode) ? storedMode : "window";
   // the last picked agent drives the main button, like the open mode above
   const [openAgent, setOpenAgent] = useLocalStorage<AgentKind>("trame:openAgent", "claude", AGENT_CODEC);
   const resumeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -183,8 +203,24 @@ export function Drawer(
     setResumeMode(mode);
     if (open) setOpenAgent(open);
     let msg: string;
+    let failed = false; // an error stays up longer, to be read
     try {
-      const r = await resumeSession(session.id, mode, undefined, open);
+      const r = mode === "embedded" ? await resumeCommand(session.id, open) : await resumeSession(session.id, mode, undefined, open);
+      if (mode === "embedded" && r.ok && r.repo) {
+        const title = `${agentLabel(r.agent)} · ${session.title}`;
+        try {
+          await openTerminal({ cwd: r.repo, command: r.command, title, card: session.id });
+          r.launched = true;
+          onOpenTerminals?.(session.id);
+        } catch (e) {
+          // the card's folder isn't here: the dialog explains and offers the ways forward
+          if (!(e instanceof TermError && e.info.code === "missing_cwd")) throw e;
+          const { asked, repo, suggested } = e.info;
+          setMissing({ asked, repo, suggested, command: r.command, title, prUrl: session.pr_url, origin: session.origin ?? null, card: session.id });
+          setResumeMsg(null);
+          return;
+        }
+      }
       if (r.launched) {
         msg = r.fresh ? `${agentLabel(r.agent)} started — ${RESUME_DONE[mode]}` : RESUME_DONE[mode];
       } else {
@@ -200,12 +236,13 @@ export function Drawer(
           ? (r.homeNode ? `on ${r.homeNode} — copied` : "no transcript here — copied")
           : "command copied";
       }
-    } catch {
-      msg = "failed";
+    } catch (e) {
+      failed = true;
+      msg = e instanceof Error && e.message ? e.message : "failed";
     }
     setResumeMsg(msg);
     clearTimeout(resumeTimer.current);
-    resumeTimer.current = setTimeout(() => setResumeMsg(null), 2500);
+    resumeTimer.current = setTimeout(() => setResumeMsg(null), failed ? 6000 : 2500);
   };
 
   useEffect(() => {
@@ -305,13 +342,14 @@ export function Drawer(
     a.session_id === session.id || (!!session.specs_page_id && a.page_id === session.specs_page_id)
   );
   const active = cardAgents.length > 0;
-  useEffect(() => {
+  const reloadJournal = useEffectEvent(() => {
     loadJournal();
-  }, [session.last_touched]);
+  });
+  useEffect(() => reloadJournal(), [session.last_touched]);
   // linked sessions' entries don't touch this card, so poll the journal while an agent works on it
   useEffect(() => {
     if (!active) return;
-    const t = setInterval(loadJournal, 5000);
+    const t = setInterval(() => reloadJournal(), 5000);
     return () => clearInterval(t);
   }, [active, session.id]);
   const titleInput = (
@@ -475,6 +513,9 @@ export function Drawer(
             })}
           </Popover>
         )}
+        {missing && (
+          <MissingFolderDialog m={missing} onClose={() => setMissing(null)} onOpened={() => onOpenTerminals?.(session.id)} />
+        )}
       </div>
     );
   })();
@@ -581,6 +622,14 @@ export function Drawer(
       onBlur={() => commitIf(branch !== (session.branch ?? ""))}
       placeholder="none"
     />
+  );
+  const repoField = session.repo_path
+    ? <RepoLink path={session.repo_path} prUrl={session.pr_url} />
+    : <span className="text-[12px] text-ink-faint">none</span>;
+  const touchedField = (
+    <span className="text-[12px] text-ink-muted" title={new Date(session.last_touched).toLocaleString()}>
+      {timeAgo(session.last_touched)}
+    </span>
   );
   // past 2 PRs, collapse to the first one + a "+N more" toggle
   const prCollapsed = prLinks.length > 2 && !prOpen;
@@ -832,16 +881,8 @@ export function Drawer(
                         ["Project", projectPill],
                         ["PR / MR", prField],
                         ["User story", storyPill],
-                        ["Repo", (
-                          session.repo_path
-                            ? <RepoLink path={session.repo_path} prUrl={session.pr_url} />
-                            : <span className="text-[12px] text-ink-faint">none</span>
-                        )],
-                        ["Last touched", (
-                          <span className="text-[12px] text-ink-muted" title={new Date(session.last_touched).toLocaleString()}>
-                            {timeAgo(session.last_touched)}
-                          </span>
-                        )],
+                        ["Repo", repoField],
+                        ["Last touched", touchedField],
                         ["Tags", sessionTags],
                       ] as [string, ReactNode][]).map(([label, value]) => (
                         <FieldRow key={label} label={label}>{value}</FieldRow>
@@ -921,7 +962,11 @@ export function Drawer(
   }
 
   return (
-    <div className="flex h-full w-[400px] shrink-0 flex-col overflow-y-auto border-l border-line bg-sidebar shadow-[-16px_0_40px_rgba(0,0,0,0.35)]">
+    <div
+      className={`flex h-full shrink-0 flex-col overflow-y-auto border-l border-line bg-sidebar ${
+        docked ? "w-[340px]" : "w-[400px] shadow-[-16px_0_40px_rgba(0,0,0,0.35)]"
+      }`}
+    >
       {headerBar}
 
       <div className="flex flex-col gap-3 px-4 pb-4">
@@ -940,6 +985,12 @@ export function Drawer(
         {/* Next step — the imperative line for future-you, as a banner below the fields */}
         <div className="mt-2">{nextBanner}</div>
       </div>
+
+      {docked && (
+        <div className="flex flex-col gap-2 border-t border-line-soft px-4 py-3.5">
+          <SpecsEditor sessionId={session.id} specsPageId={session.specs_page_id} onLinked={onSaved} onOpenPage={onOpenPage} />
+        </div>
+      )}
 
       <div className="flex flex-1 flex-col gap-2.5 border-t border-line-soft px-4 py-3.5">
         <span className={FIELD_LABEL}>ACTIVITY</span>

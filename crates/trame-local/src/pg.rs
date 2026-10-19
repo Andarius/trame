@@ -433,11 +433,13 @@ fn migration_script(mode: &str, source: &Path, staging: Option<&Path>) -> Result
     let mut command = if helper.is_file() {
         Command::new(helper)
     } else {
-        ensure!(cfg!(debug_assertions), "legacy migration helper is missing");
-        let mut command = Command::new("deno");
-        command
-            .args(["run", "-A"])
-            .arg(crate::workspace().join("scripts/rust-db-migrate.ts"));
+        ensure!(
+            cfg!(debug_assertions),
+            "legacy PGlite data at {} needs migrating: run Trame v0.19.x once, then upgrade",
+            source.display()
+        );
+        let mut command = Command::new("bun");
+        command.arg(crate::workspace().join("scripts/rust-db-migrate.ts"));
         command
     };
     command

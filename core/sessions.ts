@@ -1,4 +1,4 @@
-import { v5 } from "@std/uuid";
+import { uuidV5 } from "./uuid.ts";
 import type { Ctx, Q } from "./ctx.ts";
 import { checkStoryParent, projectAbove, storyAbove } from "./hierarchy.ts";
 import { pageBlocksToMarkdown } from "./page-markdown.ts";
@@ -214,7 +214,7 @@ async function promoteToProject(ctx: Ctx, pageId: string, clientId: string | nul
 // row, so whole-row LWW converges without coordination (same trick as statusId).
 const SPECS_NS = "b2f6c1d8-4e5a-4b7c-8f1d-2a9e6c3b0d47";
 export const specsPageId = (sessionId: string) =>
-  v5.generate(SPECS_NS, new TextEncoder().encode(sessionId));
+  uuidV5(SPECS_NS, new TextEncoder().encode(sessionId));
 
 // Find-or-create the session's spec page: a subpage of the story (fallback: the
 // project page, else detached), titled after the session. Resurrects a deleted one.
@@ -320,7 +320,7 @@ export async function sessionFromPage(
   const id = await upsertSession(ctx, {
     // explicit: the three adoption lookups are all guarded by `!s.id`, and this card
     // must never adopt (or be mistaken for) work already tracked elsewhere
-    id: await v5.generate(PAGE_CARD_NS, new TextEncoder().encode(pageId)),
+    id: await uuidV5(PAGE_CARD_NS, new TextEncoder().encode(pageId)),
     title: page.title.trim() || "Untitled",
     // a plain page rarely carries client_id (only stories keep it) — walk for it, else
     // an anchorless card lands on the board with no project at all
@@ -537,7 +537,7 @@ export async function setSessionStatus(ctx: Ctx, id: string, status: string): Pr
 // tags (free labels on pages)
 
 const TAG_NS = "3c9e0b71-2f45-4d18-a6c3-8e5417b9d0aa";
-export const tagId = (key: string) => v5.generate(TAG_NS, new TextEncoder().encode(key));
+export const tagId = (key: string) => uuidV5(TAG_NS, new TextEncoder().encode(key));
 
 // Re-exported: the slug rule now lives in tags.ts, which the web bundle can import too.
 export { tagKey };
@@ -599,7 +599,7 @@ async function uniqueStatusKey(pg: Q, label: string): Promise<string> {
 // the key, the same reason schema.sql seeds the built-ins with fixed ids. `do update` also
 // revives a status whose key was deleted earlier.
 const STATUS_NS = "6f1d4a2e-8c3b-4f9a-9d2e-5b7c1a0e3f84";
-export const statusId = (key: string) => v5.generate(STATUS_NS, new TextEncoder().encode(key));
+export const statusId = (key: string) => uuidV5(STATUS_NS, new TextEncoder().encode(key));
 
 export async function createStatus(ctx: Ctx, s: { label: string; color: string; terminal?: boolean }): Promise<string> {
   const pg = ctx.q;
