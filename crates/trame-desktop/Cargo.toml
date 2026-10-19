@@ -14,5 +14,8 @@ tauri = { version = "2", features = [] }
 tokio = { version = "1", features = ["rt-multi-thread", "signal", "sync", "time"] }
 trame-local = { path = "../trame-local" }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
 [lints]
 workspace = true

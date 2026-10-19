@@ -7,6 +7,8 @@
 #[cfg(target_os = "linux")]
 mod appimage;
 mod geometry;
+#[cfg(target_os = "linux")]
+mod webkit;
 
 use std::sync::{
     Arc, Mutex,
@@ -133,6 +135,10 @@ fn main() -> anyhow::Result<()> {
         let last = Arc::new(Mutex::new(saved));
         let tracked = window.clone();
         window.on_window_event(move |event| {
+            #[cfg(target_os = "linux")]
+            if matches!(event, WindowEvent::CloseRequested { .. }) {
+                webkit::kill_web_processes();
+            }
             if !matches!(event, WindowEvent::Resized(_) | WindowEvent::Moved(_)) { return; }
             let mine = generation.fetch_add(1, Ordering::SeqCst) + 1;
             let (generation, last, window, path) = (generation.clone(), last.clone(), tracked.clone(), window_file.clone());
@@ -175,6 +181,9 @@ fn main() -> anyhow::Result<()> {
                     }
                     handle.exit(exit_code.load(Ordering::SeqCst));
                 });
+            } else {
+                #[cfg(target_os = "linux")]
+                webkit::kill_web_processes();
             }
         }
         // macOS Quit (menu, Cmd+Q, Apple Event) terminates without ExitRequested
