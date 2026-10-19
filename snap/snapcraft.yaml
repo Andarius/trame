@@ -26,7 +26,7 @@ parts:
     build-packages: [dpkg]
     override-pull: |
       craftctl default
-      version="$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "${CRAFT_PROJECT_DIR}/app/deno.json" | head -n1)"
+      version="$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "${CRAFT_PROJECT_DIR}/package.json" | head -n1)"
       craftctl set version="${version}"
     override-build: |
       craftctl default

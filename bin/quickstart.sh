@@ -133,10 +133,6 @@ build_source() { # dir
     [[ "$(uname -s)/$(uname -m)" == Linux/x86_64 ]] || { echo "Source packages currently support Linux x86_64 only" >&2; return 1; }
     command -v npm >/dev/null || { echo "npm is required for a source build" >&2; return 1; }
     command -v cargo >/dev/null || { echo "Rust is required for a source build" >&2; return 1; }
-    if ! command -v deno >/dev/null; then
-        curl -fsSL https://deno.land/install.sh | sh </dev/null
-        export PATH="${DENO_INSTALL:-$HOME/.deno}/bin:$PATH"
-    fi
     sudo apt-get update
     sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
     (cd "$1" && bash scripts/rust-package.sh deb)

@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "bun:test";
 import type { BoardData } from "../api.ts";
 import { projectFor } from "./project-for.ts";
 
@@ -17,7 +17,7 @@ const board = {
   ],
 } as unknown as BoardData;
 
-Deno.test("terminal folder → card project", () => {
+test("terminal folder → card project", () => {
   for (
     const [cwd, expected] of [
       ["/Users/j/trame", "trame"], // latest card wins among equal matches
@@ -29,6 +29,6 @@ Deno.test("terminal folder → card project", () => {
       [undefined, null],
     ] as const
   ) {
-    assertEquals(projectFor(board, cwd)?.id ?? null, expected, String(cwd));
+    expect(projectFor(board, cwd)?.id ?? null, String(cwd)).toStrictEqual(expected);
   }
 });

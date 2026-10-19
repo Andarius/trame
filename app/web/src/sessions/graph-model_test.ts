@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "bun:test";
 import type { BoardData, Session } from "../api.ts";
 import { buildGraph } from "./graph-model.ts";
 
@@ -72,11 +72,11 @@ for (
     ["terminal cards are left out", [card("1", "trame — a", "p1", "done")], []],
   ] as const
 ) {
-  Deno.test(`buildGraph: ${id}`, () =>
-    assertEquals(edges(board([...sessions])), [...want]));
+  test(`buildGraph: ${id}`, () =>
+    expect(edges(board([...sessions]))).toStrictEqual([...want]));
 }
 
-Deno.test("buildGraph: counts open cards per project and repo", () => {
+test("buildGraph: counts open cards per project and repo", () => {
   const g = buildGraph(
     board([
       card("1", "trame — a", "p1"),
@@ -87,5 +87,5 @@ Deno.test("buildGraph: counts open cards per project and repo", () => {
   const cards = Object.fromEntries(
     g.nodes.flatMap((n) => n.kind === "card" ? [] : [[n.id, n.cards]]),
   );
-  assertEquals(cards, { "project:p1": 2, "repo:trame": 2, "project:p2": 1 });
+  expect(cards).toStrictEqual({ "project:p1": 2, "repo:trame": 2, "project:p2": 1 });
 });

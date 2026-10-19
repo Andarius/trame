@@ -9,12 +9,12 @@ import {
 import { LOCAL_PLUGINS } from "./plugins/local.gen.ts";
 import { LOCAL_MARK_ROLES } from "../core/mark-roles.gen.ts";
 
-const token = Deno.env.get("TRAME_PLUGIN_TOKEN");
-if (!token || !Deno.env.get("TRAME_PG_SOCKET")) {
+const token = process.env.TRAME_PLUGIN_TOKEN;
+if (!token || !process.env.TRAME_PG_SOCKET) {
   console.error(
     "plugin-host: TRAME_PLUGIN_TOKEN and TRAME_PG_SOCKET are required",
   );
-  Deno.exit(2);
+  process.exit(2);
 }
 
 const json = (data: unknown, status = 200) =>
@@ -23,11 +23,10 @@ const json = (data: unknown, status = 200) =>
     headers: { "content-type": "application/json" },
   });
 
-const server = Deno.serve({
+const server = Bun.serve({
   hostname: "127.0.0.1",
   port: 0,
-  onListen: ({ port }) => console.log(JSON.stringify({ port })),
-}, async (req) => {
+  fetch: async (req) => {
   if (req.headers.get("x-trame-plugin-token") !== token) {
     return json({ error: "forbidden" }, 403);
   }
@@ -53,13 +52,14 @@ const server = Deno.serve({
     }
   }
   return json({ error: "not found" }, 404);
+  },
 });
+console.log(JSON.stringify({ port: server.port }));
 
 // the app holds our stdin open for its lifetime: EOF means it is gone
 (async () => {
-  for await (const _ of Deno.stdin.readable) { /* nothing is sent */ }
-  Deno.exit(0);
+  for await (const _ of Bun.stdin.stream()) { /* nothing is sent */ }
+  process.exit(0);
 })();
 
 startPlugins(LOCAL_PLUGINS);
-await server.finished;

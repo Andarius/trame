@@ -160,8 +160,7 @@ export function ShareModal(
             <div className="text-[11.5px] text-ink-muted">
               No guests yet — invite one on the hub:
               <code className="mt-1 block rounded bg-black/20 px-1.5 py-1 text-[10.5px]">
-                docker exec trame-api deno run -A --config
-                /srv/hub/api/deno.json /srv/hub/api/main.ts invite "Name"
+                docker exec trame-api bun /srv/hub/api/main.ts invite "Name"
                 their-node-id
               </code>
             </div>

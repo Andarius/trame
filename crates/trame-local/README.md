@@ -35,7 +35,7 @@ matching the existing local API.
 cargo test --workspace --locked
 bash scripts/rust-e2e.sh
 python3 scripts/rust-db-lifecycle-test.py
-deno test -A --config app/deno.json scripts/rust-db-export-test.ts scripts/rust-db-migrate-test.ts
+bun test ./scripts
 ```
 
 ## Legacy data migration
@@ -57,7 +57,7 @@ cluster exists yet; once migrated, the legacy source is ignored. Interrupted
 private staging blocks startup for deliberate recovery.
 Packages after v0.19.x no longer bundle the `trame-migrate-pglite` helper (a
 Deno-compiled PGlite exporter, ~140 MB): unmigrated `pglite/` data needs v0.19.x
-once. Debug builds fall back to `deno run scripts/rust-db-migrate.ts`, and
+once. Debug builds fall back to `bun scripts/rust-db-migrate.ts`, and
 `TRAME_MIGRATION_HELPER` points at a compiled helper. Normal app operation, CLI
 and MCP are Rust.
 
@@ -73,7 +73,7 @@ existing environment overrides. Node identity defaults to the hostname.
 
 The schema remains `db/schema.sql`, embedded into Rust and reapplied at startup.
 `protocol/rust-entities.json` is generated from the shared TypeScript wire registry;
-run `deno run --allow-read scripts/rust-protocol.ts --check` to check drift.
+run `bun scripts/rust-protocol.ts --check` to check drift.
 
 ```sh
 bash scripts/rust-package.sh deb

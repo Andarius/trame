@@ -1,14 +1,14 @@
+import { expect, test } from "bun:test";
 import { testTempDir } from "./test_tmp.ts";
 const tmp = testTempDir("trame-session-adopt-test-");
-Deno.env.set("TRACKER_DATA_DIR", `${tmp}/pglite`);
-Deno.env.set("TRACKER_NODE_ID", "session-adopt-test");
-Deno.env.set("TRACKER_OUTBOX", `${tmp}/outbox.jsonl`);
-Deno.env.set("TRACKER_SETTINGS_FILE", `${tmp}/settings.json`);
-Deno.env.set("TRACKER_PORT_FILE", `${tmp}/port.json`);
-Deno.env.set("TRACKER_APP_ROOT", new URL(".", import.meta.url).pathname);
+process.env.TRACKER_DATA_DIR = `${tmp}/pglite`;
+process.env.TRACKER_NODE_ID = "session-adopt-test";
+process.env.TRACKER_OUTBOX = `${tmp}/outbox.jsonl`;
+process.env.TRACKER_SETTINGS_FILE = `${tmp}/settings.json`;
+process.env.TRACKER_PORT_FILE = `${tmp}/port.json`;
+process.env.TRACKER_APP_ROOT = new URL(".", import.meta.url).pathname;
 const { APP_CTX } = await import("./ctx.ts");
 
-import { assert, assertEquals, assertNotEquals } from "@std/assert";
 
 const { db } = await import("./db.ts");
 const { resolveClient, resolveStory, upsertSession } = await import("../core/sessions.ts");
@@ -23,7 +23,7 @@ const row = async (id: string) => {
 
 // Planned work = an unbranched open card. The first track naming its story adopts it
 // (card continuity: next_step, links); unrelated work on the same repo must NOT.
-Deno.test("an anchored plan is adopted only by a track naming its story", async () => {
+test("an anchored plan is adopted only by a track naming its story", async () => {
   const clientId = await resolveClient(APP_CTX, "Adopt Proj");
   const story = await resolveStory(APP_CTX, "Card sweep", clientId);
   const plan = await upsertSession(APP_CTX, {
@@ -41,8 +41,8 @@ Deno.test("an anchored plan is adopted only by a track naming its story", async 
     branch: "fix/unrelated",
     story: "Some other goal",
   });
-  assertNotEquals(other, plan);
-  assertEquals((await row(plan)).branch, null, "the plan kept its empty branch");
+  expect(other).not.toStrictEqual(plan);
+  expect((await row(plan)).branch, "the plan kept its empty branch").toStrictEqual(null);
 
   // work on the plan's story: the plan becomes the card and gains the branch
   const real = await upsertSession(APP_CTX, {
@@ -52,13 +52,13 @@ Deno.test("an anchored plan is adopted only by a track naming its story", async 
     client: "Adopt Proj",
     story: "card sweep", // normalized match
   });
-  assertEquals(real, plan);
+  expect(real).toStrictEqual(plan);
   const after = await row(plan);
-  assertEquals(after.branch, "feat/card-sweep");
-  assertEquals(after.page_id, story, "the anchor survives adoption");
+  expect(after.branch).toStrictEqual("feat/card-sweep");
+  expect(after.page_id, "the anchor survives adoption").toStrictEqual(story);
 });
 
-Deno.test("an unanchored plan is adopted by the first tracked branch", async () => {
+test("an unanchored plan is adopted by the first tracked branch", async () => {
   const plan = await upsertSession(APP_CTX, {
     title: "someday — clean this repo",
     status: "paused",
@@ -69,11 +69,11 @@ Deno.test("an unanchored plan is adopted by the first tracked branch", async () 
     repo_path: "/tmp/adopt-repo-2",
     branch: "chore/cleanup",
   });
-  assertEquals(real, plan);
-  assertEquals((await row(plan)).branch, "chore/cleanup");
+  expect(real).toStrictEqual(plan);
+  expect((await row(plan)).branch).toStrictEqual("chore/cleanup");
 });
 
-Deno.test("an exact-branch card wins over a plan; a done plan is never adopted", async () => {
+test("an exact-branch card wins over a plan; a done plan is never adopted", async () => {
   const clientId = await resolveClient(APP_CTX, "Adopt Proj B");
   const exact = await upsertSession(APP_CTX, {
     title: "repo — ongoing",
@@ -90,7 +90,7 @@ Deno.test("an exact-branch card wins over a plan; a done plan is never adopted",
     repo_path: "/tmp/adopt-repo-3",
     branch: "feat/x",
   });
-  assertEquals(again, exact, "exact branch match is preferred");
+  expect(again, "exact branch match is preferred").toStrictEqual(exact);
 
   const doneId = await upsertSession(APP_CTX, {
     title: "repo — abandoned plan",
@@ -103,12 +103,12 @@ Deno.test("an exact-branch card wins over a plan; a done plan is never adopted",
     repo_path: "/tmp/adopt-repo-4",
     branch: "feat/y",
   });
-  assertNotEquals(fresh, doneId, "a terminal card stays closed");
-  assert(fresh);
+  expect(fresh, "a terminal card stays closed").not.toStrictEqual(doneId);
+  expect(fresh).toBeTruthy();
 });
 
 // track --card sends no title: a partial write keeps the card's fields, null still clears
-Deno.test("partial write on a known card keeps omitted fields", async () => {
+test("partial write on a known card keeps omitted fields", async () => {
   const id = await upsertSession(APP_CTX, {
     title: "partial", repo_path: "/repo/partial", branch: "feat/p", next_step: "next", summary: "sum",
   });
@@ -116,5 +116,5 @@ Deno.test("partial write on a known card keeps omitted fields", async () => {
   const pg = await db();
   const r = (await pg.query(`select title, repo_path, next_step, summary, pr_url from sessions where id=$1`, [id]))
     .rows[0];
-  assertEquals(r, { title: "partial", repo_path: "/repo/partial", next_step: "next", summary: "sum", pr_url: null });
+  expect(r).toStrictEqual({ title: "partial", repo_path: "/repo/partial", next_step: "next", summary: "sum", pr_url: null });
 });

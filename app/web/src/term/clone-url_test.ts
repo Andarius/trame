@@ -1,7 +1,7 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "bun:test";
 import { cloneUrl } from "./clone-url.ts";
 
-Deno.test("clone URL from a card's PR link", () => {
+test("clone URL from a card's PR link", () => {
   for (
     const [pr, expected] of [
       ["https://github.com/Getsoren/sre-config/pull/933", { url: "git@github.com:Getsoren/sre-config.git", name: "Getsoren/sre-config" }],
@@ -15,6 +15,6 @@ Deno.test("clone URL from a card's PR link", () => {
       [null, null],
     ] as const
   ) {
-    assertEquals(cloneUrl(pr), expected, String(pr));
+    expect(cloneUrl(pr), String(pr)).toStrictEqual(expected);
   }
 });

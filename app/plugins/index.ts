@@ -7,10 +7,9 @@ import {
   savePluginSettings,
   setPluginEnabled,
 } from "./settings.ts";
-import deployments from "./deployments/mod.ts";
 import { LOCAL_PLUGINS } from "./local.gen.ts";
 
-export const PLUGINS: Plugin[] = [deployments, ...LOCAL_PLUGINS];
+export const PLUGINS: Plugin[] = LOCAL_PLUGINS;
 
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {

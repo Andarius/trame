@@ -1,17 +1,18 @@
 // DESCRIPTION: Export an isolated PGlite copy without applying the app schema.
-// USAGE: deno run -A scripts/rust-db-export.ts <copied .scratch dir> <existing output dir>
-import { PGlite } from "npm:@electric-sql/pglite@0.5.3";
+// USAGE: bun scripts/rust-db-export.ts <copied .scratch dir> <existing output dir>
+import { readFile, realpath, writeFile } from "node:fs/promises";
+import { PGlite } from "@electric-sql/pglite";
 
 export async function scratchPath(path: string): Promise<string> {
-  const resolved = await Deno.realPath(path);
-  const source = Deno.env.get("TRAME_MIGRATION_SOURCE");
-  const staging = Deno.env.get("TRAME_MIGRATION_STAGING");
-  if (source && resolved === await Deno.realPath(source)) return resolved;
+  const resolved = await realpath(path);
+  const source = process.env.TRAME_MIGRATION_SOURCE;
+  const staging = process.env.TRAME_MIGRATION_STAGING;
+  if (source && resolved === await realpath(source)) return resolved;
   if (staging) {
-    const root = await Deno.realPath(staging);
+    const root = await realpath(staging);
     if (resolved === root || resolved.startsWith(`${root}/`)) return resolved;
   }
-  const root = await Deno.realPath(new URL("../.scratch", import.meta.url));
+  const root = await realpath(new URL("../.scratch", import.meta.url));
   if (!resolved.startsWith(`${root}/`)) {
     throw new Error("path must resolve inside this repo's .scratch");
   }
@@ -26,7 +27,7 @@ export async function exportPglite(copy: string, output: string): Promise<void> 
   }
   const safeCopy = await scratchPath(copy);
   const safeOutput = await scratchPath(output);
-  if ((await Deno.readTextFile(`${safeCopy}/PG_VERSION`)).trim() !== "18") {
+  if ((await readFile(`${safeCopy}/PG_VERSION`, "utf8")).trim() !== "18") {
     throw new Error("copied database must be PostgreSQL18");
   }
   const pg = new PGlite(safeCopy);
@@ -126,25 +127,17 @@ export async function exportPglite(copy: string, output: string): Promise<void> 
       );
     }
     inserts.push("set session_replication_role=origin; commit;");
-    await Deno.writeTextFile(
-      `${safeOutput}/db-export.json`,
-      JSON.stringify({
+    await writeFile(`${safeOutput}/db-export.json`, JSON.stringify({
         version: 1,
         pgVersion: "18",
         pglite: "0.5.3",
         tables,
         sequences,
-      }),
-      { mode: 0o600 },
-    );
-    await Deno.writeTextFile(`${safeOutput}/db-data.sql`, inserts.join("\n"), {
+      }), { mode: 0o600 });
+    await writeFile(`${safeOutput}/db-data.sql`, inserts.join("\n"), {
       mode: 0o600,
     });
-    await Deno.writeTextFile(
-      `${safeOutput}/pages.json`,
-      JSON.stringify((await pg.query("select * from pages order by id")).rows),
-      { mode: 0o600 },
-    );
+    await writeFile(`${safeOutput}/pages.json`, JSON.stringify((await pg.query("select * from pages order by id")).rows), { mode: 0o600 });
     await pg.exec("commit");
     console.log(
       JSON.stringify({
@@ -162,4 +155,4 @@ export async function exportPglite(copy: string, output: string): Promise<void> 
   }
 }
 
-if (import.meta.main) await exportPglite(Deno.args[0], Deno.args[1]);
+if (import.meta.main) await exportPglite(process.argv.slice(2)[0], process.argv.slice(2)[1]);

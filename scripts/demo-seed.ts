@@ -1,8 +1,9 @@
 // DESCRIPTION: seed a Trame instance with the synthetic demo dataset used for the README
 // screenshots (docs/*.png). Fictional projects only — never point this at a real instance.
-// USAGE: TRAME_URL=http://127.0.0.1:8799 deno run -A scripts/demo-seed.ts
+// USAGE: TRAME_URL=http://127.0.0.1:8799 bun scripts/demo-seed.ts
 // EXAMPLES: just demo   (spins up an isolated instance, seeds it, and serves it)
-const base = Deno.env.get("TRAME_URL") ?? "http://127.0.0.1:8799";
+import { mkdir, writeFile } from "node:fs/promises";
+const base = process.env.TRAME_URL ?? "http://127.0.0.1:8799";
 
 const api = async (path: string, body?: unknown) => {
   const res = await fetch(`${base}${path}`, {
@@ -34,21 +35,18 @@ const SESSIONS: [string, string, string, string, string, string?][] = [
 const board0 = await api("/api/board");
 if (board0.sessions.length) {
   console.error("instance already has sessions — refusing to seed over it");
-  Deno.exit(1);
+  process.exit(1);
 }
 
 // With DEMO_CLAUDE_DIR set (and the app's TRACKER_CLAUDE_DIR pointing at it), plant a
 // transcript so the Checkout card is genuinely resumable — the drawer screenshot would
 // otherwise read "No transcript on this device". The app only checks the file exists.
 const AGENT_ID = "9f1c7c8e-3b2a-4d5e-8a1f-2c6b0d4e7a13";
-const claudeDir = Deno.env.get("DEMO_CLAUDE_DIR");
+const claudeDir = process.env.DEMO_CLAUDE_DIR;
 if (claudeDir) {
   const dir = `${claudeDir}/-Users-demo-code-acme-web`;
-  await Deno.mkdir(dir, { recursive: true });
-  await Deno.writeTextFile(
-    `${dir}/${AGENT_ID}.jsonl`,
-    JSON.stringify({ type: "user", cwd: "/Users/demo/code/acme-web" }) + "\n",
-  );
+  await mkdir(dir, { recursive: true });
+  await writeFile(`${dir}/${AGENT_ID}.jsonl`, JSON.stringify({ type: "user", cwd: "/Users/demo/code/acme-web" }) + "\n");
 }
 
 for (const [title, client, story, status, branch, next_step] of SESSIONS) {

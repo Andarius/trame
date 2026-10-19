@@ -1,16 +1,16 @@
+import { expect, test } from "bun:test";
 import { testTempDir } from "./test_tmp.ts";
 const tmp = testTempDir("trame-page-move-test-");
-Deno.env.set("TRACKER_DATA_DIR", `${tmp}/pglite`);
-Deno.env.set("TRACKER_NODE_ID", "page-move-test");
-Deno.env.set("TRACKER_OUTBOX", `${tmp}/outbox.jsonl`);
-Deno.env.set("TRACKER_SETTINGS_FILE", `${tmp}/settings.json`);
-Deno.env.set("TRACKER_PORT_FILE", `${tmp}/port.json`);
-Deno.env.set("TRACKER_APP_ROOT", new URL(".", import.meta.url).pathname);
+process.env.TRACKER_DATA_DIR = `${tmp}/pglite`;
+process.env.TRACKER_NODE_ID = "page-move-test";
+process.env.TRACKER_OUTBOX = `${tmp}/outbox.jsonl`;
+process.env.TRACKER_SETTINGS_FILE = `${tmp}/settings.json`;
+process.env.TRACKER_PORT_FILE = `${tmp}/port.json`;
+process.env.TRACKER_APP_ROOT = new URL(".", import.meta.url).pathname;
 const { APP_CTX } = await import("./ctx.ts");
 
-import { assertEquals } from "@std/assert";
 
-Deno.test("movePage re-homes a story's client_id to the target project", async () => {
+test("movePage re-homes a story's client_id to the target project", async () => {
   const { createPage, getPage, movePage } = await import("../core/pages.ts");
   const a = await createPage(APP_CTX, { title: "Proj A", kind: "project" });
   const b = await createPage(APP_CTX, { title: "Proj B", kind: "project" });
@@ -26,8 +26,8 @@ Deno.test("movePage re-homes a story's client_id to the target project", async (
     parent_id: string | null;
     client_id: string | null;
   };
-  assertEquals(page.parent_id, b);
-  assertEquals(page.client_id, b);
+  expect(page.parent_id).toStrictEqual(b);
+  expect(page.client_id).toStrictEqual(b);
 
   // nested target: the story lands under a sub-page but the chip points at the
   // project owning that subtree
@@ -37,8 +37,8 @@ Deno.test("movePage re-homes a story's client_id to the target project", async (
     parent_id: string;
     client_id: string | null;
   };
-  assertEquals(page.parent_id, sub);
-  assertEquals(page.client_id, a);
+  expect(page.parent_id).toStrictEqual(sub);
+  expect(page.client_id).toStrictEqual(a);
 
   // unfiling clears the chip
   await movePage(APP_CTX, s, { parent_id: null });
@@ -46,11 +46,11 @@ Deno.test("movePage re-homes a story's client_id to the target project", async (
     parent_id: string | null;
     client_id: string | null;
   };
-  assertEquals(page.parent_id, null);
-  assertEquals(page.client_id, null);
+  expect(page.parent_id).toStrictEqual(null);
+  expect(page.client_id).toStrictEqual(null);
 });
 
-Deno.test("movePage leaves a plain page's client_id alone", async () => {
+test("movePage leaves a plain page's client_id alone", async () => {
   const { createPage, getPage, movePage } = await import("../core/pages.ts");
   const a = await createPage(APP_CTX, { title: "Proj C", kind: "project" });
   const b = await createPage(APP_CTX, { title: "Proj D", kind: "project" });
@@ -65,12 +65,12 @@ Deno.test("movePage leaves a plain page's client_id alone", async () => {
     parent_id: string;
     client_id: string | null;
   };
-  assertEquals(page.parent_id, b);
-  assertEquals(page.client_id, a);
+  expect(page.parent_id).toStrictEqual(b);
+  expect(page.client_id).toStrictEqual(a);
 });
 
 // a client sending `?page=null` must get a 404, not a uuid cast error
-Deno.test("getPage on a non-uuid id is not found", async () => {
+test("getPage on a non-uuid id is not found", async () => {
   const { getPage } = await import("../core/pages.ts");
-  assertEquals(await getPage(APP_CTX, "null"), null);
+  expect(await getPage(APP_CTX, "null")).toStrictEqual(null);
 });

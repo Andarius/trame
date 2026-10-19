@@ -1,16 +1,16 @@
+import { describe, expect, test } from "bun:test";
 import { testTempDir } from "./test_tmp.ts";
 const tmp = testTempDir("trame-due-test-");
-Deno.env.set("TRACKER_DATA_DIR", `${tmp}/pglite`);
-Deno.env.set("TRACKER_NODE_ID", "due-test");
-Deno.env.set("TRACKER_OUTBOX", `${tmp}/outbox.jsonl`);
-Deno.env.set("TRACKER_SETTINGS_FILE", `${tmp}/settings.json`);
-Deno.env.set("TRACKER_PORT_FILE", `${tmp}/port.json`);
-Deno.env.set("TRACKER_APP_ROOT", new URL(".", import.meta.url).pathname);
+process.env.TRACKER_DATA_DIR = `${tmp}/pglite`;
+process.env.TRACKER_NODE_ID = "due-test";
+process.env.TRACKER_OUTBOX = `${tmp}/outbox.jsonl`;
+process.env.TRACKER_SETTINGS_FILE = `${tmp}/settings.json`;
+process.env.TRACKER_PORT_FILE = `${tmp}/port.json`;
+process.env.TRACKER_APP_ROOT = new URL(".", import.meta.url).pathname;
 const { APP_CTX } = await import("./ctx.ts");
 
-import { assertEquals } from "@std/assert";
 
-Deno.test("listDue returns open todos with a due mark, a spec page's pointing at its card", async () => {
+test("listDue returns open todos with a due mark, a spec page's pointing at its card", async () => {
   const { createPage, updatePage } = await import("../core/pages.ts");
   const { ensureSpecsPage, upsertSession } = await import("../core/sessions.ts");
   const { listDue } = await import("../core/due.ts");
@@ -34,27 +34,27 @@ Deno.test("listDue returns open todos with a due mark, a spec page's pointing at
   });
 
   const due = await listDue(APP_CTX);
-  assertEquals(
-    due.map((d) => [d.text, d.due, d.page_id, d.card_id]),
-    [
+  expect(due.map((d) => [d.text, d.due, d.page_id, d.card_id])).toStrictEqual([
       ["polarsen: bump asyncpg", "2026-10-11", spec, card],
       ["track-backend: bump when stubs ship", "2026-10-13", plain, null],
-    ],
-  );
+    ]);
 });
 
-Deno.test("daysUntil and the shown window", async (t) => {
+{
   const { daysUntil, isShownDue } = await import("../core/due.ts");
-  for (
-    const [id, due, days, shown] of [
-      ["late", "2026-10-06", -3, true],
-      ["today", "2026-10-09", 0, true],
-      ["last day of the window", "2026-10-16", 7, true],
-      ["beyond the window", "2026-10-17", 8, false],
-    ] as const
-  ) {
-    await t.step(id, () => {
-      assertEquals([daysUntil(due, "2026-10-09"), isShownDue(due, "2026-10-09")], [days, shown]);
-    });
-  }
-});
+  describe("daysUntil and the shown window", () => {
+    for (
+      const [id, due, days, shown] of [
+        ["late", "2026-10-06", -3, true],
+        ["today", "2026-10-09", 0, true],
+        ["last day of the window", "2026-10-16", 7, true],
+        ["beyond the window", "2026-10-17", 8, false],
+      ] as const
+    ) {
+      test(id, () => {
+        expect([daysUntil(due, "2026-10-09"), isShownDue(due, "2026-10-09")]).toStrictEqual([days, shown]);
+      });
+    }
+
+  });
+}

@@ -1,10 +1,10 @@
-import { assertEquals } from "@std/assert";
+import { describe, expect, test } from "bun:test";
 import { fmtDuration, summarizeAgents } from "./agent-summary.ts";
 
 const at = (min: number) => new Date(Date.UTC(2026, 9, 6, 14, min)).toISOString();
 const NOW = Date.parse(at(59));
 
-Deno.test("summarizeAgents adds visits, keeps the top token count and sums cost", async (t) => {
+describe("summarizeAgents adds visits, keeps the top token count and sums cost", () => {
   for (
     const [id, entries, live, expected] of [
       ["closed visit", [
@@ -27,27 +27,24 @@ Deno.test("summarizeAgents adds visits, keeps the top token count and sums cost"
       ], [], { key: "s3-sse-1", model: "opus", tokens: 500, cost: 0.1, ms: 0, state: null }],
     ] as const
   ) {
-    await t.step(id, () => {
+    test(id, () => {
       const [s] = summarizeAgents(entries as never, live as never, NOW);
-      assertEquals(
-        s && { key: s.key, model: s.model, tokens: s.tokens, cost: s.cost, ms: s.ms, state: s.state },
-        expected,
-      );
+      expect(s && { key: s.key, model: s.model, tokens: s.tokens, cost: s.cost, ms: s.ms, state: s.state }).toStrictEqual(expected as never);
     });
   }
 });
 
-Deno.test("fmtDuration", async (t) => {
+describe("fmtDuration", () => {
   for (const [ms, out] of [[38 * 60_000, "38 min"], [64 * 60_000, "1 h 04"], [0, "0 min"]] as const) {
-    await t.step(out, () => assertEquals(fmtDuration(ms), out));
+    test(out, () => expect(fmtDuration(ms)).toStrictEqual(out));
   }
 });
 
-Deno.test("unnamed entries stay apart when several sessions of that agent are named", () => {
+test("unnamed entries stay apart when several sessions of that agent are named", () => {
   const out = summarizeAgents([
     { at: at(0), kind: "log", summary: "old", agent: "claude" },
     { at: at(1), kind: "log", summary: "a", agent: "claude", agent_name: "a" },
     { at: at(2), kind: "log", summary: "b", agent: "claude", agent_name: "b" },
   ], [], NOW);
-  assertEquals(out.map((s) => s.key).sort(), ["a", "b", "claude"]);
+  expect(out.map((s) => s.key).sort()).toStrictEqual(["a", "b", "claude"]);
 });
