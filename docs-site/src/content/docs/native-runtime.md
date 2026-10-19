@@ -15,7 +15,7 @@ and `port.json`. An exclusive owner lock prevents two app instances from opening
 same database. PostgreSQL listens on a private Unix socket and stops with the app.
 
 Packaged deb, classic snap and AppImage builds include PostgreSQL, React assets and the
-native CLI. No installed Deno runtime is needed. On macOS arm64, an ad-hoc signed DMG bundles a
+native CLI; nothing else needs installing. On macOS arm64, an ad-hoc signed DMG bundles a
 relocatable PostgreSQL 18 (theseus-rs/postgresql-binaries) and the native CLI; install it with the
 quickstart, which does not quarantine the download. A DMG downloaded through a browser needs
 right-click → Open the first time.
@@ -65,7 +65,7 @@ host, core, protocol) in a clean scratch environment. `just migration` creates a
 PGlite source, migrates it twice and checks source preservation. `just lifecycle` checks owner refusal, parent death, WAL recovery and
 failed startup without requiring a developer's copied database.
 
-The old `hack` recipe's Deno backend watcher is retired: `just web-dev` runs Vite against an
+The old `hack` recipe's TypeScript backend watcher is retired: `just web-dev` runs Vite against an
 isolated backend, starting one for its lifetime unless `just serve` already runs. Restart it
 after Rust changes. `just web-live` runs Vite against the running Trame app instead: real data
 and real writes, with the installed backend. The old standalone

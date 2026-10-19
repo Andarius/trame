@@ -47,7 +47,7 @@ the hub. (Design + migration story: `docs-site/src/content/docs/hub-api.md`.)
 | [![reminders](docs/reminders.png)](docs/reminders.png) | |
 
 ## Requirements
-- **Linux x64** packaged app (deb, snap, or AppImage); no installed Deno runtime is required.
+- **Linux x64** packaged app (deb, snap, or AppImage); nothing else to install.
 - Source builds use **Rust**, Tauri/WebKitGTK build libraries, **Node/npm**, and **Bun 1.3+** for the hub API, plugin host, tooling and tests.
 - **Docker + openssl** on the hub machine (certs are generated there; the CA key never leaves it).
 - Laptops reach the hub's API over the **home LAN** (no Tailscale required;
@@ -153,7 +153,7 @@ tramecli list            # open sessions grouped by story (--json for jq)
 
 It ships in the snap (aliased to `tramecli` by `bin/snap-install-release.sh`) and as
 a per-platform release asset. With the binary on PATH, install the agent docs from
-it — no checkout or deno needed:
+it — no checkout needed:
 
 ```bash
 tramecli setup                   # interactive target picker
@@ -316,7 +316,7 @@ flowchart LR
 ## Packaging & releases
 
 Linux x64 packages contain the Tauri 2 desktop, native Rust backend and CLI, PostgreSQL 18,
-and React assets; startup needs no Deno installation or TypeScript sidecar. Packages no longer
+and React assets; startup needs no JavaScript runtime or TypeScript sidecar. Packages no longer
 bundle the legacy PGlite migration helper: run v0.19.x once to convert `pglite/` data, then upgrade.
 
 `just bundle` builds the deb, `snapcraft --destructive-mode` builds the classic snap, and
