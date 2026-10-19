@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { type Block, getPage, type PageComment, type PageDetail, updatePage } from "../api";
 import { genId, ensureIds } from "./page-ids";
 
@@ -51,10 +51,11 @@ export function usePageAutosave(
   }, [pageId]);
 
   const reload = () => getPage(pageId).then(setPage).catch(() => {});
+  const showComments = useEffectEvent(setComments);
   useEffect(() => {
     getPage(pageId).then((p) => {
       setPage(p);
-      setComments(p.comments ?? []);
+      showComments(p.comments ?? []);
       const raw = p.content.length
         ? p.content
         : [{ type: "text", text: "", id: genId() } as Block];
@@ -76,7 +77,6 @@ export function usePageAutosave(
         updatePage(pageId, { content: blocksRef.current }).catch(() => {});
       }
     };
-  // oxlint-disable-next-line react-hooks/exhaustive-deps -- load once per page
   }, [pageId]);
 
   const changeBlocks = (next: Block[]) => {

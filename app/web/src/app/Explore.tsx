@@ -1,4 +1,4 @@
-import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type MouseEvent, type ReactNode, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import {
   type BoardData,
   deleteReport,
@@ -87,8 +87,10 @@ export function Explore(
       }),
     ]).finally(() => setRefreshing(false));
   };
-  // oxlint-disable-next-line react-hooks/exhaustive-deps -- load once on mount
-  useEffect(() => load(false, true), []);
+  const loadOnMount = useEffectEvent(() => load(false, true));
+  useEffect(() => {
+    loadOnMount();
+  }, []);
 
   const toggleFilter = () => {
     const next = htmlFilter === "smart" ? "all" : "smart";
@@ -157,18 +159,20 @@ export function Explore(
   };
 
   // Pre-open a file requested from elsewhere (e.g. a folder block's "Explore" button).
-  useEffect(() => {
-    if (!initialPath) return;
-    const hit = files.find((f) => f.path === initialPath);
+  const openRequested = useEffectEvent((path: string) => {
+    const hit = files.find((f) => f.path === path);
     if (hit) selectFile(hit);
     else {
-      setSelKey(`file:${initialPath}`);
-      getReportFileContent(initialPath)
-        .then((c) => setSelected({ kind: "file", title: initialPath.split("/").pop() ?? initialPath, date: "", html: c.html, path: initialPath }))
+      setSelKey(`file:${path}`);
+      getReportFileContent(path)
+        .then((c) => setSelected({ kind: "file", title: path.split("/").pop() ?? path, date: "", html: c.html, path }))
         .catch(() => {});
     }
     onConsumed?.();
-  // oxlint-disable-next-line react-hooks/exhaustive-deps -- open the requested file once the list arrives
+  });
+  // re-run when the file list arrives, so a path requested before it is still found
+  useEffect(() => {
+    if (initialPath) openRequested(initialPath);
   }, [initialPath, files]);
 
   const needle = q.trim().toLowerCase();

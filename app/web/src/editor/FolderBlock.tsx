@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import { type Block, type FolderEntry, getReportFileContent, listFolder, openPath } from "../api";
 import { IconButton, LIVE_PILL } from "../ui/ui";
 
@@ -51,15 +51,16 @@ export function FolderBlock(
   }, [block.path]);
 
   // Lazily fetch HTML for gallery thumbnails once the gallery view is shown.
-  useEffect(() => {
-    if (view !== "gallery" || !entries) return;
-    for (const e of entries) {
+  const fetchMissingThumbs = useEffectEvent((list: FolderEntry[]) => {
+    for (const e of list) {
       if (!e.isHtml || e.path in thumbs) continue;
       getReportFileContent(e.path)
         .then((r) => setThumbs((t) => ({ ...t, [e.path]: r.html ?? "" })))
         .catch(() => setThumbs((t) => ({ ...t, [e.path]: "" })));
     }
-  // oxlint-disable-next-line react-hooks/exhaustive-deps -- thumbs is filled by this effect
+  });
+  useEffect(() => {
+    if (view === "gallery" && entries) fetchMissingThumbs(entries);
   }, [view, entries]);
 
   const commitPath = () => {

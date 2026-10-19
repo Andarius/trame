@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useEffectEvent, useState } from "react";
 import type { Block } from "../api";
 import { isText } from "./editor-text";
 
@@ -83,21 +83,23 @@ export function useBlockDrag(
       {child}
     </div>
   );
+  // reads the drag state at release time, so the listener binds once per drag
+  const drop = useEffectEvent(() => {
+    if (overIdx !== null && dragIdx === -1 && inserting) {
+      snapshot();
+      onChange([...blocks.slice(0, overIdx + 1), inserting, ...blocks.slice(overIdx + 1)]);
+    } else if (overIdx !== null && dragIdx !== null && dragIdx >= 0) moveTo(dragIdx, overIdx);
+    setDragIdx(null);
+    setOverIdx(null);
+    setInserting(null);
+  });
+  const dragging = dragIdx !== null;
   useEffect(() => {
-    if (dragIdx === null) return;
-    const up = () => {
-      if (overIdx !== null && dragIdx === -1 && inserting) {
-        snapshot();
-        onChange([...blocks.slice(0, overIdx + 1), inserting, ...blocks.slice(overIdx + 1)]);
-      } else if (overIdx !== null && dragIdx >= 0) moveTo(dragIdx, overIdx);
-      setDragIdx(null);
-      setOverIdx(null);
-      setInserting(null);
-    };
+    if (!dragging) return;
+    const up = () => drop();
     document.addEventListener("mouseup", up);
     return () => document.removeEventListener("mouseup", up);
-  // oxlint-disable-next-line react-hooks/exhaustive-deps -- the handler re-binds with the drag state
-  }, [dragIdx, overIdx, blocks, inserting]);
+  }, [dragging]);
   useEffect(() => {
     if (tabDrag === null) return;
     const up = () => setTabDrag(null);

@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FRONTEND_PLUGINS } from "../plugins";
 import {
@@ -110,8 +110,9 @@ export function Drawer(
   };
   const [status, setStatus] = useState<Status>(session.status);
   const [client, setClient] = useState(board.projects.find((c) => c.id === session.client_id)?.name ?? "");
-  // oxlint-disable-next-line react-hooks/exhaustive-deps -- the board polls; resync only when the card's project changes
-  useEffect(() => setClient(board.projects.find((c) => c.id === session.client_id)?.name ?? ""), [session.client_id]);
+  // the board polls: resync only when the card's project changes
+  const projectName = useEffectEvent((id: string | null | undefined) => board.projects.find((c) => c.id === id)?.name ?? "");
+  useEffect(() => setClient(projectName(session.client_id)), [session.client_id]);
   const [pageId, setPageId] = useState(session.page_id ?? "");
   const [tags, setTags] = useState(session.tags ?? []);
   useEffect(() => setTags(session.tags ?? []), [session.tags]);
@@ -133,16 +134,17 @@ export function Drawer(
   useEffect(() => {
     if (defaultExpanded) setExpanded(true);
   }, [defaultExpanded]);
+  const notifyExpanded = useEffectEvent((v: boolean) => onExpandedChange?.(v));
   useEffect(() => {
-    onExpandedChange?.(expanded);
-  // oxlint-disable-next-line react-hooks/exhaustive-deps -- notify on change only
+    notifyExpanded(expanded);
   }, [expanded]);
   const nsRef = useRef<HTMLTextAreaElement>(null);
   const [nsEditing, setNsEditing] = useState(false);
-  useEffect(() => {
-    if (!nsEditing) setNextStep(session.next_step ?? "");
-  // oxlint-disable-next-line react-hooks/exhaustive-deps -- never clobber an edit in progress
-  }, [session.next_step]);
+  // never clobber an edit in progress
+  const syncNextStep = useEffectEvent((v: string) => {
+    if (!nsEditing) setNextStep(v);
+  });
+  useEffect(() => syncNextStep(session.next_step ?? ""), [session.next_step]);
   const growNs = () => {
     const el = nsRef.current;
     if (!el) return;
@@ -340,16 +342,15 @@ export function Drawer(
     a.session_id === session.id || (!!session.specs_page_id && a.page_id === session.specs_page_id)
   );
   const active = cardAgents.length > 0;
-  useEffect(() => {
+  const reloadJournal = useEffectEvent(() => {
     loadJournal();
-  // oxlint-disable-next-line react-hooks/exhaustive-deps -- reload when the card is touched
-  }, [session.last_touched]);
+  });
+  useEffect(() => reloadJournal(), [session.last_touched]);
   // linked sessions' entries don't touch this card, so poll the journal while an agent works on it
   useEffect(() => {
     if (!active) return;
-    const t = setInterval(loadJournal, 5000);
+    const t = setInterval(() => reloadJournal(), 5000);
     return () => clearInterval(t);
-  // oxlint-disable-next-line react-hooks/exhaustive-deps -- restart the poll only when activity flips
   }, [active, session.id]);
   const titleInput = (
     <div className="flex items-start gap-1.5">

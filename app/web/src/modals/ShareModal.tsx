@@ -1,7 +1,7 @@
 // Minimal per-page sharing modal (phase 7): grant a guest viewer/editor access to
 // this page's subtree, change the role, revoke. Grants are normal synced rows; the
 // hub API enforces them — this UI only edits data.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import {
   createShareLink,
   listShareLinks,
@@ -33,14 +33,16 @@ export function ShareModal(
     listShares(pageId).then(setShares);
     listShareLinks(pageId).then((r) => setLinks(r.links));
   };
-  useEffect(() => {
+  const loadAll = useEffectEvent(() => {
     listUsers().then(setUsers);
     reload();
+  });
+  useEffect(() => {
+    loadAll();
     return () => {
       clearTimeout(flashTimer.current);
       clearTimeout(copiedTimer.current);
     };
-  // oxlint-disable-next-line react-hooks/exhaustive-deps -- fetch once per opened page
   }, [pageId]);
 
   const flash = (msg: string) => {
