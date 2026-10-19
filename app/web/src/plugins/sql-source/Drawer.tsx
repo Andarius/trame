@@ -204,8 +204,9 @@ export function SqlSourceDrawer({ dbId, editId, onClose, onDone }: {
   const settleEvery = (n: string, u: string) => {
     const m = UNITS.find((x) => x.v === u)?.m ?? 1;
     const mins = clampMin((Number(n) || 0) * m);
-    if (mins % m) (setUnit("min"), setNum(String(mins)));
-    else (setUnit(u), setNum(String(mins / m)));
+    const exact = mins % m === 0;
+    setUnit(exact ? u : "min");
+    setNum(String(exact ? mins / m : mins));
   };
   const nextAt = new Date(Date.now() + intervalMin * 60_000).toLocaleString(
     [],
