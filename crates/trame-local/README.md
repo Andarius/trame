@@ -2,7 +2,7 @@
 
 Trame runs an axum backend in the Tauri 2 process and supervises bundled PostgreSQL
 18 on a private Unix socket. React and the hub protocol remain unchanged. Normal
-startup does not run Deno or a TypeScript backend. The standalone `trame-local`
+startup does not run a TypeScript backend. The standalone `trame-local`
 binary serves the same backend without a window.
 
 ## Worktree verification

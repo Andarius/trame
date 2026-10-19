@@ -6,5 +6,5 @@ The native `rust-core` binary reads one JSON request per line from stdin or a fi
 
 `todayMark` takes local year, month, and day components; `stampTodoMarks` takes an explicit day. The host supplies its clock and timezone. Inputs otherwise follow the existing TypeScript function signatures. Dynamic keys for `removeMark` and `writeMark` must compile with Rust's regex syntax; current callers use fixed literal mark names.
 
-Native builds reproduce default Deno object semantics, including its disabled `Object.prototype.__proto__` getter returning undefined. Wasm builds reproduce browser object semantics, where that getter returns the prototype. This affects synthetic `__proto__` marks; every original fixture and copied page is checked independently on both targets.
+Native builds reproduce the object semantics the TypeScript core was written against (Deno's default), including a disabled `Object.prototype.__proto__` getter returning undefined. Wasm builds reproduce browser object semantics, where that getter returns the prototype. This affects synthetic `__proto__` marks; every original fixture and copied page is checked independently on both targets.
 

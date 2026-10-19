@@ -40,8 +40,8 @@ between Postgres and laptops.
 
 | Area | Decision |
 | :--- | :--- |
-| Hub | Deno/TS **API server** in front of Postgres (not raw PG access) |
-| Language | **Deno/TypeScript** — share `db/schema.sql`, row types, and the LWW module between client and hub |
+| Hub | TypeScript **API server** in front of Postgres (not raw PG access); Deno then, Bun now |
+| Language | **TypeScript** — share `db/schema.sql`, row types, and the LWW module between client and hub |
 | Sync | **Changeset-based** `POST /sync` (mutations up, changes down) — see [Sync protocol](#sync-protocol) |
 | Pull cursor | **Server-issued opaque monotonic revision**, *not* client `updated_at` (client clocks are unsafe with multiple writers) |
 | Offline | The local PostgreSQL stays the source of truth; a **push watermark** advances only on acknowledgement; the app works fully offline |
