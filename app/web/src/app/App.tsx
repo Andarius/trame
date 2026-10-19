@@ -207,6 +207,21 @@ export function App() {
     return () => removeEventListener("keydown", h);
   }, []);
 
+  // Ctrl/Cmd+R and F5 reload the desktop window (WebKitGTK has no reload shortcut)
+  useEffect(() => {
+    if (!status?.desktop) return;
+    const h = (e: KeyboardEvent) => {
+      const reload = e.key === "F5" ||
+        ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "r");
+      if (reload) {
+        e.preventDefault();
+        location.reload();
+      }
+    };
+    addEventListener("keydown", h);
+    return () => removeEventListener("keydown", h);
+  }, [status?.desktop]);
+
   const onPalettePick = (h: SearchHit) => {
     setPaletteOpen(false);
     if (h.kind === "session") openSession(h.id);
