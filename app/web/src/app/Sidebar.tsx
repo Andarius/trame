@@ -178,7 +178,7 @@ export function Sidebar(
       }
       return next;
     });
-  }, [pageId, byId]);
+  }, [pageId, byId, setExpanded]);
 
   const onToggle = (id: string) =>
     setExpanded((prev) => {

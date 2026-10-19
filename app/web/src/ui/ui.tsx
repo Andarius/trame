@@ -1,4 +1,4 @@
-import { type ComponentProps, type CSSProperties, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type ComponentProps, type CSSProperties, type ReactNode, useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ancestry } from "../tree.ts";
 import { listTags, type Status, type StatusDef, type Tag, tagRevision, TAGS_CHANGED } from "../api";
@@ -870,8 +870,9 @@ export function useLocalStorage<T>(key: string, init: T, codec: Codec<T>) {
     cur = { key, value: read(key) };
     setEntry(cur);
   }
+  const persist = useEffectEvent((k: string, v: T) => writeStore(k, codec.stringify(v)));
   useEffect(() => {
-    writeStore(cur.key, codec.stringify(cur.value));
+    persist(cur.key, cur.value);
   }, [cur.key, cur.value]);
   const setValue = useCallback(
     (v: T | ((prev: T) => T)) =>

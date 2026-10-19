@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import {
   type BoardData,
   type ClaudeScan,
@@ -273,10 +273,11 @@ export function AgentSessions(
       (scan?.groups ?? []).flatMap((g) => g.sessions.map((s) => s.source)),
     ),
   ].sort();
+  const dropStaleFilter = useEffectEvent(() => {
+    if (sourceFilter !== "all" && !sources.includes(sourceFilter)) setSourceFilter("all");
+  });
   useEffect(() => {
-    if (scan && sourceFilter !== "all" && !sources.includes(sourceFilter)) {
-      setSourceFilter("all");
-    }
+    if (scan) dropStaleFilter();
   }, [scan]);
 
   // board query syntax: bare words hit repo/title/branch, `-word` hides, repo:/title:/branch: scope

@@ -10,6 +10,7 @@ import {
   type JSX,
   type ReactNode,
   useEffect,
+  useEffectEvent,
   useRef,
   useState,
 } from "react";
@@ -60,11 +61,12 @@ function EditableItem(
   const pressed = useRef<{ x: number; y: number } | null>(null);
   // list items are index-keyed, so a split reuses a neighbor's instance for the
   // fresh item — open the editor on the prop flip, not just on mount
+  const openEditor = useEffectEvent(() => {
+    setVal(raw);
+    setEditing(true);
+  });
   useEffect(() => {
-    if (startEditing) {
-      setVal(raw);
-      setEditing(true);
-    }
+    if (startEditing) openEditor();
   }, [startEditing]);
   const grow = (el: HTMLTextAreaElement) => {
     el.style.height = "auto";

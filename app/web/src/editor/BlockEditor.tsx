@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react";
 import { type Block, type PageComment, type SessionLink, uploadAsset } from "../api";
 import { clearSelection, statusStyle } from "../ui/ui";
 import type { ItemLink } from "../md/md-types";
@@ -470,10 +470,12 @@ export function BlockEditor(
     dragRow,
     startInsert,
   } = useBlockDrag(blocks, snapshot, onChange);
-  useEffect(() => {
-    if (!insertDrag) return;
-    startInsert(insertDrag);
+  const beginInsert = useEffectEvent((block: Block) => {
+    startInsert(block);
     onInsertStarted?.();
+  });
+  useEffect(() => {
+    if (insertDrag) beginInsert(insertDrag);
   }, [insertDrag]);
   // a comment target picked in place (💬 on a table row or a text selection),
   // awaiting its body
@@ -487,10 +489,13 @@ export function BlockEditor(
   const [activeTabs, setActiveTabs] = useState<Record<string, number>>({});
   // open state per {{fold}} section, collapsed by default
   const [openFolds, setOpenFolds] = useState<Record<string, boolean>>({});
+  const removeSelected = useEffectEvent((id: string) => {
+    const bidOf = (x: Block, j: number) => (isText(x) && x.id) ? x.id : String(j);
+    const idx = blocks.findIndex((x, j) => bidOf(x, j) === id);
+    if (idx >= 0) remove(idx);
+  });
   useEffect(() => {
     if (!selectedId) return;
-    const bidOf = (x: Block, j: number) =>
-      (isText(x) && x.id) ? x.id : String(j);
     const key = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName;
       // a cell/line editor owns its keys — Backspace there must not eat the block
@@ -498,8 +503,7 @@ export function BlockEditor(
       if (e.key === "Escape") setSelectedId(null);
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
-        const idx = blocks.findIndex((x, j) => bidOf(x, j) === selectedId);
-        if (idx >= 0) remove(idx);
+        removeSelected(selectedId);
         setSelectedId(null);
       }
     };
@@ -510,7 +514,7 @@ export function BlockEditor(
       document.removeEventListener("keydown", key);
       document.removeEventListener("mousedown", clear);
     };
-  }, [selectedId, blocks]);
+  }, [selectedId]);
   // swap an image block's asset via a file picker, keeping the alt text
   const replaceImage = (i: number) => {
     const input = document.createElement("input");

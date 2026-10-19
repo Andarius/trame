@@ -35,7 +35,7 @@ export function usePageSelection(title: string | undefined, blocksRef: { current
     };
     document.addEventListener("copy", onCopy);
     return () => document.removeEventListener("copy", onCopy);
-  }, [pageSelected, title]);
+  }, [pageSelected, title, blocksRef]);
   const onPageKeyDown = (e: ReactKeyboardEvent) => {
     const mod = e.metaKey || e.ctrlKey;
     if (mod && (e.key === "a" || e.key === "A")) {
