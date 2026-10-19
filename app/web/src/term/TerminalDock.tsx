@@ -12,15 +12,18 @@ import {
   leaves,
   mergeTab,
   MAX_PANES,
+  moveTerm,
   type PaneNode,
   type TermTab,
   openTerminal,
   selectTab,
   setDockMax,
   setDockOpen,
+  setTermDrag,
   splitTerminal,
   tabCards,
   type TermAgent,
+  type TermDrag,
   termAgents,
   useTermDock,
 } from "./term-api";
@@ -60,12 +63,12 @@ export default function TerminalDock({ board, scope }: { board?: BoardData | nul
   const open = !!scope || dock.open;
   const full = !!scope || (open && dock.max);
   const [height, setHeight] = useLocalStorage<number>("trame:termHeight", 300, HEIGHT_CODEC);
-  const drag = useRef<{ y: number; h: number } | null>(null);
+  const resize = useRef<{ y: number; h: number } | null>(null);
   const current = tabs.find((t) => t.id === active);
   const canSplit = !!current && leaves(current.root).length < MAX_PANES;
   const [menu, setMenu] = useState(false);
-  // the tab being dragged onto another tab's panes (Konsole-style layout)
-  const [dragTab, setDragTab] = useState<string | null>(null);
+  // a tab or a shell being dragged onto the panes (Konsole-style layout)
+  const drag = dock.drag;
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [agents, setAgents] = useState<TermAgent[] | null>(null);
   // fetched with the dock: finding them runs the user's shell profile (~2s)
@@ -81,9 +84,9 @@ export default function TerminalDock({ board, scope }: { board?: BoardData | nul
   };
 
   const onDrag = (e: React.PointerEvent) => {
-    if (!drag.current) return;
+    if (!resize.current) return;
     const max = innerHeight - 120;
-    setHeight(Math.min(max, Math.max(120, drag.current.h + drag.current.y - e.clientY)));
+    setHeight(Math.min(max, Math.max(120, resize.current.h + resize.current.y - e.clientY)));
   };
 
   return (
@@ -112,10 +115,10 @@ export default function TerminalDock({ board, scope }: { board?: BoardData | nul
           className="absolute -top-1 left-0 right-0 z-10 h-2 cursor-row-resize"
           onPointerDown={(e) => {
             e.currentTarget.setPointerCapture(e.pointerId);
-            drag.current = { y: e.clientY, h: height };
+            resize.current = { y: e.clientY, h: height };
           }}
           onPointerMove={onDrag}
-          onPointerUp={() => (drag.current = null)}
+          onPointerUp={() => (resize.current = null)}
         />
       )}
       <div className="flex h-8 shrink-0 items-center gap-1 px-2 text-xs">
@@ -134,21 +137,23 @@ export default function TerminalDock({ board, scope }: { board?: BoardData | nul
                 onDragStart={(e) => {
                   e.dataTransfer.setData("application/x-trame-tab", t.id);
                   e.dataTransfer.effectAllowed = "move";
-                  setDragTab(t.id);
+                  setTermDrag({ kind: "tab", id: t.id });
                 }}
                 onDragEnd={() => {
                   clearTimeout(hoverTimer.current);
-                  setDragTab(null);
+                  setTermDrag(null);
                 }}
                 // hovering another tab while dragging shows it, to drop into its panes
                 onDragEnter={() => {
                   clearTimeout(hoverTimer.current);
-                  if (dragTab && dragTab !== t.id) hoverTimer.current = setTimeout(() => selectTab(t.id), 400);
+                  if (drag && !(drag.kind === "tab" && drag.id === t.id)) {
+                    hoverTimer.current = setTimeout(() => selectTab(t.id), 400);
+                  }
                 }}
                 onDragLeave={() => clearTimeout(hoverTimer.current)}
                 className={`group flex shrink-0 cursor-grab items-center gap-1 rounded-md px-2 py-0.5 ${
                   t.id === active && open ? "bg-tab-active text-ink" : "text-ink-muted hover:text-ink-soft"
-                } ${dragTab === t.id ? "opacity-50" : ""}`}
+                } ${drag?.kind === "tab" && drag.id === t.id ? "opacity-50" : ""}`}
               >
                 <button
                   type="button"
@@ -264,8 +269,7 @@ export default function TerminalDock({ board, scope }: { board?: BoardData | nul
             <Panes
               tab={t}
               shown={open && t.id === active}
-              dragTab={dragTab && dragTab !== t.id ? dragTab : null}
-              onDropped={() => setDragTab(null)}
+              drag={drag && !(drag.kind === "tab" && drag.id === t.id) ? drag : null}
             />
           </div>
         ))}
@@ -312,7 +316,7 @@ const sideAt = (e: React.DragEvent): DropSide => {
 };
 
 function Panes(
-  { tab, shown, dragTab, onDropped }: { tab: TermTab; shown: boolean; dragTab: string | null; onDropped: () => void },
+  { tab, shown, drag }: { tab: TermTab; shown: boolean; drag: TermDrag | null },
 ) {
   const { terms } = useTermDock();
   const [hover, setHover] = useState<{ id: string; side: DropSide } | null>(null);
@@ -331,7 +335,7 @@ function Panes(
           style={at(r)}
         >
           <TerminalView id={id} visible={shown} focused={tab.focus === id} onFocus={() => focusPane(tab.id, id)} />
-          {dragTab && shown && (
+          {drag && shown && !(drag.kind === "term" && drag.id === id) && (
             <div
               className="absolute inset-0 z-20"
               onDragOver={(e) => {
@@ -343,9 +347,11 @@ function Panes(
               onDragLeave={() => setHover(null)}
               onDrop={(e) => {
                 e.preventDefault();
-                mergeTab(dragTab, tab.id, id, sideAt(e));
+                const side = sideAt(e);
+                if (drag.kind === "tab") mergeTab(drag.id, tab.id, id, side);
+                else moveTerm(drag.id, tab.id, id, side);
                 setHover(null);
-                onDropped();
+                setTermDrag(null);
               }}
             >
               {hover?.id === id && (

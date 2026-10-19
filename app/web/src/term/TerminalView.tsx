@@ -8,7 +8,7 @@ import "@fontsource/jetbrains-mono/latin-400.css";
 import "@fontsource/jetbrains-mono/latin-700.css";
 import "@fontsource/jetbrains-mono/latin-400-italic.css";
 import { openInBrowser } from "../api";
-import { CLOSE_AUTH, CLOSE_GONE, CLOSE_SUPERSEDED, markExited, type TermTheme, termTheme, termToken } from "./term-api";
+import { CLOSE_AUTH, CLOSE_GONE, CLOSE_SUPERSEDED, closeTerminal, type TermTheme, termTheme, termToken } from "./term-api";
 
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const FONT_STACK = '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace';
@@ -112,9 +112,9 @@ export function TerminalView(
           if (msg.reset) term.reset();
           offset = msg.offset;
         } else if (msg.type === "exit") {
+          // `exit` closes the pane, like Ghostty
           done = true;
-          markExited(id);
-          term.write(`\r\n\x1b[2m[process exited${msg.code == null ? "" : ` with code ${msg.code}`}]\x1b[0m\r\n`);
+          void closeTerminal(id);
         }
       };
       sock.onclose = (e) => {
