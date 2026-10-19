@@ -1,7 +1,7 @@
 // The public link viewer on PGlite: scope, revocation, and what must never leak.
 // Pages render client-side; the server ships a sanitized JSON payload + the
 // viewer bundle, so the tests check the payload and the asset routes.
-import { assert, assertEquals } from "@std/assert";
+import { afterAll, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import type { Q } from "./db.ts";
 import { createLinkApp } from "./links.ts";
@@ -20,7 +20,7 @@ function q(pg: PGlite): Q {
 const pg = new PGlite();
 await pg.waitReady;
 await pg.exec(
-  await Deno.readTextFile(new URL("../../db/schema.sql", import.meta.url)),
+  await Bun.file(new URL("../../db/schema.sql", import.meta.url)).text(),
 );
 
 const TOKEN = "test-link-token-abc";
@@ -87,73 +87,71 @@ const app = createLinkApp(q(pg));
 async function payloadOf(path: string): Promise<any> {
   const html = await (await app.request(path)).text();
   const m = html.match(/window\.__TRAME_LINK__ = (.*);<\/script>/);
-  assert(m, "shell carries the injected payload");
-  return JSON.parse(m[1]); // JSON.parse decodes the < escapes back to <
+  expect(m).toBeTruthy();
+  return JSON.parse(m![1]); // JSON.parse decodes the < escapes back to <
 }
 
-Deno.test("a valid link ships the page payload, database and viewer entry", async () => {
+test("a valid link ships the page payload, database and viewer entry", async () => {
   const res = await app.request(`/l/${TOKEN}`);
-  assertEquals(res.status, 200);
+  expect(res.status).toStrictEqual(200);
   const html = await res.text();
-  assert(html.includes(`/l/assets/${LINK_ENTRY.js}`), "viewer bundle loaded");
+  expect(html.includes(`/l/assets/${LINK_ENTRY.js}`)).toBeTruthy();
   const p = await payloadOf(`/l/${TOKEN}`);
-  assertEquals(p.page.title, "Roadmap");
-  assertEquals(p.blocks[0], { type: "heading", text: "Q3 {{tab}}" });
-  assertEquals(p.blocks[1], { type: "todo", text: "ship links", done: true });
-  assertEquals(p.databases[DB_ID].rows[0].vals[PROP], "first task");
+  expect(p.page.title).toStrictEqual("Roadmap");
+  expect(p.blocks[0]).toStrictEqual({ type: "heading", text: "Q3 {{tab}}" });
+  expect(p.blocks[1]).toStrictEqual({ type: "todo", text: "ship links", done: true });
+  expect(p.databases[DB_ID].rows[0].vals[PROP]).toStrictEqual("first task");
   // both the live shape and a double-encoded legacy row reach the viewer as values
-  assertEquals(p.databases[DB_ID].rows[1].vals[PROP], "double-encoded");
-  assertEquals(
-    p.databases[DB_ID].props[1].config.options[0].name,
-    "doing",
-    "select options parsed, so the viewer can chip them",
-  );
-  assertEquals(p.attached, [DB_ID]);
-  assertEquals(p.children, [{ id: SUB, title: "Sub Plan", icon: null }]);
-  assertEquals(p.subpages[SUB].title, "Sub Plan");
+  expect(p.databases[DB_ID].rows[1].vals[PROP]).toStrictEqual("double-encoded");
+  expect(p.databases[DB_ID].props[1].config.options[0].name).toStrictEqual("doing");
+  expect(p.attached).toStrictEqual([DB_ID]);
+  expect(p.children).toStrictEqual([{ id: SUB, title: "Sub Plan", icon: null }]);
+  expect(p.subpages[SUB].title).toStrictEqual("Sub Plan");
 });
 
-Deno.test("page content can never break out of the inline script", async () => {
+test("page content can never break out of the inline script", async () => {
   const html = await (await app.request(`/l/${TOKEN}`)).text();
-  assert(!html.includes("</script><b>"), "every < in content is escaped");
+  expect(!html.includes("</script><b>")).toBeTruthy();
   const p = await payloadOf(`/l/${TOKEN}`);
-  assertEquals(p.blocks[2].text, "hello </script><b>world</b>");
+  expect(p.blocks[2].text).toStrictEqual("hello </script><b>world</b>");
 });
 
-Deno.test("private fields never leak into the payload", async () => {
+test("private fields never leak into the payload", async () => {
   const html = await (await app.request(`/l/${TOKEN}`)).text();
-  assert(!html.includes("PICKED"), "html block data stripped");
-  assert(!html.includes("secret-dir"), "folder blocks (local paths) stripped");
-  assert(!html.includes("INTERNAL COMMENT"), "comments never appear");
-  assert(!html.includes("Secret Page"), "out-of-scope subpage blocks dropped");
+  expect(!html.includes("PICKED")).toBeTruthy();
+  expect(!html.includes("secret-dir")).toBeTruthy();
+  expect(!html.includes("INTERNAL COMMENT")).toBeTruthy();
+  expect(!html.includes("Secret Page")).toBeTruthy();
   const p = await payloadOf(`/l/${TOKEN}`);
   const sub = p.blocks.filter((b: { type: string }) => b.type === "subpage");
-  assertEquals(sub.length, 1, "only the in-scope subpage block survives");
+  expect(sub.length).toStrictEqual(1);
 });
 
-Deno.test("viewer assets are served with types and immutable caching", async () => {
+test("viewer assets are served with types and immutable caching", async () => {
   const res = await app.request(`/l/assets/${LINK_ENTRY.js}`);
-  assertEquals(res.status, 200);
-  assert(res.headers.get("content-type")!.includes("javascript"));
-  assert(res.headers.get("cache-control")!.includes("immutable"));
+  expect(res.status).toStrictEqual(200);
+  expect(res.headers.get("content-type")!.includes("javascript")).toBeTruthy();
+  expect(res.headers.get("cache-control")!.includes("immutable")).toBeTruthy();
   await res.body?.cancel();
-  assertEquals((await app.request("/l/assets/nope.js")).status, 404);
+  expect((await app.request("/l/assets/nope.js")).status).toStrictEqual(404);
 });
 
-Deno.test("sub-page renders in scope; a page outside the subtree 404s", async () => {
+test("sub-page renders in scope; a page outside the subtree 404s", async () => {
   const p = await payloadOf(`/l/${TOKEN}/p/${SUB}`);
-  assertEquals(p.page.title, "Sub Plan");
-  assertEquals(p.isRoot, false);
-  assertEquals((await app.request(`/l/${TOKEN}/p/${PRIVATE}`)).status, 404);
+  expect(p.page.title).toStrictEqual("Sub Plan");
+  expect(p.isRoot).toStrictEqual(false);
+  expect((await app.request(`/l/${TOKEN}/p/${PRIVATE}`)).status).toStrictEqual(404);
 });
 
-Deno.test("unknown and revoked tokens 404", async () => {
-  assertEquals((await app.request(`/l/nope`)).status, 404);
+test("unknown and revoked tokens 404", async () => {
+  expect((await app.request(`/l/nope`)).status).toStrictEqual(404);
   await pg.query(`update page_links set deleted=true where token_hash=$1`, [
     hash,
   ]);
-  assertEquals((await app.request(`/l/${TOKEN}`)).status, 404);
+  expect((await app.request(`/l/${TOKEN}`)).status).toStrictEqual(404);
   await pg.query(`update page_links set deleted=false where token_hash=$1`, [
     hash,
   ]);
 });
+
+afterAll(() => pg.close());

@@ -1,6 +1,6 @@
 // The laptop /api contract served by the hub (tramecli with no local app): who may
 // call it, and that hub writes carry the caller's provenance like a /sync push.
-import { assertEquals } from "@std/assert";
+import { afterAll, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import type { DB, Q } from "./db.ts";
 import { ensureAuthSchema, mintToken } from "./auth.ts";
@@ -28,7 +28,7 @@ function pgliteAdapter(pg: PGlite): DB {
 const pg = new PGlite();
 await pg.waitReady;
 await pg.exec(
-  await Deno.readTextFile(new URL("../../db/schema.sql", import.meta.url)),
+  await Bun.file(new URL("../../db/schema.sql", import.meta.url)).text(),
 );
 const db = pgliteAdapter(pg);
 await ensureAuthSchema(db);
@@ -99,14 +99,14 @@ for (
     ["member", "/api/board", {}, 200],
   ] as const
 ) {
-  Deno.test(`hub /api access: ${id}`, async () => {
+  test(`hub /api access: ${id}`, async () => {
     const res = await call(path, opts);
     await res.body?.cancel();
-    assertEquals(res.status, status);
+    expect(res.status).toStrictEqual(status);
   });
 }
 
-Deno.test("hub /api writes carry the caller's node, user and api source", async () => {
+test("hub /api writes carry the caller's node, user and api source", async () => {
   const res = await call("/api/sessions", {
     body: {
       title: "headless track",
@@ -116,25 +116,25 @@ Deno.test("hub /api writes carry the caller's node, user and api source", async 
       client: "Hub project",
     },
   });
-  assertEquals(res.status, 200);
+  expect(res.status).toStrictEqual(200);
   const { id } = await res.json() as { id: string };
 
   const board = await (await call("/api/board")).json() as {
     sessions: { id: string }[];
   };
-  assertEquals(board.sessions.some((s) => s.id === id), true);
+  expect(board.sessions.some((s) => s.id === id)).toStrictEqual(true);
 
   const session = (await pg.query(
     `select origin, page_id, client_id from sessions where id=$1`,
     [id],
   )).rows[0] as { origin: string; page_id: string; client_id: string };
-  assertEquals(session.origin, "member-dev");
+  expect(session.origin).toStrictEqual("member-dev");
   // pages minted on the hub are owned by the caller's user, resolved from its device
   const owners = (await pg.query(
     `select kind, owner_id from pages where id in ($1, $2) order by kind`,
     [session.client_id, session.page_id],
   )).rows;
-  assertEquals(owners, [
+  expect(owners).toStrictEqual([
     { kind: "project", owner_id: MEMBER },
     { kind: "story", owner_id: MEMBER },
   ]);
@@ -142,64 +142,61 @@ Deno.test("hub /api writes carry the caller's node, user and api source", async 
     `select distinct actor, source from change_log where entity='sessions' and row_id=$1`,
     [id],
   )).rows;
-  assertEquals(log, [{ actor: MEMBER, source: "api" }]);
+  expect(log).toStrictEqual([{ actor: MEMBER, source: "api" }]);
 });
 
 // tramecli sends blocks and a resolved block_id; content is jsonb end to end
-Deno.test("hub /api reads and writes pages and comments", async () => {
+test("hub /api reads and writes pages and comments", async () => {
   const content = [{ id: "b1", type: "text", text: "first block" }];
   const created = await call("/api/pages", {
     body: { title: "Hub page", content, repo_path: "/srv/work/repo" },
   });
-  assertEquals(created.status, 200);
+  expect(created.status).toStrictEqual(200);
   const { id: pageId } = await created.json() as { id: string };
 
   const comment = await call("/api/comments", {
     body: { page_id: pageId, block_id: "b1", body: "from the hub" },
   });
-  assertEquals(comment.status, 200);
+  expect(comment.status).toStrictEqual(200);
 
   const page = await (await call(`/api/pages/${pageId}`)).json() as {
     title: string;
     content: unknown[];
     comments: { body: string; author_id: string }[];
   };
-  assertEquals(page.title, "Hub page");
-  assertEquals(page.content, content);
-  assertEquals(
-    page.comments.map((c) => ({ body: c.body, author_id: c.author_id })),
-    [{ body: "from the hub", author_id: MEMBER }],
-  );
+  expect(page.title).toStrictEqual("Hub page");
+  expect(page.content).toStrictEqual(content);
+  expect(page.comments.map((c) => ({ body: c.body, author_id: c.author_id }))).toStrictEqual([{ body: "from the hub", author_id: MEMBER }]);
 });
 
 // a PATCH used to answer 200 by falling through to the GET, with nothing written
 for (const method of ["PATCH", "PUT", "DELETE"]) {
-  Deno.test(`hub /api refuses ${method} on a page instead of faking success`, async () => {
+  test(`hub /api refuses ${method} on a page instead of faking success`, async () => {
     const { id } = await (await call("/api/pages", { body: { title: "Status probe" } })).json() as { id: string };
     const res = await call(`/api/pages/${id}`, { method, body: { status: "archived" } });
-    assertEquals(res.status, 405);
+    expect(res.status).toStrictEqual(405);
     await res.body?.cancel();
     const page = await (await call(`/api/pages/${id}`)).json() as { status: string };
-    assertEquals(page.status, "open");
+    expect(page.status).toStrictEqual("open");
   });
 }
 
-Deno.test("a hub /api error rolls back what the route wrote first", async () => {
+test("a hub /api error rolls back what the route wrote first", async () => {
   // resolveHomeProject mints the repo's project, then content validation fails
   const res = await call("/api/pages", {
     body: { title: "bad", repo_path: "/srv/rollback/repo", content: {} },
   });
   await res.body?.cancel();
-  assertEquals(res.status >= 400, true);
+  expect(res.status >= 400).toStrictEqual(true);
   const minted = (await pg.query(
     `select count(*)::int as n from pages where title in ('bad', 'Side-projects')`,
   )).rows[0] as { n: number };
-  assertEquals(minted.n, 0);
+  expect(minted.n).toStrictEqual(0);
 });
 
 // A hub /api track writes session, event, then touches the session again: pull
 // must still deliver the session first, or the replica's FK rejects the event.
-Deno.test("pull after a hub /api track delivers the session before its event", async () => {
+test("pull after a hub /api track delivers the session before its event", async () => {
   const cursor = Number(
     ((await pg.query(`select max(rev) as r from change_log`)).rows[0] as {
       r: string;
@@ -227,8 +224,8 @@ Deno.test("pull after a hub /api track delivers the session before its event", a
   const event = changes.findIndex((c) =>
     c.entity === "session_events" && c.value?.session_id === id
   );
-  assertEquals(session >= 0 && event >= 0, true);
-  assertEquals(session < event, true);
+  expect(session >= 0 && event >= 0).toStrictEqual(true);
+  expect(session < event).toStrictEqual(true);
 });
 
 // udb over the hub: user formula SQL may only run through the injected sandbox
@@ -270,7 +267,7 @@ for (
     ["no executor refuses", app, "formulas are not evaluated on this hub"],
   ] as const
 ) {
-  Deno.test(`hub /api udb formulas: ${id}`, async () => {
+  test(`hub /api udb formulas: ${id}`, async () => {
     formulaCalls.length = 0;
     const { dbId } = await udbWithFormula(target);
     const created = await udbCall(target, `/api/udb/${dbId}/props`, {
@@ -279,23 +276,23 @@ for (
       config: { expr: "n * 3" },
     });
     if (typeof expected === "string") {
-      assertEquals(String(created.error).includes(expected), true);
+      expect(String(created.error).includes(expected)).toStrictEqual(true);
       return;
     }
     const data = await udbCall(target, `/api/udb/${dbId}`) as {
       rows: { derived: Record<string, unknown> }[];
     };
-    assertEquals(data.rows.map((r) => Number(r.derived[created.id])), [
+    expect(data.rows.map((r) => Number(r.derived[created.id]))).toStrictEqual([
       expected,
     ]);
     // validation + evaluation, both through the sandbox, never the core tx
-    assertEquals(formulaCalls.length >= 2, true);
-    assertEquals(formulaCalls.every((t) => t.includes("vals")), true);
+    expect(formulaCalls.length >= 2).toStrictEqual(true);
+    expect(formulaCalls.every((t) => t.includes("vals"))).toStrictEqual(true);
   });
 }
 
 // rollup config rides /sync from any editor: its ids are spliced into SQL
-Deno.test("hub /api udb rejects a rollup whose config smuggles SQL", async () => {
+test("hub /api udb rejects a rollup whose config smuggles SQL", async () => {
   const { dbId } = await udbWithFormula(sandboxApp);
   const rel = ((await pg.query(
     `insert into udb_properties (db_id, name, type, config, sort_key, origin)
@@ -314,7 +311,7 @@ Deno.test("hub /api udb rejects a rollup whose config smuggles SQL", async () =>
   const data = await udbCall(sandboxApp, `/api/udb/${dbId}`) as {
     rows: { derived: Record<string, { error?: string }> }[];
   };
-  assertEquals(data.rows[0].derived[roll], {
+  expect(data.rows[0].derived[roll]).toStrictEqual({
     error: "rollup: invalid property id",
   });
 });
@@ -329,7 +326,7 @@ for (
     ["status: active with an open todo", "status", "active", false, undefined],
   ] as const
 ) {
-  Deno.test(`hub /api warns on open todos: ${id}`, async () => {
+  test(`hub /api warns on open todos: ${id}`, async () => {
     const res = await call("/api/sessions", { body: { title: `todos ${id}`, repo_path: `/srv/todos/${id}` } });
     const { id: card } = await res.json() as { id: string };
     const { page_id } = await (await call(`/api/sessions/${card}/specs-page`, { body: {} })).json() as {
@@ -342,12 +339,12 @@ for (
     const closed = via === "track"
       ? await call("/api/sessions", { body: { card, title: `todos ${id}`, status } })
       : await call(`/api/sessions/${card}/status`, { body: { status } });
-    assertEquals(((await closed.json()) as { note?: string }).note?.split(" — ")[0], note);
+    expect(((await closed.json()) as { note?: string }).note?.split(" — ")[0]).toStrictEqual(note);
   });
 }
 
 // the page list says which role a page's marks give it
-Deno.test("hub /api page lists carry the role a page's marks give it", async () => {
+test("hub /api page lists carry the role a page's marks give it", async () => {
   addMarkRoles([
     { mark: "tracker_us", value: /^US-\d+$/, role: "linked-story" },
     { mark: "tracker_ref", value: /^GEN-\d+$/, role: "ticket" },
@@ -360,8 +357,10 @@ Deno.test("hub /api page lists carry the role a page's marks give it", async () 
   }
   const pages = await (await call("/api/pages")).json() as { id: string; mark_role: string | null }[];
   const kindOf = (id: string) => pages.find((p) => p.id === id)?.mark_role;
-  assertEquals([kindOf(ids.ticket), kindOf(ids.us), kindOf(ids.none)], ["ticket", "linked-story", null]);
+  expect([kindOf(ids.ticket), kindOf(ids.us), kindOf(ids.none)]).toStrictEqual(["ticket", "linked-story", null]);
   // Ctrl+P search hits carry it too
   const hits = await (await call("/api/search?q=marked%20kind")).json() as { id: string; mark_role: string | null }[];
-  assertEquals(hits.find((h) => h.id === ids.ticket)?.mark_role, "ticket");
+  expect(hits.find((h) => h.id === ids.ticket)?.mark_role).toStrictEqual("ticket");
 });
+
+afterAll(() => pg.close());

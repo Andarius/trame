@@ -40,10 +40,10 @@ services:
       retries: 5
 
   # Hub API (phase 3 of docs-site/src/content/docs/hub-api.md): the auth boundary in front of Postgres.
-  # Deno terminates TLS itself with the same gen-certs material as the db. DB access
+  # Bun terminates TLS itself with the same gen-certs material as the db. DB access
   # is docker-network-only; pg_hba scopes a scram rule to the fixed subnet below.
   trame-api:
-    image: denoland/deno:alpine
+    image: oven/bun:1.3.11-alpine
     container_name: trame-api
     restart: unless-stopped
     depends_on:
@@ -53,12 +53,15 @@ services:
       DATABASE_URL: postgres://tracker:${POSTGRES_PASSWORD}@trame-db:5432/tracker
       # udb formula sandbox role; unset = formulas are not evaluated on the hub
       TRACKER_FORMULA_PASSWORD: ${TRACKER_FORMULA_PASSWORD:-}
-      DENO_DIR: /deno-cache
       # the public link listener speaks plain HTTP: the front proxy (Traefik/DSM)
       # terminates TLS and talks HTTP to backends, like every other service here
       TRACKER_LINK_TLS: "0"
-    # --frozen: the mount is read-only — validate the shipped lockfile, never write it
-    command: ["run", "-A", "--frozen", "--config", "/srv/hub/api/deno.json", "/srv/hub/api/main.ts"]
+    # deps install beside the read-only api mount (Bun resolves /srv/hub/node_modules from
+    # api/, core/ needs none); --frozen-lockfile validates the shipped lockfile, never writes it
+    working_dir: /srv/hub
+    entrypoint: ["sh", "-c"]
+    command:
+      - cp api/package.json api/bun.lock . && bun install --frozen-lockfile --production && exec bun api/main.ts
     volumes:
       # TRACKER_*_SRC: deploy.sh layout is flat; default = repo layout.
       # Mount paths preserve the api → ../../protocol and ../../core relative imports.
@@ -67,7 +70,7 @@ services:
       # core/: the /api routes the hub shares with the laptop app
       - ${TRACKER_CORE_SRC:-../core}:/srv/core:ro
       - ./certs:/certs:ro
-      - trame-deno-cache:/deno-cache
+      - trame-hub-deps:/srv/hub/node_modules
     ports:
       - "${TRACKER_BIND:-127.0.0.1}:${TRACKER_API_PORT:-8443}:8443"
       # public link viewer (plain HTTP; see TRACKER_LINK_TLS). Reached via Traefik
@@ -101,4 +104,4 @@ networks:
 
 volumes:
   trame-db-data:
-  trame-deno-cache:
+  trame-hub-deps:

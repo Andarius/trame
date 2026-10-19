@@ -1,10 +1,11 @@
 // Hub API server (docs-site/src/content/docs/hub-api.md, phase 3): the auth boundary in front of Postgres.
-// Deno terminates TLS itself with the gen-certs.sh server cert — no reverse proxy
+// Bun terminates TLS itself with the gen-certs.sh server cert — no reverse proxy
 // until it earns its place. Also the token CLI:  main.ts mint <node-id>
 import postgres from "postgres";
 import { pgAdapter } from "./db.ts";
 import { ensureAuthSchema, mintToken } from "./auth.ts";
 import { createApp } from "./app.ts";
+import { broadcast, websocket } from "./realtime.ts";
 import {
   ensureFormulaRole,
   FORMULA_ROLE,
@@ -13,7 +14,7 @@ import {
 } from "./formula.ts";
 
 const sql = postgres(
-  Deno.env.get("DATABASE_URL") ?? "postgres://tracker@trame-db:5432/tracker",
+  process.env.DATABASE_URL ?? "postgres://tracker@trame-db:5432/tracker",
   // onnotice: server NOTICEs otherwise land on stdout — where `mint` prints the token
   { max: 4, onnotice: () => {} },
 );
@@ -22,7 +23,7 @@ const db = pgAdapter(sql);
 // postgres.js stores them as jsonb strings ('"[...]"')
 const jsonText = (x: unknown) => typeof x === "string" ? x : JSON.stringify(x);
 const coreSql = postgres(
-  Deno.env.get("DATABASE_URL") ?? "postgres://tracker@trame-db:5432/tracker",
+  process.env.DATABASE_URL ?? "postgres://tracker@trame-db:5432/tracker",
   {
     max: 2,
     onnotice: () => {},
@@ -34,11 +35,12 @@ const coreSql = postgres(
 );
 await ensureAuthSchema(db);
 
-if (Deno.args[0] === "mint") {
-  const [, nodeId, explicitUser] = Deno.args;
+const args = process.argv.slice(2);
+if (args[0] === "mint") {
+  const [, nodeId, explicitUser] = args;
   if (!nodeId) {
     console.error("usage: main.ts mint <node-id> [user-id]");
-    Deno.exit(1);
+    process.exit(1);
   }
   // Bind the device to its user HERE: under ACLs an unbound token has no access,
   // and the binding must never be client-claimable (that would let any token
@@ -57,7 +59,7 @@ if (Deno.args[0] === "mint") {
       console.error(
         `several members exist — pass one: main.ts mint ${nodeId} <user-id>`,
       );
-      Deno.exit(1);
+      process.exit(1);
     }
     await db.query(
       `insert into devices (node_id, user_id, origin) values ($1, $2, 'hub-api')`,
@@ -66,16 +68,16 @@ if (Deno.args[0] === "mint") {
   }
   console.log(await mintToken(db, nodeId));
   await sql.end();
-  Deno.exit(0);
+  process.exit(0);
 }
 
 // Onboard a guest in one step: user (role=guest) + device mapping + token.
 // They install Trame and put hubApi + this token in settings.json — done.
-if (Deno.args[0] === "invite") {
-  const [, name, nodeId] = Deno.args;
+if (args[0] === "invite") {
+  const [, name, nodeId] = args;
   if (!name || !nodeId) {
     console.error("usage: main.ts invite <display-name> <node-id>");
-    Deno.exit(1);
+    process.exit(1);
   }
   const u = await db.query(
     `insert into users (name, role, origin) values ($1, 'guest', 'hub-api') returning id`,
@@ -91,17 +93,17 @@ if (Deno.args[0] === "invite") {
   );
   console.log(token);
   await sql.end();
-  Deno.exit(0);
+  process.exit(0);
 }
 
-const PORT = Number(Deno.env.get("PORT") ?? "8443");
+const PORT = Number(process.env.PORT ?? "8443");
 // udb formulas run under the sandboxed role, or not at all without its password
-const formulaPassword = Deno.env.get("TRACKER_FORMULA_PASSWORD");
+const formulaPassword = process.env.TRACKER_FORMULA_PASSWORD;
 let formula = formulasDisabled;
 if (formulaPassword) {
   await ensureFormulaRole(db, formulaPassword);
   const url = new URL(
-    Deno.env.get("DATABASE_URL") ?? "postgres://tracker@trame-db:5432/tracker",
+    process.env.DATABASE_URL ?? "postgres://tracker@trame-db:5432/tracker",
   );
   url.username = FORMULA_ROLE;
   url.password = formulaPassword;
@@ -113,7 +115,6 @@ const app = createApp(db, pgAdapter(coreSql), formula);
 
 // ONE LISTEN connection between PG and the API (never one per laptop) — the
 // change_log triggers NOTIFY 'changes'; debounce bursts, then nudge every socket.
-const { broadcast } = await import("./realtime.ts");
 let nudgeTimer: ReturnType<typeof setTimeout> | undefined;
 await sql.listen("changes", () => {
   clearTimeout(nudgeTimer);
@@ -123,28 +124,21 @@ await sql.listen("changes", () => {
 let tls: { cert: string; key: string } | undefined;
 try {
   tls = {
-    cert: await Deno.readTextFile(
-      Deno.env.get("TRACKER_API_CERT") ?? "/certs/server.crt",
-    ),
-    key: await Deno.readTextFile(
-      Deno.env.get("TRACKER_API_KEY") ?? "/certs/server.key",
-    ),
+    cert: await Bun.file(process.env.TRACKER_API_CERT ?? "/certs/server.crt").text(),
+    key: await Bun.file(process.env.TRACKER_API_KEY ?? "/certs/server.key").text(),
   };
 } catch {
   console.warn("no TLS cert/key found — serving plain HTTP (dev only)");
 }
 
-Deno.serve({ port: PORT, hostname: "0.0.0.0", ...tls }, app.fetch);
+Bun.serve({ port: PORT, hostname: "0.0.0.0", tls, fetch: app.fetch, websocket });
 
 // Public link viewer on its OWN port: only /l/* exists here, so a reverse proxy /
 // port-forward can expose it to the internet without ever exposing /sync or /ws.
 // TRACKER_LINK_TLS=0 serves it as plain HTTP for a proxy that terminates TLS
 // itself and speaks HTTP to backends (the Traefik/DSM pattern); the sync API on
 // its own port always keeps TLS.
-const PUBLIC_PORT = Number(Deno.env.get("TRACKER_API_PUBLIC_PORT") ?? "8444");
-const publicTls = Deno.env.get("TRACKER_LINK_TLS") === "0" ? undefined : tls;
+const PUBLIC_PORT = Number(process.env.TRACKER_API_PUBLIC_PORT ?? "8444");
+const publicTls = process.env.TRACKER_LINK_TLS === "0" ? undefined : tls;
 const { createLinkApp } = await import("./links.ts");
-Deno.serve(
-  { port: PUBLIC_PORT, hostname: "0.0.0.0", ...publicTls },
-  createLinkApp(db).fetch,
-);
+Bun.serve({ port: PUBLIC_PORT, hostname: "0.0.0.0", tls: publicTls, fetch: createLinkApp(db).fetch });

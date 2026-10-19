@@ -10,7 +10,7 @@ Code or Codex. Opt-in **plugins** add side panels — the first one lists GitHub
 **deployments waiting for approval**.
 
 Stack: **Tauri 2 + Rust** app → **bundled PostgreSQL 18** (offline read+write) →
-custom **changeset LWW sync over HTTPS** → a small **Deno API in front of Postgres** on a home
+custom **changeset LWW sync over HTTPS** → a small **Bun API in front of Postgres** on a home
 server (the hub), with **WebSocket nudges** so edits propagate between machines in seconds.
 No PowerSync, no Electric. Everything is Postgres, so the SQL is identical on the laptop and
 the hub. (Design + migration story: `docs-site/src/content/docs/hub-api.md`.)
@@ -19,7 +19,7 @@ the hub. (Design + migration story: `docs-site/src/content/docs/hub-api.md`.)
  laptop A (Tauri app)                          laptop B (Tauri app)
    ├─ local PG18    ◀── read/write offline ──▶  local PG18
    └─ sync ─┐  POST /sync (mutations ⇅ changes)  ┌─ sync
-            ├──────────▶  Deno API @ hub  ◀──────┤   (auth boundary; Docker, home LAN)
+            ├──────────▶  Bun API @ hub   ◀──────┤   (auth boundary; Docker, home LAN)
             └── WSS ◀──  "changed, pull now"  ──▶┘        └─▶ Postgres (source of truth)
  /trame-track ─▶ local app if running, else local outbox.jsonl (app drains on launch)
 ```
@@ -48,7 +48,7 @@ the hub. (Design + migration story: `docs-site/src/content/docs/hub-api.md`.)
 
 ## Requirements
 - **Linux x64** packaged app (deb, snap, or AppImage); no installed Deno runtime is required.
-- Source builds use **Rust**, Tauri/WebKitGTK build libraries, **Node/npm**, and **Deno 2.9+** only for hub tooling and tests.
+- Source builds use **Rust**, Tauri/WebKitGTK build libraries, **Node/npm**, **Bun 1.3+** for the hub API, and **Deno 2.9+** for the remaining app tooling and tests.
 - **Docker + openssl** on the hub machine (certs are generated there; the CA key never leaves it).
 - Laptops reach the hub's API over the **home LAN** (no Tailscale required;
   the hub binds to its LAN IP — install Tailscale there if you want sync away from home).
@@ -59,7 +59,7 @@ the hub. (Design + migration story: `docs-site/src/content/docs/hub-api.md`.)
 db/schema.sql              shared schema (hub AND local PostgreSQL) — idempotent; re-applying it IS the migration
 docs-site/                 Astro + Starlight docs (data model, hub API design, release notes) — `just docs`
 protocol/                  versioned sync protocol shared by app and hub (entities, LWW rule, html-block bridge)
-hub/docker-compose.yml     the hub: Postgres (docker-network only) + the Deno API in front of it
+hub/docker-compose.yml     the hub: Postgres (docker-network only) + the Bun API in front of it
 hub/api/                   the API: device tokens, changeset /sync, per-page ACLs, WSS nudges, public /l/* pages
 hub/deploy.sh              deploy the hub over ssh (~/Apps/trame) — `just db-deploy`
 hub/gen-certs.sh           private CA + server certs, runs on the hub (called by deploy)
@@ -97,7 +97,7 @@ just db-deploy       # ssh: copies compose+schema+hba+api to ~/Apps/trame, creat
 just hub-ca          # per laptop: fetch ca.crt (trusts the API's TLS)
 ```
 First run generates the password and the CA/server certs, and binds to the hub's LAN IP
-(never 0.0.0.0). Postgres itself has **no host port** — laptops talk to the Deno API on
+(never 0.0.0.0). Postgres itself has **no host port** — laptops talk to the Bun API on
 `:8443`, which terminates TLS with the same private-CA cert. Idempotent — rerun to redeploy
 (re-applies the schema and restarts the API).
 
@@ -105,7 +105,7 @@ First run generates the password and the CA/server certs, and binds to the hub's
 Mint a device token on the hub (`<node-id>` = the laptop's `TRACKER_NODE_ID`), then point the app at the API:
 ```bash
 # e.g. for the laptop whose TRACKER_NODE_ID is "mbp-14"
-ssh <hub> "docker exec trame-api deno run -A --config /srv/hub/api/deno.json /srv/hub/api/main.ts mint mbp-14"
+ssh <hub> "docker exec trame-api bun /srv/hub/api/main.ts mint mbp-14"
 # → prints the token ONCE (only its sha-256 is stored); re-run mint for a fresh one, revoke old rows in api_tokens
 ```
 Paste the URL + token in ⚙ Settings → Sync hub, or add to `~/.local/share/trame/settings.json` (chmod 600):
@@ -278,7 +278,7 @@ Hub and clients must use the same protocol version. Deploy the hub schema and AP
 before restarting updated clients; older clients keep local data but cannot sync
 until upgraded. Session tags require protocol 6.
 
-- **Transport**: HTTPS to the Deno API on `:8443` (TLS terminated by the API with the hub's
+- **Transport**: HTTPS to the Bun API on `:8443` (TLS terminated by the API with the hub's
   private-CA cert — `just hub-ca` fetches the CA once per laptop). Every request carries a
   **per-device bearer token**, minted on the hub and stored sha-256 at rest, revocable.
   Postgres itself has no host port — the API is the only way in.
@@ -304,7 +304,7 @@ flowchart LR
         rt[Rust WSS client]
     end
     subgraph hub [Hub — home server, Docker]
-        api[Deno API :8443<br/>device tokens + ACLs] --> pg[(Postgres 18<br/>docker-network only)]
+        api[Bun API :8443<br/>device tokens + ACLs] --> pg[(Postgres 18<br/>docker-network only)]
         links[:8444 — public /l/* pages<br/>behind any reverse proxy]
         pg -. LISTEN/NOTIFY .-> api
         pg --> links

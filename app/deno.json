@@ -32,7 +32,6 @@
     "picocolors": "npm:picocolors@^1.1.1",
     "@bradenmacdonald/s3-lite-client": "jsr:@bradenmacdonald/s3-lite-client@^0.9.6",
     "@std/assert": "jsr:@std/assert@^1",
-    "@std/uuid": "jsr:@std/uuid@^1",
     "@electric-sql/pglite": "npm:@electric-sql/pglite@0.5.3",
     "postgres": "npm:postgres@^3.4",
     "ws": "npm:ws@^8.18",
