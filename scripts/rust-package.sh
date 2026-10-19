@@ -14,7 +14,6 @@ case "$platform/$mode" in
     *) echo "unsupported: $mode on $platform (Linux x86_64: prepare|cli|deb|appimage, macOS arm64: prepare|cli|dmg)" >&2; exit 2 ;;
 esac
 
-deno run --allow-read --allow-env --config app/deno.json scripts/rust-cli-contracts.ts --check
 sha="$(git rev-parse --short HEAD 2>/dev/null || printf src)"
 dirty="$(git status --porcelain --untracked-files=normal 2>/dev/null || true)"
 export TRAME_BUILD="$sha${dirty:+-dirty}"

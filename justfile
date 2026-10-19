@@ -139,7 +139,7 @@ test *args:
     deno test -A --config app/deno.json scripts/rust-db-export-test.ts
     deno test -A --config app/deno.json scripts/rust-db-migrate-test.ts
 
-# Deno typecheck, tests and lint for the TS still shipped or shared (plugin host, core, CLI, MCP)
+# Deno typecheck, tests and lint for the TS still shipped or shared (plugin host, core, protocol)
 [group('dev')]
 deno-check:
     bash scripts/deno-check.sh

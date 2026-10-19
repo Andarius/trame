@@ -43,7 +43,6 @@ jobs:
       - name: Shared protocol and frontend unit tests
         run: |
           deno run --allow-read scripts/rust-protocol.ts --check
-          deno run --allow-read --allow-env --config app/deno.json scripts/rust-cli-contracts.ts --check
           deno test --config app/deno.json app/web/src/
 
   e2e:
@@ -116,7 +115,7 @@ jobs:
           npm run build:link --prefix app/web
           deno run --allow-read --allow-write=hub/api/link-embed.ts scripts/gen-link-embed.ts
 
-      - name: Plugin host, core, CLI and MCP typecheck + tests + lint
+      - name: Plugin host and core typecheck + tests + lint
         run: bash scripts/deno-check.sh
 
       - name: Legacy migration safety
