@@ -895,7 +895,8 @@ export function App() {
           </Suspense>
         )}
         </div>
-        {terminals && board && termSession && (termDetails
+        {/* another card's drawer takes the docked details' place instead of opening beside them */}
+        {terminals && board && termSession && !openId && (termDetails
           ? (
             <Drawer
               key={termSession.id}
