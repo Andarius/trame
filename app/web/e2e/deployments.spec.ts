@@ -16,7 +16,7 @@ test("disabled plugin: no nav entry, API gated", async ({ page }) => {
 
 test("plugins manager enables the plugin", async ({ page }) => {
   await page.goto("/");
-  await page.getByTitle("Settings").click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: /Manage plugins/ }).click();
   // master-detail modal: deployments pre-selected, settings form visible
   await expect(page.getByText("Watched repositories")).toBeVisible();
@@ -43,9 +43,8 @@ test("panel lists fixture deployments under org tabs", async ({ page }) => {
   await expect(page.getByText(/deploying · /)).toBeVisible();
   await expect(page.getByText("✕ failed")).toBeVisible();
   await expect(page.getByText(/polled/)).toBeVisible();
-  // nav badge = fixture item count
-  await expect(page.getByRole("button", { name: /Deployments/ }).getByText("5"))
-    .toBeVisible();
+  // rail badge = fixture item count, also in the button's name
+  await expect(page.getByRole("button", { name: "Deployments, 5" })).toBeVisible();
 });
 
 test("refresh button re-polls", async ({ page }) => {
@@ -179,7 +178,7 @@ test("gitlab token is redacted and bound to its saved host (no CSRF exfil)", asy
 
 test("disabling removes the nav entry and re-gates the API", async ({ page }) => {
   await page.goto("/");
-  await page.getByTitle("Settings").click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: /Manage plugins/ }).click();
   await page.getByRole("switch").click();
   await expect(page.getByRole("switch")).toHaveAttribute(

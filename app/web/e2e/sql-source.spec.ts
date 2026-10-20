@@ -68,7 +68,7 @@ test("sources live in Settings: no sidebar entry, edit on click, Delete asks fir
   await expect(page.getByRole("button", { name: "Explore" })).toBeVisible();
   await expect(page.getByRole("button", { name: "SQL sources" })).toHaveCount(0);
 
-  await page.getByTitle("Settings").click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Manage plugins →" }).click();
   await page.getByRole("button", { name: /SQL sources/ }).click();
   const row = page.locator("div.cursor-pointer", { hasText: `→ ${DB}` });

@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { type MouseEvent, type ReactNode, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import {
   type BoardData,
@@ -42,8 +43,10 @@ type FolderNode = {
 };
 
 export function Explore(
-  { board, onOpenSettings, initialPath, onConsumed, onBack }: {
+  { board, onOpenSettings, initialPath, onConsumed, onBack, slot }: {
     board: BoardData;
+    // the sidebar column to render the list into, instead of a column of its own
+    slot?: HTMLElement | null;
     onOpenSettings?: () => void;
     initialPath?: string | null;
     onConsumed?: () => void;
@@ -375,7 +378,8 @@ export function Explore(
 
   return (
     <div className="flex min-h-0 flex-1">
-      <div className="flex w-[330px] shrink-0 flex-col overflow-y-auto border-r border-line p-3">
+      {inSlot(slot, (
+      <div className={slot ? "flex flex-col" : "flex w-[330px] shrink-0 flex-col overflow-y-auto border-r border-line p-3"}>
         {onBack && (
           <button
             type="button"
@@ -547,6 +551,7 @@ export function Explore(
           </p>
         )}
       </div>
+      ))}
       <div className="flex min-w-0 flex-1 flex-col">
         {selected
           ? (
@@ -743,3 +748,5 @@ function StarButton({ on, what, onClick }: { on: boolean; what: string; onClick:
     </button>
   );
 }
+
+const inSlot = (slot: HTMLElement | null | undefined, node: ReactNode) => (slot ? createPortal(node, slot) : node);

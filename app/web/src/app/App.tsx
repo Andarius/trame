@@ -559,6 +559,9 @@ export function App() {
 
   const isSessions = view === "board" || view === "list" || view === "graph";
   const terminals = view === "terminals";
+  // the sidebar column Explore and AI Sessions render their list into
+  const [columnSlot, setColumnSlot] = useState<HTMLDivElement | null>(null);
+  const pluginColumn = !!FRONTEND_PLUGINS.find((p) => p.id === pluginId)?.column;
   // Open in agent → Trame terminal lands here, on the card's shells
   const openTerminals = (card: string) => {
     setTermSel(card);
@@ -625,6 +628,14 @@ export function App() {
         board={board}
         onOpenSession={(id) => openSession(id)}
         onOpenTerminals={openTerminals}
+        // a view's own list is its sidebar column: Terminals' cards, or a slot Explore / AI Sessions portal into
+        column={terminals
+          ? <TermCards board={board} selected={termCard} onSelect={(card) => setTermSel(card ?? "plain")} />
+          : view === "explore" || view === "agents" || (view === "plugin" && pluginColumn)
+          ? <div ref={setColumnSlot} className="contents" />
+          : undefined}
+        wide={view === "explore"}
+        bare={view === "plugin" && !pluginColumn}
       />
       )}
       <main className="relative flex min-w-0 flex-1 flex-col">
@@ -747,9 +758,6 @@ export function App() {
         )}
         {/* one fixed spot for the dock in every view, so entering Terminals never remounts a shell */}
         <div className="flex min-h-0 flex-1">
-        {terminals && (
-          <TermCards board={board} selected={termCard} onSelect={(card) => setTermSel(card ?? "plain")} />
-        )}
         <div className="flex min-w-0 flex-1 flex-col">
         <div className={`relative min-h-0 flex-1 flex-col ${terminals || (termDock.open && termDock.max) ? "hidden" : "flex"}`}>
         {!board
@@ -864,6 +872,7 @@ export function App() {
             return Panel
               ? (
                 <Panel
+                  column={columnSlot}
                   onOpenSettings={() => setModal("pluginSettings")}
                   onOpenPage={openPage}
                   onOpenSession={openSession}
@@ -874,7 +883,7 @@ export function App() {
           : view === "terminals"
           ? null // the dock is the view (below)
           : view === "agents"
-          ? <AgentSessions board={board} onOpenSession={(id) => openSession(id)} />
+          ? <AgentSessions board={board} onOpenSession={(id) => openSession(id)} slot={columnSlot} />
           : (
             <Explore
               key={exploreEpoch}
@@ -883,6 +892,7 @@ export function App() {
               initialPath={exploreTarget}
               onConsumed={() => setExploreTarget(null)}
               onBack={exploreReturn ? () => openPage(exploreReturn) : undefined}
+              slot={columnSlot}
             />
           )}
         </div>
