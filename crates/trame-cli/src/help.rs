@@ -10,6 +10,7 @@ const SOURCES: &[(&str, &str)] = &[
     ("GRAPH_FENCE", include_str!("help/GRAPH_FENCE.md")),
     ("LIST_HELP", include_str!("help/LIST_HELP.md")),
     ("MOVE_HELP", include_str!("help/MOVE_HELP.md")),
+    ("OPEN_HELP", include_str!("help/OPEN_HELP.md")),
     ("OVERVIEW", include_str!("help/OVERVIEW.md")),
     ("PAGE_DIALECT", include_str!("help/PAGE_DIALECT.md")),
     ("PAGE_HELP", include_str!("help/PAGE_HELP.md")),

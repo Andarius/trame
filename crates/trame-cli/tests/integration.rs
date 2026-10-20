@@ -1736,3 +1736,26 @@ async fn mcp_initialize_lists_and_calls_real_tools() {
     child.kill().await.unwrap();
     server.abort();
 }
+#[tokio::test]
+async fn open_without_app_prints_the_link_and_exits_1() {
+    let scratch = Scratch::new();
+    let id = "0b5c1d2e-3f40-4a51-8b62-7c83d94ea5f6";
+    for (input, url) in [
+        (id.to_owned(), format!("trame://card/{id}")),
+        (
+            format!("http://127.0.0.1:8787/?page={id}"),
+            format!("trame://page/{id}"),
+        ),
+    ] {
+        // no port file, and no xdg-mime/open on PATH: nothing can show it
+        let output = scratch
+            .command(None)
+            .env("PATH", &scratch.0)
+            .args(["open", &input])
+            .output()
+            .await
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1), "{input}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), url);
+    }
+}

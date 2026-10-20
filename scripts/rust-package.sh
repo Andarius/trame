@@ -130,9 +130,14 @@ if [[ "$mode" == deb ]]; then
     # the window's Wayland app id is `trame`; the menu entry needs that exact name to own the window
     unpacked="$(mktemp -d)"
     dpkg-deb -R dist/linux/trame.deb "$unpacked"
-    mv "$unpacked/usr/share/applications/Trame.desktop" "$unpacked/usr/share/applications/trame.desktop"
+    entry="$unpacked/usr/share/applications/trame.desktop"
+    mv "$unpacked/usr/share/applications/Trame.desktop" "$entry"
+    # trame://page/<id> and trame://card/<id> links open in the app
+    sed -i 's|^Exec=trame$|Exec=trame %u|' "$entry"
+    echo 'MimeType=x-scheme-handler/trame;' >>"$entry"
     if [[ -f "$unpacked/DEBIAN/md5sums" ]]; then
-        sed -i 's|usr/share/applications/Trame.desktop$|usr/share/applications/trame.desktop|' "$unpacked/DEBIAN/md5sums"
+        sed -i '\| usr/share/applications/Trame.desktop$|d' "$unpacked/DEBIAN/md5sums"
+        (cd "$unpacked" && md5sum usr/share/applications/trame.desktop) >>"$unpacked/DEBIAN/md5sums"
     fi
     dpkg-deb --root-owner-group -b "$unpacked" dist/linux/trame.deb >/dev/null
     rm -rf "$unpacked"
