@@ -1,5 +1,5 @@
 use crate::{
-    board, claude_hook, comment, db, deployments, help, mcp, page, presence, setup,
+    board, claude_hook, comment, db, deployments, help, mcp, open, page, presence, setup,
     target::{self, resolve_target},
     track, watch,
 };
@@ -117,6 +117,7 @@ pub async fn run(args: &[String]) -> Result<i32> {
         "convert" => Some("CONVERT_HELP"),
         "archive" => Some("ARCHIVE_HELP"),
         "move" => Some("MOVE_HELP"),
+        "open" => Some("OPEN_HELP"),
         "setup" => Some("SETUP_HELP"),
         "deployments" => Some("DEPLOYMENTS_HELP"),
         "db" => Some("UDB_CONTRACT"),
@@ -158,6 +159,7 @@ pub async fn run(args: &[String]) -> Result<i32> {
             "convert" => Some("CONVERT_HELP"),
             "archive" => Some("ARCHIVE_HELP"),
             "move" => Some("MOVE_HELP"),
+            "open" => Some("OPEN_HELP"),
             "setup" => Some("SETUP_HELP"),
             "deployments" => Some("DEPLOYMENTS_HELP"),
             "db" => Some("UDB_CONTRACT"),
@@ -217,6 +219,7 @@ pub async fn run(args: &[String]) -> Result<i32> {
         "move" => board::move_page(&rest, json_out, &resolve_target().await?).await?,
         "db" => db::main(&rest, json_out, &resolve_target().await?).await?,
         "deployments" => deployments::main(&rest, json_out, &resolve_target().await?).await?,
+        "open" => return open::main(&rest).await,
         "setup" => return setup::run(&rest),
         "mcp" => mcp::serve().await?,
         other => {

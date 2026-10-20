@@ -16,6 +16,7 @@ pub mod imports;
 pub mod json;
 pub mod local;
 pub mod notify;
+pub mod open;
 pub mod pages;
 pub mod pg;
 pub mod platform;
@@ -140,6 +141,8 @@ pub struct Config {
     pub switch: Option<tokio::sync::mpsc::UnboundedSender<demo::Switch>>,
     /// Bound once by the supervisor so a restart never frees the port.
     pub listener: Option<std::sync::Arc<std::net::TcpListener>>,
+    /// Receives POST /api/open queries for the window (set by the desktop app).
+    pub open: Option<tokio::sync::mpsc::UnboundedSender<String>>,
 }
 impl Config {
     pub fn from_env() -> Result<Self> {
@@ -181,6 +184,7 @@ impl Config {
             demo,
             switch: None,
             listener: None,
+            open: None,
         })
     }
 }
@@ -272,6 +276,7 @@ pub async fn run(
         desktop: config.desktop,
         web_dir: config.web_dir.clone(),
         demo: demo::Demo::new(config.demo, config.switch.clone()),
+        open: config.open.clone(),
     };
     // demo due dates must not raise desktop notifications
     let notifier = (!config.demo).then(|| tokio::spawn(notify::background(native.clone())));

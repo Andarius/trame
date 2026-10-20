@@ -4490,6 +4490,7 @@ name = "trame-desktop"
 version = "0.20.0"
 dependencies = [
  "anyhow",
+ "libc",
  "serde_json",
  "tauri",
  "tauri-build",

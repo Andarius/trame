@@ -4,5 +4,16 @@
 <dict>
   <key>NSLocalNetworkUsageDescription</key>
   <string>Trame syncs your sessions and pages with your Trame hub on the local network.</string>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>sh.trame.app</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>trame</string>
+      </array>
+    </dict>
+  </array>
 </dict>
 </plist>

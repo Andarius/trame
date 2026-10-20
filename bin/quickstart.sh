@@ -48,13 +48,15 @@ integrate_appimage() { # binary
 Type=Application
 Name=Trame
 Comment=Local-first session tracker for coding work
-Exec=$bin
+Exec=$bin %u
 Icon=$icon
 StartupWMClass=trame
 Terminal=false
 Categories=Development;
+MimeType=x-scheme-handler/trame;
 EOF
     if command -v update-desktop-database >/dev/null; then update-desktop-database -q "$data/applications" || true; fi
+    if command -v xdg-mime >/dev/null; then xdg-mime default trame.desktop x-scheme-handler/trame || true; fi
     echo "menu entry → $data/applications/trame.desktop"
 }
 

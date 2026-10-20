@@ -65,45 +65,50 @@ pub fn data_file(override_name: &str, name: &str) -> PathBuf {
     base.join("trame").join(name)
 }
 
+/// The running local app named by the port file, if it answers /api/status.
+pub async fn local_target() -> Result<Option<Target>> {
+    let Some(port) = fs::read_to_string(data_file("TRACKER_PORT_FILE", "port.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .and_then(|v| v["port"].as_u64())
+        .filter(|p| *p > 0 && u16::try_from(*p).is_ok())
+    else {
+        return Ok(None);
+    };
+    let base = format!("http://127.0.0.1:{port}");
+    let client = Client::builder()
+        .timeout(Duration::from_millis(800))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?;
+    if !client
+        .get(format!("{base}/api/status"))
+        .send()
+        .await
+        .is_ok_and(|r| r.status().is_success())
+    {
+        return Ok(None);
+    }
+    Ok(Some(Target {
+        base,
+        hub: false,
+        token: None,
+        client: Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?,
+    }))
+}
+
 pub async fn resolve_target() -> Result<Target> {
-    let port_file = data_file("TRACKER_PORT_FILE", "port.json");
-    if let Ok(port_data) = fs::read_to_string(port_file) {
-        if let Ok(value) = serde_json::from_str::<Value>(&port_data) {
-            if let Some(port) = value["port"]
-                .as_u64()
-                .filter(|p| *p > 0 && u16::try_from(*p).is_ok())
-            {
-                let base = format!("http://127.0.0.1:{port}");
-                let client = Client::builder()
-                    .timeout(Duration::from_millis(800))
-                    .redirect(reqwest::redirect::Policy::none())
-                    .build()?;
-                if client
-                    .get(format!("{base}/api/status"))
-                    .send()
-                    .await
-                    .is_ok_and(|r| r.status().is_success())
-                {
-                    let target = Target {
-                        base,
-                        hub: false,
-                        token: None,
-                        client: Client::builder()
-                            .redirect(reqwest::redirect::Policy::none())
-                            .build()?,
-                    };
-                    if LAST_HUB.swap(false, Ordering::SeqCst) {
-                        let _ = target
-                            .client
-                            .post(format!("{}/api/sync", target.base))
-                            .timeout(Duration::from_secs(30))
-                            .send()
-                            .await;
-                    }
-                    return Ok(target);
-                }
-            }
+    if let Some(target) = local_target().await? {
+        if LAST_HUB.swap(false, Ordering::SeqCst) {
+            let _ = target
+                .client
+                .post(format!("{}/api/sync", target.base))
+                .timeout(Duration::from_secs(30))
+                .send()
+                .await;
         }
+        return Ok(target);
     }
     if env::var("TRAME_OFFLINE").ok().as_deref() == Some("1") {
         bail!("Trame app is not running (TRAME_OFFLINE=1)");

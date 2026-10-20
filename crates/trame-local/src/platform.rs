@@ -58,6 +58,10 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
             }
         }
     };
+    // {target} opens a browser; {page_id|card_id|id} shows that view in the desktop window
+    if path == "/api/open" && body.get("target").is_none() {
+        return crate::open::serve(state, body).await;
+    }
     let result = crate::blocking::spawn(move || {
         let mut db = Db::connect(
             &state.root.join("socket"),

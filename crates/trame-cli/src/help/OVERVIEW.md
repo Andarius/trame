@@ -15,6 +15,7 @@ Commands:
   convert    turn a page into a session card whose specs are that page
   archive    fold a page or user story away (--restore brings it back)
   move       reparent a page under another page (or --top)
+  open       show a page or card in the desktop app (or its trame:// link)
   setup      install the agent skills embedded in this binary
   deployments  per-repo rules matching waiting releases to cards
   db         write database rows (`db rows <db>`); bare, the database contract

@@ -7,6 +7,8 @@
 #[cfg(target_os = "linux")]
 mod appimage;
 mod geometry;
+#[cfg(target_os = "linux")]
+mod webkit;
 
 use std::sync::{
     Arc, Mutex,
@@ -27,14 +29,32 @@ fn main() -> anyhow::Result<()> {
     let mut config = trame_local::Config::from_env()?;
     if trame_local::isolated_mode() {
         config.root = trame_local::scratch_root(&config.root)?;
-    } else {
+    }
+    let runtime = Arc::new(tokio::runtime::Runtime::new()?);
+    // `trame trame://page/<id>` (a clicked link) goes to the running instance when there is one
+    let link = std::env::args().skip(1).find(|a| a.starts_with("trame://"));
+    if let Some(link) = &link {
+        let port_file = std::env::var_os("TRACKER_PORT_FILE")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| config.root.join("port.json"));
+        if runtime.block_on(trame_local::open::forward(&port_file, link)) {
+            return Ok(());
+        }
+    }
+    let pending = Arc::new(Mutex::new(
+        link.as_deref()
+            .and_then(trame_local::open::scheme_target)
+            .map(|(kind, id)| trame_local::open::query(kind, &id)),
+    ));
+    let (open_tx, mut open_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    config.open = Some(open_tx.clone());
+    if !trame_local::isolated_mode() {
         // a relaunch right after quit waits for the old instance's PostgreSQL to stop
         drop(trame_local::pg::lock_root_within(
             &config.root,
             std::time::Duration::from_secs(15),
         )?);
     }
-    let runtime = Arc::new(tokio::runtime::Runtime::new()?);
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
     let stop = Arc::new(Mutex::new(Some(stop_tx)));
     let task = Arc::new(Mutex::new(None));
@@ -70,6 +90,8 @@ fn main() -> anyhow::Result<()> {
             signal_handle.exit(0);
         });
         let nav_port = port.clone();
+        let open_port = port.clone();
+        let open_runtime = setup_runtime.clone();
         let save_runtime = setup_runtime.clone();
         let saved = geometry::load(&window_file);
         let mut window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
@@ -78,6 +100,7 @@ fn main() -> anyhow::Result<()> {
         if let Some((x, y)) = saved.position {
             window = window.position(x, y);
         }
+        let ready_pending = pending.clone();
         let window = window
             .on_navigation(move |url| {
                 url.scheme() == "tauri" || url.host_str() == Some("tauri.localhost") ||
@@ -104,11 +127,13 @@ fn main() -> anyhow::Result<()> {
                 let port = port.clone();
                 let app = handle.clone();
                 let exit_code = setup_exit_code.clone();
+                let pending = ready_pending.clone();
                 setup_runtime.spawn(async move {
                     match ready_rx.await {
                         Ok(bound) => {
                             port.store(bound, Ordering::SeqCst);
-                            if window.navigate(format!("http://127.0.0.1:{bound}").parse().unwrap()).is_ok() {
+                            let query = pending.lock().unwrap().take().map(|q| format!("/?{q}")).unwrap_or_default();
+                            if window.navigate(format!("http://127.0.0.1:{bound}{query}").parse().unwrap()).is_ok() {
                                 println!("Tauri window navigated after backend bind");
                             }
                         }
@@ -128,11 +153,29 @@ fn main() -> anyhow::Result<()> {
                     }
                 });
             }).build()?;
+        // POST /api/open and trame:// links: navigate in-page (App.tsx handles popstate) and raise
+        let (open_window, open_pending) = (window.clone(), pending.clone());
+        open_runtime.spawn(async move {
+            while let Some(query) = open_rx.recv().await {
+                if open_port.load(Ordering::SeqCst) == 0 {
+                    *open_pending.lock().unwrap() = Some(query);
+                    continue;
+                }
+                let _ = open_window.eval(format!("history.pushState(null,'','/?{query}');dispatchEvent(new PopStateEvent('popstate'))"));
+                let _ = open_window.unminimize();
+                let _ = open_window.show();
+                let _ = open_window.set_focus();
+            }
+        });
         // persist logical geometry shortly after each resize/move, so a kill or reboot keeps it
         let generation = Arc::new(AtomicU64::new(0));
         let last = Arc::new(Mutex::new(saved));
         let tracked = window.clone();
         window.on_window_event(move |event| {
+            #[cfg(target_os = "linux")]
+            if matches!(event, WindowEvent::CloseRequested { .. }) {
+                webkit::kill_web_processes();
+            }
             if !matches!(event, WindowEvent::Resized(_) | WindowEvent::Moved(_)) { return; }
             let mine = generation.fetch_add(1, Ordering::SeqCst) + 1;
             let (generation, last, window, path) = (generation.clone(), last.clone(), tracked.clone(), window_file.clone());
@@ -175,6 +218,18 @@ fn main() -> anyhow::Result<()> {
                     }
                     handle.exit(exit_code.load(Ordering::SeqCst));
                 });
+            } else {
+                #[cfg(target_os = "linux")]
+                webkit::kill_web_processes();
+            }
+        }
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Opened { urls } => {
+            for (kind, id) in urls
+                .iter()
+                .filter_map(|url| trame_local::open::scheme_target(url.as_str()))
+            {
+                let _ = open_tx.send(trame_local::open::query(kind, &id));
             }
         }
         // macOS Quit (menu, Cmd+Q, Apple Event) terminates without ExitRequested

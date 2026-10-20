@@ -75,6 +75,8 @@ export type SplitDir = "row" | "col";
 export type PaneNode = { term: string } | { dir: SplitDir; a: PaneNode; b: PaneNode };
 // a dock tab: a split tree of shells; `focus` gets the keyboard
 export type TermTab = { id: string; root: PaneNode; focus: string };
+// what is being dragged onto the panes: a whole tab, or one shell (from a tab or the sidebar)
+export type TermDrag = { kind: "tab" | "term"; id: string };
 // `max`: the dock fills the main area instead of sitting under the current view
 type DockState = {
   terms: Record<string, TermInfo>;
@@ -82,8 +84,9 @@ type DockState = {
   active: string | null;
   open: boolean;
   max: boolean;
+  drag: TermDrag | null;
 };
-let state: DockState = { terms: {}, tabs: [], active: null, open: false, max: false };
+let state: DockState = { terms: {}, tabs: [], active: null, open: false, max: false, drag: null };
 const listeners = new Set<() => void>();
 const LAYOUT_KEY = "trame:termLayout";
 const set = (next: Partial<DockState>) => {
@@ -134,6 +137,9 @@ export async function restoreTerminals() {
   } catch {
     return; // not served here (link view, old backend)
   }
+  // shells that exited while no window watched close now, as they would have live
+  for (const t of list.filter((t) => t.exited)) void kill(t.id);
+  list = list.filter((t) => !t.exited);
   if (!list.length) return;
   const terms = Object.fromEntries(list.map((t) => [t.id, t]));
   let saved: PaneNode[] = [];
@@ -205,9 +211,6 @@ export async function closeTab(tabId: string) {
   for (const id of t ? leaves(t.root) : []) await closeTerminal(id);
 }
 
-export const markExited = (id: string) => {
-  if (state.terms[id]) set({ terms: { ...state.terms, [id]: { ...state.terms[id], exited: true } } });
-};
 export const selectTab = (id: string) => set({ active: id, open: true });
 export type DropSide = "left" | "right" | "top" | "bottom";
 // `sub` beside the `at` shell: left/top put it first, right/bottom after
@@ -229,6 +232,24 @@ export function mergeTab(source: string, target: string, at: string, side: DropS
   return true;
 }
 
+// one shell dropped beside another: it leaves its own tab (which closes when emptied)
+export function moveTerm(term: string, target: string, at: string, side: DropSide) {
+  const src = state.tabs.find((t) => leaves(t.root).includes(term));
+  const dst = state.tabs.find((t) => t.id === target);
+  if (!src || !dst || term === at) return false;
+  if (src !== dst && leaves(src.root).length === 1) return mergeTab(src.id, target, at, side);
+  if (src !== dst && leaves(dst.root).length >= MAX_PANES) return false;
+  const rest = prune(src.root, (id) => id !== term)!;
+  const tabs = state.tabs.map((t) => {
+    const root = t === src ? rest : t.root;
+    if (t === dst) return { ...t, root: insertAt(root, at, side, { term }), focus: term };
+    return t === src ? { ...t, root, focus: t.focus === term ? leaves(root)[0] : t.focus } : t;
+  });
+  set({ tabs, active: target });
+  return true;
+}
+
+export const setTermDrag = (drag: TermDrag | null) => set({ drag });
 export const focusPane = (tabId: string, pane: string) =>
   set({ tabs: state.tabs.map((t) => (t.id === tabId && t.focus !== pane ? { ...t, focus: pane } : t)) });
 export const setDockOpen = (open: boolean) => set({ open });

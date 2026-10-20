@@ -28,22 +28,8 @@ The backend port is in `.scratch/dev/port.json` (`jq -r .port .scratch/dev/port.
 
 Quitting the window stops the app and its backend, and hangs up any embedded terminals. Delete `.scratch/test-app.log` when done.
 
-## On the user's real data
-
-Only when the user asks. Debug builds are always isolated, so this takes a release build, and only one app may open the data:
-
-1. Check the branch changes no schema (`git diff --stat master -- db/` is empty); otherwise stop and ask.
-2. Quit the installed app: `osascript -e 'tell application "Trame" to quit'`, then wait until `~/.local/share/trame/port.json` is gone.
-3. `cargo build -p trame-desktop --release --locked`, then run in the background without any `TRAME_*`/`TRACKER_*` vars:
-   `TRAME_WEB_DIR="$PWD/app/web/dist" TRAME_PG_BIN="/Applications/Trame.app/Contents/Resources/postgres/lib/postgresql/18/bin" ./target/release/trame-desktop`
-4. It looks like the installed app (no blue logo); `GET /api/status` shows `dataDir` under `~/.local/share/trame` and `debug: false`.
-
-To go back: quit that window, then `open -a Trame`.
-
-If the user wants to run agents (Claude Code, Codex) in its terminal panel, give them the step 3 command to run in their own terminal instead of launching it yourself: an app started from an agent's shell (or a `!` command) inherits that context, and `claude` there can't read the user's login, so it falls back to API billing.
-
 ## Cautions
 
 - Opening the dev port in another browser takes over any embedded terminal shown there: the desktop window then says "Opened in another window". Check `GET /api/term` (with the `x-trame-term` token from `GET /api/term/token`) before loading the page elsewhere.
-- Seed test cards through the dev backend's API (`POST /api/sessions`), never with `tramecli`, which writes to the real app.
+- Seed test cards through the dev backend's API (`POST /api/sessions`), never with tramecli, which writes to the real app.
 - Headless alternative for API or browser-only checks: `just serve` (same isolated data, no window).

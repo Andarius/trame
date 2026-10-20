@@ -12,6 +12,7 @@ pub mod db;
 pub mod deployments;
 pub mod help;
 pub mod mcp;
+pub mod open;
 pub mod page;
 pub mod presence;
 pub mod query;
