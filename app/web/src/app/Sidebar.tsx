@@ -338,7 +338,13 @@ export function Sidebar(
         );
       })}
       <div ref={runningRef}>
-        <WorkingNow board={board} onOpenSession={onOpenSession} onOpenTerminals={onOpenTerminals} onOpenPage={onOpenPage} />
+        <WorkingNow
+          board={board}
+          // in the Terminals view a card switches the shells shown; its details are docked there
+          onOpenSession={view === "terminals" ? onOpenTerminals : onOpenSession}
+          onOpenTerminals={onOpenTerminals}
+          onOpenPage={onOpenPage}
+        />
       </div>
       {due.length > 0 && (
         <nav aria-label="Due todos" className="flex flex-col gap-0.5">
