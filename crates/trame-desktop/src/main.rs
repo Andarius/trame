@@ -165,6 +165,11 @@ fn main() -> anyhow::Result<()> {
                 let _ = open_window.unminimize();
                 let _ = open_window.show();
                 let _ = open_window.set_focus();
+                // Wayland compositors refuse focus requests from the background; flag the taskbar entry instead
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                if !open_window.is_focused().unwrap_or(true) {
+                    let _ = open_window.request_user_attention(Some(tauri::UserAttentionType::Informational));
+                }
             }
         });
         // persist logical geometry shortly after each resize/move, so a kill or reboot keeps it
