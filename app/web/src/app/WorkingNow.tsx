@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { BoardData } from "../api";
 import { AgentIcon, Elapsed, useAgents } from "../agents/agents";
-import { useTermDock } from "../term/term-api";
+import { setTermDrag, useTermDock } from "../term/term-api";
 import { EntityIcon, SECTION_LABEL, SET_CODEC, StatusDot, useLocalStorage } from "../ui/ui";
 import { type CardNode, type StoryNode, workingNow } from "./working-now";
 
@@ -61,7 +61,19 @@ function CardRow({ node, fork, open }: { node: CardNode; fork?: boolean; open: O
           {forks.map((f) => <CardRow key={f.card.id} node={f} fork open={open} />)}
           {shells.map((s) => (
             <li key={s.id}>
-              <button type="button" className={row} onClick={() => open.onOpenTerminals(card.id)}>
+              <button
+                type="button"
+                className={row}
+                draggable={!s.exited}
+                title="drag onto a terminal pane to split it"
+                onClick={() => open.onOpenTerminals(card.id)}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("application/x-trame-term", s.id);
+                  e.dataTransfer.effectAllowed = "move";
+                  setTermDrag({ kind: "term", id: s.id });
+                }}
+                onDragEnd={() => setTermDrag(null)}
+              >
                 <span className="w-3 shrink-0 text-center font-mono text-[10px] font-semibold text-ink-muted">›_</span>
                 <span className={`truncate text-[11.5px] ${s.exited ? "text-ink-faint" : "text-ink-muted"}`}>{s.title}</span>
                 {s.exited && <span className="ml-auto shrink-0 text-[10px] text-ink-faint">exited</span>}
