@@ -107,13 +107,16 @@ const ENV_PALETTE = [
   "#5fb3c7",
   "#d98ec0",
 ];
+function paletteColor(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return ENV_PALETTE[h % ENV_PALETTE.length];
+}
 function envColor(env: string): string {
   const e = env.toLowerCase();
   if (/prod(uction)?\b|\bprd\b|\blive\b/.test(e)) return "#e06c75";
   if (/stag|preprod|pre-prod|uat|canary|qa\b/.test(e)) return "#e3c567";
-  let h = 0;
-  for (let i = 0; i < env.length; i++) h = (h * 31 + env.charCodeAt(i)) >>> 0;
-  return ENV_PALETTE[h % ENV_PALETTE.length];
+  return paletteColor(env);
 }
 
 // inline SVG, not the Unicode gear — ⚙ renders as a color emoji / tofu in the webviews
@@ -136,10 +139,32 @@ function GearIcon() {
   );
 }
 
-export function SourceChip({ source }: { source: "github" | "gitlab" }) {
+// simple-icons marks, inline: the desktop CSP blocks fetched images
+const FORGE = {
+  github: { label: "GitHub", color: "currentColor", path: "M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" },
+  gitlab: { label: "GitLab", color: "#FC6D26", path: "m23.6004 9.5927-.0337-.0862L20.3.9814a.851.851 0 0 0-.3362-.405.8748.8748 0 0 0-.9997.0539.8748.8748 0 0 0-.29.4399l-2.2055 6.748H7.5375l-2.2057-6.748a.8573.8573 0 0 0-.29-.4412.8748.8748 0 0 0-.9997-.0537.8585.8585 0 0 0-.3362.4049L.4332 9.5015l-.0325.0862a6.0657 6.0657 0 0 0 2.0119 7.0105l.0113.0087.03.0213 4.976 3.7264 2.462 1.8633 1.4995 1.1321a1.0085 1.0085 0 0 0 1.2197 0l1.4995-1.1321 2.4619-1.8633 5.006-3.7489.0125-.01a6.0682 6.0682 0 0 0 2.0094-7.003z" },
+} as const;
+
+export function SourceChip({ source, size = 12 }: { source: "github" | "gitlab"; size?: number }) {
+  const f = FORGE[source];
   return (
-    <span className="shrink-0 rounded border border-line bg-panel px-[5px] py-0.5 text-[9px] font-semibold tracking-[0.5px] text-ink-muted">
-      {source === "github" ? "GH" : "GL"}
+    <svg width={size} height={size} viewBox="0 0 24 24" role="img" aria-label={f.label} className="shrink-0 text-ink-soft">
+      <title>{f.label}</title>
+      <path d={f.path} fill={f.color} />
+    </svg>
+  );
+}
+
+// an org's monogram in its stable palette colour, before its tab label
+function OrgMark({ org }: { org: string }) {
+  const c = paletteColor(org);
+  return (
+    <span
+      aria-hidden="true"
+      className="grid size-4 shrink-0 place-items-center rounded-[4px] text-[9.5px] font-semibold"
+      style={{ color: c, background: c + "26" }}
+    >
+      {org.slice(0, 1).toUpperCase()}
     </span>
   );
 }
@@ -481,6 +506,7 @@ export function DeploymentsPanel(
                       : "border-transparent text-ink-muted hover:text-ink-soft"
                   }`}
                 >
+                  {!isAll && <OrgMark org={name} />}
                   {isAll ? "All" : name}
                   <span className="rounded-full bg-copper/12 px-1.5 text-[10px] text-copper">
                     {count}
