@@ -190,10 +190,37 @@ function LiveAgents(
   );
 }
 
-// the live agents as the AI Sessions sidebar column: who works, who waits for you
+type FilterRow = { key: string; count: number; active: boolean; onClick: () => void };
+
+// the AI Sessions sidebar column: who works, who waits for you, then repos and AIs to filter the list
 function LiveColumn(
-  { live, onOpenSession }: { live: Live[]; onOpenSession: (id: string) => void },
+  { live, onOpenSession, repos, sources }: {
+    live: Live[];
+    onOpenSession: (id: string) => void;
+    repos: FilterRow[];
+    sources: FilterRow[];
+  },
 ) {
+  const filters = (label: string, rows: FilterRow[]) =>
+    rows.length > 0 && (
+      <section className="flex flex-col gap-0.5">
+        <div className={`px-2 pb-1 pt-3 ${SECTION_LABEL}`}>{label}</div>
+        {rows.map((r) => (
+          <button
+            type="button"
+            key={r.key}
+            onClick={r.onClick}
+            title={r.active ? "clear this filter" : "show only these sessions"}
+            className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] ${
+              r.active ? "bg-active-row font-medium text-ink" : "text-ink-muted hover:text-ink-soft"
+            }`}
+          >
+            <span className="min-w-0 flex-1 truncate">{r.key}</span>
+            <span className="text-[10.5px] tabular-nums text-ink-faint">{r.count}</span>
+          </button>
+        ))}
+      </section>
+    );
   const waiting = live.filter((l) => l.state === "waiting");
   const working = live.filter((l) => l.state === "working");
   const section = (label: string, list: Live[]) =>
@@ -226,7 +253,9 @@ function LiveColumn(
     <div className="flex flex-col">
       {section("NEEDS YOU", waiting)}
       {section("WORKING", working)}
-      {live.length === 0 && <p className="px-2 pt-3 text-[11.5px] text-ink-muted">No agent is live. Past sessions are on the right.</p>}
+      {live.length === 0 && <p className="px-2 pt-3 text-[11.5px] text-ink-muted">No agent is live right now.</p>}
+      {filters("REPOS", repos)}
+      {filters("AIS", sources)}
     </div>
   );
 }
@@ -271,6 +300,9 @@ function ResumeButton(
 // recently) and past — with one-click copy of the resume command, independent of
 // whether the session has ever been tracked as a Trame board card. Mainly useful
 // right after a reboot, when every terminal (and the memory of what was open) is gone.
+// last scan per day range, kept across visits to the view
+const scans = new Map<number, ClaudeScan>();
+
 export function AgentSessions(
   { board, onOpenSession, slot }: {
     board: BoardData;
@@ -281,7 +313,7 @@ export function AgentSessions(
 ) {
   const { live } = useAgents();
   const [days, setDays] = useState(7);
-  const [scan, setScan] = useState<ClaudeScan | null>(null);
+  const [scan, setScan] = useState<ClaudeScan | null>(() => scans.get(days) ?? null);
   const [statusFilter, setStatusFilter] = useState<"active" | "paused" | "all">(
     "all",
   );
@@ -305,11 +337,17 @@ export function AgentSessions(
       }), COPIED_MS);
   };
 
-  const load = () => {
-    setScan(null);
-    scanClaudeImport(days).then(setScan);
+  // a revisit shows the last scan while it reruns; only Rescan (or a range never scanned) clears it
+  const load = (clear: boolean) => {
+    if (clear) setScan(null);
+    else setScan(scans.get(days) ?? null);
+    scanClaudeImport(days).then((s) => {
+      scans.set(days, s);
+      setScan(s);
+    });
   };
-  useEffect(load, [days]);
+  const loadRange = useEffectEvent(() => load(!scans.has(days)));
+  useEffect(() => loadRange(), [days]);
 
   // every agent found by the scan — the picker adapts as new sources appear
   const sources: string[] = [
@@ -464,7 +502,7 @@ export function AgentSessions(
         <button
           type="button"
           title="Rescan"
-          onClick={load}
+          onClick={() => load(true)}
           className="shrink-0 rounded-md border border-chipline px-2 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
         >
           ↻
@@ -472,7 +510,25 @@ export function AgentSessions(
       </div>
       <div className="flex-1 overflow-y-auto px-6 py-4">
         {slot
-          ? createPortal(<LiveColumn live={live} onOpenSession={onOpenSession} />, slot)
+          ? createPortal(
+            <LiveColumn
+              live={live}
+              onOpenSession={onOpenSession}
+              repos={(scan?.groups ?? []).map((g) => ({
+                key: g.repoName,
+                count: g.sessions.length,
+                active: q.includes(`repo:"${g.repoName}"`),
+                onClick: () => toggleRepoFilter(g.repoName),
+              }))}
+              sources={sources.map((src) => ({
+                key: src,
+                count: (scan?.groups ?? []).reduce((n, g) => n + g.sessions.filter((s) => s.source === src).length, 0),
+                active: sourceFilter === src,
+                onClick: () => toggleSourceFilter(src),
+              }))}
+            />,
+            slot,
+          )
           : live.length > 0 && <LiveAgents live={live} onOpenSession={onOpenSession} />}
         {!scan && <p className="text-[12.5px] text-ink-muted">Scanning…</p>}
         {scan && !scan.groups.length && (
