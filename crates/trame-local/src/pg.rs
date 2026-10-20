@@ -749,7 +749,8 @@ mod tests {
             });
             drop(lock_root_within(&root, Duration::from_secs(5))?);
             release.join().unwrap();
-            drop(lock_root(&root)?);
+            // a parallel test's fork can hold the just-closed fd until its exec
+            drop(lock_root_within(&root, Duration::from_secs(5))?);
             fs::remove_file(root.join(".owner.lock"))?;
             fs::write(root.join("other"), "preserve")?;
             std::os::unix::fs::symlink(root.join("other"), root.join(".owner.lock"))?;

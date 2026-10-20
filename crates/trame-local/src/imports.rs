@@ -13,7 +13,9 @@ pub mod transcript;
 
 fn transcript_dir(db: &Db, key: &str, fallback: &str) -> Result<PathBuf> {
     let scratch = crate::isolated_mode() || crate::scratch_path(db.settings_path()?).is_ok();
-    let default = if scratch {
+    // the demo never lists the user's real transcripts
+    let demo = crate::demo::active();
+    let default = if scratch || demo {
         db.settings_path()?
             .parent()
             .context("settings parent missing")?
@@ -26,7 +28,11 @@ fn transcript_dir(db: &Db, key: &str, fallback: &str) -> Result<PathBuf> {
             ".codex/sessions"
         })
     };
-    let path = std::env::var_os(key).map(PathBuf::from).unwrap_or(default);
+    let path = if demo {
+        default
+    } else {
+        std::env::var_os(key).map(PathBuf::from).unwrap_or(default)
+    };
     if scratch {
         crate::scratch_path(&path)?;
     }

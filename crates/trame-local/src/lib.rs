@@ -139,6 +139,8 @@ pub struct Config {
     pub demo: bool,
     /// Asks the desktop supervisor to restart on another root (set by the desktop app).
     pub switch: Option<tokio::sync::mpsc::UnboundedSender<demo::Switch>>,
+    /// Bound once by the supervisor so a restart never frees the port.
+    pub listener: Option<std::sync::Arc<std::net::TcpListener>>,
     /// Receives POST /api/open queries for the window (set by the desktop app).
     pub open: Option<tokio::sync::mpsc::UnboundedSender<String>>,
 }
@@ -181,6 +183,7 @@ impl Config {
             desktop,
             demo,
             switch: None,
+            listener: None,
             open: None,
         })
     }
@@ -229,7 +232,10 @@ pub async fn run(
         Ok((config, pg, settings, origin))
     })
     .await??;
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", config.port)).await?;
+    let listener = match &config.listener {
+        Some(shared) => tokio::net::TcpListener::from_std(shared.try_clone()?)?,
+        None => tokio::net::TcpListener::bind(("127.0.0.1", config.port)).await?,
+    };
     let port = listener.local_addr()?.port();
     let published =
         demo::env_path("TRACKER_PORT_FILE").unwrap_or_else(|| config.root.join("port.json"));
@@ -364,6 +370,9 @@ pub async fn supervise(
 ) -> Result<()> {
     let (switch_tx, mut switches) = tokio::sync::mpsc::unbounded_channel();
     main.switch = Some(switch_tx);
+    let listener = std::net::TcpListener::bind(("127.0.0.1", main.port))?;
+    listener.set_nonblocking(true)?;
+    main.listener = Some(std::sync::Arc::new(listener));
     let mut current = main.clone();
     let mut ready = Some(ready);
     // held while the demo runs, so no other instance claims the real root meanwhile
@@ -394,7 +403,6 @@ pub async fn supervise(
             }
             return Err(error);
         };
-        main.port = port;
         if let Some(ready) = ready.take() {
             let _ = ready.send(port);
         }

@@ -40,6 +40,25 @@ fn demo_root_replays_its_bundle_with_new_ids_and_shifted_dates() {
     let demo = root.join("demo");
     std::fs::create_dir(&demo).unwrap();
     std::fs::write(demo.join("bundle.json"), bundle.to_string()).unwrap();
+    // the user's transcripts (via TRACKER_CLAUDE_DIR) vs the demo's own
+    let (real, own) = (
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222",
+    );
+    for (dir, id) in [
+        (root.join("claude"), real),
+        (demo.join("claude-projects"), own),
+    ] {
+        let project = dir.join("-repo-alpha");
+        std::fs::create_dir_all(&project).unwrap();
+        let line = json!({"cwd": "/repo/alpha", "timestamp": chrono::Utc::now().to_rfc3339()});
+        let prompt = json!({"type": "user", "message": {"role": "user", "content": "hello"}});
+        std::fs::write(
+            project.join(format!("{id}.jsonl")),
+            format!("{line}\n{prompt}\n"),
+        )
+        .unwrap();
+    }
     let log = std::fs::File::create(root.join("runtime.log")).unwrap();
     let mut child = Command::new(env!("CARGO_BIN_EXE_trame-local"))
         .env("TRAME_LOCAL_DIR", &root)
@@ -47,6 +66,7 @@ fn demo_root_replays_its_bundle_with_new_ids_and_shifted_dates() {
         .env("PATH", "/usr/bin:/bin")
         .env("TRACKER_PORT", "0")
         .env("TRACKER_NODE_ID", "rust-demo-test")
+        .env("TRACKER_CLAUDE_DIR", root.join("claude"))
         .stdout(Stdio::from(log.try_clone().unwrap()))
         .stderr(Stdio::from(log))
         .spawn()
@@ -98,6 +118,12 @@ fn demo_root_replays_its_bundle_with_new_ids_and_shifted_dates() {
         .to_string();
     assert_eq!(table["rows"][0]["vals"][&date]["start"], expected);
     assert!(demo.join("seeded").exists());
+    let scan = get(&base, "/api/import/claude?days=30").to_string();
+    assert!(scan.contains(own), "demo lists its own transcripts: {scan}");
+    assert!(
+        !scan.contains(real),
+        "demo must not list the user's transcripts"
+    );
     assert!(
         !root.join("postgres").exists(),
         "the real root stays untouched"
