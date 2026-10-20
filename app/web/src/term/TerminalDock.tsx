@@ -190,7 +190,11 @@ export default function TerminalDock({ board, scope }: { board?: BoardData | nul
             +
           </IconButton>
           {menu && (
-            <Popover onClose={() => setMenu(false)} style={{ top: "auto", bottom: "100%", marginTop: 0, marginBottom: 4 }}>
+            // the bottom dock opens it upward; a full-size dock has its strip at the top
+            <Popover
+              onClose={() => setMenu(false)}
+              style={full ? undefined : { top: "auto", bottom: "100%", marginTop: 0, marginBottom: 4 }}
+            >
               <MenuRow onClick={() => launch()}>
                 <span className="w-3.5 text-center text-ink-muted">›_</span>
                 <span className="flex-1">New terminal</span>
