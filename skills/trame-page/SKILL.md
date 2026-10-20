@@ -39,7 +39,8 @@ Never use session-card fields as a substitute for a requested document or page r
    Pass `markdown_file` instead of `markdown` when the content is already in a local
    file. Pass `parent_title` to nest under an exact, unique title.
 5. Report the created page title, its parent project (the writer prints where it was
-   filed), and the ID or URL.
+   filed), and the page URL. When the user asks to see it, open it in the desktop app
+   with `tramecli open <page id or URL>` (see its `--help`).
 
 ## Markdown dialect
 
@@ -135,7 +136,8 @@ instead (next section).
    `page_id`/`page_title`) and the writer finds or creates the card's spec page — a
    subpage of its story — then updates it the same way. The MCP equivalent is
    `trame_update_page` with `session_id`.
-5. Report the page URL and how many block ids were kept (the writer prints it).
+5. Report the page URL and how many block ids were kept (the writer prints it); open it
+   with `tramecli open <page URL>` when the user asks.
 
 ## Add page comments
 

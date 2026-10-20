@@ -17,6 +17,8 @@ pub struct Native {
     pub port: u16,
     pub desktop: bool,
     pub demo: crate::demo::Demo,
+    /// Asks the desktop window to show an app query (absent outside the desktop app).
+    pub open: Option<tokio::sync::mpsc::UnboundedSender<String>>,
 }
 
 pub fn owns(method: &str, path: &str) -> bool {

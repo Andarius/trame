@@ -2,7 +2,8 @@
 Type=Application
 Name=Trame
 Comment=Local-first session tracker for Claude Code work
-Exec=trame
+Exec=trame %u
+MimeType=x-scheme-handler/trame;
 Icon=${SNAP}/opt/trame/AppIcon.png
 Terminal=false
 Categories=Development;Utility;
