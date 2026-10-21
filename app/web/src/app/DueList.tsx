@@ -65,9 +65,16 @@ export function DueList(
   };
 
   return (
-    <nav aria-label="Due todos" className="flex flex-col gap-0.5">
+    <nav aria-label="Due todos" className="group/due flex flex-col gap-0.5">
       <div className={`flex items-center gap-1 px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
         DUE
+        <GroupMenu
+          value={grouping}
+          options={GROUPING_LABEL}
+          onChange={setGrouping}
+          align="left"
+          className="opacity-0 focus-within:opacity-100 group-hover/due:opacity-100"
+        />
         <span
           className={`ml-auto rounded-full px-1.5 text-[10.5px] tracking-normal tabular-nums ${
             lateCount ? DUE_TONE_CLS.late : DUE_TONE_CLS.later
@@ -75,7 +82,6 @@ export function DueList(
         >
           {lateCount ? `${lateCount} late · ${due.length}` : due.length}
         </span>
-        <GroupMenu value={grouping} options={GROUPING_LABEL} onChange={setGrouping} />
       </div>
       {keys.map((key) => (
         <div key={key ?? "none"} className="flex flex-col gap-0.5">

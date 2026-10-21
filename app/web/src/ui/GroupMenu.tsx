@@ -2,13 +2,19 @@ import { useState } from "react";
 import { SlidersIcon } from "./icons";
 import { IconButton, MenuRow, Popover, SECTION_LABEL } from "./ui";
 
-// A sidebar list's sliders button: pick how its rows are grouped.
+// A sidebar list's sliders button: pick how its rows are grouped. `className` can hide it until its section's hover.
 export function GroupMenu<T extends string>(
-  { value, options, onChange }: { value: T; options: Record<T, string>; onChange: (v: T) => void },
+  { value, options, onChange, className = "", align = "right" }: {
+    value: T;
+    options: Record<T, string>;
+    onChange: (v: T) => void;
+    className?: string;
+    align?: "left" | "right"; // the menu's edge lined up with the button's
+  },
 ) {
   const [open, setOpen] = useState(false);
   return (
-    <span className="relative inline-flex">
+    <span className={`relative inline-flex ${open ? "" : className}`}>
       <IconButton
         tone="close"
         className="px-1"
@@ -20,7 +26,7 @@ export function GroupMenu<T extends string>(
         <SlidersIcon />
       </IconButton>
       {open && (
-        <Popover onClose={() => setOpen(false)} style={{ left: "auto", right: 0 }}>
+        <Popover onClose={() => setOpen(false)} style={align === "right" ? { left: "auto", right: 0 } : undefined}>
           <div className={`px-2 pb-1 pt-0.5 ${SECTION_LABEL}`}>GROUP BY</div>
           {(Object.keys(options) as T[]).map((g) => (
             <MenuRow
