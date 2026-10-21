@@ -454,6 +454,14 @@ pub async fn serve(root: &Path, req: Request<Body>) -> Response {
                 _ => json_response(500, json!({"error":"could not save the folder"})),
             }
         }
+        // choose any folder to open a shell in: the path, `{cancelled}` or `{error}`
+        (Method::POST, ["", "api", "term", "pick"]) => {
+            let picked =
+                crate::blocking::spawn(|| crate::platform::pick_folder("Open a terminal in"))
+                    .await
+                    .unwrap_or_else(|_| json!({"error":"folder dialog failed"}));
+            json_response(200, picked)
+        }
         (Method::DELETE, ["", "api", "term", id]) => {
             let id = (*id).to_owned();
             let found = crate::blocking::spawn(move || kill(&id))

@@ -69,6 +69,10 @@ export const pickFolder = (from: string) =>
     { from: string; to: string } | { cancelled: true } | { error: string }
   >;
 
+// any folder to open a shell in, from the native folder dialog
+export const pickTermFolder = () =>
+  call("/api/term/pick", { method: "POST" }) as Promise<string | { cancelled: true } | { error: string }>;
+
 export const MAX_PANES = 6;
 export type SplitDir = "row" | "col";
 // a split tree: leaves are shells; `row` puts `a` left of `b`, `col` above it
