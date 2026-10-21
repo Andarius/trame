@@ -901,7 +901,7 @@ export function App() {
             <TerminalDock
               board={board}
               scope={terminals ? { card: termCard, cwd: termSession?.repo_path ?? null } : null}
-              onScope={setTermSel}
+              onScope={(c) => setTermSel(c ?? "plain")}
             />
           </Suspense>
         )}
