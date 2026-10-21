@@ -72,11 +72,10 @@ export function DueList(
           value={grouping}
           options={GROUPING_LABEL}
           onChange={setGrouping}
-          align="left"
-          className="opacity-0 focus-within:opacity-100 group-hover/due:opacity-100"
+          className="ml-auto opacity-0 focus-within:opacity-100 group-hover/due:opacity-100"
         />
         <span
-          className={`ml-auto rounded-full px-1.5 text-[10.5px] tracking-normal tabular-nums ${
+          className={`rounded-full px-1.5 text-[10.5px] tracking-normal tabular-nums ${
             lateCount ? DUE_TONE_CLS.late : DUE_TONE_CLS.later
           }`}
         >
