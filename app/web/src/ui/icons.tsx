@@ -91,3 +91,25 @@ export function SlidersIcon({ size = 13 }: { size?: number }) {
     </svg>
   );
 }
+
+// a shell prompt: ›_ drawn, since the glyphs render tiny on WebKitGTK
+export function TerminalIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+      <rect x="1.5" y="2.5" width="13" height="11" rx="2" strokeWidth="1.2" />
+      <path d="M4.5 6l2 2-2 2M8.5 10.5h3" />
+    </svg>
+  );
+}
+
+// a pull request: two branches merging
+export function PrIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+      <circle cx="4" cy="3.5" r="1.5" />
+      <circle cx="4" cy="12.5" r="1.5" />
+      <circle cx="12" cy="12.5" r="1.5" />
+      <path d="M4 5v6M12 11V7a2 2 0 0 0-2-2H7.5M9 3.5 7.5 5 9 6.5" />
+    </svg>
+  );
+}
