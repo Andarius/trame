@@ -605,10 +605,15 @@ export function DecisionBlock({ text, onPick }: { text: string; onPick?: (answer
   const answered = d.answers.length > 0;
   const [picked, setPicked] = useState<string[]>([]);
   const [other, setOther] = useState("");
+  // a pick is written through the identity lookup: lock the card meanwhile, or a second
+  // click would race the first and replace its answer
+  const [pending, setPending] = useState(false);
+  const locked = !onPick || answered || pending;
   const known = new Set(d.options.map((o) => o.label));
   const extra = d.answers.filter((a) => !known.has(a)); // a free-text answer shows as its own row
   const commit = (answer: string | string[]) => {
-    if (!onPick) return;
+    if (locked) return;
+    setPending(true);
     onPick(answer);
     setPicked([]);
     setOther("");
@@ -620,7 +625,7 @@ export function DecisionBlock({ text, onPick }: { text: string; onPick?: (answer
   const rowCls = (chosen: boolean) =>
     `flex items-start gap-2 rounded-md border px-2 py-1 text-left text-[0.92em] leading-snug ${
       chosen ? "border-active/50 bg-active/10" : answered ? "border-line-soft text-ink-muted" : "border-line-soft bg-panel hover:border-copper/60"
-    } ${onPick && !answered ? "cursor-pointer" : "cursor-default"}`;
+    } ${locked ? "cursor-default" : "cursor-pointer"} ${pending ? "opacity-60" : ""}`;
   const dot = (chosen: boolean, recommended: boolean) =>
     `mt-[3px] inline-block h-3 w-3 shrink-0 border-2 ${d.multi ? "rounded-sm" : "rounded-full"} ${
       chosen ? "border-active bg-active" : recommended && !answered ? "border-copper bg-copper" : "border-line"
@@ -653,11 +658,12 @@ export function DecisionBlock({ text, onPick }: { text: string; onPick?: (answer
             <button
               key={o.label}
               type="button"
-              disabled={!onPick || answered}
+              disabled={locked}
               className={rowCls(chosen)}
               onMouseDown={stop}
               onClick={(e) => {
                 e.stopPropagation();
+                if (locked) return;
                 if (d.multi) setPicked((p) => (p.includes(o.label) ? p.filter((x) => x !== o.label) : [...p, o.label]));
                 else commit(o.label);
               }}
@@ -678,7 +684,7 @@ export function DecisionBlock({ text, onPick }: { text: string; onPick?: (answer
             <span>{renderInline(a)}</span>
           </div>
         ))}
-        {onPick && !answered && (
+        {!locked && (
           <form
             className="flex items-center gap-2"
             onMouseDown={(e) => e.stopPropagation()}
