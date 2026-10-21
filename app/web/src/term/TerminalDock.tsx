@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { AgentIcon } from "../agents/agents";
 import type { BoardData, Project } from "../api";
 import { projectFor } from "./project-for";
-import { EntityIcon, IconButton, MenuRow, Popover, useLocalStorage } from "../ui/ui";
-import { FolderChoices } from "./ProjectTermMenu";
+import { EntityIcon, IconButton, useLocalStorage } from "../ui/ui";
+import { NewTerminalDialog } from "./NewTerminalDialog";
 import { TerminalView } from "./TerminalView";
 import {
   closeTab,
@@ -74,8 +74,8 @@ export default function TerminalDock(
   const resize = useRef<{ y: number; h: number } | null>(null);
   const current = tabs.find((t) => t.id === active);
   const canSplit = !!current && leaves(current.root).length < MAX_PANES;
-  // the new-terminal menu, from the tab strip's + or the empty view's button
-  const [menu, setMenu] = useState<"strip" | "empty" | null>(null);
+  // the New terminal dialog (+, ⌘T, the empty view), optionally with an agent preselected
+  const [newTerm, setNewTerm] = useState<{ agent?: string } | null>(null);
   // a tab or a shell being dragged onto the panes (Konsole-style layout)
   const drag = dock.drag;
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -83,37 +83,10 @@ export default function TerminalDock(
   // fetched with the dock: finding them runs the user's shell profile (~2s)
   useEffect(() => {
     void termAgents().then(setAgents);
-  }, [menu]);
+  }, []);
   const lead = current ? terms[current.focus] : null;
   const cwd = lead?.cwd ?? scope?.cwd ?? null;
   const card = scope ? scope.card : lead?.card ?? null;
-  const launch = (agent?: TermAgent) => {
-    setMenu(null);
-    void openTerminal(agent ? { cwd, card, command: agent.command, title: agent.label } : { cwd, card });
-  };
-
-  // where to open it (here, a project's folder, any folder), then the agents that run here
-  const newMenu = (withAgents: boolean) => (
-    <Popover portal onClose={() => setMenu(null)}>
-      <FolderChoices
-        board={board ?? null}
-        here={{ cwd, card }}
-        onOpened={(c) => {
-          setMenu(null);
-          if (scope && c !== scope.card) onScope?.(c);
-        }}
-      />
-      {withAgents && (agents === null || agents.length > 0) && <div className="my-1 h-px bg-line" />}
-      {withAgents && agents === null && <div className="px-2 py-1.5 text-[11px] text-ink-muted">Looking for agents…</div>}
-      {withAgents && agents?.map((a) => (
-        <MenuRow key={a.command} onClick={() => launch(a)} title={`runs \`${a.command}\` here, in ${cwd ?? "~"}`}>
-          <AgentIcon a={{ harness: a.command, icon: null }} />
-          <span className="flex-1">{a.label}</span>
-        </MenuRow>
-      ))}
-    </Popover>
-  );
-
   const onDrag = (e: React.PointerEvent) => {
     if (!resize.current) return;
     const max = innerHeight - 120;
@@ -121,6 +94,7 @@ export default function TerminalDock(
   };
 
   return (
+    <>
     <section
       className={`relative flex flex-col bg-panel ${full ? "min-h-0 flex-1" : "shrink-0 border-t border-line"}`}
       style={open && !full ? { height } : undefined}
@@ -129,7 +103,7 @@ export default function TerminalDock(
         if (e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "t") {
           e.preventDefault();
           e.stopPropagation();
-          launch();
+          setNewTerm({});
         } else if (e.metaKey && !e.altKey && !e.ctrlKey && e.key.toLowerCase() === "d") {
           e.preventDefault();
           e.stopPropagation();
@@ -213,14 +187,12 @@ export default function TerminalDock(
           <IconButton
             tone="close"
             className="px-1.5"
-            title="new terminal or agent"
+            title="new terminal or agent (⌘T)"
             aria-label="New terminal or agent"
-            aria-expanded={menu === "strip"}
-            onClick={() => setMenu((m) => (m === "strip" ? null : "strip"))}
+            onClick={() => setNewTerm({})}
           >
             +
           </IconButton>
-          {menu === "strip" && newMenu(true)}
         </div>
         <div className="flex-1" />
         {canSplit && (
@@ -277,23 +249,15 @@ export default function TerminalDock(
           >
             <span>{scope.card ? "No terminal for this card yet." : "No other shells."}</span>
             <div className="flex gap-2">
-              <span className="relative">
-                <button
-                  type="button"
-                  className="rounded-md border border-line px-3 py-1.5 hover:text-ink"
-                  aria-expanded={menu === "empty"}
-                  onClick={() => setMenu((m) => (m === "empty" ? null : "empty"))}
-                >
-                  New terminal ▾
-                </button>
-                {menu === "empty" && newMenu(false)}
-              </span>
+              <button type="button" className="rounded-md border border-line px-3 py-1.5 hover:text-ink" onClick={() => setNewTerm({ agent: "shell" })}>
+                New terminal
+              </button>
               {agents?.map((a) => (
                 <button
                   key={a.command}
                   type="button"
                   className="flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 hover:text-ink"
-                  onClick={() => launch(a)}
+                  onClick={() => setNewTerm({ agent: a.command })}
                 >
                   <AgentIcon a={{ harness: a.command, icon: null }} />
                   {a.label}
@@ -316,6 +280,18 @@ export default function TerminalDock(
         ))}
       </div>
     </section>
+    {newTerm && (
+      <NewTerminalDialog
+        board={board ?? null}
+        here={{ cwd, card }}
+        agent={newTerm.agent}
+        onClose={() => setNewTerm(null)}
+        onOpened={(c) => {
+          if (scope && c !== scope.card) onScope?.(c);
+        }}
+      />
+    )}
+    </>
   );
 }
 

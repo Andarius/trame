@@ -3,7 +3,7 @@ import type { BoardData, Session } from "../api";
 import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
 import { EntityIcon, enumCodec, SECTION_LABEL, StatusDot, useLocalStorage } from "../ui/ui";
-import { ProjectTermMenu } from "./ProjectTermMenu";
+import { NewTerminalDialog } from "./NewTerminalDialog";
 import { setTermDrag, tabCards, type TermDrag, useTermDock } from "./term-api";
 
 const GROUPINGS = ["project", "status", "none"] as const;
@@ -21,7 +21,7 @@ export function TermCards(
 ) {
   const { terms, tabs, active } = useTermDock();
   const [grouping, setGrouping] = useLocalStorage<Grouping>("trame:termGrouping", "project", enumCodec(GROUPINGS));
-  const [menuFor, setMenuFor] = useState<string | null>(null); // the project whose right-click menu is open
+  const [menuFor, setMenuFor] = useState<string | null>(null); // the project right-clicked for a new terminal
   const { live } = useAgents();
   const agentOf = new Map<string, Live>(live.map((l) => [l.a.session_id, l]));
   const shells = new Map<string | null, { count: number; running: number }>();
@@ -112,7 +112,7 @@ export function TermCards(
               {grouping === "project" && key && <EntityIcon icon={board?.projects.find((p) => p.id === key)?.icon} size={12} />}
               {label(key)}
               {key && menuFor === key && (
-                <ProjectTermMenu board={board} project={key} onClose={() => setMenuFor(null)} onOpened={() => onSelect(null)} />
+                <NewTerminalDialog board={board} project={key} onClose={() => setMenuFor(null)} onOpened={() => onSelect(null)} />
               )}
             </div>
           )}
