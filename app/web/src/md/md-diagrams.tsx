@@ -597,11 +597,34 @@ export function CardsBlock({ text }: { text: string }) {
   );
 }
 
-// `decision` fence: a question for a human with its options; picking one records the
-// answer as marks in the fence (decision.ts). Read-only without `onPick`.
-export function DecisionBlock({ text, onPick }: { text: string; onPick?: (option: string) => void }) {
+// `decision` fence: a question for a human with its options; picking one (or several with
+// {{trame:pick=many}}, or a free-text "other") records the answer as marks (decision.ts).
+// Read-only without `onPick`.
+export function DecisionBlock({ text, onPick }: { text: string; onPick?: (answer: string | string[]) => void }) {
   const d = parseDecision(text);
-  const answered = d.marks.answer;
+  const answered = d.answers.length > 0;
+  const [picked, setPicked] = useState<string[]>([]);
+  const [other, setOther] = useState("");
+  const known = new Set(d.options.map((o) => o.label));
+  const extra = d.answers.filter((a) => !known.has(a)); // a free-text answer shows as its own row
+  const commit = (answer: string | string[]) => {
+    if (!onPick) return;
+    onPick(answer);
+    setPicked([]);
+    setOther("");
+  };
+  const stop = (e: { preventDefault(): void; stopPropagation(): void }) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  const rowCls = (chosen: boolean) =>
+    `flex items-start gap-2 rounded-md border px-2 py-1 text-left text-[0.92em] leading-snug ${
+      chosen ? "border-active/50 bg-active/10" : answered ? "border-line-soft text-ink-muted" : "border-line-soft bg-panel hover:border-copper/60"
+    } ${onPick && !answered ? "cursor-pointer" : "cursor-default"}`;
+  const dot = (chosen: boolean, recommended: boolean) =>
+    `mt-[3px] inline-block h-3 w-3 shrink-0 border-2 ${d.multi ? "rounded-sm" : "rounded-full"} ${
+      chosen ? "border-active bg-active" : recommended && !answered ? "border-copper bg-copper" : "border-line"
+    }`;
   return (
     <div
       className={`my-2 rounded-lg border-l-4 px-3.5 py-2.5 ${
@@ -618,41 +641,28 @@ export function DecisionBlock({ text, onPick }: { text: string; onPick?: (option
           )
           : (
             <span className={`rounded-full px-1.5 py-px font-mono text-[0.72em] font-normal ${PILL_COLORS.copper}`}>
-              {d.marks.ask ? `waiting on ${d.marks.ask}` : "waiting"}
+              {d.marks.ask ? `waiting on ${d.marks.ask}` : "waiting"}{d.multi ? " · pick any" : ""}
             </span>
           )}
         {d.marks.due && !answered && <DuePill due={d.marks.due} />}
       </div>
       <div className="mt-1.5 flex flex-col gap-1">
         {d.options.map((o) => {
-          const chosen = answered === o.label;
+          const chosen = answered ? d.answers.includes(o.label) : picked.includes(o.label);
           return (
             <button
               key={o.label}
               type="button"
-              disabled={!onPick}
-              title={onPick ? "Pick this option" : undefined}
-              className={`flex items-start gap-2 rounded-md border px-2 py-1 text-left text-[0.92em] leading-snug ${
-                chosen
-                  ? "border-active/50 bg-active/10"
-                  : answered
-                  ? "border-line-soft text-ink-muted"
-                  : "border-line-soft bg-panel hover:border-copper/60"
-              } ${onPick ? "cursor-pointer" : "cursor-default"}`}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-              }}
+              disabled={!onPick || answered}
+              className={rowCls(chosen)}
+              onMouseDown={stop}
               onClick={(e) => {
                 e.stopPropagation();
-                onPick?.(o.label);
+                if (d.multi) setPicked((p) => (p.includes(o.label) ? p.filter((x) => x !== o.label) : [...p, o.label]));
+                else commit(o.label);
               }}
             >
-              <span
-                className={`mt-[3px] inline-block h-3 w-3 shrink-0 rounded-full border-2 ${
-                  chosen ? "border-active bg-active" : o.recommended && !answered ? "border-copper bg-copper" : "border-line"
-                }`}
-              />
+              <span className={dot(chosen, o.recommended)} />
               <span>
                 {renderInline(o.label)}
                 {o.recommended && !answered && (
@@ -662,6 +672,40 @@ export function DecisionBlock({ text, onPick }: { text: string; onPick?: (option
             </button>
           );
         })}
+        {extra.map((a) => (
+          <div key={a} className={rowCls(true)}>
+            <span className={dot(true, false)} />
+            <span>{renderInline(a)}</span>
+          </div>
+        ))}
+        {onPick && !answered && (
+          <form
+            className="flex items-center gap-2"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={(e) => {
+              e.preventDefault();
+              const text = other.trim();
+              if (d.multi) commit(text ? [...picked, text] : picked);
+              else if (text) commit(text);
+            }}
+          >
+            <input
+              value={other}
+              onChange={(e) => setOther(e.target.value)}
+              placeholder="Other…"
+              aria-label="Other answer"
+              className="min-w-0 flex-1 rounded-md border border-line-soft bg-panel px-2 py-1 text-[0.92em] outline-none placeholder:text-ink-muted/60 focus:border-copper/60"
+            />
+            <button
+              type="submit"
+              disabled={d.multi ? !picked.length && !other.trim() : !other.trim()}
+              className="rounded-md border border-copper/60 bg-copper/10 px-2.5 py-1 font-mono text-[0.78em] text-copper disabled:opacity-40"
+            >
+              Answer
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );

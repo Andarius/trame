@@ -49,3 +49,20 @@ test("a pick records answer, answered_by and completed_at in the fence", async (
   await expect(page.locator("span", { hasText: /^recommended$/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /no Grafana in v1/ })).toBeVisible();
 });
+
+test("pick=many: checkboxes plus a free-text other, committed together", async ({ page, request }) => {
+  const fence = ["```decision", "Which channels does spatchou read?", "#it-alerts", "#agents", "{{trame:pick=many}}", "```"].join("\n");
+  const r = await request.post("/api/pages", {
+    data: { title: TITLE, content: [{ id: crypto.randomUUID(), type: "text", text: fence }] },
+  });
+  const id = (await r.json() as { id: string }).id;
+  await page.goto(`/?view=page&page=${id}`);
+  await expect(page.locator("span", { hasText: /pick any/ })).toBeVisible();
+  await page.getByRole("button", { name: /#agents/ }).click();
+  await page.getByLabel("Other answer").fill("#it-alerts-preprod too");
+  await page.getByRole("button", { name: "Answer", exact: true }).click();
+  await expect.poll(() => blockText(request, id)).toContain("{{trame:answer=#agents ; #it-alerts-preprod too}}");
+  await page.reload();
+  await expect(page.locator("span", { hasText: /pick any/ })).toHaveCount(0);
+  await expect(page.locator("div", { hasText: /^#it-alerts-preprod too$/ }).first()).toBeVisible();
+});

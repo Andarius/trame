@@ -14,8 +14,12 @@ export type DecisionOption = { label: string; recommended: boolean };
 export type Decision = {
   question: string;
   options: DecisionOption[];
-  marks: Record<string, string>; // ask, due, answer, answered_by, completed_at, …
+  marks: Record<string, string>; // ask, due, pick, answer, answered_by, completed_at, …
+  multi: boolean; // {{trame:pick=many}}: several options, committed together
+  answers: string[]; // the answer mark split back; a free-text answer is one entry too
 };
+
+const ANSWER_SEP = " ; ";
 
 const MARK_LINE = /^\s*(\{\{trame:[a-z_][a-z0-9_]*=[^{}\n]*\}\}\s*)+$/;
 
@@ -30,19 +34,25 @@ export function parseDecision(text: string): Decision {
     if (recommended) parts.pop();
     return { label: parts.join(" | "), recommended };
   });
-  return { question, options, marks };
+  const multi = marks.pick === "many";
+  const answers = marks.answer ? (multi ? marks.answer.split(ANSWER_SEP) : [marks.answer]).map((a) => a.trim()).filter(Boolean) : [];
+  return { question, options, marks, multi, answers };
 }
+
+// a mark value cannot hold braces or a newline; a free-text answer is cleaned the same way
+export const cleanAnswer = (text: string): string => text.replace(/[{}\n]+/g, " ").replace(/\s+/g, " ").trim();
 
 // The fence text with the answer recorded: the marks line gains `answer`, `answered_by`
 // and `completed_at`; an earlier answer is replaced. Content lines are untouched.
-export function answerDecision(text: string, option: string, by: string, day = todayMark()): string {
+export function answerDecision(text: string, option: string | string[], by: string, day = todayMark()): string {
+  const answer = (Array.isArray(option) ? option : [option]).map(cleanAnswer).filter(Boolean).join(ANSWER_SEP);
   const lines = text.split("\n");
   const kept = lines.filter((l) => !MARK_LINE.test(l.trim()));
   const marks = readMarks(text);
   delete marks.answer;
   delete marks.answered_by;
   delete marks.completed_at;
-  const next = { ...marks, answer: option, answered_by: by, completed_at: day };
+  const next = { ...marks, answer, answered_by: by, completed_at: day };
   const markLine = Object.entries(next).map(([k, v]) => `{{trame:${k}=${v}}}`).join(" ");
   while (kept.length && !kept[kept.length - 1].trim()) kept.pop();
   return [...kept, markLine].join("\n");
