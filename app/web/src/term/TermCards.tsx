@@ -1,8 +1,7 @@
-import { useState } from "react";
 import type { BoardData, Session } from "../api";
 import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
-import { SlidersIcon } from "../ui/icons";
-import { EntityIcon, enumCodec, IconButton, MenuRow, Popover, SECTION_LABEL, StatusDot, useLocalStorage } from "../ui/ui";
+import { GroupMenu } from "../ui/GroupMenu";
+import { EntityIcon, enumCodec, SECTION_LABEL, StatusDot, useLocalStorage } from "../ui/ui";
 import { setTermDrag, tabCards, useTermDock } from "./term-api";
 
 const GROUPINGS = ["project", "status", "none"] as const;
@@ -20,7 +19,6 @@ export function TermCards(
 ) {
   const { terms, tabs, active } = useTermDock();
   const [grouping, setGrouping] = useLocalStorage<Grouping>("trame:termGrouping", "project", enumCodec(GROUPINGS));
-  const [menu, setMenu] = useState(false);
   const { live } = useAgents();
   const agentOf = new Map<string, Live>(live.map((l) => [l.a.session_id, l]));
   const shells = new Map<string | null, { count: number; running: number }>();
@@ -86,36 +84,9 @@ export function TermCards(
 
   return (
     <nav aria-label="Cards with terminals" className="flex flex-col gap-3">
-      <div className="relative -mb-1 flex items-center px-2 text-[11px] text-ink-muted">
+      <div className="-mb-1 flex items-center px-2 text-[11px] text-ink-muted">
         <span className="flex-1">Cards</span>
-        <IconButton
-          tone="close"
-          className="px-1"
-          title={`group by: ${GROUPING_LABEL[grouping].toLowerCase()}`}
-          aria-label="Grouping"
-          aria-expanded={menu}
-          onClick={() => setMenu((m) => !m)}
-        >
-          <SlidersIcon />
-        </IconButton>
-        {menu && (
-          <Popover onClose={() => setMenu(false)} style={{ left: "auto", right: 0 }}>
-            <div className={`px-2 pb-1 pt-0.5 ${SECTION_LABEL}`}>GROUP BY</div>
-            {GROUPINGS.map((g) => (
-              <MenuRow
-                key={g}
-                active={g === grouping}
-                onClick={() => {
-                  setGrouping(g);
-                  setMenu(false);
-                }}
-              >
-                <span className="w-3 text-center">{g === grouping ? "✓" : ""}</span>
-                <span className="flex-1">{GROUPING_LABEL[g]}</span>
-              </MenuRow>
-            ))}
-          </Popover>
-        )}
+        <GroupMenu value={grouping} options={GROUPING_LABEL} onChange={setGrouping} />
       </div>
       {cards.length === 0 && plain === 0 && (
         <p className="px-2 text-[11.5px] leading-snug text-ink-muted">
