@@ -2,7 +2,14 @@
 // plugin), the selected plugin's settings on the right. Enable/disable applies
 // immediately; field edits are saved by the plugin's own Settings component.
 import { useEffect, useState } from "react";
-import { getPlugins, type PluginManifest, setPluginEnabled } from "../api";
+import {
+  getPluginUpdates,
+  getPlugins,
+  openInBrowser,
+  type PluginManifest,
+  type PluginUpdate,
+  setPluginEnabled,
+} from "../api";
 import { label } from "../modals/modal-ui";
 import { FRONTEND_PLUGINS } from "./index";
 
@@ -31,12 +38,14 @@ export function Toggle(
 export function PluginsModal({ onClose }: { onClose: () => void }) {
   const [plugins, setPlugins] = useState<PluginManifest[]>([]);
   const [sel, setSel] = useState<string | null>(null);
+  const [updates, setUpdates] = useState<PluginUpdate[]>([]);
 
   useEffect(() => {
     getPlugins().then((p) => {
       setPlugins(p);
       setSel((s) => s ?? p[0]?.id ?? null);
     }).catch(() => {});
+    getPluginUpdates().then((u) => Array.isArray(u) && setUpdates(u)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -52,6 +61,8 @@ export function PluginsModal({ onClose }: { onClose: () => void }) {
 
   const cur = plugins.find((p) => p.id === sel) ?? null;
   const Settings = FRONTEND_PLUGINS.find((f) => f.id === sel)?.Settings;
+  const update = updates.find((u) => u.id === sel && u.available);
+  const hasUpdate = (id: string) => updates.some((u) => u.id === id && u.available);
 
   return (
     <div
@@ -80,6 +91,9 @@ export function PluginsModal({ onClose }: { onClose: () => void }) {
               >
                 <span className="text-[12px] text-copper">{p.glyph}</span>
                 <span className="min-w-0 flex-1 truncate">{p.label}</span>
+                {hasUpdate(p.id) && (
+                  <span className="text-[10.5px] font-semibold text-copper" title="update available">↑</span>
+                )}
                 <span
                   className={`h-1.5 w-1.5 rounded-full ${
                     p.enabled ? "bg-[--color-active]" : "bg-chipline"
@@ -97,6 +111,7 @@ export function PluginsModal({ onClose }: { onClose: () => void }) {
                     <span className="text-[13.5px] font-semibold">
                       {cur.label}
                     </span>
+                    {cur.version && <span className="text-[10.5px] text-ink-muted/80">v{cur.version}</span>}
                     <span className="min-w-0 flex-1 truncate text-[11px] text-ink-muted">
                       {cur.description}
                     </span>
@@ -108,6 +123,29 @@ export function PluginsModal({ onClose }: { onClose: () => void }) {
                       onChange={(v) => toggle(cur.id, v)}
                     />
                   </div>
+                  {update && (
+                    <div className="flex flex-col gap-1 rounded-lg border border-copper/40 bg-copper/10 px-3 py-2 text-[12px]">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-ink">
+                          Update available: v{update.current} → v{update.latest}
+                        </span>
+                        <span className="flex-1" />
+                        {update.releaseUrl && (
+                          <button
+                            type="button"
+                            className="text-[11.5px] text-copper hover:underline"
+                            onClick={() => openInBrowser(update.releaseUrl!)}
+                          >
+                            Release notes ↗
+                          </button>
+                        )}
+                      </div>
+                      <span className="text-[11.5px] text-ink-muted">
+                        To install: <code>git pull</code> in the plugin's checkout, run{" "}
+                        <code>just plugins-install</code> in Trame's, then restart Trame.
+                      </span>
+                    </div>
+                  )}
                   <div className="h-px bg-line" />
                   {Settings
                     ? <Settings />

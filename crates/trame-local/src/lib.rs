@@ -21,6 +21,7 @@ pub mod pages;
 pub mod pg;
 pub mod platform;
 pub mod plugin_host;
+pub mod plugin_updates;
 pub mod plugins;
 pub mod proxy;
 pub mod pty;
