@@ -16,6 +16,7 @@ import {
   type PaneNode,
   type TermTab,
   openTerminal,
+  openTerminalAt,
   selectTab,
   setDockMax,
   setDockOpen,
@@ -48,7 +49,13 @@ export type DockScope = { card: string | null; cwd: string | null };
 // Bottom panel of embedded terminals: a tab strip that stays when collapsed, shells kept mounted.
 // With a `scope` it is the Terminals view's center instead: always open, full size, one card's tabs.
 // Both are the same mounted component, so moving between them never remounts (and replays) a shell.
-export default function TerminalDock({ board, scope }: { board?: BoardData | null; scope?: DockScope | null }) {
+export default function TerminalDock(
+  { board, scope, onScope }: {
+    board?: BoardData | null;
+    scope?: DockScope | null;
+    onScope?: (card: string) => void; // show another card's shells (a card dropped on the empty view)
+  },
+) {
   const dock = useTermDock();
   const { terms, tabs: allTabs } = dock;
   const inScope = (t: TermTab) => {
@@ -243,7 +250,23 @@ export default function TerminalDock({ board, scope }: { board?: BoardData | nul
       </div>
       <div className={`relative min-h-0 flex-1 bg-block ${open ? "" : "hidden"}`}>
         {scope && tabs.length === 0 && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-xs text-ink-muted">
+          <div
+            className={`absolute inset-0 flex flex-col items-center justify-center gap-3 text-xs text-ink-muted ${
+              drag?.kind === "card" ? "outline-2 -outline-offset-8 outline-dashed outline-copper/60" : ""
+            }`}
+            onDragOver={(e) => {
+              if (drag?.kind !== "card") return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+            }}
+            onDrop={(e) => {
+              if (drag?.kind !== "card") return;
+              e.preventDefault();
+              setTermDrag(null);
+              if (!drag.tab) void openTerminal({ cwd: drag.cwd, card: drag.id });
+              onScope?.(drag.id);
+            }}
+          >
             <span>{scope.card ? "No terminal for this card yet." : "No other shells."}</span>
             <div className="flex gap-2">
               <button type="button" className="rounded-md border border-line px-3 py-1.5 hover:text-ink" onClick={() => launch()}>
@@ -269,7 +292,9 @@ export default function TerminalDock({ board, scope }: { board?: BoardData | nul
             <Panes
               tab={t}
               shown={open && t.id === active}
-              drag={drag && !(drag.kind === "tab" && drag.id === t.id) ? drag : null}
+              drag={drag && !(drag.kind === "tab" && drag.id === t.id) && !(drag.kind === "card" && drag.tab === t.id)
+                ? drag
+                : null}
             />
           </div>
         ))}
@@ -348,7 +373,10 @@ function Panes(
               onDrop={(e) => {
                 e.preventDefault();
                 const side = sideAt(e);
-                if (drag.kind === "tab") mergeTab(drag.id, tab.id, id, side);
+                if (drag.kind === "card") {
+                  if (drag.tab) mergeTab(drag.tab, tab.id, id, side);
+                  else void openTerminalAt({ cwd: drag.cwd, card: drag.id }, { tab: tab.id, term: id, side });
+                } else if (drag.kind === "tab") mergeTab(drag.id, tab.id, id, side);
                 else moveTerm(drag.id, tab.id, id, side);
                 setHover(null);
                 setTermDrag(null);

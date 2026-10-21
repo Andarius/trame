@@ -4,7 +4,7 @@ import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
 import { EntityIcon, enumCodec, SECTION_LABEL, StatusDot, useLocalStorage } from "../ui/ui";
 import { ProjectTermMenu } from "./ProjectTermMenu";
-import { setTermDrag, tabCards, useTermDock } from "./term-api";
+import { setTermDrag, tabCards, type TermDrag, useTermDock } from "./term-api";
 
 const GROUPINGS = ["project", "status", "none"] as const;
 type Grouping = typeof GROUPINGS[number];
@@ -53,18 +53,18 @@ export function TermCards(
   const orphans = [...shells].filter(([card]) => card === null || !known.has(card));
   const plain = orphans.reduce((n, [, v]) => n + v.count, 0);
 
-  const row = (key: string, active: boolean, onClick: () => void, children: React.ReactNode, drag?: string) => (
+  const row = (key: string, active: boolean, onClick: () => void, children: React.ReactNode, drag?: TermDrag) => (
     <button
       key={key}
       type="button"
       onClick={onClick}
       draggable={!!drag}
-      title={drag ? "drag onto the terminal to put it side by side" : undefined}
+      title={drag ? "drag into the terminal area: beside a pane, or onto the empty view" : undefined}
       onDragStart={drag
         ? (e) => {
-          e.dataTransfer.setData("application/x-trame-tab", drag);
+          e.dataTransfer.setData("application/x-trame-card", drag.id);
           e.dataTransfer.effectAllowed = "move";
-          setTermDrag({ kind: "tab", id: drag });
+          setTermDrag(drag);
         }
         : undefined}
       onDragEnd={drag ? () => setTermDrag(null) : undefined}
@@ -126,7 +126,7 @@ export function TermCards(
                 </span>
                 <AgentLine l={agentOf.get(s.id)} />
               </>
-            ), s.id === selected ? undefined : tabOf(s.id))
+            ), { kind: "card", id: s.id, tab: tabOf(s.id) ?? null, cwd: s.repo_path ?? null })
           )}
         </section>
       ))}

@@ -79,8 +79,11 @@ export type SplitDir = "row" | "col";
 export type PaneNode = { term: string } | { dir: SplitDir; a: PaneNode; b: PaneNode };
 // a dock tab: a split tree of shells; `focus` gets the keyboard
 export type TermTab = { id: string; root: PaneNode; focus: string };
-// what is being dragged onto the panes: a whole tab, or one shell (from a tab or the sidebar)
-export type TermDrag = { kind: "tab" | "term"; id: string };
+// what is being dragged onto the panes: a whole tab, one shell (from a tab or the sidebar), or a card from the
+// Terminals column (its tab when it has one, else a new shell in its folder)
+export type TermDrag =
+  | { kind: "tab" | "term"; id: string }
+  | { kind: "card"; id: string; tab: string | null; cwd: string | null };
 // `max`: the dock fills the main area instead of sitting under the current view
 type DockState = {
   terms: Record<string, TermInfo>;
@@ -171,6 +174,22 @@ export async function openTerminal(opts: TermOpts) {
   const info = await create(opts);
   const t = tab({ term: info.id });
   set({ tabs: [...state.tabs, t], active: t.id, open: true });
+  return info;
+}
+
+// a new shell beside the `at` shell of a tab, or in a tab of its own without one (or when that tab is full)
+export async function openTerminalAt(opts: TermOpts, at?: { tab: string; term: string; side: DropSide }) {
+  const fits = (t?: TermTab) => !!t && leaves(t.root).includes(at!.term) && leaves(t.root).length < MAX_PANES;
+  if (!at || !fits(state.tabs.find((t) => t.id === at.tab))) return openTerminal(opts);
+  const info = await create(opts);
+  const dst = state.tabs.find((t) => t.id === at.tab);
+  if (!fits(dst)) {
+    const own = tab({ term: info.id });
+    set({ tabs: [...state.tabs, own], active: own.id, open: true });
+    return info;
+  }
+  const next = { ...dst!, root: insertAt(dst!.root, at.term, at.side, { term: info.id }), focus: info.id };
+  set({ tabs: state.tabs.map((t) => (t.id === dst!.id ? next : t)), active: dst!.id, open: true });
   return info;
 }
 
