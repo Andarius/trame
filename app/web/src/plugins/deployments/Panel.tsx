@@ -528,6 +528,7 @@ export function DeploymentsPanel(
               active ? "bg-active-row font-medium text-ink" : "text-ink-muted hover:text-ink-soft"
             }`}
           >
+            {!isAll && <OrgMark org={name} />}
             <span className="min-w-0 flex-1 truncate">{isAll ? "All" : name}</span>
             <span className="rounded-full bg-copper/12 px-1.5 text-[10px] text-copper">{count}</span>
           </button>
