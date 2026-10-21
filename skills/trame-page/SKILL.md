@@ -58,8 +58,9 @@ into plain prose. `tramecli page --help` carries the full dialect; the essential
   with one instead of burying the figures in a sentence.
 - A `decision` fence asks the human a question: first line the question, one option
   per line (`| recommended` on the one you advise), then a marks line
-  `{{trame:ask=@julien}} {{trame:due=YYYY-MM-DD}}`. The app records the pick as
-  `{{trame:answer=…}}` on that line: read it back before acting on a decision.
+  `{{trame:ask=@julien}} {{trame:due=YYYY-MM-DD}}` (`{{trame:pick=many}}` when several
+  may apply). The human picks an option or types another; the app records it as
+  `{{trame:answer=…}}` on that line (`a ; b` when many): read it back before acting.
 - A `graph` fence draws an architecture diagram (stepped lifecycles included), a
   `mermaid` fence anything else; other fences highlight python/ts/js/bash/json/sql.
 - GFM tables render as interactive cards, full PR/MR URLs as live PR chips,

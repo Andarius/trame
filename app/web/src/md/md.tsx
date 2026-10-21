@@ -206,7 +206,7 @@ function renderBlocks(
         const closed = /^\s*```\s*$/.test(lines[i - 1] ?? "") && i - 1 > fenceStart;
         const tail = closed ? lines.slice(i - 1) : ["```"]; // an unterminated fence gets its closer
         const onPick = ops?.onEdit
-          ? (option: string) =>
+          ? (option: string | string[]) =>
             getIdentity().catch(() => ({ name: "" })).then((me) =>
               ops.onEdit!([
                 ...lines.slice(0, fenceStart + 1),

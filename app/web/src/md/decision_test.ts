@@ -20,7 +20,22 @@ test("parseDecision: question, options with a trailing recommended, marks on the
       { label: "a | b", recommended: true },
     ],
     marks: { ask: "@julien", due: "2026-10-22" },
+    multi: false,
+    answers: [],
   });
+});
+
+test("multi: pick=many joins the picks, a free-text answer is cleaned and kept as one entry", () => {
+  const fence = "Which channels?\n#it-alerts\n#agents\n{{trame:pick=many}}";
+  const answered = answerDecision(fence, ["#agents", " both, {and} a\nnote "], "julien", "2026-10-21");
+  expect(answered.split("\n").at(-1)).toBe(
+    "{{trame:pick=many}} {{trame:answer=#agents ; both, and a note}} {{trame:answered_by=julien}} {{trame:completed_at=2026-10-21}}",
+  );
+  const d = parseDecision(answered);
+  expect(d.multi).toBe(true);
+  expect(d.answers).toStrictEqual(["#agents", "both, and a note"]);
+  // single mode keeps the separator inside one answer
+  expect(parseDecision(answerDecision("Q?\na\nb", "a ; b", "x", "2026-10-21")).answers).toStrictEqual(["a ; b"]);
 });
 
 test("answerDecision: writes answer, answered_by and completed_at, replacing an earlier answer", () => {
