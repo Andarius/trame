@@ -15,7 +15,9 @@ import {
   useState,
 } from "react";
 import { HL_ALIAS, highlightCode } from "./md-highlight";
-import { CardsBlock, GraphBlock, MermaidBlock } from "./md-diagrams";
+import { CardsBlock, DecisionBlock, GraphBlock, MermaidBlock } from "./md-diagrams";
+import { answerDecision } from "./decision";
+import { getIdentity } from "../api";
 import { MdTable, TABLE_SEP, colAlign, parseTableRow } from "./MdTable";
 import { renderInline } from "./md-inline";
 import { ItemMenu, LinkChip } from "./md-activity";
@@ -180,6 +182,7 @@ function renderBlocks(
       const label = fence[1];
       const lang = HL_ALIAS[label.toLowerCase()] ?? null;
       const buf: string[] = [];
+      const fenceStart = i;
       i++;
       while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) {
         buf.push(lines[i++]);
@@ -196,6 +199,23 @@ function renderBlocks(
       }
       if (label.toLowerCase() === "cards") {
         out.push(<CardsBlock key={key++} text={code} />);
+        continue;
+      }
+      if (label.toLowerCase() === "decision") {
+        // the pick rewrites this fence's lines in place, the rest of the block untouched
+        const closed = /^\s*```\s*$/.test(lines[i - 1] ?? "") && i - 1 > fenceStart;
+        const tail = closed ? lines.slice(i - 1) : ["```"]; // an unterminated fence gets its closer
+        const onPick = ops?.onEdit
+          ? (option: string) =>
+            getIdentity().catch(() => ({ name: "" })).then((me) =>
+              ops.onEdit!([
+                ...lines.slice(0, fenceStart + 1),
+                ...answerDecision(code, option, me.name || "me").split("\n"),
+                ...tail,
+              ].join("\n"))
+            )
+          : undefined;
+        out.push(<DecisionBlock key={key++} text={code} onPick={onPick} />);
         continue;
       }
       out.push(

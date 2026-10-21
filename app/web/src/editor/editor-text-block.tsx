@@ -5,6 +5,7 @@ import { Markdown } from "../md/md";
 import type { ItemLink } from "../md/md-types";
 import { normalizeMarks, setMark, stripMarks, todayMark, touchTodo } from "../../../../core/todo-marks.ts";
 import { TodoDueCtx } from "../ui/due";
+import { isDecisionFence } from "../md/decision";
 import { caretXY, type InlineKind, isText, PILLS, SLASH, type TextBlock } from "./editor-text";
 import { CornerToolbar, FormatBar } from "./editor-toolbar";
 import {
@@ -215,7 +216,7 @@ export function BlockRendered(
             ? `${b.text} {{trame:due=}}` // placeholder: DuePill's hover "⚑ due"
             : b.text}
           listVariant={listVariant}
-          onEdit={isTable ? (next) => ctx.set(i, { text: next }) : undefined}
+          onEdit={isTable || isDecisionFence(b.text) ? (next) => ctx.set(i, { text: next }) : undefined}
           onCommentRow={isTable && b.id
             ? (anchor) => ctx.setPendingNote({ id: b.id as string, anchor })
             : undefined}
