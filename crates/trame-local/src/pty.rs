@@ -440,7 +440,7 @@ pub async fn serve(root: &Path, req: Request<Body>) -> Response {
             };
             let root = root.to_path_buf();
             let picked = crate::blocking::spawn(move || {
-                let picked = crate::platform::pick_folder(&format!("Folder for {from}"));
+                let picked = crate::platform::pick_folder(&format!("Folder for {from}"), None);
                 if let Some(to) = picked.as_str() {
                     let to = to.trim_end_matches('/');
                     save_folder(&root, &from, to)?;
@@ -456,10 +456,16 @@ pub async fn serve(root: &Path, req: Request<Body>) -> Response {
         }
         // choose any folder to open a shell in: the path, `{cancelled}` or `{error}`
         (Method::POST, ["", "api", "term", "pick"]) => {
-            let picked =
-                crate::blocking::spawn(|| crate::platform::pick_folder("Open a terminal in"))
-                    .await
-                    .unwrap_or_else(|_| json!({"error":"folder dialog failed"}));
+            let Ok(bytes) = axum::body::to_bytes(req.into_body(), 64 * 1024).await else {
+                return json_response(400, json!({"error":"body unavailable"}));
+            };
+            let body = serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null);
+            let start = body["start"].as_str().map(str::to_owned);
+            let picked = crate::blocking::spawn(move || {
+                crate::platform::pick_folder("Open a terminal in", start.as_deref())
+            })
+            .await
+            .unwrap_or_else(|_| json!({"error":"folder dialog failed"}));
             json_response(200, picked)
         }
         (Method::DELETE, ["", "api", "term", id]) => {

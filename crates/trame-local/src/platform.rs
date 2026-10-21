@@ -238,32 +238,45 @@ fn pick_bundle(name: Option<&str>) -> Value {
     };
     dialog(commands, false)
 }
-/// Native folder chooser: the path, or `{cancelled}`.
-pub(crate) fn pick_folder(prompt: &str) -> Value {
+/// Native folder chooser opened at `start` (an existing folder, else home): the path, or `{cancelled}`.
+pub(crate) fn pick_folder(prompt: &str, start: Option<&str>) -> Value {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    let start = start
+        .filter(|s| s.starts_with('/') && std::path::Path::new(s).is_dir())
+        .unwrap_or(&home);
     let commands = if cfg!(target_os = "macos") {
         let prompt = prompt.replace(['"', '\\'], "");
+        let start = start.replace(['"', '\\'], "");
         vec![strings(&[
             "osascript",
             "-e",
-            &format!("POSIX path of (choose folder with prompt \"{prompt}\")"),
+            &format!(
+                "POSIX path of (choose folder with prompt \"{prompt}\" default location POSIX file \"{start}\")"
+            ),
         ])]
     } else {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-        vec![
-            strings(&[
-                "zenity",
-                "--file-selection",
-                "--directory",
-                &format!("--title={prompt}"),
-            ]),
-            strings(&[
-                "kdialog",
-                "--getexistingdirectory",
-                &home,
-                "--title",
-                prompt,
-            ]),
-        ]
+        let zenity = strings(&[
+            "zenity",
+            "--file-selection",
+            "--directory",
+            &format!("--filename={}/", start.trim_end_matches('/')),
+            &format!("--title={prompt}"),
+        ]);
+        let kdialog = strings(&[
+            "kdialog",
+            "--getexistingdirectory",
+            start,
+            "--title",
+            prompt,
+        ]);
+        // KDE's own dialog (Dolphin's places) on Plasma, GTK's elsewhere
+        let kde =
+            std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|d| d.to_uppercase().contains("KDE"));
+        if kde {
+            vec![kdialog, zenity]
+        } else {
+            vec![zenity, kdialog]
+        }
     };
     dialog(commands, false)
 }

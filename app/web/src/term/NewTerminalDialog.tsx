@@ -51,7 +51,8 @@ export function NewTerminalDialog(
     }
   };
   const other = async () => {
-    const picked = await pickTermFolder().catch((e: Error) => ({ error: e.message }));
+    const start = here?.cwd ?? (project ? projectFolders(board, project)[0] : null);
+    const picked = await pickTermFolder(start).catch((e: Error) => ({ error: e.message }));
     if (typeof picked === "string") return open(picked.replace(/\/+$/, ""));
     if ("error" in picked) setError(picked.error);
   };
@@ -124,6 +125,7 @@ export function NewTerminalDialog(
             <button type="button" data-choice className={choice} onClick={() => void other()}>
               <span className="w-3.5 text-center text-ink-muted">…</span>
               <span>Other folder…</span>
+              <span className="ml-auto text-[11px] text-ink-faint">file manager dialog</span>
             </button>
           </div>
         </div>
