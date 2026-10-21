@@ -71,3 +71,23 @@ export function GearIcon({ size = 15 }: { size?: number }) {
     </svg>
   );
 }
+
+// two sliders: a list's view options (grouping)
+export function SlidersIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="M5 2v6.2M5 11.8V14M11 2v1.7M11 7.3V14" />
+      <circle cx="5" cy="10" r="1.8" />
+      <circle cx="11" cy="5.5" r="1.8" />
+    </svg>
+  );
+}

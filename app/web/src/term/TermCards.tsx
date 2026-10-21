@@ -1,9 +1,15 @@
+import { useState } from "react";
 import type { BoardData, Session } from "../api";
 import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
-import { EntityIcon, SECTION_LABEL, StatusDot } from "../ui/ui";
-import { useTermDock } from "./term-api";
+import { SlidersIcon } from "../ui/icons";
+import { EntityIcon, enumCodec, IconButton, MenuRow, Popover, SECTION_LABEL, StatusDot, useLocalStorage } from "../ui/ui";
+import { setTermDrag, tabCards, useTermDock } from "./term-api";
 
-// The Terminals view's sidebar column: cards with shells or a live agent, grouped by project
+const GROUPINGS = ["project", "status", "none"] as const;
+type Grouping = typeof GROUPINGS[number];
+const GROUPING_LABEL: Record<Grouping, string> = { project: "Project", status: "Status", none: "No grouping" };
+
+// The Terminals view's sidebar column: cards with shells or a live agent, grouped by project, status or not at all
 // (Orca's project → branch list, with cards); `selected` stays listed even without either.
 export function TermCards(
   { board, selected, onSelect }: {
@@ -12,7 +18,9 @@ export function TermCards(
     onSelect: (card: string | null) => void;
   },
 ) {
-  const { terms } = useTermDock();
+  const { terms, tabs, active } = useTermDock();
+  const [grouping, setGrouping] = useLocalStorage<Grouping>("trame:termGrouping", "project", enumCodec(GROUPINGS));
+  const [menu, setMenu] = useState(false);
   const { live } = useAgents();
   const agentOf = new Map<string, Live>(live.map((l) => [l.a.session_id, l]));
   const shells = new Map<string | null, { count: number; running: number }>();
@@ -21,21 +29,44 @@ export function TermCards(
     shells.set(t.card, { count: n.count + 1, running: n.running + (t.exited ? 0 : 1) });
   }
   const cards = (board?.sessions ?? []).filter((s) => shells.has(s.id) || agentOf.has(s.id) || s.id === selected);
+  const keyOf = (s: Session) => grouping === "project" ? s.client_id : grouping === "status" ? s.status : "all";
   const groups = new Map<string | null, Session[]>();
-  for (const s of cards) groups.set(s.client_id, [...(groups.get(s.client_id) ?? []), s]);
-  const projects = [...groups.keys()].sort((a, b) =>
-    a === null ? 1 : b === null ? -1 : projectName(board, a).localeCompare(projectName(board, b))
+  for (const s of cards) groups.set(keyOf(s), [...(groups.get(keyOf(s)) ?? []), s]);
+  const statusRank = (k: string) => board?.statuses.find((st) => st.key === k)?.sort_key ?? k;
+  const keys = [...groups.keys()].sort((a, b) =>
+    a === null ? 1 : b === null ? -1 : grouping === "status"
+      ? statusRank(a).localeCompare(statusRank(b))
+      : projectName(board, a).localeCompare(projectName(board, b))
   );
+  const label = (key: string | null) =>
+    grouping === "status"
+      ? (board?.statuses.find((st) => st.key === key)?.label ?? key ?? "").toUpperCase()
+      : key ? projectName(board, key).toUpperCase() : "NO PROJECT";
+  // the card's tab to drag onto the panes: the shown one when it has it
+  const tabOf = (card: string) => {
+    const own = tabs.filter((t) => tabCards(t, terms).includes(card));
+    return (own.find((t) => t.id === active) ?? own[0])?.id;
+  };
   // shells whose card was deleted or isn't on this board count as plain shells
   const known = new Set(board?.sessions.map((s) => s.id));
   const orphans = [...shells].filter(([card]) => card === null || !known.has(card));
   const plain = orphans.reduce((n, [, v]) => n + v.count, 0);
 
-  const row = (key: string, active: boolean, onClick: () => void, children: React.ReactNode) => (
+  const row = (key: string, active: boolean, onClick: () => void, children: React.ReactNode, drag?: string) => (
     <button
       key={key}
       type="button"
       onClick={onClick}
+      draggable={!!drag}
+      title={drag ? "drag onto the terminal to put it side by side" : undefined}
+      onDragStart={drag
+        ? (e) => {
+          e.dataTransfer.setData("application/x-trame-tab", drag);
+          e.dataTransfer.effectAllowed = "move";
+          setTermDrag({ kind: "tab", id: drag });
+        }
+        : undefined}
+      onDragEnd={drag ? () => setTermDrag(null) : undefined}
       className={`flex w-full flex-col rounded-md px-2 py-1.5 text-left text-[12.5px] ${
         active ? "bg-active-row font-medium text-ink" : "text-ink-muted hover:text-ink-soft"
       }`}
@@ -55,18 +86,51 @@ export function TermCards(
 
   return (
     <nav aria-label="Cards with terminals" className="flex flex-col gap-3">
+      <div className="relative -mb-1 flex items-center px-2 text-[11px] text-ink-muted">
+        <span className="flex-1">Cards</span>
+        <IconButton
+          tone="close"
+          className="px-1"
+          title={`group by: ${GROUPING_LABEL[grouping].toLowerCase()}`}
+          aria-label="Grouping"
+          aria-expanded={menu}
+          onClick={() => setMenu((m) => !m)}
+        >
+          <SlidersIcon />
+        </IconButton>
+        {menu && (
+          <Popover onClose={() => setMenu(false)} style={{ left: "auto", right: 0 }}>
+            <div className={`px-2 pb-1 pt-0.5 ${SECTION_LABEL}`}>GROUP BY</div>
+            {GROUPINGS.map((g) => (
+              <MenuRow
+                key={g}
+                active={g === grouping}
+                onClick={() => {
+                  setGrouping(g);
+                  setMenu(false);
+                }}
+              >
+                <span className="w-3 text-center">{g === grouping ? "✓" : ""}</span>
+                <span className="flex-1">{GROUPING_LABEL[g]}</span>
+              </MenuRow>
+            ))}
+          </Popover>
+        )}
+      </div>
       {cards.length === 0 && plain === 0 && (
         <p className="px-2 text-[11.5px] leading-snug text-ink-muted">
           No terminals yet. Open one from a card with Open in agent → Trame terminal.
         </p>
       )}
-      {projects.map((client) => (
-        <section key={client ?? "none"} className="flex flex-col gap-0.5">
-          <div className={`flex items-center gap-1.5 px-2 pb-1 ${SECTION_LABEL}`}>
-            {client && <EntityIcon icon={board?.projects.find((p) => p.id === client)?.icon} size={12} />}
-            {client ? projectName(board, client).toUpperCase() : "NO PROJECT"}
-          </div>
-          {groups.get(client)!.map((s) =>
+      {keys.map((key) => (
+        <section key={key ?? "none"} className="flex flex-col gap-0.5">
+          {grouping !== "none" && (
+            <div className={`flex items-center gap-1.5 px-2 pb-1 ${SECTION_LABEL}`}>
+              {grouping === "project" && key && <EntityIcon icon={board?.projects.find((p) => p.id === key)?.icon} size={12} />}
+              {label(key)}
+            </div>
+          )}
+          {groups.get(key)!.map((s) =>
             row(s.id, s.id === selected, () => onSelect(s.id), (
               <>
                 <span className="flex w-full items-center gap-2">
@@ -76,7 +140,7 @@ export function TermCards(
                 </span>
                 <AgentLine l={agentOf.get(s.id)} />
               </>
-            ))
+            ), s.id === selected ? undefined : tabOf(s.id))
           )}
         </section>
       ))}
