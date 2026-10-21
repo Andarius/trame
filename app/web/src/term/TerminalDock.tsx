@@ -197,7 +197,7 @@ export default function TerminalDock(
             +
           </IconButton>
           {menu && (
-            <Popover onClose={() => setMenu(false)} style={{ top: "auto", bottom: "100%", marginTop: 0, marginBottom: 4 }}>
+            <Popover portal onClose={() => setMenu(false)}>
               <MenuRow onClick={() => launch()}>
                 <span className="w-3.5 text-center text-ink-muted">›_</span>
                 <span className="flex-1">New terminal</span>
