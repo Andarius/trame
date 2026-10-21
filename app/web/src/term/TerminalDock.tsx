@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { AgentIcon } from "../agents/agents";
 import type { BoardData, Project } from "../api";
 import { projectFor } from "./project-for";
-import { EntityIcon, IconButton, MenuRow, Popover, useLocalStorage } from "../ui/ui";
+import { EntityIcon, IconButton, useLocalStorage } from "../ui/ui";
+import { NewTerminalDialog } from "./NewTerminalDialog";
 import { TerminalView } from "./TerminalView";
 import {
   closeTab,
@@ -16,6 +17,7 @@ import {
   type PaneNode,
   type TermTab,
   openTerminal,
+  openTerminalAt,
   selectTab,
   setDockMax,
   setDockOpen,
@@ -36,27 +38,39 @@ function ProjectMark({ project }: { project: Project | null }) {
 
 const HEIGHT_CODEC = { parse: (r: string) => Math.max(120, Number(r) || 300), stringify: String };
 
-// the card's project, else the project of whichever card works in that folder
-const projectOf = (board: BoardData | null | undefined, card: string | null | undefined, cwd: string | undefined) => {
-  const client = card ? board?.sessions.find((s) => s.id === card)?.client_id : null;
+// the card's project, else the shell's own, else the project of whichever card works in that folder
+const projectOf = (
+  board: BoardData | null | undefined,
+  card: string | null | undefined,
+  cwd: string | undefined,
+  project?: string | null,
+) => {
+  const client = (card ? board?.sessions.find((s) => s.id === card)?.client_id : null) ?? project;
   return (client && board?.projects.find((p) => p.id === client)) || projectFor(board, cwd);
 };
 
-// The Terminals view narrows the dock to one card's tabs (null: shells opened for no card).
-export type DockScope = { card: string | null; cwd: string | null };
+// The Terminals view narrows the dock to one card's tabs, or (no card) a project's shells, or plain ones.
+export type DockScope = { card: string | null; project: string | null; cwd: string | null };
 
 // Bottom panel of embedded terminals: a tab strip that stays when collapsed, shells kept mounted.
 // With a `scope` it is the Terminals view's center instead: always open, full size, one card's tabs.
 // Both are the same mounted component, so moving between them never remounts (and replays) a shell.
-export default function TerminalDock({ board, scope }: { board?: BoardData | null; scope?: DockScope | null }) {
+export default function TerminalDock(
+  { board, scope, onScope }: {
+    board?: BoardData | null;
+    scope?: DockScope | null;
+    onScope?: (card: string | null, project: string | null) => void; // show another card's or project's shells
+  },
+) {
   const dock = useTermDock();
   const { terms, tabs: allTabs } = dock;
   const inScope = (t: TermTab) => {
     const cards = tabCards(t, terms);
-    // no card: plain shells, and shells whose card isn't on this board (TermCards lists them the same way)
-    return scope!.card === null
-      ? cards.every((c) => !board?.sessions.some((s) => s.id === c))
-      : cards.includes(scope!.card);
+    if (scope!.card !== null) return cards.includes(scope!.card);
+    // no card: shells whose card isn't on this board, by project like TermCards lists them
+    if (cards.some((c) => board?.sessions.some((s) => s.id === c))) return false;
+    const project = leaves(t.root).map((id) => terms[id]?.project).find((p) => p && board?.projects.some((x) => x.id === p));
+    return (project ?? null) === scope!.project;
   };
   const tabs = scope ? allTabs.filter(inScope) : allTabs;
   const active = tabs.some((t) => t.id === dock.active) ? dock.active : tabs[0]?.id ?? null;
@@ -66,7 +80,8 @@ export default function TerminalDock({ board, scope }: { board?: BoardData | nul
   const resize = useRef<{ y: number; h: number } | null>(null);
   const current = tabs.find((t) => t.id === active);
   const canSplit = !!current && leaves(current.root).length < MAX_PANES;
-  const [menu, setMenu] = useState(false);
+  // the New terminal dialog (+, ⌘T, the empty view), optionally with an agent preselected
+  const [newTerm, setNewTerm] = useState<{ agent?: string } | null>(null);
   // a tab or a shell being dragged onto the panes (Konsole-style layout)
   const drag = dock.drag;
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -74,15 +89,10 @@ export default function TerminalDock({ board, scope }: { board?: BoardData | nul
   // fetched with the dock: finding them runs the user's shell profile (~2s)
   useEffect(() => {
     void termAgents().then(setAgents);
-  }, [menu]);
+  }, []);
   const lead = current ? terms[current.focus] : null;
   const cwd = lead?.cwd ?? scope?.cwd ?? null;
   const card = scope ? scope.card : lead?.card ?? null;
-  const launch = (agent?: TermAgent) => {
-    setMenu(false);
-    void openTerminal(agent ? { cwd, card, command: agent.command, title: agent.label } : { cwd, card });
-  };
-
   const onDrag = (e: React.PointerEvent) => {
     if (!resize.current) return;
     const max = innerHeight - 120;
@@ -90,6 +100,7 @@ export default function TerminalDock({ board, scope }: { board?: BoardData | nul
   };
 
   return (
+    <>
     <section
       className={`relative flex flex-col bg-panel ${full ? "min-h-0 flex-1" : "shrink-0 border-t border-line"}`}
       style={open && !full ? { height } : undefined}
@@ -98,7 +109,7 @@ export default function TerminalDock({ board, scope }: { board?: BoardData | nul
         if (e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "t") {
           e.preventDefault();
           e.stopPropagation();
-          launch();
+          setNewTerm({});
         } else if (e.metaKey && !e.altKey && !e.ctrlKey && e.key.toLowerCase() === "d") {
           e.preventDefault();
           e.stopPropagation();
@@ -127,7 +138,7 @@ export default function TerminalDock({ board, scope }: { board?: BoardData | nul
           {tabs.map((t) => {
             const panes = leaves(t.root);
             const lead = terms[t.focus];
-            const project = projectOf(board, lead?.card, lead?.cwd);
+            const project = projectOf(board, lead?.card, lead?.cwd, lead?.project);
             const exited = panes.every((p) => terms[p]?.exited);
             return (
               <div
@@ -182,30 +193,12 @@ export default function TerminalDock({ board, scope }: { board?: BoardData | nul
           <IconButton
             tone="close"
             className="px-1.5"
-            title="new terminal or agent"
+            title="new terminal or agent (⌘T)"
             aria-label="New terminal or agent"
-            aria-expanded={menu}
-            onClick={() => setMenu((m) => !m)}
+            onClick={() => setNewTerm({})}
           >
             +
           </IconButton>
-          {menu && (
-            <Popover onClose={() => setMenu(false)} style={{ top: "auto", bottom: "100%", marginTop: 0, marginBottom: 4 }}>
-              <MenuRow onClick={() => launch()}>
-                <span className="w-3.5 text-center text-ink-muted">›_</span>
-                <span className="flex-1">New terminal</span>
-                <span className="text-[10px] text-ink-faint">⌘T</span>
-              </MenuRow>
-              {(agents === null || agents.length > 0) && <div className="my-1 h-px bg-line" />}
-              {agents === null && <div className="px-2 py-1.5 text-[11px] text-ink-muted">Looking for agents…</div>}
-              {agents?.map((a) => (
-                <MenuRow key={a.command} onClick={() => launch(a)} title={`runs \`${a.command}\` in ${cwd ?? "~"}`}>
-                  <AgentIcon a={{ harness: a.command, icon: null }} />
-                  <span className="flex-1">{a.label}</span>
-                </MenuRow>
-              ))}
-            </Popover>
-          )}
         </div>
         <div className="flex-1" />
         {canSplit && (
@@ -243,10 +236,26 @@ export default function TerminalDock({ board, scope }: { board?: BoardData | nul
       </div>
       <div className={`relative min-h-0 flex-1 bg-block ${open ? "" : "hidden"}`}>
         {scope && tabs.length === 0 && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-xs text-ink-muted">
+          <div
+            className={`absolute inset-0 flex flex-col items-center justify-center gap-3 text-xs text-ink-muted ${
+              drag?.kind === "card" ? "outline-2 -outline-offset-8 outline-dashed outline-copper/60" : ""
+            }`}
+            onDragOver={(e) => {
+              if (drag?.kind !== "card") return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+            }}
+            onDrop={(e) => {
+              if (drag?.kind !== "card") return;
+              e.preventDefault();
+              setTermDrag(null);
+              if (!drag.tab) void openTerminal({ cwd: drag.cwd, card: drag.id });
+              onScope?.(drag.id, null);
+            }}
+          >
             <span>{scope.card ? "No terminal for this card yet." : "No other shells."}</span>
             <div className="flex gap-2">
-              <button type="button" className="rounded-md border border-line px-3 py-1.5 hover:text-ink" onClick={() => launch()}>
+              <button type="button" className="rounded-md border border-line px-3 py-1.5 hover:text-ink" onClick={() => setNewTerm({ agent: "shell" })}>
                 New terminal
               </button>
               {agents?.map((a) => (
@@ -254,7 +263,7 @@ export default function TerminalDock({ board, scope }: { board?: BoardData | nul
                   key={a.command}
                   type="button"
                   className="flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 hover:text-ink"
-                  onClick={() => launch(a)}
+                  onClick={() => setNewTerm({ agent: a.command })}
                 >
                   <AgentIcon a={{ harness: a.command, icon: null }} />
                   {a.label}
@@ -269,12 +278,26 @@ export default function TerminalDock({ board, scope }: { board?: BoardData | nul
             <Panes
               tab={t}
               shown={open && t.id === active}
-              drag={drag && !(drag.kind === "tab" && drag.id === t.id) ? drag : null}
+              drag={drag && !(drag.kind === "tab" && drag.id === t.id) && !(drag.kind === "card" && drag.tab === t.id)
+                ? drag
+                : null}
             />
           </div>
         ))}
       </div>
     </section>
+    {newTerm && (
+      <NewTerminalDialog
+        board={board ?? null}
+        here={{ cwd, card, project: scope?.project ?? lead?.project ?? null }}
+        agent={newTerm.agent}
+        onClose={() => setNewTerm(null)}
+        onOpened={(c, p) => {
+          if (scope && (c !== scope.card || (!c && p !== scope.project))) onScope?.(c, p);
+        }}
+      />
+    )}
+    </>
   );
 }
 
@@ -348,7 +371,10 @@ function Panes(
               onDrop={(e) => {
                 e.preventDefault();
                 const side = sideAt(e);
-                if (drag.kind === "tab") mergeTab(drag.id, tab.id, id, side);
+                if (drag.kind === "card") {
+                  if (drag.tab) mergeTab(drag.tab, tab.id, id, side);
+                  else void openTerminalAt({ cwd: drag.cwd, card: drag.id }, { tab: tab.id, term: id, side });
+                } else if (drag.kind === "tab") mergeTab(drag.id, tab.id, id, side);
                 else moveTerm(drag.id, tab.id, id, side);
                 setHover(null);
                 setTermDrag(null);

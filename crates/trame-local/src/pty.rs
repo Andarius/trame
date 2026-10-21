@@ -60,6 +60,8 @@ pub struct Term {
     cwd: String,
     /// The card this shell works for, so the card can list and show its terminals.
     card: Option<String>,
+    /// The project a shell without a card was opened for.
+    project: Option<String>,
     pid: Option<i32>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     // dropping the writer sends EOF to the shell, so it lives as long as the terminal
@@ -149,7 +151,7 @@ impl Term {
     }
 
     fn summary(&self) -> Value {
-        json!({"id":self.id,"title":self.title,"cwd":self.cwd,"card":self.card,"exited":self.exited()})
+        json!({"id":self.id,"title":self.title,"cwd":self.cwd,"card":self.card,"project":self.project,"exited":self.exited()})
     }
 }
 
@@ -176,6 +178,7 @@ pub fn spawn(
     command: Option<&str>,
     title: &str,
     card: Option<String>,
+    project: Option<String>,
 ) -> anyhow::Result<Arc<Term>> {
     let pair = native_pty_system().openpty(PtySize {
         rows: 24,
@@ -215,6 +218,7 @@ pub fn spawn(
         title: title.to_owned(),
         cwd: cwd.to_owned(),
         card,
+        project,
         pid: child.process_id().and_then(|p| i32::try_from(p).ok()),
         master: Mutex::new(pair.master),
         writer: Mutex::new(writer),
@@ -440,7 +444,7 @@ pub async fn serve(root: &Path, req: Request<Body>) -> Response {
             };
             let root = root.to_path_buf();
             let picked = crate::blocking::spawn(move || {
-                let picked = crate::platform::pick_folder(&format!("Folder for {from}"));
+                let picked = crate::platform::pick_folder(&format!("Folder for {from}"), None);
                 if let Some(to) = picked.as_str() {
                     let to = to.trim_end_matches('/');
                     save_folder(&root, &from, to)?;
@@ -453,6 +457,20 @@ pub async fn serve(root: &Path, req: Request<Body>) -> Response {
                 Ok(Ok(value)) => json_response(200, value),
                 _ => json_response(500, json!({"error":"could not save the folder"})),
             }
+        }
+        // choose any folder to open a shell in: the path, `{cancelled}` or `{error}`
+        (Method::POST, ["", "api", "term", "pick"]) => {
+            let Ok(bytes) = axum::body::to_bytes(req.into_body(), 64 * 1024).await else {
+                return json_response(400, json!({"error":"body unavailable"}));
+            };
+            let body = serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null);
+            let start = body["start"].as_str().map(str::to_owned);
+            let picked = crate::blocking::spawn(move || {
+                crate::platform::pick_folder("Open a terminal in", start.as_deref())
+            })
+            .await
+            .unwrap_or_else(|_| json!({"error":"folder dialog failed"}));
+            json_response(200, picked)
         }
         (Method::DELETE, ["", "api", "term", id]) => {
             let id = (*id).to_owned();
@@ -509,8 +527,15 @@ async fn create(root: &Path, body: &Value) -> Response {
             None => return json_response(400, json!({"error":"card must be a card id"})),
         },
     };
+    let project = match &body["project"] {
+        Value::Null => None,
+        project => match project.as_str().filter(|p| crate::routes::valid_uuid(p)) {
+            Some(project) => Some(project.to_owned()),
+            None => return json_response(400, json!({"error":"project must be a project id"})),
+        },
+    };
     let spawned = crate::blocking::spawn(move || {
-        spawn(&cwd, command.as_deref(), &title, card).map(|t| t.summary())
+        spawn(&cwd, command.as_deref(), &title, card, project).map(|t| t.summary())
     })
     .await;
     match spawned {

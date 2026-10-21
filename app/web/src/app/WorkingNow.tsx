@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { BoardData } from "../api";
 import { AgentIcon, Elapsed, useAgents } from "../agents/agents";
 import { setTermDrag, useTermDock } from "../term/term-api";
+import { PrIcon, TerminalIcon } from "../ui/icons";
 import { EntityIcon, SECTION_LABEL, SET_CODEC, StatusDot, useLocalStorage } from "../ui/ui";
 import { type CardNode, type StoryNode, workingNow } from "./working-now";
 
@@ -13,7 +14,9 @@ type Open = {
 
 const harnessLabel = (h: string) => (h.startsWith("claude") ? "Claude" : h === "codex" ? "Codex" : h);
 const row = "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-[4px] text-left hover:bg-active-row";
-const nest = "ml-[13px] border-l border-line pl-[7px]";
+// children line up under their parent's title; the guide line runs under the parent's icon
+const storyNest = "ml-[34px] border-l border-line pl-[5px]";
+const cardNest = "ml-[11px] border-l border-line pl-[3px]";
 
 // a live agent's dot: green while working, yellow while it waits for you
 function LiveDot({ state }: { state: "working" | "waiting" }) {
@@ -34,10 +37,10 @@ function CardRow({ node, fork, open }: { node: CardNode; fork?: boolean; open: O
         {fork && <span className="w-3 shrink-0 text-center text-[11px] text-copper" title="fork">⑂</span>}
         {agent ? <LiveDot state={agent.state} /> : <StatusDot status={card.status} size={7} />}
         <span className="truncate text-[12.5px] text-ink">{card.title}</span>
-        {card.pr_url && <span className="ml-auto shrink-0 text-[11px] text-ink-muted" title="has a PR">⎇</span>}
+        {card.pr_url && <span className="ml-auto text-ink-muted" title="has a PR"><PrIcon /></span>}
       </button>
       {(agent || shells.length > 0 || forks.length > 0) && (
-        <ul className={nest}>
+        <ul className={cardNest}>
           {agent && (
             <li>
               <button
@@ -74,7 +77,7 @@ function CardRow({ node, fork, open }: { node: CardNode; fork?: boolean; open: O
                 }}
                 onDragEnd={() => setTermDrag(null)}
               >
-                <span className="w-3 shrink-0 text-center font-mono text-[10px] font-semibold text-ink-muted">›_</span>
+                <span className="text-ink-muted"><TerminalIcon /></span>
                 <span className={`truncate text-[11.5px] ${s.exited ? "text-ink-faint" : "text-ink-muted"}`}>{s.title}</span>
                 {s.exited && <span className="ml-auto shrink-0 text-[10px] text-ink-faint">exited</span>}
               </button>
@@ -102,14 +105,14 @@ function StoryRow({ story, collapsed, toggle, open }: { story: StoryNode; collap
           disabled={!story.id}
           onClick={() => story.id && open.onOpenPage(story.id)}
         >
-          {story.project?.icon ? <EntityIcon icon={story.project.icon} size={12} /> : <span className="text-[11px] text-ink-muted">◇</span>}
+          {story.project?.icon ? <EntityIcon icon={story.project.icon} size={14} /> : <span className="w-3.5 text-center text-[12px] text-ink-muted">◇</span>}
           <span className="truncate text-[12.5px] font-semibold text-ink">{story.title}</span>
           {collapsed && waiting && <LiveDot state="waiting" />}
         </button>
         {story.project && <span className="shrink-0 text-[10.5px] text-ink-faint">{story.project.name}</span>}
       </div>
       {!collapsed && (
-        <ul className={nest}>
+        <ul className={storyNest}>
           {story.cards.map((n) => <CardRow key={n.card.id} node={n} open={open} />)}
         </ul>
       )}
