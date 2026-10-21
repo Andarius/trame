@@ -4,8 +4,22 @@ import { useSyncExternalStore } from "react";
 import { readStore, writeStore } from "../ui/storage";
 
 // `card`: the card the shell was opened for (Open in agent, the Terminals view), else null
-export type TermInfo = { id: string; title: string; cwd: string; card: string | null; exited: boolean };
-export type TermOpts = { cwd?: string | null; command?: string; title?: string; card?: string | null };
+// `project`: the project a shell without a card was opened for
+export type TermInfo = {
+  id: string;
+  title: string;
+  cwd: string;
+  card: string | null;
+  project?: string | null;
+  exited: boolean;
+};
+export type TermOpts = {
+  cwd?: string | null;
+  command?: string;
+  title?: string;
+  card?: string | null;
+  project?: string | null;
+};
 export const TOKEN_HEADER = "x-trame-term";
 // close codes from pty.rs
 export const CLOSE_AUTH = 4401;

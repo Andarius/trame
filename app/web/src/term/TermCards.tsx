@@ -13,10 +13,12 @@ const GROUPING_LABEL: Record<Grouping, string> = { project: "Project", status: "
 // The Terminals view's sidebar column: cards with shells or a live agent, grouped by project, status or not at all
 // (Orca's project → branch list, with cards); `selected` stays listed even without either.
 export function TermCards(
-  { board, selected, onSelect }: {
+  { board, selected, selectedProject, onSelect, onSelectProject }: {
     board: BoardData | null;
     selected: string | null;
+    selectedProject: string | null; // its project shells are shown (selected is then null)
     onSelect: (card: string | null) => void;
+    onSelectProject: (project: string) => void;
   },
 ) {
   const { terms, tabs, active } = useTermDock();
@@ -24,15 +26,30 @@ export function TermCards(
   const [menuFor, setMenuFor] = useState<string | null>(null); // the project right-clicked for a new terminal
   const { live } = useAgents();
   const agentOf = new Map<string, Live>(live.map((l) => [l.a.session_id, l]));
-  const shells = new Map<string | null, { count: number; running: number }>();
+  type Count = { count: number; running: number };
+  const add = <K,>(m: Map<K, Count>, k: K, exited: boolean) => {
+    const n = m.get(k) ?? { count: 0, running: 0 };
+    m.set(k, { count: n.count + 1, running: n.running + (exited ? 0 : 1) });
+  };
+  // a shell counts for its card; without one on this board, for its project; else it is plain
+  const known = new Set(board?.sessions.map((s) => s.id));
+  const knownProjects = new Set(board?.projects.map((p) => p.id));
+  const shells = new Map<string, Count>();
+  const projectShells = new Map<string, Count>();
+  const plainShells: Count = { count: 0, running: 0 };
   for (const t of Object.values(terms)) {
-    const n = shells.get(t.card) ?? { count: 0, running: 0 };
-    shells.set(t.card, { count: n.count + 1, running: n.running + (t.exited ? 0 : 1) });
+    if (t.card && known.has(t.card)) add(shells, t.card, t.exited);
+    else if (t.project && knownProjects.has(t.project)) add(projectShells, t.project, t.exited);
+    else {
+      plainShells.count++;
+      if (!t.exited) plainShells.running++;
+    }
   }
   const cards = (board?.sessions ?? []).filter((s) => shells.has(s.id) || agentOf.has(s.id) || s.id === selected);
   const keyOf = (s: Session) => grouping === "project" ? s.client_id : grouping === "status" ? s.status : "all";
   const groups = new Map<string | null, Session[]>();
   for (const s of cards) groups.set(keyOf(s), [...(groups.get(keyOf(s)) ?? []), s]);
+  if (grouping === "project") for (const p of projectShells.keys()) if (!groups.has(p)) groups.set(p, []);
   const statusRank = (k: string) => board?.statuses.find((st) => st.key === k)?.sort_key ?? k;
   const keys = [...groups.keys()].sort((a, b) =>
     a === null ? 1 : b === null ? -1 : grouping === "status"
@@ -48,10 +65,15 @@ export function TermCards(
     const own = tabs.filter((t) => tabCards(t, terms).includes(card));
     return (own.find((t) => t.id === active) ?? own[0])?.id;
   };
-  // shells whose card was deleted or isn't on this board count as plain shells
-  const known = new Set(board?.sessions.map((s) => s.id));
-  const orphans = [...shells].filter(([card]) => card === null || !known.has(card));
-  const plain = orphans.reduce((n, [, v]) => n + v.count, 0);
+  const plain = plainShells.count;
+  const projectRow = (p: string, label: string) =>
+    row(`project:${p}`, selectedProject === p, () => onSelectProject(p), (
+      <span className="flex w-full items-center gap-2">
+        <span className="w-[7px] text-center text-ink-faint">·</span>
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        {count(projectShells.get(p))}
+      </span>
+    ));
 
   const row = (key: string, active: boolean, onClick: () => void, children: React.ReactNode, drag?: TermDrag) => (
     <button
@@ -91,7 +113,7 @@ export function TermCards(
         <span className="flex-1">Cards</span>
         <GroupMenu value={grouping} options={GROUPING_LABEL} onChange={setGrouping} />
       </div>
-      {cards.length === 0 && plain === 0 && (
+      {cards.length === 0 && plain === 0 && projectShells.size === 0 && (
         <p className="px-2 text-[11.5px] leading-snug text-ink-muted">
           No terminals yet. Open one from a card with Open in agent → Trame terminal.
         </p>
@@ -112,10 +134,16 @@ export function TermCards(
               {grouping === "project" && key && <EntityIcon icon={board?.projects.find((p) => p.id === key)?.icon} size={12} />}
               {label(key)}
               {key && menuFor === key && (
-                <NewTerminalDialog board={board} project={key} onClose={() => setMenuFor(null)} onOpened={() => onSelect(null)} />
+                <NewTerminalDialog
+                  board={board}
+                  project={key}
+                  onClose={() => setMenuFor(null)}
+                  onOpened={(card, project) => (card ? onSelect(card) : project ? onSelectProject(project) : onSelect(null))}
+                />
               )}
             </div>
           )}
+          {grouping === "project" && key && projectShells.has(key) && projectRow(key, "Project shells")}
           {groups.get(key)!.map((s) =>
             row(s.id, s.id === selected, () => onSelect(s.id), (
               <>
@@ -130,14 +158,15 @@ export function TermCards(
           )}
         </section>
       ))}
-      {plain > 0 && (
+      {(plain > 0 || (grouping !== "project" && projectShells.size > 0)) && (
         <section className="flex flex-col gap-0.5">
           <div className={`px-2 pb-1 ${SECTION_LABEL}`}>OTHER</div>
-          {row("plain", selected === null, () => onSelect(null), (
+          {grouping !== "project" && [...projectShells.keys()].map((p) => projectRow(p, `${projectName(board, p)} shells`))}
+          {plain > 0 && row("plain", selected === null && !selectedProject, () => onSelect(null), (
             <span className="flex w-full items-center gap-2">
               <span className="w-[7px] text-center text-ink-faint">·</span>
               <span className="flex-1">Shells without a card</span>
-              {count({ count: plain, running: orphans.reduce((n, [, v]) => n + v.running, 0) })}
+              {count(plainShells)}
             </span>
           ))}
         </section>

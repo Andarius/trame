@@ -56,6 +56,7 @@ import { PluginSettingsModal } from "../plugins/PluginSettingsModal";
 import { DatabaseView } from "../udb/DatabaseTable";
 import { buildClock } from "../build-info";
 import { TermCards } from "../term/TermCards";
+import { projectFolders } from "../term/NewTerminalDialog";
 import { openTerminal, restoreTerminals, setDockMax, setDockOpen, useTermDock } from "../term/term-api";
 // d3-force/zoom only load when the graph tab opens
 const Graph = lazy(() => import("../sessions/Graph"));
@@ -568,7 +569,9 @@ export function App() {
     setOpenId(null);
     setView("terminals");
   };
-  const termCard = termSel === "plain"
+  // the Terminals view shows a card's shells, a project's shells without a card ("project:<id>"), or plain ones
+  const termProject = termSel?.startsWith("project:") ? termSel.slice("project:".length) : null;
+  const termCard = termSel === "plain" || termProject
     ? null
     : termSel ?? board?.sessions.find((s) => Object.values(termDock.terms).some((t) => t.card === s.id))?.id ?? null;
   const termSession = termCard ? board?.sessions.find((s) => s.id === termCard) ?? null : null;
@@ -630,7 +633,15 @@ export function App() {
         onOpenTerminals={openTerminals}
         // a view's own list is its sidebar column: Terminals' cards, or a slot Explore / AI Sessions portal into
         column={terminals
-          ? <TermCards board={board} selected={termCard} onSelect={(card) => setTermSel(card ?? "plain")} />
+          ? (
+            <TermCards
+              board={board}
+              selected={termCard}
+              selectedProject={termProject}
+              onSelect={(card) => setTermSel(card ?? "plain")}
+              onSelectProject={(p) => setTermSel(`project:${p}`)}
+            />
+          )
           : view === "explore" || view === "agents" || (view === "plugin" && pluginColumn)
           ? <div ref={setColumnSlot} className="contents" />
           : undefined}
@@ -900,8 +911,14 @@ export function App() {
           <Suspense fallback={null}>
             <TerminalDock
               board={board}
-              scope={terminals ? { card: termCard, cwd: termSession?.repo_path ?? null } : null}
-              onScope={(c) => setTermSel(c ?? "plain")}
+              scope={terminals
+                ? {
+                  card: termCard,
+                  project: termProject,
+                  cwd: termSession?.repo_path ?? (termProject ? projectFolders(board, termProject)[0] ?? null : null),
+                }
+                : null}
+              onScope={(c, p) => setTermSel(c ?? (p ? `project:${p}` : "plain"))}
             />
           </Suspense>
         )}

@@ -60,6 +60,8 @@ pub struct Term {
     cwd: String,
     /// The card this shell works for, so the card can list and show its terminals.
     card: Option<String>,
+    /// The project a shell without a card was opened for.
+    project: Option<String>,
     pid: Option<i32>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     // dropping the writer sends EOF to the shell, so it lives as long as the terminal
@@ -149,7 +151,7 @@ impl Term {
     }
 
     fn summary(&self) -> Value {
-        json!({"id":self.id,"title":self.title,"cwd":self.cwd,"card":self.card,"exited":self.exited()})
+        json!({"id":self.id,"title":self.title,"cwd":self.cwd,"card":self.card,"project":self.project,"exited":self.exited()})
     }
 }
 
@@ -176,6 +178,7 @@ pub fn spawn(
     command: Option<&str>,
     title: &str,
     card: Option<String>,
+    project: Option<String>,
 ) -> anyhow::Result<Arc<Term>> {
     let pair = native_pty_system().openpty(PtySize {
         rows: 24,
@@ -215,6 +218,7 @@ pub fn spawn(
         title: title.to_owned(),
         cwd: cwd.to_owned(),
         card,
+        project,
         pid: child.process_id().and_then(|p| i32::try_from(p).ok()),
         master: Mutex::new(pair.master),
         writer: Mutex::new(writer),
@@ -523,8 +527,15 @@ async fn create(root: &Path, body: &Value) -> Response {
             None => return json_response(400, json!({"error":"card must be a card id"})),
         },
     };
+    let project = match &body["project"] {
+        Value::Null => None,
+        project => match project.as_str().filter(|p| crate::routes::valid_uuid(p)) {
+            Some(project) => Some(project.to_owned()),
+            None => return json_response(400, json!({"error":"project must be a project id"})),
+        },
+    };
     let spawned = crate::blocking::spawn(move || {
-        spawn(&cwd, command.as_deref(), &title, card).map(|t| t.summary())
+        spawn(&cwd, command.as_deref(), &title, card, project).map(|t| t.summary())
     })
     .await;
     match spawned {

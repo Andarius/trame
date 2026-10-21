@@ -38,14 +38,19 @@ function ProjectMark({ project }: { project: Project | null }) {
 
 const HEIGHT_CODEC = { parse: (r: string) => Math.max(120, Number(r) || 300), stringify: String };
 
-// the card's project, else the project of whichever card works in that folder
-const projectOf = (board: BoardData | null | undefined, card: string | null | undefined, cwd: string | undefined) => {
-  const client = card ? board?.sessions.find((s) => s.id === card)?.client_id : null;
+// the card's project, else the shell's own, else the project of whichever card works in that folder
+const projectOf = (
+  board: BoardData | null | undefined,
+  card: string | null | undefined,
+  cwd: string | undefined,
+  project?: string | null,
+) => {
+  const client = (card ? board?.sessions.find((s) => s.id === card)?.client_id : null) ?? project;
   return (client && board?.projects.find((p) => p.id === client)) || projectFor(board, cwd);
 };
 
-// The Terminals view narrows the dock to one card's tabs (null: shells opened for no card).
-export type DockScope = { card: string | null; cwd: string | null };
+// The Terminals view narrows the dock to one card's tabs, or (no card) a project's shells, or plain ones.
+export type DockScope = { card: string | null; project: string | null; cwd: string | null };
 
 // Bottom panel of embedded terminals: a tab strip that stays when collapsed, shells kept mounted.
 // With a `scope` it is the Terminals view's center instead: always open, full size, one card's tabs.
@@ -54,17 +59,18 @@ export default function TerminalDock(
   { board, scope, onScope }: {
     board?: BoardData | null;
     scope?: DockScope | null;
-    onScope?: (card: string | null) => void; // show another card's shells (null: plain shells)
+    onScope?: (card: string | null, project: string | null) => void; // show another card's or project's shells
   },
 ) {
   const dock = useTermDock();
   const { terms, tabs: allTabs } = dock;
   const inScope = (t: TermTab) => {
     const cards = tabCards(t, terms);
-    // no card: plain shells, and shells whose card isn't on this board (TermCards lists them the same way)
-    return scope!.card === null
-      ? cards.every((c) => !board?.sessions.some((s) => s.id === c))
-      : cards.includes(scope!.card);
+    if (scope!.card !== null) return cards.includes(scope!.card);
+    // no card: shells whose card isn't on this board, by project like TermCards lists them
+    if (cards.some((c) => board?.sessions.some((s) => s.id === c))) return false;
+    const project = leaves(t.root).map((id) => terms[id]?.project).find((p) => p && board?.projects.some((x) => x.id === p));
+    return (project ?? null) === scope!.project;
   };
   const tabs = scope ? allTabs.filter(inScope) : allTabs;
   const active = tabs.some((t) => t.id === dock.active) ? dock.active : tabs[0]?.id ?? null;
@@ -132,7 +138,7 @@ export default function TerminalDock(
           {tabs.map((t) => {
             const panes = leaves(t.root);
             const lead = terms[t.focus];
-            const project = projectOf(board, lead?.card, lead?.cwd);
+            const project = projectOf(board, lead?.card, lead?.cwd, lead?.project);
             const exited = panes.every((p) => terms[p]?.exited);
             return (
               <div
@@ -244,7 +250,7 @@ export default function TerminalDock(
               e.preventDefault();
               setTermDrag(null);
               if (!drag.tab) void openTerminal({ cwd: drag.cwd, card: drag.id });
-              onScope?.(drag.id);
+              onScope?.(drag.id, null);
             }}
           >
             <span>{scope.card ? "No terminal for this card yet." : "No other shells."}</span>
@@ -283,11 +289,11 @@ export default function TerminalDock(
     {newTerm && (
       <NewTerminalDialog
         board={board ?? null}
-        here={{ cwd, card }}
+        here={{ cwd, card, project: scope?.project ?? lead?.project ?? null }}
         agent={newTerm.agent}
         onClose={() => setNewTerm(null)}
-        onOpened={(c) => {
-          if (scope && c !== scope.card) onScope?.(c);
+        onOpened={(c, p) => {
+          if (scope && (c !== scope.card || (!c && p !== scope.project))) onScope?.(c, p);
         }}
       />
     )}

@@ -103,6 +103,7 @@ fn terminal_requires_token_and_streams_reattaches_and_closes() {
             ),
             (Some(token.as_str()), json!({"cwd":cwd,"card":"not-a-card"}), 400),
             (Some(token.as_str()), json!({"cwd":cwd,"card":7}), 400),
+            (Some(token.as_str()), json!({"cwd":cwd,"project":"not-a-project"}), 400),
         ] {
             let mut req = client.post(format!("{base}/api/term")).json(&body);
             if let Some(h) = header {
@@ -118,7 +119,7 @@ fn terminal_requires_token_and_streams_reattaches_and_closes() {
         let created: Value = client
             .post(format!("{base}/api/term"))
             .header(TOKEN_HEADER, &token)
-            .json(&json!({"cwd":cwd,"command":"printf 'ready-%s%s%s%s\\n' $((40+2)) \"$CLAUDECODE\" \"$ANTHROPIC_BASE_URL\" \"$CODEX_THREAD_ID\"","title":"probe","card":CARD}))
+            .json(&json!({"cwd":cwd,"command":"printf 'ready-%s%s%s%s\\n' $((40+2)) \"$CLAUDECODE\" \"$ANTHROPIC_BASE_URL\" \"$CODEX_THREAD_ID\"","title":"probe","card":CARD,"project":CARD}))
             .send()
             .await
             .unwrap()
@@ -128,6 +129,7 @@ fn terminal_requires_token_and_streams_reattaches_and_closes() {
         let id = created["id"].as_str().unwrap().to_owned();
         assert_eq!(created["title"], "probe");
         assert_eq!(created["card"], CARD);
+        assert_eq!(created["project"], CARD);
 
         let mut bad = attach(&base, &id, "wrong", None).await;
         assert_eq!(
