@@ -23,6 +23,23 @@ const theme = (): ITheme => ({
 
 type Notice = "superseded" | "gone" | null;
 
+// the selection as a quote to answer under, like a chat's Reply: "> " lines, terminal padding trimmed
+export const quoteReply = (text: string) =>
+  `${text.replace(/[ \t]+$/gm, "").replace(/^\n+|\n+$/g, "").split("\n").map((l) => `> ${l}`).join("\n")}\n\n`;
+
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // WebKitGTK can refuse the async clipboard: fall back to a hidden textarea
+    const ta = Object.assign(document.createElement("textarea"), { value: text });
+    document.body.append(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+  }
+}
+
 // Trame's own links (what `tramecli` prints, from this app or another port on this machine)
 // open in place through the app's history handling; anything else goes to the browser
 export function openLink(uri: string) {
@@ -53,8 +70,12 @@ export function TerminalView(
   { id, visible, focused, onFocus }: { id: string; visible: boolean; focused: boolean; onFocus: () => void },
 ) {
   const host = useRef<HTMLDivElement>(null);
-  const api = useRef<{ start: () => void; fit: () => void; focus: () => void; reconnect: () => void } | null>(null);
+  const api = useRef<
+    { start: () => void; fit: () => void; focus: () => void; reconnect: () => void; term: Terminal } | null
+  >(null);
   const [notice, setNotice] = useState<Notice>(null);
+  // a selection's Copy / Reply bubble, where the mouse let go (px in the pane)
+  const [bubble, setBubble] = useState<{ x: number; y: number } | null>(null);
   const focusCb = useRef(onFocus);
   focusCb.current = onFocus;
 
@@ -133,6 +154,10 @@ export function TerminalView(
       timer = setTimeout(() => void connect(freshToken), Math.min(200 * 2 ** retry++, 5000));
     };
 
+    term.onSelectionChange(() => {
+      if (!term.hasSelection()) setBubble(null);
+    });
+    term.onScroll(() => setBubble(null));
     term.onData((d) => send(enc.encode(d)));
     term.onBinary((d) => send(Uint8Array.from(d, (c) => c.charCodeAt(0))));
     // the shell only hears the size once a drag settles: every SIGWINCH makes zsh and TUIs redraw
@@ -185,6 +210,7 @@ export function TerminalView(
       },
       fit: refit,
       focus: () => term.focus(),
+      term,
       reconnect: () => {
         setNotice(null);
         done = false;
@@ -217,9 +243,52 @@ export function TerminalView(
     return () => cancelAnimationFrame(raf);
   }, [visible, focused]);
 
+  const act = (reply: boolean) => {
+    const term = api.current?.term;
+    if (!term?.hasSelection()) return;
+    const text = term.getSelection();
+    // without bracketed paste every newline runs a line, and `> text` truncates a file in a shell
+    if (reply && term.modes.bracketedPasteMode) term.paste(quoteReply(text));
+    else void copyText(text);
+    term.clearSelection();
+    term.focus();
+  };
+
   return (
     <div className="relative h-full w-full">
-      <div ref={host} className="h-full w-full px-2 py-1" />
+      <div
+        ref={host}
+        className="h-full w-full px-2 py-1"
+        onMouseUp={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          const at = { x: e.clientX - r.left, y: e.clientY - r.top };
+          // xterm settles the selection after mouseup
+          requestAnimationFrame(() => setBubble(api.current?.term.hasSelection() ? at : null));
+        }}
+      />
+      {bubble && (
+        <div
+          className="absolute z-20 flex -translate-x-1/2 items-center overflow-hidden rounded-md border border-chipline bg-panel-modal text-[11.5px] text-ink-soft shadow-lg shadow-black/40"
+          style={{ left: Math.max(60, bubble.x), top: Math.max(4, bubble.y - 34) }}
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          <button type="button" className="px-2.5 py-1 hover:bg-active-row hover:text-ink" onClick={() => act(false)}>
+            Copy
+          </button>
+          <span className="h-4 w-px bg-line" />
+          <button
+            type="button"
+            className="px-2.5 py-1 hover:bg-active-row hover:text-ink disabled:opacity-40 disabled:hover:bg-transparent"
+            disabled={!api.current?.term.modes.bracketedPasteMode}
+            title={api.current?.term.modes.bracketedPasteMode
+              ? "paste the selection as a > quote at the prompt, to answer under it"
+              : "this program doesn't take pasted text safely"}
+            onClick={() => act(true)}
+          >
+            Reply
+          </button>
+        </div>
+      )}
       {notice && (
         <div className="absolute inset-0 flex items-center justify-center bg-block/80 text-xs text-ink-soft">
           {notice === "superseded"
