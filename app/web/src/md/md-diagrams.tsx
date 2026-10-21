@@ -3,6 +3,8 @@ import "@fontsource/caveat/latin-500.css";
 import "@fontsource/caveat/latin-700.css";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { CARD_COLORS, parseCards } from "./cards";
+import { parseDecision } from "./decision";
+import { DuePill } from "../ui/due";
 import {
   type EdgeGeo,
   edgeGeometry,
@@ -11,7 +13,7 @@ import {
   parseGraph,
   type Tone,
 } from "./graph";
-import { renderInline } from "./md-inline";
+import { PILL_COLORS, renderInline } from "./md-inline";
 
 // ```mermaid fences render as diagrams. The lib (~1.5 MB) is dynamically imported so
 // pages without diagrams never load it. The svg-string injection is the one exception
@@ -591,6 +593,76 @@ export function CardsBlock({ text }: { text: string }) {
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+// `decision` fence: a question for a human with its options; picking one records the
+// answer as marks in the fence (decision.ts). Read-only without `onPick`.
+export function DecisionBlock({ text, onPick }: { text: string; onPick?: (option: string) => void }) {
+  const d = parseDecision(text);
+  const answered = d.marks.answer;
+  return (
+    <div
+      className={`my-2 rounded-lg border-l-4 px-3.5 py-2.5 ${
+        answered ? "border-active/60 bg-active/[0.06]" : "border-copper bg-copper/[0.08]"
+      }`}
+    >
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.95em] font-semibold leading-snug">
+        <span>{renderInline(d.question)}</span>
+        {answered
+          ? (
+            <span className={`rounded-full px-1.5 py-px font-mono text-[0.72em] font-normal ${PILL_COLORS.green}`}>
+              {d.marks.answered_by ? `${d.marks.answered_by} · ` : ""}{d.marks.completed_at ?? "answered"}
+            </span>
+          )
+          : (
+            <span className={`rounded-full px-1.5 py-px font-mono text-[0.72em] font-normal ${PILL_COLORS.copper}`}>
+              {d.marks.ask ? `waiting on ${d.marks.ask}` : "waiting"}
+            </span>
+          )}
+        {d.marks.due && !answered && <DuePill due={d.marks.due} />}
+      </div>
+      <div className="mt-1.5 flex flex-col gap-1">
+        {d.options.map((o) => {
+          const chosen = answered === o.label;
+          return (
+            <button
+              key={o.label}
+              type="button"
+              disabled={!onPick}
+              title={onPick ? "Pick this option" : undefined}
+              className={`flex items-start gap-2 rounded-md border px-2 py-1 text-left text-[0.92em] leading-snug ${
+                chosen
+                  ? "border-active/50 bg-active/10"
+                  : answered
+                  ? "border-line-soft text-ink-muted"
+                  : "border-line-soft bg-panel hover:border-copper/60"
+              } ${onPick ? "cursor-pointer" : "cursor-default"}`}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onPick?.(o.label);
+              }}
+            >
+              <span
+                className={`mt-[3px] inline-block h-3 w-3 shrink-0 rounded-full border-2 ${
+                  chosen ? "border-active bg-active" : o.recommended && !answered ? "border-copper bg-copper" : "border-line"
+                }`}
+              />
+              <span>
+                {renderInline(o.label)}
+                {o.recommended && !answered && (
+                  <span className="ml-1.5 font-mono text-[0.72em] text-copper">recommended</span>
+                )}
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
