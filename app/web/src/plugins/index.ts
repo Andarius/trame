@@ -2,7 +2,8 @@
 // purpose: React.lazy would reintroduce the WebKitGTK dynamic-import failure
 // mode the backend defends against. Labels/glyphs/enabled come from the server
 // manifest (GET /api/plugins) — only the components live here.
-import { type ComponentType, useMemo } from "react";
+import { type ComponentType, type ReactNode, useMemo } from "react";
+import { createPortal } from "react-dom";
 import type { PageDetail, Session } from "../api";
 import { DeploymentsCardPath } from "./deployments/CardPath";
 import { DeploymentsPanel } from "./deployments/Panel";
@@ -16,6 +17,8 @@ export type PanelProps = {
   onOpenSettings: () => void;
   onOpenPage: (id: string) => void;
   onOpenSession: (id: string) => void;
+  /** the sidebar column, for a plugin that declares `column`: portal its list there */
+  column?: HTMLElement | null;
 };
 
 export type CardFace = { name: string; avatar: string | null };
@@ -25,6 +28,8 @@ export type FrontendPlugin = {
   id: string;
   /** its own sidebar view; without one the plugin lives in Settings and its host hooks */
   Panel?: ComponentType<PanelProps>;
+  /** the Panel fills the sidebar column (through `PanelProps.column`); without it the rail stands alone */
+  column?: boolean;
   Settings?: ComponentType;
   /** under a page's brief */
   PageHeader?: ComponentType<{ page: PageDetail; onDone: () => void }>;
@@ -42,8 +47,13 @@ export type FrontendPlugin = {
   metadataMarks?: string[];
 };
 
+/** renders a Panel's list into the sidebar column it was handed (`PanelProps.column`), else in place */
+export function SidebarColumn({ column, children }: { column?: HTMLElement | null; children: ReactNode }) {
+  return column ? createPortal(children, column) : children;
+}
+
 export const FRONTEND_PLUGINS: FrontendPlugin[] = [
-  { id: "deployments", Panel: DeploymentsPanel, Settings: DeploymentsSettings, CardFields: DeploymentsCardPath },
+  { id: "deployments", Panel: DeploymentsPanel, column: true, Settings: DeploymentsSettings, CardFields: DeploymentsCardPath },
   { id: "sql-source", Settings: SqlSourceSettings, DatabaseActions: SqlSourceDatabaseActions, DatabaseEmpty: SqlSourceDatabaseEmpty },
   ...LOCAL_PLUGINS,
 ];

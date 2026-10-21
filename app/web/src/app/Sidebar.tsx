@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { BUILD_TIME } from "../build-info";
 import { DndContext, DragOverlay, type DragEndEvent, type DragStartEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { type AppStatus, type BoardData, getIdentity, type PageMeta, type PluginManifest, type UdbMeta, type UpdateInfo } from "../api";
@@ -6,24 +6,11 @@ import { useAgents } from "../agents/agents";
 import { WorkingNow } from "./WorkingNow";
 import { DUE_TONE_CLS, dueLabel, dueTone, focusBlock, useDue } from "../ui/due";
 import { recentRows } from "./recents";
-import { GearIcon, LogoMark } from "../ui/icons";
 import type { View } from "./view";
-import { FRONTEND_PLUGINS } from "../plugins";
-import { useTermDock } from "../term/term-api";
+import { Rail } from "./Rail";
 import { ArchivedFold, isSharedIn, type LiveCount, LiveCounts, LiveMarker, PageNode, RECENTS_KEY, RECENTS_LONG, RECENTS_SHORT, splitArchived, TreeCardsCtx, UnfiledZone } from "./sidebar-tree";
 import { SET_CODEC, useLocalStorage, EntityIcon, pageGlyph, SECTION_LABEL, timeAgo, PresenceDot } from "../ui/ui";
 
-const NAV: {
-  key: "sessions" | "agents" | "terminals" | "explore";
-  glyph: string;
-  label: string;
-  view: View;
-}[] = [
-  { key: "sessions", glyph: "▦", label: "Sessions", view: "board" },
-  { key: "agents", glyph: "↻", label: "AI Sessions", view: "agents" },
-  { key: "terminals", glyph: "›_", label: "Terminals", view: "terminals" },
-  { key: "explore", glyph: "✦", label: "Explore", view: "explore" },
-];
 
 // "New …" affordance under a sidebar section — a subtle dashed chip. `indent` is
 // the x of the section's icon column (tree rows: 26 = 8px pad + 14px chevron + 4px
@@ -76,6 +63,9 @@ export function Sidebar(
     board,
     onOpenSession,
     onOpenTerminals,
+    column,
+    wide,
+    bare,
   }: {
     view: View;
     onNav: (v: View) => void;
@@ -103,11 +93,14 @@ export function Sidebar(
     board: BoardData | null;
     onOpenSession: (id: string) => void;
     onOpenTerminals: (card: string) => void;
+    // the view's own column content, in place of the workspace (Working now, due, pages)
+    column?: ReactNode;
+    // a view whose list needs more room (Explore's search and filters)
+    wide?: boolean;
+    // a view with nothing to list beside it (plugins): the rail alone, the view takes the width
+    bare?: boolean;
   },
 ) {
-  const activeKey = view === "board" || view === "list" ? "sessions" : view;
-  const shells = Object.values(useTermDock().terms).filter((t) => !t.exited).length;
-  const synced = status?.remote && status.lastSync;
   // my user id (null in dev / before hub login) — used to split off shared-in roots
   const [meId, setMeId] = useState<string | null>(null);
   useEffect(() => {
@@ -264,13 +257,22 @@ export function Sidebar(
   return (
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
     <LiveCounts.Provider value={liveCounts}>
-    <aside className="flex w-[240px] shrink-0 flex-col border-r border-line bg-sidebar">
-      {/* Seule la liste défile : le statut de synchro et l'accès aux réglages
-          restent visibles, sinon il faut dérouler tout l'arbre pour les
-          atteindre. */}
-      <div className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 pb-3 pt-4">
-      <div className="mb-3 flex items-center gap-2.5 px-2">
-        <LogoMark debug={status?.debug} />
+    <aside className="flex shrink-0 bg-sidebar">
+      <Rail
+        view={view}
+        pluginId={pluginId}
+        plugins={plugins}
+        onNav={onNav}
+        onOpenPlugin={onOpenPlugin}
+        status={status}
+        onSettings={onSettings}
+        update={update}
+        updateState={updateState}
+        onUpdate={onUpdate}
+      />
+      <div className={`flex-col border-r border-line ${bare ? "hidden" : "flex"} ${wide ? "w-[320px]" : "w-[240px]"}`}>
+      {/* the rail marks the view; the column keeps the app's name, like Codex */}
+      <div className="flex h-12 shrink-0 items-center gap-2.5 px-5">
         <span className="text-[15px] font-semibold">Trame</span>
         {status?.debug && (
           <span className="text-[10px] font-medium uppercase text-[#5b8fd6]" title={`built ${BUILD_TIME.toLocaleString()}`}>
@@ -278,65 +280,9 @@ export function Sidebar(
           </span>
         )}
       </div>
-      <div className={`px-2 pb-1.5 pt-0.5 ${SECTION_LABEL}`}>
-        VIEWS
-      </div>
-      {NAV.map((item) => {
-        const active = item.key === activeKey;
-        return (
-          <button
-            type="button"
-            key={item.key}
-            onClick={() => onNav(item.view)}
-            className={`flex items-center gap-2.5 rounded-md px-2 py-[7px] text-left text-[13.5px] ${
-              active
-                ? "bg-active-row font-medium text-ink"
-                : "text-ink-muted hover:text-ink-soft"
-            }`}
-          >
-            <span className={`text-[13px] ${active ? "text-copper" : ""}`}>
-              {item.glyph}
-            </span>
-            {item.label}
-            {item.key === "terminals" && shells > 0 && (
-              <span className="ml-auto rounded-full border border-chipline px-1.5 text-[10.5px] font-medium text-ink-soft">
-                {shells}
-              </span>
-            )}
-            {item.key === "agents" && live.length > 0 && (
-              <span className="ml-auto inline-flex items-center gap-1 rounded-full border border-chipline px-1.5 text-[10.5px] font-medium text-ink-soft">
-                <PresenceDot state="working" />
-                {live.length} live
-              </span>
-            )}
-          </button>
-        );
-      })}
-      {plugins.filter((p) => p.enabled && FRONTEND_PLUGINS.some((f) => f.id === p.id && f.Panel)).map((p) => {
-        const active = view === "plugin" && p.id === pluginId;
-        return (
-          <button
-            type="button"
-            key={p.id}
-            onClick={() => onOpenPlugin(p.id)}
-            className={`flex items-center gap-2.5 rounded-md px-2 py-[7px] text-left text-[13.5px] ${
-              active
-                ? "bg-active-row font-medium text-ink"
-                : "text-ink-muted hover:text-ink-soft"
-            }`}
-          >
-            <span className={`text-[13px] ${active ? "text-copper" : ""}`}>
-              {p.glyph}
-            </span>
-            {p.label}
-            {p.badge != null && p.badge > 0 && (
-              <span className="ml-auto rounded-full bg-copper/15 px-1.5 py-0.5 text-[10px] font-medium text-copper">
-                {p.badge}
-              </span>
-            )}
-          </button>
-        );
-      })}
+      <div className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 pb-3">
+      {column ?? (
+      <>
       <div ref={runningRef}>
         <WorkingNow board={board} onOpenSession={onOpenSession} onOpenTerminals={onOpenTerminals} onOpenPage={onOpenPage} />
       </div>
@@ -577,13 +523,15 @@ export function Sidebar(
         );
       })}
       <NewChip label="New database" indent={26} onClick={onNewDb} />
+      </>
+      )}
       </div>
-      {live.length > 0 && (
+      {!column && live.length > 0 && (
         <button
           type="button"
           title="show the running agents"
           // one status block with the sync line below: same inset, dot and type
-          className="flex shrink-0 items-center gap-3 border-t border-line px-5 pt-2 text-[11.5px] text-ink-muted hover:text-ink"
+          className="flex shrink-0 items-center gap-3 border-t border-line px-5 py-2 text-[11.5px] text-ink-muted hover:text-ink"
           onClick={() => runningRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
         >
           {(["working", "waiting"] as const).map((st) => {
@@ -597,51 +545,6 @@ export function Sidebar(
           })}
         </button>
       )}
-      <div
-        className={`flex shrink-0 items-center gap-2 px-5 text-[11.5px] text-ink-muted ${
-          live.length > 0 ? "pb-2 pt-1.5" : "border-t border-line py-2"
-        }`}
-      >
-        <span
-          className="h-[7px] w-[7px] rounded-full"
-          style={{
-            background: synced ? "var(--color-active)" : "var(--color-done)",
-          }}
-        />
-        <span className="flex-1">
-          {status
-            ? status.remote
-              ? status.lastSync ? `Synced · ${status.nodeId}` : "Sync pending…"
-              : `Local only · ${status.nodeId}`
-            : "…"}
-        </span>
-        {(update?.available || update?.applied) && (
-          <button
-            type="button"
-            className="rounded bg-copper/15 px-1.5 py-0.5 text-[10.5px] font-medium text-copper hover:bg-copper/25 disabled:opacity-60"
-            title={updateState === "done"
-              ? "updated — restart Trame to finish"
-              : update.canSelfUpdate
-              ? `update to v${update.latest} in place`
-              : `v${update.latest} available — open the release page`}
-            disabled={updateState === "busy"}
-            onClick={onUpdate}
-          >
-            {updateState === "done"
-              ? "↻ restart"
-              : updateState === "busy"
-              ? "…"
-              : `↑ v${update.latest}`}
-          </button>
-        )}
-        <button
-          type="button"
-          className="text-ink-muted hover:text-ink-soft"
-          title="Settings"
-          onClick={onSettings}
-        >
-          <GearIcon />
-        </button>
       </div>
     </aside>
     </LiveCounts.Provider>

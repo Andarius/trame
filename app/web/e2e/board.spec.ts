@@ -14,7 +14,8 @@ test("board renders the empty shell", async ({ page }) => {
   for (const col of ["Active", "Paused", "Blocked", "Done"]) {
     await expect(page.getByText(col, { exact: true })).toBeVisible();
   }
-  await expect(page.getByText(/Local only · e2e/)).toBeVisible();
+  // the sync status is the rail dot's tooltip
+  await expect(page.getByRole("tooltip").filter({ hasText: "Local only" })).toContainText("e2e");
 });
 
 test("create a session via the modal", async ({ page }) => {

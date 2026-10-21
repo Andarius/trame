@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { type MouseEvent, type ReactNode, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import {
   type BoardData,
@@ -41,20 +42,28 @@ type FolderNode = {
   count: number;
 };
 
+// the last lists and selection, so switching views and back shows them at once while they refresh
+let kept: { reports: ReportMeta[]; files: FileHit[]; selected: Selected | null; selKey: string } | null = null;
+
 export function Explore(
-  { board, onOpenSettings, initialPath, onConsumed, onBack }: {
+  { board, onOpenSettings, initialPath, onConsumed, onBack, slot }: {
     board: BoardData;
+    // the sidebar column to render the list into, instead of a column of its own
+    slot?: HTMLElement | null;
     onOpenSettings?: () => void;
     initialPath?: string | null;
     onConsumed?: () => void;
     onBack?: () => void;
   },
 ) {
-  const [reports, setReports] = useState<ReportMeta[]>([]);
-  const [files, setFiles] = useState<FileHit[]>([]);
+  const [reports, setReports] = useState<ReportMeta[]>(kept?.reports ?? []);
+  const [files, setFiles] = useState<FileHit[]>(kept?.files ?? []);
   const [q, setQ] = useState("");
-  const [selected, setSelected] = useState<Selected | null>(null);
-  const [selKey, setSelKey] = useState("");
+  const [selected, setSelected] = useState<Selected | null>(kept?.selected ?? null);
+  const [selKey, setSelKey] = useState(kept?.selKey ?? "");
+  useEffect(() => {
+    kept = { reports, files, selected, selKey };
+  }, [reports, files, selected, selKey]);
   const [multi, setMulti] = useState<Set<string>>(new Set()); // extra selKeys (ctrl/shift-click)
   const [refreshing, setRefreshing] = useState(false);
   const [starred, setStarred] = useState<string[]>([]);
@@ -87,7 +96,8 @@ export function Explore(
       }),
     ]).finally(() => setRefreshing(false));
   };
-  const loadOnMount = useEffectEvent(() => load(false, true));
+  // a revisit keeps what was open; only the first visit picks the first report
+  const loadOnMount = useEffectEvent(() => load(false, !kept?.selected));
   useEffect(() => {
     loadOnMount();
   }, []);
@@ -375,7 +385,8 @@ export function Explore(
 
   return (
     <div className="flex min-h-0 flex-1">
-      <div className="flex w-[330px] shrink-0 flex-col overflow-y-auto border-r border-line p-3">
+      {inSlot(slot, (
+      <div className={slot ? "flex flex-col" : "flex w-[330px] shrink-0 flex-col overflow-y-auto border-r border-line p-3"}>
         {onBack && (
           <button
             type="button"
@@ -547,6 +558,7 @@ export function Explore(
           </p>
         )}
       </div>
+      ))}
       <div className="flex min-w-0 flex-1 flex-col">
         {selected
           ? (
@@ -743,3 +755,5 @@ function StarButton({ on, what, onClick }: { on: boolean; what: string; onClick:
     </button>
   );
 }
+
+const inSlot = (slot: HTMLElement | null | undefined, node: ReactNode) => (slot ? createPortal(node, slot) : node);

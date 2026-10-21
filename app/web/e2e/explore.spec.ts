@@ -24,7 +24,7 @@ test("published report renders in the viewer", async ({ page, request }) => {
 
 test("settings modal opens from the gear", async ({ page }) => {
   await page.goto("/?view=explore");
-  await page.getByTitle("Settings").click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(page.getByText("Explore — report folders")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByText("Explore — report folders")).not.toBeVisible();

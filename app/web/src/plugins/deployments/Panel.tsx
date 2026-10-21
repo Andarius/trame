@@ -3,8 +3,9 @@
 // the deploy button approves/plays via /approve (two clicks — confirm step),
 // the row deep-links to the forge as before.
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { openInBrowser } from "../../api";
-import { IconButton, timeAgo, EmptyState, StatusDot } from "../../ui/ui";
+import { IconButton, timeAgo, EmptyState, SECTION_LABEL, StatusDot } from "../../ui/ui";
 
 type ApproveAction =
   | { kind: "gitlab-play"; project: string; jobId: number }
@@ -301,7 +302,11 @@ function ConfirmButton(
 }
 
 export function DeploymentsPanel(
-  { onOpenSettings, onOpenSession }: { onOpenSettings: () => void; onOpenSession: (id: string) => void },
+  { onOpenSettings, onOpenSession, column }: {
+    onOpenSettings: () => void;
+    onOpenSession: (id: string) => void;
+    column?: HTMLElement | null;
+  },
 ) {
   const [state, setState] = useState<DeploymentsState | null>(null);
   const [busy, setBusy] = useState(false);
@@ -425,69 +430,57 @@ export function DeploymentsPanel(
   const base = showIgnored ? state.items : nonIgnored;
   const shown = org ? base.filter((d) => orgOf(d.repo) === org) : base;
 
-  return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-3">
-      <div className="flex items-center gap-2 px-1 pb-2">
-        <span className="text-[11px] text-ink-muted/70">
-          {state.polledAt
-            ? `polled ${timeAgo(state.polledAt)}`
-            : "not polled yet"}
-        </span>
-        {state.activePipeline && (
-          <span
-            title="a pipeline is running on the default branch — checking every 10s"
-            className="rounded-full border border-copper/40 px-2 py-0.5 text-[10.5px] text-copper"
-          >
-            ● pipeline running
+  const controls = (
+    <div className={column ? "flex flex-wrap items-center gap-2 px-2 pb-1" : "flex items-center gap-2 px-1 pb-2"}>
+          <span className="text-[11px] text-ink-muted/70">
+            {state.polledAt
+              ? `polled ${timeAgo(state.polledAt)}`
+              : "not polled yet"}
           </span>
-        )}
-        <button
-          type="button"
-          onClick={refresh}
-          disabled={busy}
-          className="rounded-md border border-chipline px-2 py-0.5 text-[11px] text-ink-muted hover:text-ink-soft disabled:opacity-40"
-        >
-          {busy ? "Refreshing…" : "Refresh"}
-        </button>
-        {ignoredCount > 0 && (
+          {state.activePipeline && (
+            <span
+              title="a pipeline is running on the default branch — checking every 10s"
+              className="rounded-full border border-copper/40 px-2 py-0.5 text-[10.5px] text-copper"
+            >
+              ● pipeline running
+            </span>
+          )}
           <button
             type="button"
-            onClick={() => setShowIgnored((v) => !v)}
-            title={showIgnored
-              ? "Hide ignored deployments"
-              : "Show ignored deployments"}
-            className={`rounded-md border px-2 py-0.5 text-[11px] ${
-              showIgnored
-                ? "border-copper/50 text-copper"
-                : "border-chipline text-ink-muted hover:text-ink-soft"
-            }`}
+            onClick={refresh}
+            disabled={busy}
+            className="rounded-md border border-chipline px-2 py-0.5 text-[11px] text-ink-muted hover:text-ink-soft disabled:opacity-40"
           >
-            {ignoredCount} ignored
+            {busy ? "Refreshing…" : "Refresh"}
           </button>
-        )}
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          title="Deployments settings"
-          className="flex items-center rounded-md border border-chipline px-1.5 py-1 text-ink-muted hover:text-ink-soft"
-        >
-          <GearIcon />
-        </button>
-      </div>
-      {state.errors.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 px-1 pb-2.5">
-          {state.errors.map((e) => (
-            <span
-              key={e.source + e.error}
-              title={e.error}
-              className="max-w-[420px] truncate rounded-md border border-blocked/40 px-2 py-0.5 text-[11px] text-blocked"
+          {ignoredCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowIgnored((v) => !v)}
+              title={showIgnored
+                ? "Hide ignored deployments"
+                : "Show ignored deployments"}
+              className={`rounded-md border px-2 py-0.5 text-[11px] ${
+                showIgnored
+                  ? "border-copper/50 text-copper"
+                  : "border-chipline text-ink-muted hover:text-ink-soft"
+              }`}
             >
-              {e.source}: {e.error}
-            </span>
-          ))}
+              {ignoredCount} ignored
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            title="Deployments settings"
+            className="flex items-center rounded-md border border-chipline px-1.5 py-1 text-ink-muted hover:text-ink-soft"
+          >
+            <GearIcon />
+          </button>
         </div>
-      )}
-
+  );
+  const orgTabs = (
+    <>
       {/* one tab per org — an org's noise never buries another's */}
       {orgs.length > 0 && (
         <div className="mb-3.5 flex gap-1 border-b border-line px-1">
@@ -517,6 +510,50 @@ export function DeploymentsPanel(
           )}
         </div>
       )}
+    </>
+  );
+  // in the sidebar column the org tabs become a list, with what waits on each
+  const orgList = orgs.length > 0 && (
+    <nav aria-label="Organizations" className="flex flex-col gap-0.5 pt-2">
+      <div className={`px-2 pb-1 pt-2 ${SECTION_LABEL}`}>ORGANIZATIONS</div>
+      {[["__all", nonIgnored.length] as [string, number], ...orgs].map(([name, count]) => {
+        const isAll = name === "__all";
+        const active = isAll ? org === null : org === name;
+        return (
+          <button
+            type="button"
+            key={name}
+            onClick={() => setOrg(isAll ? null : name)}
+            className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] ${
+              active ? "bg-active-row font-medium text-ink" : "text-ink-muted hover:text-ink-soft"
+            }`}
+          >
+            {!isAll && <OrgMark org={name} />}
+            <span className="min-w-0 flex-1 truncate">{isAll ? "All" : name}</span>
+            <span className="rounded-full bg-copper/12 px-1.5 text-[10px] text-copper">{count}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-3">
+      {!column && controls}
+      {state.errors.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 px-1 pb-2.5">
+          {state.errors.map((e) => (
+            <span
+              key={e.source + e.error}
+              title={e.error}
+              className="max-w-[420px] truncate rounded-md border border-blocked/40 px-2 py-0.5 text-[11px] text-blocked"
+            >
+              {e.source}: {e.error}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {column ? createPortal(<>{controls}{orgList}</>, column) : orgTabs}
 
       {shown.length === 0
         ? (
