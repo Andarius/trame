@@ -43,6 +43,8 @@ the hub. (Design + migration story: `docs-site/src/content/docs/hub-api.md`.)
 | [![agent presence](docs/presence.gif)](docs/presence.gif) | [![agent presence still](docs/presence.png)](docs/presence.png) |
 | **Page activity — every linked agent's worklog, one timeline** | **Card activity — worklog + presence events** |
 | [![page activity](docs/activity.png)](docs/activity.png) | [![card activity](docs/card-activity.png)](docs/card-activity.png) |
+| **Decision fence — an agent's question, answered in the page** | **…the answer stays as marks** |
+| [![decision fence](docs/decision.gif)](docs/decision.gif) | [![decision fence still](docs/decision.png)](docs/decision.png) |
 | **Reminders — due todos flag late, and gather in the sidebar** | |
 | [![reminders](docs/reminders.png)](docs/reminders.png) | |
 
