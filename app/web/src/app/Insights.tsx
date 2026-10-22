@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { AgentIcon } from "../agents/agents";
 import { type BoardData, getStats, type StatsRow } from "../api";
 import { clientColor, EmptyState, EntityIcon, SECTION_LABEL, SegToggle, STRING_CODEC, useLocalStorage } from "../ui/ui";
@@ -82,21 +82,26 @@ export function Insights({ board }: { board: BoardData | null }) {
             <SegToggle options={RANGES} value={range} onChange={setRange} />
           </div>
         </div>
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3">
-          {headline.map((h) => (
-            <Stat
-              key={h.key}
-              value={h.key === "merged" && data.prs.pending && !data.prs.fetched ? null : view.totals[h.key]}
-              prev={view.hasPrev ? view.prev[h.key] : null}
-              label={h.label}
-              hint={h.hint}
-            />
-          ))}
-        </div>
-        <Streak rows={data.rows} today={data.today} />
-        <div className="grid gap-3 lg:grid-cols-2">
-          <ByProject rows={view.cur} board={board} />
-          <ByAgent rows={view.cur} />
+        {/* two columns: numbers and projects | streak and agents */}
+        <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
+          <div className="flex min-w-0 flex-col gap-3">
+            <div className="grid grid-cols-2 gap-3">
+              {headline.map((h) => (
+                <Stat
+                  key={h.key}
+                  value={h.key === "merged" && data.prs.pending && !data.prs.fetched ? null : view.totals[h.key]}
+                  prev={view.hasPrev ? view.prev[h.key] : null}
+                  label={h.label}
+                  hint={h.hint}
+                />
+              ))}
+            </div>
+            <ByProject rows={view.cur} board={board} />
+          </div>
+          <div className="flex min-w-0 flex-col gap-3">
+            <Streak rows={data.rows} today={data.today} weeks={26} />
+            <ByAgent rows={view.cur} />
+          </div>
         </div>
         <p className="text-[11px] text-ink-faint">
           Prompts and tokens come from the {fmt(data.scan.files)} Claude Code and Codex transcripts on this machine; the
@@ -135,12 +140,12 @@ function Stat({ value, prev, label, hint }: { value: number | null; prev: number
   );
 }
 
-const CELL = 13;
 const GAP = 3;
 const LEVELS = ["bg-line", "bg-copper/25", "bg-copper/50", "bg-copper/75", "bg-copper"];
 
 // one year of active days, GitHub-style, with the current and longest streaks
-function Streak({ rows, today }: { rows: StatsRow[]; today: string }) {
+// `weeks` limits the grid; the streaks still count over the whole year
+function Streak({ rows, today, weeks: span = 52 }: { rows: StatsRow[]; today: string; weeks?: number }) {
   const { weeks, current, longest, months, max } = useMemo(() => {
     const perDay = new Map<string, number>();
     for (const r of rows) perDay.set(r.d, (perDay.get(r.d) ?? 0) + activity(r));
@@ -172,39 +177,40 @@ function Streak({ rows, today }: { rows: StatsRow[]; today: string }) {
     return { weeks, current, longest, months, max };
   }, [rows, today]);
   const level = (n: number) => (n === 0 ? 0 : Math.min(4, 1 + Math.floor((n / max) * 3.999)));
+  const shown = weeks.slice(-span);
+  const shownMonths = months.slice(-span);
   return (
     <div className={CARD}>
       <div className="mb-3 flex flex-wrap items-baseline gap-3">
         <h2 className="text-[18px] font-semibold">{current} day streak</h2>
-        <span className={`${SECTION_LABEL} ml-auto`}>LONGEST STREAK · {longest} DAYS</span>
+        <span className={`${SECTION_LABEL} ml-auto`}>LONGEST STREAK · {longest} DAY{longest === 1 ? "" : "S"}</span>
       </div>
-      <div className="overflow-x-auto pb-1" ref={(el) => el?.scrollTo({ left: el.scrollWidth })}>
-        <div className="inline-flex flex-col gap-1">
-          <div className="relative ml-8 h-3.5 text-[10px] leading-none text-ink-faint">
-            {months.map((m, i) =>
-              m && <span key={i} className="absolute whitespace-nowrap" style={{ left: i * (CELL + GAP) }}>{m}</span>
-            )}
-          </div>
-          <div className="flex" style={{ gap: GAP }}>
-            <div className="flex w-[29px] flex-col text-[9.5px] text-ink-faint" style={{ gap: GAP, lineHeight: `${CELL}px` }}>
-              {["Mon", "", "Wed", "", "Fri", "", ""].map((l, i) => <span key={i} style={{ height: CELL }}>{l}</span>)}
-            </div>
-            {weeks.map((w, i) => (
-              <div key={i} className="flex flex-col" style={{ gap: GAP }}>
-                {w.map((c) => (
+      {/* the last `shown` weeks, cells sized to fill the card's width */}
+      <div
+        className="grid text-[9.5px] leading-none text-ink-faint"
+        style={{ gridTemplateColumns: `26px repeat(${shown.length}, minmax(0, 1fr))`, gap: GAP }}
+      >
+        <span />
+        {shownMonths.map((m, i) => <span key={i} className="h-3 overflow-visible whitespace-nowrap text-[10px]">{m}</span>)}
+        {["Mon", "", "Wed", "", "Fri", "", ""].map((l, row) => (
+          <Fragment key={row}>
+            <span className="self-center">{l}</span>
+            {shown.map((w) => {
+              const c = w[row];
+              return c
+                ? (
                   <span
                     key={c.date}
                     title={`${c.date}: ${c.n} prompt${c.n === 1 ? "" : "s"} and entries`}
-                    style={{ width: CELL, height: CELL }}
-                    className={`rounded-[3px] ${LEVELS[level(c.n)]} ${
+                    className={`aspect-square max-h-[18px] rounded-[3px] ${LEVELS[level(c.n)]} ${
                       c.date === today ? "ring-1 ring-ink-muted" : ""
                     }`}
                   />
-                ))}
-              </div>
-            ))}
-          </div>
-        </div>
+                )
+                : <span key={`${w[0].date}:${row}`} />;
+            })}
+          </Fragment>
+        ))}
       </div>
       <div className="mt-2 flex items-center gap-1 text-[10.5px] text-ink-faint">
         Less
