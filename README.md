@@ -73,7 +73,7 @@ app/web/                   existing React app (Vite)
 app/plugin-host.ts         TS plugin host, compiled and supervised by trame-local
 scripts/rust-db-migrate.ts  legacy PGlite export helper (dev/CI only; no longer bundled in packages)
 bin/quickstart.sh          curl-able laptop setup: clone + packaged app + agent integrations
-skills/trame-{track,page,watch}/ the agent skills (Claude Code, Codex & friends) — embedded in tramecli, installed by `tramecli setup`
+skills/trame-{track,page,watch,plugin}/ the agent skills (Claude Code, Codex & friends) — embedded in tramecli, installed by `tramecli setup`
 ```
 
 See [native runtime and migration](crates/trame-local/README.md) for isolated development, packaging, and the one-shot PGlite conversion.
@@ -272,7 +272,8 @@ survive it.
 **Out-of-tree plugins** are composed at build time: list their checkouts in a gitignored
 `plugins.local.json` (`{ "plugins": ["../my-plugin"] }`) and run `just plugins`. A plugin holds
 `mod.ts` (backend, imports Trame only via `@trame/plugin-api`), `web/index.ts` (a `FrontendPlugin`,
-via `@trame/web-api`) and optional `e2e/` specs.
+via `@trame/web-api`) and optional `e2e/` specs. The `trame-plugin` skill (installed by
+`tramecli setup`) walks an agent through writing, composing, testing and releasing one.
 
 ## How sync works
 

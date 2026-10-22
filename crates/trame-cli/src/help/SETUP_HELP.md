@@ -1,7 +1,7 @@
 tramecli setup — install the agent skills from this binary
 
   tramecli setup                   pick targets interactively (TTY only)
-  tramecli setup --claude          trame, trame-track, trame-page, trame-watch into ~/.claude/skills
+  tramecli setup --claude          trame, trame-track, trame-page, trame-watch, trame-plugin into ~/.claude/skills
   tramecli setup --codex           the same skills into ~/.agents/skills
   tramecli setup --skills-dir DIR  any Agent Skills directory (repeatable)
   tramecli setup --hook            the git pre-push guard, into the repo you run it from
