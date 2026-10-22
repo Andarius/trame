@@ -1,7 +1,8 @@
 // Composes out-of-tree plugins into this checkout from the gitignored plugins.local.json:
 //   { "plugins": ["../my-plugin"] }   (paths relative to the repo root, or absolute)
-// A plugin checkout may hold mod.ts (backend), web/index.ts (frontend), e2e/*.spec.ts and
-// mark-roles.json (what its page marks mean to the hierarchy, see core/mark-roles.ts).
+// A plugin checkout may hold src/mod.rs (native backend, compiled into trame-local), mod.ts
+// (legacy Bun-host backend), web/index.ts (frontend), e2e/*.spec.ts and mark-roles.json (what
+// its page marks mean to the hierarchy, see core/mark-roles.ts).
 // Writes the registries the app imports statically (no runtime loading).
 // Without the file the registries are written empty, which is what the committed copies hold.
 import { lstat, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
@@ -13,6 +14,7 @@ const OUT = {
   web: join(ROOT, "app/web/src/plugins/local.gen.ts"),
   css: join(ROOT, "app/web/src/plugins/local.gen.css"),
   roles: join(ROOT, "core/mark-roles.gen.ts"),
+  native: join(ROOT, "crates/trame-local/src/plugins/local.gen.rs"),
 };
 const exists = (p: string) => stat(p).then(() => true, () => false);
 
@@ -57,7 +59,23 @@ async function markRoles() {
   ).join("") + (rules.length ? "\n" : "");
 }
 
+// native plugins: `#[path]` modules compiled into trame-local, each exporting `pub static PLUGIN`
+async function nativeRegistry() {
+  const found: { ident: string; file: string }[] = [];
+  for (const d of dirs) {
+    const file = join(d, "src/mod.rs");
+    if (!await exists(file)) continue;
+    const ident = d.split("/").filter(Boolean).at(-1)!.replace(/^trame-/, "").replace(/[^A-Za-z0-9]/g, "_");
+    found.push({ ident, file });
+  }
+  // a #[path] in a non-mod.rs file resolves against that file's own directory
+  const mods = found.map(({ ident, file }) => `#[path = ${JSON.stringify(rel(OUT.native, file))}]\n#[allow(unreachable_pub, reason = "a composed plugin's items are pub in its own repo")]\npub(super) mod ${ident};\n`).join("");
+  const list = found.map(({ ident }) => `&${ident}::PLUGIN`).join(", ");
+  return HEADER + mods + `pub(super) static LOCAL: &[&'static dyn super::api::Plugin] = &[${list}];\n`;
+}
+
 const files: [string, string][] = [
+  [OUT.native, await nativeRegistry()],
   [OUT.backend, await registry(OUT.backend, "mod.ts", "Plugin", "./types.ts")],
   [OUT.web, await registry(OUT.web, "web/index.ts", "FrontendPlugin", "./index")],
   // tailwind only scans the app's own tree; point it at each plugin's web code

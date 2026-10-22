@@ -6,7 +6,7 @@ use postgres::{NoTls, config::SslMode, types::Type};
 use serde_json::{Map, Value, json};
 use std::{
     collections::{HashMap, HashSet},
-    path::{Path, PathBuf},
+    path::PathBuf,
     str::FromStr,
     sync::Mutex,
     time::{Duration, Instant},
@@ -922,23 +922,10 @@ fn user_error(e: &anyhow::Error) -> Option<Value> {
 
 /// `/api/plugins/sql-source/<sub>`; runs on a blocking thread (it may wait on the external database).
 pub fn handle(env: &Env, method: &str, sub: &str, body: &Value) -> Result<(u16, Value)> {
+    if let Some(answer) = super::api::handle_sync(&PLUGIN, &env.settings, method, sub, body)? {
+        return Ok(answer);
+    }
     let slice = env.slice();
-    match (sub, method) {
-        ("/settings", "POST") => {
-            settings::save_plugin(&env.settings, ID, &sanitize(body, &slice))?;
-            return Ok((200, settings_view(&env.slice())));
-        }
-        ("/settings", _) => return Ok((200, settings_view(&slice))),
-        ("/enable", "POST") => {
-            let enabled = body["enabled"] == true;
-            settings::save_plugin(&env.settings, ID, &json!({"enabled": enabled}))?;
-            return Ok((200, json!({"enabled": enabled})));
-        }
-        _ => {}
-    }
-    if slice["enabled"] != true {
-        return Ok((403, json!({"error": "plugin disabled"})));
-    }
     let outcome = (|| -> Result<(u16, Value)> {
         let parts: Vec<_> = sub.split('/').collect();
         Ok(match (parts.as_slice(), method) {
@@ -987,15 +974,63 @@ pub fn handle(env: &Env, method: &str, sub: &str, body: &Value) -> Result<(u16, 
     }
 }
 
-pub fn manifest(settings_path: &Path) -> Value {
-    let slice = settings::plugin(settings_path, ID);
-    let failing = sources(&slice)
+fn failing(slice: &Value) -> usize {
+    sources(slice)
         .iter()
         .filter(|s| {
             !slice["status"][&s.id]["error"].is_null() && slice["status"][&s.id].is_object()
         })
-        .count();
-    json!({"id": ID, "label": "SQL sources", "glyph": "⇣", "description": "Fill databases from a read-only query on a Postgres you choose.", "enabled": slice["enabled"] == true, "badge": if failing == 0 { Value::Null } else { json!(failing) }})
+        .count()
+}
+
+pub struct SqlSource;
+pub static PLUGIN: SqlSource = SqlSource;
+
+impl super::api::Plugin for SqlSource {
+    fn id(&self) -> &'static str {
+        ID
+    }
+    fn label(&self) -> &'static str {
+        "SQL sources"
+    }
+    fn glyph(&self) -> &'static str {
+        "⇣"
+    }
+    fn description(&self) -> &'static str {
+        "Fill databases from a read-only query on a Postgres you choose."
+    }
+    fn badge(&self, slice: &Value) -> Option<u64> {
+        let n = failing(slice);
+        (n > 0).then_some(n as u64)
+    }
+    fn sanitize(&self, raw: &Value, current: &Value) -> Value {
+        sanitize(raw, current)
+    }
+    fn settings_view(&self, slice: &Value) -> Value {
+        settings_view(slice)
+    }
+    fn start(&'static self, native: Native) -> Option<tokio::task::JoinHandle<()>> {
+        Some(start(&native))
+    }
+    fn route(
+        &'static self,
+        native: Native,
+        sub: String,
+        req: axum::http::Request<axum::body::Body>,
+    ) -> super::api::RouteFuture {
+        Box::pin(async move {
+            let method = req.method().to_string();
+            let Ok(bytes) = axum::body::to_bytes(req.into_body(), usize::MAX).await else {
+                return crate::routes::json_response(500, json!({"error":"body unavailable"}));
+            };
+            let body = serde_json::from_slice::<Value>(&bytes).unwrap_or_else(|_| json!({}));
+            let env = Env::of(&native);
+            match crate::blocking::spawn(move || handle(&env, &method, &sub, &body)).await {
+                Ok(Ok((status, value))) => crate::routes::json_response(status, value),
+                _ => crate::routes::json_response(500, json!({"error":"Internal Server Error"})),
+            }
+        })
+    }
 }
 
 /// Refreshes due sources once a minute while the plugin is enabled.

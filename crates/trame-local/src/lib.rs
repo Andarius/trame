@@ -292,12 +292,7 @@ pub async fn run(
     if config.desktop && !isolated_mode() && !config.demo {
         drop(tokio::task::spawn_blocking(startup::install_agent_hooks));
     }
-    let plugin_task = if config.demo {
-        None
-    } else {
-        plugins::start(native.clone())
-    };
-    let sql_source_task = Some(plugins::sql_source::start(&native));
+    let plugin_tasks = plugins::start_all(&native);
     let host_task = if config.demo {
         None
     } else {
@@ -329,17 +324,10 @@ pub async fn run(
     let _ = shutdown_tx.send(());
     // open terminals hold WebSocket connections the graceful shutdown would wait on
     let _ = blocking::spawn(pty::shutdown).await;
-    let _ = blocking::spawn(plugins::notebook::shutdown).await;
-    for task in [
-        plugin_task,
-        sql_source_task,
-        host_task,
-        updater,
-        notifier,
-        seeder,
-    ]
-    .into_iter()
-    .flatten()
+    let _ = blocking::spawn(plugins::stop_all).await;
+    for task in plugin_tasks
+        .into_iter()
+        .chain([host_task, updater, notifier, seeder].into_iter().flatten())
     {
         task.abort();
         let _ = task.await;
