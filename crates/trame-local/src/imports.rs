@@ -11,7 +11,7 @@ use std::{
 
 pub mod transcript;
 
-fn transcript_dir(db: &Db, key: &str, fallback: &str) -> Result<PathBuf> {
+pub(crate) fn transcript_dir(db: &Db, key: &str, fallback: &str) -> Result<PathBuf> {
     let scratch = crate::isolated_mode() || crate::scratch_path(db.settings_path()?).is_ok();
     // the demo never lists the user's real transcripts
     let demo = crate::demo::active();

@@ -888,6 +888,24 @@ export type PluginUpdate = {
   available: boolean;
   releaseUrl: string | null;
 };
+// one row per day, project (or repo outside a project), agent and model; see crates/trame-local/src/stats.rs
+export type StatsRow = {
+  d: string;
+  p: string | null;
+  r: string | null;
+  a: string;
+  m: string | null;
+  prompts: number;
+  entries: number;
+  tokens: number;
+  done: number;
+  prs: number;
+};
+export const getStats = () =>
+  fetch("/api/stats").then(async (r) => {
+    if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? r.statusText);
+    return r.json() as Promise<{ today: string; rows: StatsRow[]; scan: { files: number; parsed: number; ms: number } }>;
+  });
 export const getPluginUpdates = () =>
   fetch("/api/plugin-updates").then((r) => r.json() as Promise<PluginUpdate[]>);
 export const setPluginEnabled = (id: string, enabled: boolean) =>

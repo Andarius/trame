@@ -50,7 +50,7 @@ fn first_line(text: &str, codex: bool) -> Option<String> {
     }
 }
 
-fn claude_user(event: &Value) -> Option<String> {
+pub(crate) fn claude_user(event: &Value) -> Option<String> {
     if event["type"] != "user" {
         return None;
     }
@@ -70,7 +70,7 @@ fn claude_user(event: &Value) -> Option<String> {
     first_line(&text, false)
 }
 
-fn codex_user(event: &Value) -> Option<String> {
+pub(crate) fn codex_user(event: &Value) -> Option<String> {
     let p = &event["payload"];
     let text = if event["type"] == "event_msg" && p["type"] == "user_message" {
         p["message"].as_str()?.to_owned()

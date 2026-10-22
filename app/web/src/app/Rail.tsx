@@ -5,11 +5,12 @@ import { useTermDock } from "../term/term-api";
 import { GearIcon, LogoMark } from "../ui/icons";
 import type { View } from "./view";
 
-export const NAV: { key: "sessions" | "agents" | "terminals" | "explore"; glyph: string; label: string; view: View }[] = [
+export const NAV: { key: "sessions" | "agents" | "terminals" | "explore" | "insights"; glyph: string; label: string; view: View }[] = [
   { key: "sessions", glyph: "▦", label: "Sessions", view: "board" },
   { key: "agents", glyph: "↻", label: "AI Sessions", view: "agents" },
   { key: "terminals", glyph: "›_", label: "Terminals", view: "terminals" },
   { key: "explore", glyph: "✦", label: "Explore", view: "explore" },
+  { key: "insights", glyph: "▥", label: "Insights", view: "insights" },
 ];
 
 // the rail's tab for the current view: plugins are their own, page/db/card views belong to Sessions

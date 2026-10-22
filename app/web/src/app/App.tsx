@@ -30,6 +30,7 @@ import { AgentSessions } from "../agents/AgentSessions";
 import { Board } from "../sessions/Board";
 import { Drawer, TOPBAR_SLOT } from "../sessions/Drawer";
 import { Explore } from "./Explore";
+import { Insights } from "./Insights";
 import { List } from "../sessions/List";
 import { filterSessionBoard, sortSessionBoard, type Sort } from "../sessions/SessionSort";
 import { SessionBar } from "../sessions/SessionBar";
@@ -591,6 +592,8 @@ export function App() {
     ? currentClient?.name ?? "Client"
     : view === "plugin"
     ? currentPlugin?.label ?? "Plugin"
+    : view === "insights"
+    ? "Insights"
     : "Explore";
 
   // starred pages: per-browser shortcuts to deep pages (Soren → Weekly → …)
@@ -646,7 +649,7 @@ export function App() {
           ? <div ref={setColumnSlot} className="contents" />
           : undefined}
         wide={view === "explore"}
-        bare={view === "plugin" && !pluginColumn}
+        bare={view === "insights" || (view === "plugin" && !pluginColumn)}
       />
       )}
       <main className="relative flex min-w-0 flex-1 flex-col">
@@ -893,6 +896,8 @@ export function App() {
           })()
           : view === "terminals"
           ? null // the dock is the view (below)
+          : view === "insights"
+          ? <Insights board={board} />
           : view === "agents"
           ? <AgentSessions board={board} onOpenSession={(id) => openSession(id)} slot={columnSlot} />
           : (

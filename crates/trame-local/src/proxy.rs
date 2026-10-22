@@ -89,6 +89,9 @@ async fn forward(State(state): State<Proxy>, req: Request<Body>) -> Response {
         }
         return response;
     }
+    if crate::stats::owns(req.method().as_str(), req.uri().path()) {
+        return crate::stats::serve(native.clone()).await;
+    }
     if crate::web::owns(req.uri().path()) {
         return crate::web::serve(native.clone(), req).await;
     }

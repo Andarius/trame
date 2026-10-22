@@ -5,6 +5,7 @@ export type View =
   | "agents"
   | "terminals"
   | "explore"
+  | "insights"
   | "database"
   | "page"
   | "card"
