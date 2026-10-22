@@ -900,11 +900,17 @@ export type StatsRow = {
   tokens: number;
   done: number;
   prs: number;
+  merged: number;
 };
 export const getStats = () =>
   fetch("/api/stats").then(async (r) => {
     if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? r.statusText);
-    return r.json() as Promise<{ today: string; rows: StatsRow[]; scan: { files: number; parsed: number; ms: number } }>;
+    return r.json() as Promise<{
+      today: string;
+      rows: StatsRow[];
+      scan: { files: number; parsed: number; ms: number };
+      prs: { pending: boolean; fetched: boolean }; // merged PRs come from GitHub/GitLab in the background
+    }>;
   });
 export const getPluginUpdates = () =>
   fetch("/api/plugin-updates").then((r) => r.json() as Promise<PluginUpdate[]>);

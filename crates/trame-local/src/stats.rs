@@ -10,21 +10,24 @@ use chrono::{DateTime, Local, NaiveDate};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fs::File,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
     sync::{
         Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::{Instant, UNIX_EPOCH},
 };
 
 const DAYS: i64 = 366;
 const CACHE: &str = "stats-cache.json";
-const CACHE_VERSION: u32 = 1;
+const CACHE_VERSION: u32 = 2;
+// how long fetched merged PRs stay fresh
+const PRS_TTL_MS: i64 = 15 * 60_000;
 static SCAN: Mutex<()> = Mutex::new(());
+static FETCHING: AtomicBool = AtomicBool::new(false);
 
 pub fn owns(method: &str, path: &str) -> bool {
     method == "GET" && path == "/api/stats"
@@ -61,10 +64,19 @@ struct Cached {
     stats: FileStats,
 }
 
+#[derive(Serialize, Deserialize)]
+struct MergedPr {
+    day: NaiveDate,
+    repo: String,
+}
+
 #[derive(Serialize, Deserialize, Default)]
 struct Cache {
     version: u32,
     files: HashMap<PathBuf, Cached>,
+    // merged PRs and MRs by link, and when each forge ("github" or a GitLab host) was last asked
+    prs: BTreeMap<String, MergedPr>,
+    checked: BTreeMap<String, i64>,
 }
 
 #[derive(Default)]
@@ -74,6 +86,7 @@ struct Counts {
     tokens: u64,
     done: u64,
     prs: u64,
+    merged: u64,
 }
 
 // date, project id, repo name (when no project), agent, model
@@ -85,8 +98,15 @@ type Key = (
     Option<String>,
 );
 
-// card repo path → project id
-type Repos = Vec<(String, String)>;
+/// What the DB says about where work belongs.
+#[derive(Default)]
+struct Owners {
+    // card repo path → project id
+    repos: Vec<(String, String)>,
+    // PR repo (as `forge::pr_repo`) → project id
+    pr_projects: HashMap<String, String>,
+    gitlab_hosts: BTreeSet<String>,
+}
 
 fn stats(state: &Native) -> Result<Value> {
     let started = Instant::now();
@@ -99,31 +119,51 @@ fn stats(state: &Native) -> Result<Value> {
     let codex = transcript_dir(&db, "TRACKER_CODEX_DIR", "codex-sessions")?;
     let from = Local::now().date_naive() - chrono::Days::new(DAYS as u64);
     let mut rows: BTreeMap<Key, Counts> = BTreeMap::new();
-    let repos = db_rows(&mut db, from, &mut rows)?;
+    let owners = db_rows(&mut db, from, &mut rows)?;
     drop(db);
-    let (files, parsed) = {
-        let _scan = SCAN
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        transcript_rows(
-            &state.root.join(CACHE),
-            &claude,
-            &codex,
-            from,
-            &repos,
-            &mut rows,
-        )
-    };
+    let cache_path = state.root.join(CACHE);
+    let _scan = SCAN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut cache = load_cache(&cache_path);
+    let (files, parsed, changed) =
+        transcript_rows(&mut cache, &claude, &codex, from, &owners.repos, &mut rows);
+    let stale = stale_forges(&cache, &owners.gitlab_hosts);
+    if !state.sync.offline && !stale.is_empty() && !FETCHING.swap(true, Ordering::SeqCst) {
+        let since: Vec<_> = stale
+            .iter()
+            .map(|f| (f.clone(), fetch_since(&cache, f, from)))
+            .collect();
+        let path = cache_path.clone();
+        std::thread::spawn(move || {
+            let found = fetch_merged(since);
+            let _scan = SCAN
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut cache = load_cache(&path);
+            for (forge, prs) in found {
+                cache.prs.extend(prs);
+                cache.checked.insert(forge, Local::now().timestamp_millis());
+            }
+            save_cache(&path, &mut cache);
+            FETCHING.store(false, Ordering::SeqCst);
+        });
+    }
+    merged_rows(&cache, from, &owners.pr_projects, &mut rows);
+    if changed {
+        save_cache(&cache_path, &mut cache);
+    }
     let rows: Vec<Value> = rows
         .into_iter()
         .map(|((d, p, r, a, m), c)| {
-            json!({"d":d,"p":p,"r":r,"a":a,"m":m,"prompts":c.prompts,"entries":c.entries,"tokens":c.tokens,"done":c.done,"prs":c.prs})
+            json!({"d":d,"p":p,"r":r,"a":a,"m":m,"prompts":c.prompts,"entries":c.entries,"tokens":c.tokens,"done":c.done,"prs":c.prs,"merged":c.merged})
         })
         .collect();
     Ok(json!({
         "today": Local::now().date_naive(),
         "rows": rows,
         "scan": {"files": files, "parsed": parsed, "ms": started.elapsed().as_millis()},
+        "prs": {"pending": FETCHING.load(Ordering::SeqCst), "fetched": !cache.checked.is_empty()},
     }))
 }
 
@@ -140,8 +180,8 @@ fn repo_name(path: &str) -> String {
         .to_owned()
 }
 
-/// Worklog entries and closed cards; returns each card repo's project.
-fn db_rows(db: &mut Db, from: NaiveDate, rows: &mut BTreeMap<Key, Counts>) -> Result<Repos> {
+/// Worklog entries and closed cards; returns which project each repo and PR repo belongs to.
+fn db_rows(db: &mut Db, from: NaiveDate, rows: &mut BTreeMap<Key, Counts>) -> Result<Owners> {
     let since = json!(from.to_string());
     for e in db.query(
         "select extract(epoch from e.at)::float8 t, s.client_id::text p, s.repo_path r, e.agent a, e.model m
@@ -186,16 +226,112 @@ fn db_rows(db: &mut Db, from: NaiveDate, rows: &mut BTreeMap<Key, Counts>) -> Re
         row.done += u64::from(done);
         row.prs += u64::from(pr);
     }
-    let repos = db
-        .query(
-            "select distinct rtrim(repo_path, '/') r, client_id::text p from sessions
-              where not deleted and coalesce(repo_path, '') <> '' and client_id is not null",
-            &[],
-        )?
-        .iter()
-        .filter_map(|r| Some((r["r"].as_str()?.to_owned(), r["p"].as_str()?.to_owned())))
-        .collect();
-    Ok(repos)
+    let mut owners = Owners::default();
+    for s in db.query(
+        "select rtrim(repo_path, '/') r, pr_url u, client_id::text p from sessions
+          where not deleted and (coalesce(repo_path, '') <> '' or coalesce(pr_url, '') <> '')",
+        &[],
+    )? {
+        let project = s["p"].as_str();
+        if let (Some(repo), Some(project)) = (s["r"].as_str().filter(|r| !r.is_empty()), project) {
+            owners.repos.push((repo.to_owned(), project.to_owned()));
+        }
+        // pr_url holds one link per line
+        for url in s["u"].as_str().unwrap_or("").lines() {
+            let Some(repo) = crate::forge::pr_repo(url) else {
+                continue;
+            };
+            if url.contains("/-/merge_requests/") {
+                owners
+                    .gitlab_hosts
+                    .insert(repo.split('/').next().unwrap_or("").to_owned());
+            }
+            if let Some(project) = project {
+                owners.pr_projects.insert(repo, project.to_owned());
+            }
+        }
+    }
+    owners.repos.sort();
+    owners.repos.dedup();
+    Ok(owners)
+}
+
+fn load_cache(path: &Path) -> Cache {
+    std::fs::read(path)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .filter(|c: &Cache| c.version == CACHE_VERSION)
+        .unwrap_or_default()
+}
+
+fn save_cache(path: &Path, cache: &mut Cache) {
+    cache.version = CACHE_VERSION;
+    if let Ok(bytes) = serde_json::to_vec(cache) {
+        let tmp = path.with_extension("tmp");
+        if std::fs::write(&tmp, bytes).is_ok() {
+            let _ = std::fs::rename(&tmp, path);
+        }
+    }
+}
+
+/// The forges ("github", then GitLab hosts) not asked for merged PRs recently.
+fn stale_forges(cache: &Cache, gitlab_hosts: &BTreeSet<String>) -> Vec<String> {
+    let now = Local::now().timestamp_millis();
+    std::iter::once("github".to_owned())
+        .chain(gitlab_hosts.iter().cloned())
+        .filter(|f| cache.checked.get(f).is_none_or(|t| now - t >= PRS_TTL_MS))
+        .collect()
+}
+
+/// Where to resume a forge: a day before its last check (time zones, merges racing it), or `from`.
+fn fetch_since(cache: &Cache, forge: &str, from: NaiveDate) -> NaiveDate {
+    cache
+        .checked
+        .get(forge)
+        .and_then(|t| DateTime::from_timestamp_millis(*t))
+        .map(|t| t.with_timezone(&Local).date_naive() - chrono::Days::new(1))
+        .map_or(from, |d| d.max(from))
+}
+
+/// Each forge's merged PRs by link; a forge whose CLI fails or is missing is left out, to ask again later.
+fn fetch_merged(forges: Vec<(String, NaiveDate)>) -> Vec<(String, BTreeMap<String, MergedPr>)> {
+    let today = Local::now().date_naive();
+    forges
+        .into_iter()
+        .filter_map(|(forge, since)| {
+            let found = if forge == "github" {
+                crate::forge::merged_github(since, today)
+            } else {
+                crate::forge::merged_gitlab(&forge, since)
+            }?;
+            let prs = found
+                .into_iter()
+                .filter_map(|pr| {
+                    let day = DateTime::parse_from_rfc3339(&pr.at)
+                        .ok()?
+                        .with_timezone(&Local)
+                        .date_naive();
+                    Some((pr.url, MergedPr { day, repo: pr.repo }))
+                })
+                .collect();
+            Some((forge, prs))
+        })
+        .collect()
+}
+
+fn merged_rows(
+    cache: &Cache,
+    from: NaiveDate,
+    pr_projects: &HashMap<String, String>,
+    rows: &mut BTreeMap<Key, Counts>,
+) {
+    for pr in cache.prs.values().filter(|pr| pr.day >= from) {
+        let project = pr_projects.get(&pr.repo).cloned();
+        let repo = project.is_none().then(|| repo_name(&pr.repo));
+        rows.entry((pr.day, project, repo, "you".into(), None))
+            .or_default()
+            .merged += 1;
+    }
 }
 
 /// The project whose card repo is the longest prefix of `cwd`.
@@ -226,19 +362,15 @@ fn jsonl_files(dir: &Path, depth: u8, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// Prompts and tokens from the transcripts, parsing only new or changed files; (files, parsed, cache changed).
 fn transcript_rows(
-    cache_path: &Path,
+    cache: &mut Cache,
     claude: &Path,
     codex: &Path,
     from: NaiveDate,
     repos: &[(String, String)],
     rows: &mut BTreeMap<Key, Counts>,
-) -> (usize, usize) {
-    let mut cache: Cache = std::fs::read(cache_path)
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .filter(|c: &Cache| c.version == CACHE_VERSION)
-        .unwrap_or_default();
+) -> (usize, usize, bool) {
     let cutoff = from
         .and_hms_opt(0, 0, 0)
         .and_then(|t| t.and_local_timezone(Local).single())
@@ -329,19 +461,10 @@ fn transcript_rows(
             }
         }
     }
-    if parsed > 0 || total != cache.files.len() {
-        let cache = Cache {
-            version: CACHE_VERSION,
-            files: keep,
-        };
-        if let Ok(bytes) = serde_json::to_vec(&cache) {
-            let tmp = cache_path.with_extension("tmp");
-            if std::fs::write(&tmp, bytes).is_ok() {
-                let _ = std::fs::rename(&tmp, cache_path);
-            }
-        }
-    }
-    (total, parsed)
+    // files left in the old map are gone or out of range
+    let changed = parsed > 0 || !cache.files.is_empty();
+    cache.files = keep;
+    (total, parsed, changed)
 }
 
 fn event_date(event: &Value) -> Option<NaiveDate> {

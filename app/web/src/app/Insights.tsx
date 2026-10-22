@@ -20,8 +20,8 @@ function shift(today: string, n: number): string {
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
 }
 
-type Totals = { prompts: number; tokens: number; entries: number; done: number; prs: number };
-const ZERO: Totals = { prompts: 0, tokens: 0, entries: 0, done: 0, prs: 0 };
+type Totals = { prompts: number; tokens: number; entries: number; done: number; prs: number; merged: number };
+const ZERO: Totals = { prompts: 0, tokens: 0, entries: 0, done: 0, prs: 0, merged: 0 };
 const sum = (rows: StatsRow[]) =>
   rows.reduce<Totals>(
     (t, r) => ({
@@ -30,6 +30,7 @@ const sum = (rows: StatsRow[]) =>
       entries: t.entries + r.entries,
       done: t.done + r.done,
       prs: t.prs + r.prs,
+      merged: t.merged + r.merged,
     }),
     ZERO,
   );
@@ -44,6 +45,13 @@ export function Insights({ board }: { board: BoardData | null }) {
   useEffect(() => {
     getStats().then(setData, (e: Error) => setError(e.message));
   }, []);
+  // merged PRs arrive from GitHub/GitLab in the background: reload until they are in
+  const pending = data?.prs.pending;
+  useEffect(() => {
+    if (!pending) return;
+    const t = setTimeout(() => void getStats().then(setData, () => {}), 5000);
+    return () => clearTimeout(t);
+  }, [data, pending]);
 
   const days = Number(range);
   const view = useMemo(() => {
@@ -63,6 +71,7 @@ export function Insights({ board }: { board: BoardData | null }) {
     { key: "tokens", label: "TOKENS", hint: "agent input + output tokens, cache reads excluded" },
     { key: "entries", label: "WORKLOG ENTRIES", hint: "track and log entries on cards" },
     { key: "done", label: "CARDS DONE", hint: "cards in a done column, by last activity" },
+    { key: "merged", label: "PRS MERGED", hint: "your GitHub PRs and GitLab MRs merged, by merge date" },
     { key: "prs", label: "CARDS WITH A PR", hint: "cards with a pull request, by last activity" },
   ];
   return (
@@ -73,11 +82,11 @@ export function Insights({ board }: { board: BoardData | null }) {
             <SegToggle options={RANGES} value={range} onChange={setRange} />
           </div>
         </div>
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3">
           {headline.map((h) => (
             <Stat
               key={h.key}
-              value={view.totals[h.key]}
+              value={h.key === "merged" && data.prs.pending && !data.prs.fetched ? null : view.totals[h.key]}
               prev={view.hasPrev ? view.prev[h.key] : null}
               label={h.label}
               hint={h.hint}
@@ -100,12 +109,15 @@ export function Insights({ board }: { board: BoardData | null }) {
 
 const CARD = "rounded-xl border border-line bg-panel p-4";
 
-function Stat({ value, prev, label, hint }: { value: number; prev: number | null; label: string; hint: string }) {
-  const change = prev ? Math.round(((value - prev) / prev) * 100) : null;
+// a null value is still loading
+function Stat({ value, prev, label, hint }: { value: number | null; prev: number | null; label: string; hint: string }) {
+  const change = prev && value !== null ? Math.round(((value - prev) / prev) * 100) : null;
   return (
     <div className={CARD} title={hint}>
       <div className="flex items-start gap-2">
-        <div className="text-[26px] font-semibold leading-tight tabular-nums">{fmt(value)}</div>
+        <div className="text-[26px] font-semibold leading-tight tabular-nums">
+          {value === null ? <span className="text-ink-faint" title="asking GitHub / GitLab…">…</span> : fmt(value)}
+        </div>
         {change !== null && change !== 0 && (
           <span
             className={`ml-auto rounded-full px-1.5 py-0.5 text-[10.5px] font-medium ${
