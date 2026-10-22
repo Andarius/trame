@@ -1428,3 +1428,37 @@ fn story_from_page_rejects_nested_and_spec_pages() {
         assert_eq!(row["parent_id"], project);
     }
 }
+
+#[test]
+fn search_finds_cards_pages_and_agent_sessions_by_id() {
+    let mut t = TestDb::new();
+    let harness = "5e7a1c2d-0b9f-4c3e-8a6d-2f4b1e9c7a30";
+    let card = create(
+        &mut t,
+        json!({"title":"Id lookup card","claude_id":harness}),
+    );
+    let page = pages::create(&mut t.db, &json!({"title":"Id lookup page"}))
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut ids = |q: &str| -> Vec<String> {
+        sessions::search(&mut t.db, q)
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|h| h["id"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    for (q, want) in [
+        (card.clone(), &card),
+        (card[..8].to_owned(), &card),
+        (harness.to_uppercase(), &card),
+        (page.clone(), &page),
+    ] {
+        assert_eq!(ids(&q), vec![want.clone()], "query {q}");
+    }
+    // under 6 characters is too short to be taken as an id prefix
+    assert!(!ids(&card[..4]).contains(&card));
+}

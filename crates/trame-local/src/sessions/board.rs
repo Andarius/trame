@@ -26,18 +26,23 @@ pub fn search(db: &mut Db, q: &str) -> Result<Value> {
         pat.push(c);
     }
     pat.push('%');
+    // an id or its first characters (6+ hex) also matches cards, pages, databases and agent sessions
+    let id = q.trim().to_ascii_lowercase();
+    let id_pat = (id.len() >= 6 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-'))
+        .then(|| format!("{id}%"));
     Ok(json!(db.query("select * from (
        select 'session' as kind,id::text as id,title,coalesce(summary,'') as sub,
               '' as icon,status as meta,'' as color,last_touched as at,null::text as mark_role
-         from sessions where not deleted and (title ilike $1 or summary ilike $1 or coalesce(next_step,'') ilike $1)
+         from sessions where not deleted and (title ilike $1 or summary ilike $1 or coalesce(next_step,'') ilike $1
+           or id::text like $2 or claude_id::text like $2)
        union all
        select case when kind='project' then 'client' else 'page' end,id::text,title,
               coalesce(brief,''),coalesce(icon,''),kind,coalesce(color,''),updated_at,null::text
-         from pages where not deleted and (title ilike $1 or brief ilike $1 or content::text ilike $1)
+         from pages where not deleted and (title ilike $1 or brief ilike $1 or content::text ilike $1 or id::text like $2)
        union all
        select 'database',id::text,name,'',coalesce(icon,''),'database','',updated_at,null::text
-         from udb_databases where not deleted and name ilike $1
-     ) hits order by at desc limit 20", &[json!(pat)])?))
+         from udb_databases where not deleted and (name ilike $1 or id::text like $2)
+     ) hits order by at desc limit 20", &[json!(pat), json!(id_pat)])?))
 }
 
 pub(super) fn list_events(db: &mut Db, id: &str, limit: Option<i64>) -> Result<Value> {
