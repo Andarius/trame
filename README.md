@@ -286,10 +286,15 @@ notebook. A server Trame started stops with Trame; an attached one is only detac
 ![Notebook plugin: start a server, pick a notebook, see it alone in the sidebar](docs/notebook.gif)
 
 **Out-of-tree plugins** are composed at build time: list their checkouts in a gitignored
-`plugins.local.json` (`{ "plugins": ["../my-plugin"] }`) and run `just plugins`. A plugin holds
-`mod.ts` (backend, imports Trame only via `@trame/plugin-api`), `web/index.ts` (a `FrontendPlugin`,
-via `@trame/web-api`) and optional `e2e/` specs. The `trame-plugin` skill (installed by
-`tramecli setup`) walks an agent through writing, composing, testing and releasing one.
+`plugins.local.json` (`{ "plugins": ["../my-plugin"] }`) and run `just plugins`. A plugin repo
+holds `src/mod.rs`, a Rust module compiled into `trame-local` that exports `pub static PLUGIN`
+implementing `plugins::api::Plugin` (manifest, routes with the full axum request and response,
+settings sanitizing, start and stop), and `web/index.ts`, a `FrontendPlugin` on
+`@trame/web-api`, plus optional `e2e/` specs and `mark-roles.json`. The registry owns
+`/enable`, `/settings` and the enabled gate; the plugin answers everything else under
+`/api/plugins/<id>/`. The `trame-plugin` skill (installed by `tramecli setup`) walks an agent
+through writing, composing, testing and releasing one. The earlier TypeScript `mod.ts` plugins
+still run in the out-of-process Bun host until they are ported; no new plugin should start there.
 
 ## How sync works
 
@@ -350,9 +355,7 @@ execution still need qualification.
 
 **Auto-update**: the AppImage and the macOS `.app` check the latest release every 6h,
 download it in the background and swap it in place; a banner offers **Restart now** (or the
-next launch runs it). On each launch the AppImage also repairs its menu entry and `trame://`
-handler, and replaces a `~/.local/bin/tramecli` installed as a plain file with its bundled CLI
-(a symlink is left alone). deb/snap/source installs only get a link to the release.
+next launch runs it). deb/snap/source installs only get a link to the release.
 `TRACKER_AUTO_UPDATE=0` keeps the check but skips the download; `TRACKER_UPDATE_CHECK=0`
 disables both.
 

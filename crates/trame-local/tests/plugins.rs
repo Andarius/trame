@@ -4,7 +4,7 @@ mod common;
 use common::TestDb;
 use serde_json::{Value, json};
 use trame_local::{
-    plugins::{self, ships},
+    plugins::{self, api::Plugin as _, deployments::ships},
     settings,
 };
 static FIXTURE_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -14,13 +14,13 @@ fn gitlab_auth_never_lends_ambient_token_to_unsaved_host() {
     unsafe {
         std::env::set_var("GITLAB_TOKEN", "fixture-env-secret");
     }
-    let saved = plugins::auth::gitlab(&json!({}), "https://gitlab.com", true);
+    let saved = plugins::deployments::auth::gitlab(&json!({}), "https://gitlab.com", true);
     assert_eq!(saved.source, "env");
     assert_eq!(saved.token, "fixture-env-secret");
-    let unsaved = plugins::auth::gitlab(&json!({}), "http://attacker.example", false);
+    let unsaved = plugins::deployments::auth::gitlab(&json!({}), "http://attacker.example", false);
     assert_eq!(unsaved.source, "none");
     assert!(unsaved.token.is_empty());
-    let supplied = plugins::auth::gitlab(
+    let supplied = plugins::deployments::auth::gitlab(
         &json!({"gitlabToken":"pat-123"}),
         "http://attacker.example",
         false,
@@ -39,10 +39,10 @@ fn forge_actions_require_watched_targets_and_valid_ids() {
         json!({"kind":"github-approve","repo":"other/repo","runId":1,"environmentId":2}),
         json!({"kind":"gitlab-play","project":"other/project","jobId":1}),
     ] {
-        assert!(plugins::live::action_precondition(&slice, &action).is_some());
+        assert!(plugins::deployments::live::action_precondition(&slice, &action).is_some());
     }
     assert_eq!(
-        plugins::live::action_precondition(
+        plugins::deployments::live::action_precondition(
             &slice,
             &json!({"kind":"github-reject","repo":"acme/webapp","runId":"bad","environmentId":2})
         )
@@ -50,18 +50,19 @@ fn forge_actions_require_watched_targets_and_valid_ids() {
         "bad action"
     );
     assert_eq!(
-        plugins::live::action_precondition(&slice, &json!({"kind":"bogus"})).unwrap()["error"],
+        plugins::deployments::live::action_precondition(&slice, &json!({"kind":"bogus"})).unwrap()
+            ["error"],
         "unknown action"
     );
     assert!(
-        plugins::live::action_precondition(
+        plugins::deployments::live::action_precondition(
             &slice,
             &json!({"kind":"github-approve","repo":"acme/webapp","runId":1,"environmentId":2})
         )
         .is_none()
     );
     assert!(
-        plugins::live::action_precondition(
+        plugins::deployments::live::action_precondition(
             &slice,
             &json!({"kind":"gitlab-reject","project":"acme/api","deploymentId":3})
         )
@@ -224,7 +225,7 @@ fn fixture_routes_preserve_gate_actions_ignores_and_redaction() {
     let mut t = TestDb::new();
     let path = t.root.join("settings.json");
     let call = |t: &mut TestDb, method: &str, path_: &str, body: Value| {
-        plugins::handle(&mut t.db, &path, method, path_, "", &body).unwrap()
+        plugins::deployments::handle(&mut t.db, &path, method, path_, "", &body).unwrap()
     };
     assert_eq!(
         call(&mut t, "GET", "/api/plugins/deployments/state", Value::Null).0,
@@ -374,10 +375,14 @@ fn boot_poll_starts_without_request_and_stops_before_database_shutdown() {
         open: None,
     };
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let poller = rt.block_on(async { plugins::start(state.clone()).expect("fixture poller") });
+    let poller = rt.block_on(async {
+        plugins::deployments::PLUGIN
+            .start(state.clone())
+            .expect("fixture poller")
+    });
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
-        let (_, value) = plugins::handle(
+        let (_, value) = plugins::deployments::handle(
             &mut t.db,
             &settings_path,
             "GET",
@@ -405,8 +410,8 @@ fn boot_poll_starts_without_request_and_stops_before_database_shutdown() {
     unsafe {
         std::env::remove_var("TRACKER_DEPLOYMENTS_FIXTURE");
     }
-    assert!(plugins::start(state.clone()).is_none());
-    let (_, reset) = plugins::handle(
+    assert!(plugins::deployments::PLUGIN.start(state.clone()).is_none());
+    let (_, reset) = plugins::deployments::handle(
         &mut t.db,
         &settings_path,
         "GET",
@@ -418,10 +423,14 @@ fn boot_poll_starts_without_request_and_stops_before_database_shutdown() {
     assert_eq!(reset["items"], json!([]));
     let mut live_state = state;
     live_state.sync.offline = false;
-    let live_poller = rt.block_on(async { plugins::start(live_state).expect("live poller") });
+    let live_poller = rt.block_on(async {
+        plugins::deployments::PLUGIN
+            .start(live_state)
+            .expect("live poller")
+    });
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
-        let (_, value) = plugins::handle(
+        let (_, value) = plugins::deployments::handle(
             &mut t.db,
             &settings_path,
             "GET",
@@ -468,22 +477,22 @@ async fn gitlab_live_adapter_maps_latest_environment_and_compare() {
     let base = format!("http://{}", listener.local_addr().unwrap());
     let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
     let client = reqwest::Client::new();
-    let auth = plugins::auth::Auth {
+    let auth = plugins::deployments::auth::Auth {
         token: "fixture-token".into(),
         source: "settings",
     };
-    let items = plugins::gitlab::pending(&client, "acme/api", &base, &auth)
+    let items = plugins::deployments::gitlab::pending(&client, "acme/api", &base, &auth)
         .await
         .unwrap();
     assert_eq!(items.len(), 2);
     assert_eq!(items[0]["action"]["kind"], "gitlab-play");
     assert_eq!(items[1]["cancel"]["kind"], "gitlab-cancel");
     assert!(
-        plugins::gitlab::active_pipeline(&client, "acme/api", &base, &auth)
+        plugins::deployments::gitlab::active_pipeline(&client, "acme/api", &base, &auth)
             .await
             .unwrap()
     );
-    let change = plugins::gitlab::changelog(
+    let change = plugins::deployments::gitlab::changelog(
         &client,
         "acme/api",
         &base,
@@ -495,7 +504,7 @@ async fn gitlab_live_adapter_maps_latest_environment_and_compare() {
     .unwrap();
     assert_eq!(change["baseline"], "base1234");
     assert_eq!(change["commits"][0]["title"], "Ship!");
-    let refs = plugins::gitlab::shipped_mrs(
+    let refs = plugins::deployments::gitlab::shipped_mrs(
         &client,
         "acme/api",
         &base,

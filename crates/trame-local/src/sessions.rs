@@ -13,6 +13,7 @@ pub use stories::similar as similar_stories;
 pub use stories::{find_similar_stories, resolve_story};
 pub use write::upsert;
 pub use write::{client_for, default_tags, default_tags_for, split_tag_label, tag_color, tag_key};
+pub(crate) use write::{ensure_specs_page, ensure_tag};
 
 pub fn days_until(due: &str, today: &str) -> Result<i64> {
     let due = chrono::NaiveDate::parse_from_str(due, "%Y-%m-%d")?;
@@ -151,7 +152,7 @@ fn route(db: &mut Db, method: &str, path: &str, query: &str, body: &Value) -> Re
             (200, ok())
         }
         ["", "api", "sessions", id, "status"] => {
-            db.query("update sessions set status=$2, origin=$3, updated_at=clock_timestamp() where id=$1", &[json!(id),body["status"].clone(),origin(db)])?;
+            set_status(db, id, &body["status"])?;
             let mut out = ok();
             if let Some(note) = board::open_todos_note(db, id)? { out["note"] = json!(note); }
             (200, out)
@@ -178,6 +179,15 @@ fn route(db: &mut Db, method: &str, path: &str, query: &str, body: &Value) -> Re
         _ => return Ok((404,json!({"error":"not found"}))),
     };
     Ok(response)
+}
+
+/// Move a card to a board status.
+pub fn set_status(db: &mut Db, id: &str, status: &Value) -> Result<()> {
+    db.query(
+        "update sessions set status=$2, origin=$3, updated_at=clock_timestamp() where id=$1",
+        &[json!(id), status.clone(), origin(db)],
+    )?;
+    Ok(())
 }
 
 pub fn list_reports(db: &mut Db) -> Result<Value> {

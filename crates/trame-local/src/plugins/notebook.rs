@@ -77,11 +77,6 @@ fn json_response(status: u16, value: Value) -> Response {
 
 // Settings
 
-pub fn manifest(settings_path: &Path) -> Value {
-    let slice = settings::plugin(settings_path, ID);
-    json!({"id": ID, "label": "Notebook", "glyph": "▤", "description": "JupyterLab in the sidebar: start a server in a folder or attach to one already running.", "enabled": slice["enabled"] == true, "badge": Value::Null})
-}
-
 fn text(v: &Value) -> String {
     v.as_str().unwrap_or("").trim().to_owned()
 }
@@ -924,44 +919,55 @@ async fn pump(client: WebSocket, upstream: Upstream) {
 
 // Routes
 
-pub fn owns(path: &str) -> bool {
-    path == "/api/plugins/notebook" || path.starts_with("/api/plugins/notebook/")
+pub struct Notebook;
+pub static PLUGIN: Notebook = Notebook;
+
+impl super::api::Plugin for Notebook {
+    fn id(&self) -> &'static str {
+        ID
+    }
+    fn label(&self) -> &'static str {
+        "Notebook"
+    }
+    fn glyph(&self) -> &'static str {
+        "▤"
+    }
+    fn description(&self) -> &'static str {
+        "JupyterLab in the sidebar: start a server in a folder or attach to one already running."
+    }
+    fn sanitize(&self, raw: &Value, current: &Value) -> Value {
+        sanitize(raw, current)
+    }
+    fn settings_view(&self, slice: &Value) -> Value {
+        settings_view(slice)
+    }
+    fn stop(&'static self) {
+        shutdown();
+    }
+    fn route(
+        &'static self,
+        native: Native,
+        sub: String,
+        req: Request<Body>,
+    ) -> super::api::RouteFuture {
+        Box::pin(route(native, sub, req))
+    }
 }
 
-/// `/api/plugins/notebook/<sub>`: settings/enable are always reachable, the rest 403s while disabled.
-pub async fn serve(native: Native, req: Request<Body>) -> Response {
-    let path = req.uri().path().to_owned();
-    let sub = path
-        .strip_prefix("/api/plugins/notebook")
-        .unwrap_or("")
-        .to_owned();
-    let method = req.method().clone();
+/// `/api/plugins/notebook/<sub>` once the registry has gated it.
+async fn route(native: Native, sub: String, req: Request<Body>) -> Response {
     let settings_path = native.settings.clone();
-    let slice = settings::plugin(&settings_path, ID);
     if let Some(rest) = sub.strip_prefix("/j/") {
-        if slice["enabled"] != true {
-            return forbidden_response(403, "plugin disabled");
-        }
         reattach_saved(&settings_path);
         let rest = rest.to_owned();
         return proxy(req, &rest).await;
     }
+    let method = req.method().clone();
     let body = match axum::body::to_bytes(req.into_body(), 1 << 20).await {
         Ok(bytes) => serde_json::from_slice::<Value>(&bytes).unwrap_or_else(|_| json!({})),
         Err(_) => return forbidden_response(400, "body unavailable"),
     };
     let outcome: Result<(u16, Value)> = match (sub.as_str(), method.as_str()) {
-        ("/settings", "POST") => {
-            settings::save_plugin(&settings_path, ID, &sanitize(&body, &slice))
-                .map(|()| (200, settings_view(&settings::plugin(&settings_path, ID))))
-        }
-        ("/settings", _) => Ok((200, settings_view(&slice))),
-        ("/enable", "POST") => {
-            let enabled = body["enabled"] == true;
-            settings::save_plugin(&settings_path, ID, &json!({"enabled": enabled}))
-                .map(|()| (200, json!({"enabled": enabled})))
-        }
-        _ if slice["enabled"] != true => Ok((403, json!({"error": "plugin disabled"}))),
         ("/status", _) => {
             reattach_saved(&settings_path);
             Ok((200, status(&settings_path)))
