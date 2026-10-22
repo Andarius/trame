@@ -29,6 +29,11 @@ fn main() -> anyhow::Result<()> {
     let mut config = trame_local::Config::from_env()?;
     if trame_local::isolated_mode() {
         config.root = trame_local::scratch_root(&config.root)?;
+    } else {
+        #[cfg(target_os = "linux")]
+        appimage::register_scheme();
+        #[cfg(target_os = "linux")]
+        appimage::refresh_cli();
     }
     let runtime = Arc::new(tokio::runtime::Runtime::new()?);
     // `trame trame://page/<id>` (a clicked link) goes to the running instance when there is one
