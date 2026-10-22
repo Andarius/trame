@@ -65,7 +65,9 @@ async function nativeRegistry() {
   for (const d of dirs) {
     const file = join(d, "src/mod.rs");
     if (!await exists(file)) continue;
-    const ident = d.split("/").filter(Boolean).at(-1)!.replace(/^trame-/, "").replace(/[^A-Za-z0-9]/g, "_");
+    // module name: the plugin's `pub const ID` when it declares one (a worktree folder name is not it)
+    const id = /pub const ID: &str = "([^"]+)"/.exec(await readFile(file, "utf8"))?.[1];
+    const ident = (id ?? d.split("/").filter(Boolean).at(-1)!.replace(/^trame-/, "")).replace(/[^A-Za-z0-9]/g, "_");
     found.push({ ident, file });
   }
   // a #[path] in a non-mod.rs file resolves against that file's own directory
