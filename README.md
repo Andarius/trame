@@ -269,6 +269,22 @@ survive it.
 > Connection strings stay in this machine's `settings.json` (0600) and are never sent back to the
 > UI. The query **results** are ordinary rows: they sync to the hub and your other devices.
 
+**Notebook** shows one Jupyter notebook in the sidebar, nothing else: no file browser, menus or
+side panels (**Open in browser** gives the full JupyterLab). Pick the notebook from the server's
+folder in the panel bar. **Start JupyterLab** launches a server in the folder
+you pick (`jupyter lab` when it is on your `PATH`, else `uvx --from jupyterlab jupyter lab`; set a
+project command such as `uv run --with jupyterlab jupyter lab` in the plugin settings), or
+**Attach** to a server already running on this machine (found through Jupyter's runtime dir, or by
+URL and token, or paste the Lab URL from your browser). Trame proxies the server under its own
+origin, so the Lab iframe needs no CSP exception; the token stays in the backend. Lab follows Trame's light/dark theme, **Export →
+Trame report** turns the open notebook into a report, **Export → .html** writes it next to the
+notebook. A server Trame started stops with Trame; an attached one is only detached.
+
+> The token of a spawned server is generated per start and never written to disk; an attached
+> server's token is read from Jupyter's runtime file and kept in memory only.
+
+![Notebook plugin: start a server, pick a notebook, see it alone in the sidebar](docs/notebook.gif)
+
 **Out-of-tree plugins** are composed at build time: list their checkouts in a gitignored
 `plugins.local.json` (`{ "plugins": ["../my-plugin"] }`) and run `just plugins`. A plugin holds
 `mod.ts` (backend, imports Trame only via `@trame/plugin-api`), `web/index.ts` (a `FrontendPlugin`,
