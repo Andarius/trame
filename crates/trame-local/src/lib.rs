@@ -31,6 +31,7 @@ pub mod sessions;
 pub mod settings;
 pub mod share;
 pub mod startup;
+pub mod stats;
 pub mod sync;
 pub mod terminal;
 pub mod udb;

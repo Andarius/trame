@@ -1,3 +1,4 @@
+use chrono::NaiveDate;
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
@@ -192,6 +193,97 @@ fn lookup(url: &str) -> Option<Value> {
     }
     Some(info)
 }
+/// A PR or MR link's repo: `owner/name` on GitHub, `host/path` on GitLab.
+pub fn pr_repo(url: &str) -> Option<String> {
+    if let Some(rest) = url.trim().strip_prefix("https://github.com/") {
+        let parts: Vec<_> = rest.split('/').take(3).collect();
+        return (parts.len() == 3 && parts[2] == "pull")
+            .then(|| format!("{}/{}", parts[0], parts[1]));
+    }
+    let captures = regex::Regex::new(r"^https://([^/]+)/(.+?)/-/merge_requests/\d+")
+        .ok()?
+        .captures(url.trim())?;
+    Some(format!("{}/{}", &captures[1], &captures[2]))
+}
+
+/// A merged PR or MR: its link, repo (as `pr_repo`) and merge time (RFC 3339).
+pub struct Merged {
+    pub url: String,
+    pub repo: String,
+    pub at: String,
+}
+
+/// The user's GitHub PRs merged from `since` to `until` (inclusive); None when `gh` fails.
+pub fn merged_github(since: NaiveDate, until: NaiveDate) -> Option<Vec<Merged>> {
+    const QUERY: &str = "query($q:String!,$after:String){search(query:$q,type:ISSUE,first:100,after:$after){issueCount pageInfo{hasNextPage endCursor} nodes{... on PullRequest{url mergedAt repository{nameWithOwner}}}}}";
+    let q = format!("q=author:@me is:pr is:merged merged:{since}..{until}");
+    let query = format!("query={QUERY}");
+    let (mut out, mut after) = (Vec::new(), None::<String>);
+    loop {
+        let cursor = after.as_ref().map(|a| format!("after={a}"));
+        let mut args = vec!["api", "graphql", "-f", &query, "-f", &q];
+        if let Some(cursor) = &cursor {
+            args.extend(["-f", cursor]);
+        }
+        // paced: GitHub throttles bursts of search calls
+        std::thread::sleep(Duration::from_millis(300));
+        let page: Value = serde_json::from_str(&run("gh", &args, None)?).ok()?;
+        let search = &page["data"]["search"];
+        // a search returns at most 1000 results: split the range until each half fits
+        if after.is_none() && search["issueCount"].as_u64()? > 1000 && since < until {
+            let mid =
+                since + chrono::Days::new(u64::try_from((until - since).num_days() / 2).ok()?);
+            let mut first = merged_github(since, mid)?;
+            first.extend(merged_github(mid + chrono::Days::new(1), until)?);
+            return Some(first);
+        }
+        for n in search["nodes"].as_array()? {
+            if let (Some(url), Some(repo), Some(at)) = (
+                n["url"].as_str(),
+                n["repository"]["nameWithOwner"].as_str(),
+                n["mergedAt"].as_str(),
+            ) {
+                out.push(Merged {
+                    url: url.into(),
+                    repo: repo.into(),
+                    at: at.into(),
+                });
+            }
+        }
+        if search["pageInfo"]["hasNextPage"] != true {
+            return Some(out);
+        }
+        after = Some(search["pageInfo"]["endCursor"].as_str()?.to_owned());
+    }
+}
+
+/// The user's MRs on a GitLab `host` merged since `since`; None when `glab` fails.
+pub fn merged_gitlab(host: &str, since: NaiveDate) -> Option<Vec<Merged>> {
+    let mut out = Vec::new();
+    for page in 1..=20 {
+        let path = format!(
+            "merge_requests?scope=created_by_me&state=merged&updated_after={since}T00:00:00Z&per_page=100&page={page}"
+        );
+        let rows = glab(host, &path)?;
+        let rows = rows.as_array()?;
+        for r in rows {
+            if let (Some(url), Some(at)) = (r["web_url"].as_str(), r["merged_at"].as_str())
+                && let Some(repo) = pr_repo(url)
+            {
+                out.push(Merged {
+                    url: url.into(),
+                    repo,
+                    at: at.into(),
+                });
+            }
+        }
+        if rows.len() < 100 {
+            break;
+        }
+    }
+    Some(out)
+}
+
 pub fn pr_info(url: &str, offline: bool) -> Value {
     if offline {
         return json!({"state":"unknown"});
@@ -212,6 +304,24 @@ pub fn pr_info(url: &str, offline: bool) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn pr_repo_names_github_and_gitlab_repos() {
+        for (url, want) in [
+            ("https://github.com/acme/web/pull/12", Some("acme/web")),
+            (
+                "https://github.com/acme/web/pull/12/files ",
+                Some("acme/web"),
+            ),
+            ("https://github.com/acme/web/issues/3", None),
+            (
+                "https://gitlab.example.com/group/sub/api/-/merge_requests/7",
+                Some("gitlab.example.com/group/sub/api"),
+            ),
+            ("https://gitlab.example.com/group/api/-/issues/7", None),
+        ] {
+            assert_eq!(pr_repo(url).as_deref(), want, "{url}");
+        }
+    }
     #[test]
     fn unavailable_and_stack_labels() {
         assert_eq!(
