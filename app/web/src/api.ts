@@ -71,6 +71,45 @@ export type AppStatus = {
   boot?: string; // changes on every backend start
 };
 
+export type DiagProcess = {
+  pid: number;
+  ppid: number;
+  name: string;
+  role: string; // backend, renderer, plugin host, postgres server, terminal shell, ...
+  args: string[];
+  cpuSeconds: number; // cumulative; the view derives a rate from two samples
+  rss: number; // bytes
+  swap: number | null;
+  threads: number | null;
+  fds: number | null;
+  sockets: number | null;
+};
+export type Diagnostics = {
+  sampledAt: string;
+  uptimeSeconds: number;
+  version: string;
+  pid: number;
+  processes: DiagProcess[]; // the backend first, then what it spawned
+  system: { memTotal: number | null; memAvailable: number | null; load: [number, number, number] | null; cpus: number | null };
+  traffic: {
+    httpRequests: number;
+    httpBytesIn: number;
+    httpBytesOut: number;
+    hubRequests: number;
+    hubBytesIn: number;
+    hubBytesOut: number;
+    wsMessages: number;
+    wsBytesIn: number;
+  };
+  lastSync: { at: string; pulled: number; pushed: number } | null;
+  db: { size: number; connections: number } | null;
+};
+export const getDiagnostics = () =>
+  fetch("/api/diagnostics").then((r) => {
+    if (!r.ok) throw new Error(`diagnostics: ${r.status}`);
+    return r.json() as Promise<Diagnostics>;
+  });
+
 export type DemoState = {
   available: boolean; // desktop app: the backend can switch to the demo root
   active: boolean;

@@ -15,7 +15,7 @@ export const NAV: { key: "sessions" | "agents" | "terminals" | "explore" | "insi
 
 // the rail's tab for the current view: plugins are their own, page/db/card views belong to Sessions
 export const railKey = (view: View, pluginId: string | null) =>
-  view === "plugin" ? `plugin:${pluginId}` : NAV.find((n) => n.view === view)?.key ?? "sessions";
+  view === "plugin" ? `plugin:${pluginId}` : view === "diagnostics" ? "diagnostics" : NAV.find((n) => n.view === view)?.key ?? "sessions";
 
 // shown beside the icon after a short hover (native titles wait ~1s and can't be styled)
 export function RailTip({ label, hint }: { label: string; hint?: string }) {
