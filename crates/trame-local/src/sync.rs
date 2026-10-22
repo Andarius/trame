@@ -246,24 +246,28 @@ impl Sync {
         token: &str,
         body: Value,
     ) -> Result<Response> {
+        let payload = serde_json::to_vec(&body)?;
         let res = client
             .post(format!("{url}/sync"))
             .header("x-trame-protocol", registry().version)
+            .header("content-type", "application/json")
             .bearer_auth(token)
-            .json(&body)
+            .body(payload.clone())
             .send()
             .await
             .map_err(reqwest::Error::without_url)?;
         let status = res.status();
+        let bytes = res.bytes().await.map_err(reqwest::Error::without_url)?;
+        crate::diagnostics::TRAFFIC.hub(payload.len() as u64, bytes.len() as u64);
         if !status.is_success() {
-            let err: Value = res.json().await.unwrap_or(Value::Null);
+            let err: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
             bail!(
                 "hub API {}: {}",
                 status.as_u16(),
                 err["error"].as_str().unwrap_or("sync failed")
             )
         }
-        let response: Response = res.json().await.map_err(reqwest::Error::without_url)?;
+        let response: Response = serde_json::from_slice(&bytes)?;
         if response.next_cursor < 0 {
             bail!("invalid hub cursor")
         }
@@ -478,13 +482,17 @@ impl Sync {
         loop {
             tokio::select! {
                 _=heartbeat.tick()=>ws.send(Message::Text("{\"type\":\"ping\"}".into())).await?,
-                message=ws.next()=>match message {
+                message=ws.next()=>{
+                    if let Some(Ok(Message::Text(text))) = &message {
+                        crate::diagnostics::TRAFFIC.ws(text.len() as u64);
+                    }
+                    match message {
                     Some(Ok(Message::Text(text)))if serde_json::from_str::<Value>(&text).is_ok_and(|v|v["type"]=="changed")=> {self.nudge.notify_one();},
                     Some(Ok(Message::Ping(bytes)))=>ws.send(Message::Pong(bytes)).await?,
                     Some(Ok(Message::Close(_)))|None=>return Ok(()),
                     Some(Err(_))=>bail!("websocket disconnected"),
                     _=>{},
-                }
+                }}
             }
         }
     }

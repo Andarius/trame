@@ -31,6 +31,7 @@ import { Board } from "../sessions/Board";
 import { Drawer, TOPBAR_SLOT } from "../sessions/Drawer";
 import { Explore } from "./Explore";
 import { Insights } from "./Insights";
+import { Diagnostics } from "./Diagnostics";
 import { List } from "../sessions/List";
 import { filterSessionBoard, sortSessionBoard, type Sort } from "../sessions/SessionSort";
 import { SessionBar } from "../sessions/SessionBar";
@@ -370,6 +371,8 @@ export function App() {
         pages.find((p) => p.id === clientId)?.title
       : view === "plugin"
       ? plugins.find((p) => p.id === pluginId)?.label
+      : view === "diagnostics"
+      ? "Diagnostics"
       : null;
     document.title = t ? `${t} — Trame` : "Trame";
   }, [view, pageId, dbId, clientId, pluginId, cardId, openId, drawerFull, board, pages, udbs, plugins]);
@@ -594,6 +597,8 @@ export function App() {
     ? currentPlugin?.label ?? "Plugin"
     : view === "insights"
     ? "Insights"
+    : view === "diagnostics"
+    ? "Diagnostics"
     : "Explore";
 
   // starred pages: per-browser shortcuts to deep pages (Soren → Weekly → …)
@@ -900,6 +905,8 @@ export function App() {
           ? <Insights board={board} />
           : view === "agents"
           ? <AgentSessions board={board} onOpenSession={(id) => openSession(id)} slot={columnSlot} />
+          : view === "diagnostics"
+          ? <Diagnostics />
           : (
             <Explore
               key={exploreEpoch}
@@ -1011,6 +1018,10 @@ export function App() {
           onClose={() => setModal(null)}
           onSaved={() => setExploreEpoch((e) => e + 1)}
           onOpenPlugins={() => setModal("plugins")}
+          onOpenDiagnostics={() => {
+            setModal(null);
+            setView("diagnostics");
+          }}
         />
       )}
       {sharePageId && (

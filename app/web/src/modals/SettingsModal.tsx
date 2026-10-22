@@ -158,10 +158,11 @@ function PathList(
 }
 
 export function SettingsModal(
-  { onClose, onSaved, onOpenPlugins }: {
+  { onClose, onSaved, onOpenPlugins, onOpenDiagnostics }: {
     onClose: () => void;
     onSaved: () => void;
     onOpenPlugins: () => void;
+    onOpenDiagnostics: () => void;
   },
 ) {
   const [paths, setPaths] = useState<string[]>([]);
@@ -309,6 +310,24 @@ export function SettingsModal(
           : update?.applied
           ? restartBtn
           : update && <span className="text-[11px] text-ink-muted/70">· up to date</span>}
+      </div>
+
+      <div className="h-px bg-line" />
+      <div className="flex items-center gap-2">
+        <div>
+          <div className="text-[14px] font-semibold">Diagnostics</div>
+          <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
+            Memory, CPU, traffic and database figures for the app and the processes it runs.
+          </p>
+        </div>
+        <span className="flex-1" />
+        <button
+          type="button"
+          className="rounded-md border border-chipline px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
+          onClick={onOpenDiagnostics}
+        >
+          Open diagnostics →
+        </button>
       </div>
 
       <div className="h-px bg-line" />

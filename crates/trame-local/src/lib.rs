@@ -10,6 +10,7 @@ pub mod cli;
 pub mod comments;
 pub mod db;
 pub mod demo;
+pub mod diagnostics;
 pub mod files;
 pub mod forge;
 pub mod imports;
@@ -269,6 +270,7 @@ pub async fn run(
     );
     let background = tokio::spawn(sync.clone().background());
     let realtime = tokio::spawn(sync.clone().realtime());
+    diagnostics::start();
     let native = routes::Native {
         root: config.root.clone(),
         origin,

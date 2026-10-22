@@ -1,6 +1,6 @@
 use axum::{
     Router,
-    body::Body,
+    body::{Body, HttpBody},
     extract::State,
     http::{HeaderMap, Request, StatusCode},
     response::{IntoResponse, Response},
@@ -55,11 +55,31 @@ fn allowed(headers: &HeaderMap, path: &str, port: u16) -> bool {
     true
 }
 
+fn content_length(headers: &HeaderMap) -> u64 {
+    headers
+        .get("content-length")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0)
+}
+
 async fn forward(State(state): State<Proxy>, req: Request<Body>) -> Response {
+    let bytes_in = content_length(req.headers());
+    let response = route(&state, req).await;
+    // streamed bodies (SSE, upgrades) have no exact size and count as 0
+    let bytes_out = HttpBody::size_hint(response.body()).exact().unwrap_or(0);
+    crate::diagnostics::TRAFFIC.http(bytes_in, bytes_out);
+    response
+}
+
+async fn route(state: &Proxy, req: Request<Body>) -> Response {
     if !allowed(req.headers(), req.uri().path(), state.port) {
         return (StatusCode::FORBIDDEN, "local request required").into_response();
     }
     let native = &state.native;
+    if crate::diagnostics::owns(req.method().as_str(), req.uri().path()) {
+        return crate::diagnostics::serve(native.clone()).await;
+    }
     if crate::demo::owns(req.uri().path()) {
         return crate::demo::serve(native, &req);
     }
