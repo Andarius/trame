@@ -34,8 +34,24 @@ pub fn encode(value: &str) -> String {
     url.query().unwrap_or("")[2..].to_owned()
 }
 
-/// Boot-time loops of every plugin.
+/// The composed plugins' frontend bundle, installed by `just plugins-install`.
+pub fn web_dir(root: &std::path::Path) -> std::path::PathBuf {
+    root.join("plugins/web")
+}
+
+/// Boot-time loops of every plugin; the composed plugins' page marks join the hierarchy rules.
 pub fn start_all(native: &Native) -> Vec<tokio::task::JoinHandle<()>> {
+    let roles = local_gen::MARK_ROLES
+        .iter()
+        .filter_map(|(mark, value, role)| {
+            Some(crate::pages::MarkRule {
+                mark: (*mark).to_owned(),
+                value: regex::Regex::new(value).ok()?,
+                role: (*role).to_owned(),
+            })
+        })
+        .collect();
+    crate::pages::add_mark_roles(roles);
     registry().filter_map(|p| p.start(native.clone())).collect()
 }
 
@@ -53,7 +69,7 @@ async fn web_file(root: &std::path::Path, name: &str) -> Response {
         "plugins.css" => "text/css",
         _ => return json_response(404, json!({"error":"not found"})),
     };
-    match tokio::fs::read(crate::plugin_host::web_dir(root).join(name)).await {
+    match tokio::fs::read(web_dir(root).join(name)).await {
         Ok(bytes) => (
             StatusCode::OK,
             [
@@ -70,12 +86,13 @@ pub fn owns(_method: &str, path: &str) -> bool {
     path == "/api/plugins" || path.starts_with("/api/plugins/")
 }
 
-async fn manifests(state: &Native) -> Response {
-    let mut list: Vec<Value> = registry()
-        .map(|p| api::manifest(p, &state.settings))
-        .collect();
-    list.extend(crate::plugin_host::manifests().await);
-    json_response(200, Value::Array(list))
+/// `GET /api/plugins` entries for every compiled-in plugin.
+pub fn manifest_list(settings: &std::path::Path) -> Vec<Value> {
+    registry().map(|p| api::manifest(p, settings)).collect()
+}
+
+fn manifests(state: &Native) -> Response {
+    json_response(200, Value::Array(manifest_list(&state.settings)))
 }
 
 async fn json_body(req: Request<Body>) -> Option<Value> {
@@ -89,7 +106,7 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
         return web_file(&state.root, name).await;
     }
     if path == "/api/plugins" {
-        return manifests(&state).await;
+        return manifests(&state);
     }
     let rest = path.strip_prefix("/api/plugins/").unwrap_or("");
     let (id, sub) = match rest.find('/') {
@@ -97,9 +114,6 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
         None => (rest, "/"),
     };
     let Some(plugin) = find(id) else {
-        if crate::plugin_host::serves(&path) {
-            return forward_to_host(req).await;
-        }
         return json_response(404, json!({"error":"unknown plugin"}));
     };
     let slice = crate::settings::plugin(&state.settings, plugin.id());
@@ -143,24 +157,6 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
     }
 }
 
-/// A plugin served by the out-of-process host (retiring: see the plugin skill).
-async fn forward_to_host(req: Request<Body>) -> Response {
-    let method = req.method().to_string();
-    let content_type = req
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .map(str::to_owned);
-    let target = req
-        .uri()
-        .path_and_query()
-        .map_or_else(|| req.uri().path().to_owned(), |pq| pq.as_str().to_owned());
-    let Ok(bytes) = axum::body::to_bytes(req.into_body(), usize::MAX).await else {
-        return json_response(500, json!({"error":"body unavailable"}));
-    };
-    crate::plugin_host::forward(&method, &target, content_type.as_deref(), bytes).await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,7 +167,7 @@ mod tests {
             &crate::workspace().join(format!(".scratch/plugin-web-{}", uuid::Uuid::new_v4())),
         )
         .unwrap();
-        let web = crate::plugin_host::web_dir(&root);
+        let web = web_dir(&root);
         std::fs::create_dir_all(&web).unwrap();
         std::fs::write(web.join("plugins.js"), "js").unwrap();
         std::fs::write(web.join("other.js"), "js").unwrap();

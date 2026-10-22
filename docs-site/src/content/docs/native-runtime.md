@@ -38,14 +38,13 @@ never replace a running database directory.
 
 ## Out-of-tree plugins
 
-Private plugins listed in `plugins.local.json` never compile into release builds. `just plugins-install`
-builds them into the live data root: `plugins/plugin-host` (a Bun-compiled program running the
-TypeScript plugin registry) and `plugins/web/plugins.{js,css}` (their frontend, built against
-`window.__trame`). On startup the app starts the host with a per-launch token and its PostgreSQL socket,
-forwards `/api/plugins/<id>/*` to it, lists its plugins and registers their mark roles. The frontend
-loads the bundle before its first render. The host never changes the schema and exits when the app
-does. Settings stay device-local, so a plugin runs only where it is enabled. Restart Trame after
-installing.
+Private plugins listed in `plugins.local.json` never compile into release builds. `just plugins`
+composes them: each plugin's `src/mod.rs` becomes a module of `trame-local` (so a plugin's routes run
+in the app's own process, with the full request and response), its `mark-roles.json` joins the
+hierarchy rules, and `just plugins-install` builds their frontend into the live data root as
+`plugins/web/plugins.{js,css}` (built against `window.__trame`), which the frontend loads before its
+first render. A backend change is a rebuild of the app; settings stay device-local, so a plugin runs
+only where it is enabled.
 
 ## Isolated development
 

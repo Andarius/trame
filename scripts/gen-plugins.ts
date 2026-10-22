@@ -1,8 +1,8 @@
 // Composes out-of-tree plugins into this checkout from the gitignored plugins.local.json:
 //   { "plugins": ["../my-plugin"] }   (paths relative to the repo root, or absolute)
-// A plugin checkout may hold src/mod.rs (native backend, compiled into trame-local), mod.ts
-// (legacy Bun-host backend), web/index.ts (frontend), e2e/*.spec.ts and mark-roles.json (what
-// its page marks mean to the hierarchy, see core/mark-roles.ts).
+// A plugin checkout may hold src/mod.rs (native backend, compiled into trame-local),
+// web/index.ts (frontend), e2e/*.spec.ts and mark-roles.json (what its page marks mean to the
+// hierarchy, see core/mark-roles.ts).
 // Writes the registries the app imports statically (no runtime loading).
 // Without the file the registries are written empty, which is what the committed copies hold.
 import { lstat, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
@@ -10,7 +10,6 @@ import { dirname, join, relative, resolve } from "node:path";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const OUT = {
-  backend: join(ROOT, "app/plugins/local.gen.ts"),
   web: join(ROOT, "app/web/src/plugins/local.gen.ts"),
   css: join(ROOT, "app/web/src/plugins/local.gen.css"),
   roles: join(ROOT, "core/mark-roles.gen.ts"),
@@ -48,12 +47,17 @@ async function registry(out: string, entry: string, type: string, typeFrom: stri
     `\nexport const LOCAL_PLUGINS: ${type}[] = [${found.map((_, i) => `p${i}`).join(", ")}];\n`;
 }
 
-async function markRoles() {
+async function markRoleRules() {
   const rules: { mark: string; value: string; role: string }[] = [];
   for (const d of dirs) {
     const f = join(d, "mark-roles.json");
     if (await exists(f)) rules.push(...JSON.parse(await readFile(f, "utf8")));
   }
+  return rules;
+}
+
+async function markRoles() {
+  const rules = await markRoleRules();
   return rules.map((r) =>
     `\n  { mark: ${JSON.stringify(r.mark)}, value: new RegExp(${JSON.stringify(r.value)}), role: ${JSON.stringify(r.role)} },`
   ).join("") + (rules.length ? "\n" : "");
@@ -73,12 +77,15 @@ async function nativeRegistry() {
   // a #[path] in a non-mod.rs file resolves against that file's own directory
   const mods = found.map(({ ident, file }) => `#[path = ${JSON.stringify(rel(OUT.native, file))}]\n#[allow(unreachable_pub, reason = "a composed plugin's items are pub in its own repo")]\npub(super) mod ${ident};\n`).join("");
   const list = found.map(({ ident }) => `&${ident}::PLUGIN`).join(", ");
-  return HEADER + mods + `pub(super) static LOCAL: &[&'static dyn super::api::Plugin] = &[${list}];\n`;
+  // the native side registers the composed plugins' mark roles itself
+  const roles = (await markRoleRules()).map((r) => `(${JSON.stringify(r.mark)}, ${JSON.stringify(r.value)}, ${JSON.stringify(r.role)})`).join(", ");
+  return HEADER + mods + `pub(super) static LOCAL: &[&'static dyn super::api::Plugin] = &[${list}];\n` +
+    `/// (mark, value regex, role) from the composed plugins' mark-roles.json\n` +
+    `pub(super) static MARK_ROLES: &[(&str, &str, &str)] = &[${roles}];\n`;
 }
 
 const files: [string, string][] = [
   [OUT.native, await nativeRegistry()],
-  [OUT.backend, await registry(OUT.backend, "mod.ts", "Plugin", "./types.ts")],
   [OUT.web, await registry(OUT.web, "web/index.ts", "FrontendPlugin", "./index")],
   // tailwind only scans the app's own tree; point it at each plugin's web code
   [OUT.css, HEADER.replace("//", "/*").replace("\n", " */\n") +

@@ -37,7 +37,7 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
     if path == "/api/plugin-updates" {
         return json_response(
             200,
-            crate::plugin_updates::serve(force, state.sync.offline).await,
+            crate::plugin_updates::serve(force, state.sync.offline, &state.settings).await,
         );
     }
     if path == "/api/update/restart" {

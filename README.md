@@ -70,7 +70,6 @@ crates/trame-local/         axum API, supervised PostgreSQL, sync, plugins, file
 crates/trame-core/          shared markdown/merge/todo logic, also compiled to Wasm
 crates/trame-cli/           native tramecli writers, setup, watcher and MCP stdio server
 app/web/                   existing React app (Vite)
-app/plugin-host.ts         TS plugin host, compiled and supervised by trame-local
 scripts/rust-db-migrate.ts  legacy PGlite export helper (dev/CI only; no longer bundled in packages)
 bin/quickstart.sh          curl-able laptop setup: clone + packaged app + agent integrations
 skills/trame-{track,page,watch,plugin}/ the agent skills (Claude Code, Codex & friends) — embedded in tramecli, installed by `tramecli setup`
@@ -293,8 +292,7 @@ settings sanitizing, start and stop), and `web/index.ts`, a `FrontendPlugin` on
 `@trame/web-api`, plus optional `e2e/` specs and `mark-roles.json`. The registry owns
 `/enable`, `/settings` and the enabled gate; the plugin answers everything else under
 `/api/plugins/<id>/`. The `trame-plugin` skill (installed by `tramecli setup`) walks an agent
-through writing, composing, testing and releasing one. The earlier TypeScript `mod.ts` plugins
-still run in the out-of-process Bun host until they are ported; no new plugin should start there.
+through writing, composing, testing and releasing one.
 
 ## How sync works
 

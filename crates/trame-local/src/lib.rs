@@ -21,7 +21,6 @@ pub mod open;
 pub mod pages;
 pub mod pg;
 pub mod platform;
-pub mod plugin_host;
 pub mod plugin_updates;
 pub mod plugins;
 pub mod proxy;
@@ -293,11 +292,6 @@ pub async fn run(
         drop(tokio::task::spawn_blocking(startup::install_agent_hooks));
     }
     let plugin_tasks = plugins::start_all(&native);
-    let host_task = if config.demo {
-        None
-    } else {
-        plugin_host::start(native.clone())
-    };
     let router = proxy::router(proxy::Proxy { port, native });
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let mut server = tokio::spawn(async move {
@@ -327,7 +321,7 @@ pub async fn run(
     let _ = blocking::spawn(plugins::stop_all).await;
     for task in plugin_tasks
         .into_iter()
-        .chain([host_task, updater, notifier, seeder].into_iter().flatten())
+        .chain([updater, notifier, seeder].into_iter().flatten())
     {
         task.abort();
         let _ = task.await;
