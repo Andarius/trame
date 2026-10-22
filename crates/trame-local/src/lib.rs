@@ -329,6 +329,7 @@ pub async fn run(
     let _ = shutdown_tx.send(());
     // open terminals hold WebSocket connections the graceful shutdown would wait on
     let _ = blocking::spawn(pty::shutdown).await;
+    let _ = blocking::spawn(plugins::notebook::shutdown).await;
     for task in [
         plugin_task,
         sql_source_task,

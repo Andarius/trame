@@ -15,6 +15,7 @@ pub mod auth;
 pub mod github;
 pub mod gitlab;
 pub mod live;
+pub mod notebook;
 pub mod ships;
 pub mod sql_source;
 
@@ -463,6 +464,10 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
     if let Some(name) = path.strip_prefix("/api/plugins/web/") {
         return web_file(&state.root, name).await;
     }
+    if notebook::owns(&path) {
+        // boxed: the proxy's futures would otherwise bloat every plugin request
+        return Box::pin(notebook::serve(state, req)).await;
+    }
     if let Some(sub) = path.strip_prefix("/api/plugins/sql-source") {
         let sub = sub.to_owned();
         let Ok(bytes) = axum::body::to_bytes(req.into_body(), usize::MAX).await else {
@@ -532,6 +537,7 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
             }
             if let (true, Value::Array(list)) = (path_after == "/api/plugins", &mut value) {
                 list.push(sql_source::manifest(&state_after.settings));
+                list.push(notebook::manifest(&state_after.settings));
                 list.extend(crate::plugin_host::manifests().await);
             }
             json_response(status, value)
