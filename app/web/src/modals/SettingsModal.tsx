@@ -3,6 +3,7 @@ import {
   type AgentPresenceSettings,
   applyUpdate,
   completePath,
+  getPluginUpdates,
   getPlugins,
   getSettings,
   getUpdate,
@@ -181,6 +182,7 @@ export function SettingsModal(
   const [authorAvatar, setAuthorAvatar] = useState("");
   const demoAvailable = useDemoAvailable();
   const [pluginList, setPluginList] = useState<PluginManifest[]>([]);
+  const [pluginUpdates, setPluginUpdates] = useState(0);
   const [presence, setPresence] = useState<AgentPresenceSettings | null>(null);
   const setP = (patch: Partial<AgentPresenceSettings>) => setPresence((p) => p && { ...p, ...patch });
 
@@ -206,6 +208,8 @@ export function SettingsModal(
       if (u.applied) setUpdState("done");
     }).catch(() => {});
     getPlugins().then(setPluginList).catch(() => {});
+    getPluginUpdates().then((u) => Array.isArray(u) && setPluginUpdates(u.filter((x) => x.available).length))
+      .catch(() => {});
   }, []);
 
   const runUpdate = () => {
@@ -453,6 +457,12 @@ export function SettingsModal(
         <span className="text-[10.5px] text-ink-muted/70">
           {pluginList.filter((p) => p.enabled).length} of {pluginList.length} enabled
         </span>
+        {pluginUpdates > 0 && (
+          <span className="flex items-center gap-1 text-[10.5px] text-copper">
+            <span className="h-1.5 w-1.5 rounded-full bg-copper" />
+            {pluginUpdates} update{pluginUpdates === 1 ? "" : "s"}
+          </span>
+        )}
         <span className="flex-1" />
         <button
           type="button"

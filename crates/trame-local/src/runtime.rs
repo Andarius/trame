@@ -13,7 +13,7 @@ pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 pub fn owns(method: &str, path: &str) -> bool {
-    matches!(path, "/api/status" | "/api/update")
+    matches!(path, "/api/status" | "/api/update" | "/api/plugin-updates")
         || (method == "POST"
             && matches!(
                 path,
@@ -23,16 +23,22 @@ pub fn owns(method: &str, path: &str) -> bool {
 
 pub async fn serve(state: Native, req: Request<Body>) -> Response {
     let path = req.uri().path().to_owned();
+    let force = req
+        .uri()
+        .query()
+        .unwrap_or("")
+        .split('&')
+        .any(|q| q.split('=').next() == Some("force"));
     if path == "/api/update" {
-        let force = req
-            .uri()
-            .query()
-            .unwrap_or("")
-            .split('&')
-            .any(|q| q.split('=').next() == Some("force"));
         let (status, value) =
             crate::update::serve(req.method() == "POST", force, state.sync.offline).await;
         return json_response(status, value);
+    }
+    if path == "/api/plugin-updates" {
+        return json_response(
+            200,
+            crate::plugin_updates::serve(force, state.sync.offline).await,
+        );
     }
     if path == "/api/update/restart" {
         return json_response(200, crate::update::restart(state.desktop));

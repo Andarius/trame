@@ -12,6 +12,8 @@ export type PluginManifest = {
   enabled: boolean;
   badge: number | null;
   cardFaces?: string;
+  version?: string;
+  repo?: string;
 };
 
 export type PluginContext = {
@@ -25,6 +27,8 @@ export interface Plugin {
   label: string;
   glyph: string;
   description: string; // one line, shown in the plugins manager
+  version?: string; // semver of this plugin build, compared against its latest release
+  repo?: string; // GitHub `owner/name` whose releases announce updates
   // Handles /api/plugins/<id>/<subPath> (subPath starts with "/"); null → 404.
   routes(
     req: Request,

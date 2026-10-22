@@ -875,9 +875,21 @@ export type PluginManifest = {
   description: string;
   enabled: boolean;
   badge: number | null;
+  version?: string;
+  repo?: string;
 };
 export const getPlugins = () =>
   fetch("/api/plugins").then((r) => r.json() as Promise<PluginManifest[]>);
+// only plugins declaring `version` + `repo`; empty offline
+export type PluginUpdate = {
+  id: string;
+  current: string;
+  latest: string | null;
+  available: boolean;
+  releaseUrl: string | null;
+};
+export const getPluginUpdates = () =>
+  fetch("/api/plugin-updates").then((r) => r.json() as Promise<PluginUpdate[]>);
 export const setPluginEnabled = (id: string, enabled: boolean) =>
   post(`/api/plugins/${id}/enable`, { enabled });
 export const getPluginSettings = (id: string) =>

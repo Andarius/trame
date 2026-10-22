@@ -34,6 +34,8 @@ export async function listPluginManifests(plugins = PLUGINS): Promise<PluginMani
       enabled: await isPluginEnabled(p.id),
       badge: p.badge?.() ?? null,
       ...(p.cardFaces && { cardFaces: p.cardFaces }),
+      ...(p.version && { version: p.version }),
+      ...(p.repo && { repo: p.repo }),
     });
   }
   return out;
