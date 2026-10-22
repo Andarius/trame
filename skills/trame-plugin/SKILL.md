@@ -9,17 +9,15 @@ A Trame plugin is its own git repo, composed into a Trame checkout at build time
 loaded at runtime from arbitrary paths: `scripts/gen-plugins.ts` writes registries that include
 the plugin statically. The backend is a Rust module compiled into `trame-local` itself (a
 `#[path]` module, so it uses the crate's dependencies and runs in the app's process), the
-frontend goes into one `plugins.js` bundle. The in-tree plugins show the shape in use:
+frontend goes into one `plugins.js` bundle. There is no other backend shape: the TypeScript
+`mod.ts` plugins of the Bun host era were ported (`Getsoren/trame-k8s`, `Getsoren/trame-cockpit`
+are out-of-tree examples). The in-tree plugins show the shape in use:
 `crates/trame-local/src/plugins/notebook.rs` (a server the plugin spawns or attaches to, a
 same-origin proxy with WebSockets, a full-pane panel), `sql_source.rs` (settings with secrets,
 a poll loop, database writes), `deployments.rs` (a sidebar column, forge auth, fixtures).
 
 Read `crates/trame-local/src/plugins/api.rs` and `app/web/src/plugins/index.ts` in the Trame
 checkout before coding: they are the contract, and this skill paraphrases them.
-
-> Legacy: TypeScript `mod.ts` plugins on `@trame/plugin-api` still run in the out-of-process Bun
-> host (`Getsoren/trame-k8s`, `Getsoren/trame-cockpit`) until they are ported. Do not start a new
-> one: that transport buffers bodies, strips headers, has no WebSockets and no stop hook.
 
 ## Layout
 
@@ -108,7 +106,7 @@ From the Trame checkout, with the plugin composed:
 
 ```bash
 cargo clippy -p trame-local --all-targets --locked -- -D warnings   # the plugin compiles under Trame's lints
-cargo test -p trame-local --locked --lib                            # your #[cfg(test)] tests run with the crate's
+cargo test -p trame-local --locked --lib local_gen::                # your #[cfg(test)] tests (composed modules live under plugins::local_gen)
 (cd app/web && npm run typecheck)                                   # web side
 (cd ../my-plugin && ../trame/node_modules/.bin/oxlint -c ../trame/.oxlintrc.json web && bun test)
 just e2e                                                            # runs e2e/*.spec.ts as its own project

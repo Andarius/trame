@@ -89,11 +89,11 @@ async fn check(cache: &mut Cache, manifests: &[Value], api: &str, force: bool) -
         .collect()
 }
 
-pub async fn serve(force: bool, offline: bool) -> Value {
+pub async fn serve(force: bool, offline: bool, settings: &std::path::Path) -> Value {
     if offline || std::env::var("TRACKER_UPDATE_CHECK").as_deref() == Ok("0") {
         return json!([]);
     }
-    let manifests = crate::plugin_host::manifests().await;
+    let manifests = crate::plugins::manifest_list(settings);
     let mut cache = CACHE.lock().await;
     Value::Array(check(cache.get_or_insert_default(), &manifests, API, force).await)
 }
@@ -177,6 +177,9 @@ mod tests {
 
     #[tokio::test]
     async fn offline_skips_the_check() {
-        assert_eq!(serve(true, true).await, json!([]));
+        assert_eq!(
+            serve(true, true, std::path::Path::new("/nonexistent")).await,
+            json!([])
+        );
     }
 }

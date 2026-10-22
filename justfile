@@ -50,7 +50,7 @@ psql host=env_var_or_default('TRACKER_HUB_HOST', 'hub'):
 plugins:
     bun scripts/gen-plugins.ts
 
-# Install plugins.local.json plugins for the installed app (host binary + web bundle); then restart Trame
+# Install the plugins.local.json plugins' web bundle for the installed app (their backends compile into the app itself)
 [group('setup')]
 plugins-install: plugins
     #!/usr/bin/env bash
@@ -60,12 +60,11 @@ plugins-install: plugins
     tmp="$(mktemp -d "$PWD/.scratch/plugins.XXXXXX")"
     trap 'rm -rf -- "$tmp"' EXIT
     bun install --frozen-lockfile --silent
-    bun scripts/build-plugin-host.ts "$tmp/plugin-host"
     (cd app/web && TRAME_PLUGINS_WEB_OUT="$tmp/web" npx vite build -c vite.plugins.config.ts --logLevel warn)
     rm -rf "$dest/web.old" && { [[ ! -d "$dest/web" ]] || mv "$dest/web" "$dest/web.old"; }
     mv "$tmp/web" "$dest/web" && rm -rf "$dest/web.old"
-    mv "$tmp/plugin-host" "$dest/plugin-host"
-    echo "installed into $dest; restart Trame to load them"
+    rm -f "$dest/plugin-host"  # the retired Bun host, if an older install left one
+    echo "installed into $dest; reload Trame's page to load them"
 
 # Run the native desktop app
 [group('dev')]

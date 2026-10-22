@@ -1,4 +1,4 @@
-// Frontend plugin registry (mirror of app/plugins/index.ts). Static imports on
+// Frontend plugin registry (mirror of crates/trame-local/src/plugins.rs). Static imports on
 // purpose: React.lazy would reintroduce the WebKitGTK dynamic-import failure
 // mode the backend defends against. Labels/glyphs/enabled come from the server
 // manifest (GET /api/plugins) — only the components live here.
@@ -61,7 +61,7 @@ export const FRONTEND_PLUGINS: FrontendPlugin[] = [
   ...LOCAL_PLUGINS,
 ];
 
-/** Out-of-process plugins loaded before the first render; a compiled-in plugin with the same id wins. */
+/** The composed plugins' bundle, loaded before the first render; a compiled-in plugin with the same id wins. */
 export function registerRuntimePlugins(list: FrontendPlugin[]): void {
   for (const p of list) if (!FRONTEND_PLUGINS.some((f) => f.id === p.id)) FRONTEND_PLUGINS.push(p);
 }

@@ -27,7 +27,7 @@ jobs:
       - name: Public build composes no private plugin
         run: |
           bun scripts/gen-plugins.ts
-          git diff --exit-code -- app/plugins/local.gen.ts app/web/src/plugins/ core/mark-roles.gen.ts
+          git diff --exit-code -- crates/trame-local/src/plugins/local.gen.rs app/web/src/plugins/ core/mark-roles.gen.ts
 
       - name: Build and typecheck frontend (TS 7)
         run: npm run build --prefix app/web && cd app/web && npm run typecheck
