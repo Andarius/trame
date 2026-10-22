@@ -3,8 +3,9 @@ use common::TestDb;
 use serde_json::{Value, json};
 use trame_local::{
     settings,
-    sync::{self, Change, Sync},
+    sync::{self, Sync},
 };
+use trame_protocol::Change;
 
 fn pair(t: &mut TestDb) -> (Change, Change) {
     let id = t
@@ -85,7 +86,7 @@ fn sync_apply_typescript_assertions() {
 #[test]
 fn identity_schema_wire_assertions_and_lww_boundaries() {
     let mut t = TestDb::new();
-    for e in &sync::registry().entities {
+    for e in &trame_protocol::registry().entities {
         let cols =
             t.db.query(
                 "select column_name from information_schema.columns where table_name=$1",
@@ -102,7 +103,7 @@ fn identity_schema_wire_assertions_and_lww_boundaries() {
             );
         }
     }
-    assert!(sync::lww_upsert("users;drop table pages", &serde_json::Map::new()).is_err());
+    assert!(trame_protocol::lww_upsert("users;drop table pages", &serde_json::Map::new()).is_err());
     let id = t
         .request("POST", "/api/pages", json!({"title":"new value"}))
         .1["id"]
@@ -160,7 +161,7 @@ fn rejected_mutations_keep_watermark_and_failed_pull_keeps_cursor() {
         let record=calls.clone();
         let server=Router::new().route("/sync",post(move|headers:axum::http::HeaderMap,Json(body):Json<Value>|{
             let record=record.clone();async move{
-                assert_eq!(headers["x-trame-protocol"],sync::registry().version.to_string());
+                assert_eq!(headers["x-trame-protocol"],trame_protocol::registry().version.to_string());
                 assert_eq!(headers["authorization"],"Bearer fixture-token");
                 let mut requests=record.lock().unwrap();requests.push(body.clone());
                 let count=requests.len();
