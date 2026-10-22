@@ -53,6 +53,26 @@ export function SidebarIcon({ size = 15 }: { size?: number }) {
   );
 }
 
+export function ChartIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="M2 13.5h12" />
+      <path d="M4.5 11V8" />
+      <path d="M8 11V4" />
+      <path d="M11.5 11V6.5" />
+    </svg>
+  );
+}
+
 export function GroupIcon() {
   return (
     <svg
