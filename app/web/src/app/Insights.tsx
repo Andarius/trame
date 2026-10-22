@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AgentIcon } from "../agents/agents";
 import { type BoardData, getStats, type StatsRow } from "../api";
-import { clientColor, EmptyState, SECTION_LABEL, SegToggle, STRING_CODEC, useLocalStorage } from "../ui/ui";
+import { clientColor, EmptyState, EntityIcon, SECTION_LABEL, SegToggle, STRING_CODEC, useLocalStorage } from "../ui/ui";
 
 const RANGES = [
   { value: "7", label: "7 days" },
@@ -217,7 +217,7 @@ function Streak({ rows, today }: { rows: StatsRow[]; today: string }) {
 
 function Bar({ share, color }: { share: number; color: string }) {
   return (
-    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-hover">
+    <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-hover">
       <div className="h-full rounded-full" style={{ width: `${Math.max(2, share * 100)}%`, background: color }} />
     </div>
   );
@@ -226,7 +226,10 @@ function Bar({ share, color }: { share: number; color: string }) {
 // share of activity (prompts + worklog entries) per project; transcripts outside a project's repos fall under their folder
 function ByProject({ rows, board }: { rows: StatsRow[]; board: BoardData | null }) {
   const items = useMemo(() => {
-    const by = new Map<string, { name: string; color: string; n: number; prompts: number; entries: number }>();
+    const by = new Map<
+      string,
+      { name: string; icon: string | null; glyph: string; color: string; n: number; prompts: number; entries: number }
+    >();
     for (const r of rows) {
       const n = activity(r);
       if (!n) continue;
@@ -234,12 +237,13 @@ function ByProject({ rows, board }: { rows: StatsRow[]; board: BoardData | null 
       const name = project?.name ?? r.r ?? "No project";
       const key = r.p ?? `repo:${name}`;
       const cur = by.get(key) ??
-        { name, color: project ? clientColor(project.name, project.color) : "var(--color-ink-faint)", n: 0, prompts: 0, entries: 0 };
+        { name, icon: project?.icon ?? null, glyph: project ? "◎" : "◌", color: project ? clientColor(project.name, project.color) : "var(--color-ink-faint)", n: 0, prompts: 0, entries: 0 };
       by.set(key, { ...cur, n: cur.n + n, prompts: cur.prompts + r.prompts, entries: cur.entries + r.entries });
     }
     return [...by.values()].sort((a, b) => b.n - a.n).slice(0, 10);
   }, [rows, board]);
   const total = items.reduce((t, i) => t + i.n, 0);
+  const max = Math.max(1, ...items.map((i) => i.n));
   return (
     <div className={CARD}>
       <h2 className="mb-3 text-[15px] font-semibold">By project</h2>
@@ -247,8 +251,13 @@ function ByProject({ rows, board }: { rows: StatsRow[]; board: BoardData | null 
       <div className="flex flex-col gap-2.5">
         {items.map((i) => (
           <div key={i.name} className="flex items-center gap-3 text-[12.5px]">
-            <span className="w-[34%] truncate text-ink-soft" title={i.name}>{i.name}</span>
-            <Bar share={i.n / total} color={i.color} />
+            <span className="flex w-[34%] min-w-0 items-center gap-2 text-ink-soft" title={i.name}>
+              <span className="grid w-4 shrink-0 place-items-center">
+                <EntityIcon icon={i.icon} fallback={i.glyph} size={16} />
+              </span>
+              <span className="truncate">{i.name}</span>
+            </span>
+            <Bar share={i.n / max} color={i.color} />
             <span
               className="w-[92px] shrink-0 text-right text-[11px] tabular-nums text-ink-muted"
               title={`${i.prompts} prompts, ${i.entries} worklog entries`}
