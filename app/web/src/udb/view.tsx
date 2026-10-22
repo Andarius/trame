@@ -225,7 +225,7 @@ export function ViewTabsBar(
                 {t.name}
               </button>
               {state.tabs.length > 1 && !readOnly && (
-                <IconButton tone="danger" className="w-5 self-stretch text-[9px] opacity-0 transition-opacity group-hover/tab:opacity-70 hover:!opacity-100"
+                <IconButton tone="danger" className="w-5 self-stretch text-[13px] opacity-0 transition-opacity group-hover/tab:opacity-70 hover:!opacity-100"
                   title="delete view tab"
                   onClick={() => remove(t.id)}
                 >
@@ -779,7 +779,7 @@ export function ViewToolbar(
                         </div>
                       )}
                       {cfg.series.length > 1 && (
-                        <IconButton tone="danger" className="w-5 shrink-0 text-[10px]"
+                        <IconButton tone="danger" className="w-5 shrink-0 text-[13px]"
                           title="remove this measure"
                           onClick={() =>
                             setChart({

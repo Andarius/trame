@@ -2,7 +2,7 @@ import type { AppStatus, PluginManifest, UpdateInfo } from "../api";
 import { useAgents } from "../agents/agents";
 import { FRONTEND_PLUGINS } from "../plugins";
 import { useTermDock } from "../term/term-api";
-import { GearIcon, LogoMark } from "../ui/icons";
+import { GearIcon, LogoMark, SidebarIcon } from "../ui/icons";
 import type { View } from "./view";
 
 export const NAV: { key: "sessions" | "agents" | "terminals" | "explore" | "insights"; glyph: string; label: string; view: View }[] = [
@@ -68,7 +68,7 @@ const count = (n: number, tone = "bg-chipline text-ink-soft") => (
 
 // Codex-style icon rail: every view one click away, with what needs you as badges; the column beside it follows the view
 export function Rail(
-  { view, pluginId, plugins, onNav, onOpenPlugin, status, onSettings, update, updateState, onUpdate }: {
+  { view, pluginId, plugins, onNav, onOpenPlugin, status, onSettings, update, updateState, onUpdate, sidebar, onToggleSidebar }: {
     view: View;
     pluginId: string | null;
     plugins: PluginManifest[];
@@ -79,6 +79,8 @@ export function Rail(
     update: UpdateInfo | null;
     updateState: "idle" | "busy" | "done";
     onUpdate: () => void;
+    sidebar: boolean | null; // the column beside the rail: shown, hidden, or none for this view
+    onToggleSidebar: () => void;
   },
 ) {
   const { live } = useAgents();
@@ -104,6 +106,16 @@ export function Rail(
       <div className="mb-3">
         <LogoMark debug={status?.debug} />
       </div>
+      {sidebar !== null && (
+        <RailButton
+          label={sidebar ? "Hide sidebar" : "Show sidebar"}
+          hint={`${navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl+"}\\`}
+          active={false}
+          onClick={onToggleSidebar}
+        >
+          <SidebarIcon />
+        </RailButton>
+      )}
       {NAV.map((n) => (
         <RailButton
           key={n.key}

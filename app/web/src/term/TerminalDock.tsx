@@ -3,6 +3,7 @@ import { AgentIcon } from "../agents/agents";
 import type { BoardData, Project } from "../api";
 import { projectFor } from "./project-for";
 import { EntityIcon, IconButton, useLocalStorage } from "../ui/ui";
+import { ChevronIcon, MaximizeIcon, PlusIcon, SplitDownIcon, SplitRightIcon } from "../ui/icons";
 import { NewTerminalDialog } from "./NewTerminalDialog";
 import { TerminalView } from "./TerminalView";
 import {
@@ -31,7 +32,7 @@ import {
 } from "./term-api";
 
 function ProjectMark({ project }: { project: Project | null }) {
-  if (project?.icon) return <EntityIcon icon={project.icon} size={12} />;
+  if (project?.icon) return <EntityIcon icon={project.icon} size={14} />;
   if (project?.color) return <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: project.color }} />;
   return null;
 }
@@ -192,22 +193,22 @@ export default function TerminalDock(
         <div className="relative shrink-0">
           <IconButton
             tone="close"
-            className="px-1.5"
+            className="grid h-7 w-7 place-items-center rounded-md hover:bg-hover"
             title="new terminal or agent (⌘T)"
             aria-label="New terminal or agent"
             onClick={() => setNewTerm({})}
           >
-            +
+            <PlusIcon />
           </IconButton>
         </div>
         <div className="flex-1" />
         {canSplit && (
           <>
-            <IconButton tone="close" className="px-1" title="split right (⌘D)" aria-label="Split right" onClick={() => void splitTerminal("row")}>
-              ◫
+            <IconButton tone="close" className="grid h-7 w-7 place-items-center rounded-md hover:bg-hover" title="split right (⌘D)" aria-label="Split right" onClick={() => void splitTerminal("row")}>
+              <SplitRightIcon />
             </IconButton>
-            <IconButton tone="close" className="px-1" title="split down (⌘⇧D)" aria-label="Split down" onClick={() => void splitTerminal("col")}>
-              ⊟
+            <IconButton tone="close" className="grid h-7 w-7 place-items-center rounded-md hover:bg-hover" title="split down (⌘⇧D)" aria-label="Split down" onClick={() => void splitTerminal("col")}>
+              <SplitDownIcon />
             </IconButton>
           </>
         )}
@@ -215,21 +216,21 @@ export default function TerminalDock(
         <>
         <IconButton
           tone="close"
-          className="px-1"
+          className="grid h-7 w-7 place-items-center rounded-md hover:bg-hover"
           title={full ? "restore (Ctrl+Shift+`)" : "fill the view (Ctrl+Shift+`)"}
           aria-label={full ? "Restore terminal" : "Maximize terminal"}
           onClick={() => setDockMax(!full)}
         >
-          {full ? "⤡" : "⤢"}
+          <MaximizeIcon restore={full} />
         </IconButton>
         <IconButton
           tone="close"
-          className="px-1"
+          className="grid h-7 w-7 place-items-center rounded-md hover:bg-hover"
           title={open ? "hide (Ctrl+`)" : "show (Ctrl+`)"}
           aria-label={open ? "Hide terminal" : "Show terminal"}
           onClick={() => setDockOpen(!open)}
         >
-          {open ? "▾" : "▴"}
+          <ChevronIcon up={!open} />
         </IconButton>
         </>
         )}

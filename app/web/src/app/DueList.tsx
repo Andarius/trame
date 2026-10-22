@@ -86,7 +86,7 @@ export function DueList(
         <div key={key ?? "none"} className="flex flex-col gap-0.5">
           {grouping !== "none" && (
             <div className="flex items-center gap-1.5 px-2 pb-0.5 pt-1.5 text-[10px] font-medium tracking-[0.08em] text-ink-faint">
-              {grouping === "project" && key && <EntityIcon icon={board?.projects.find((p) => p.id === key)?.icon} size={11} />}
+              {grouping === "project" && key && <EntityIcon icon={board?.projects.find((p) => p.id === key)?.icon} size={14} />}
               {grouping === "when"
                 ? WHEN_LABEL[key as keyof typeof WHEN_LABEL]
                 : key ? projectName(key).toUpperCase() : "NO PROJECT"}

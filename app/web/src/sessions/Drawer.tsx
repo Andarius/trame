@@ -638,7 +638,7 @@ export function Drawer(
       {(prCollapsed ? prLinks.slice(0, 1) : prLinks).map((url) => (
         <div key={url} className="group flex min-w-0 items-center gap-1">
           <PrChip url={url} />
-          <IconButton tone="danger" className="shrink-0 text-[11.5px] opacity-0 transition-opacity group-hover:opacity-100"
+          <IconButton tone="danger" className="shrink-0 text-[13px] opacity-0 transition-opacity group-hover:opacity-100"
             title="remove"
             onClick={() => {
               const next = prLinks.filter((u) => u !== url).join("\n");

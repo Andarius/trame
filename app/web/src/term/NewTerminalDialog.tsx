@@ -115,7 +115,7 @@ export function NewTerminalDialog(
         <div className="flex flex-col gap-1.5">
           <div className={SECTION_LABEL}>RUN</div>
           <div className="flex flex-wrap gap-1.5">
-            {chip(SHELL, "Shell", <span className="text-ink-muted"><TerminalIcon size={13} /></span>)}
+            {chip(SHELL, "Shell", <span className="text-ink-muted"><TerminalIcon size={14} /></span>)}
             {agents?.map((a) => chip(a.command, a.label, <AgentIcon a={{ harness: a.command, icon: null }} />))}
             {agents === null && <span className="px-1 py-1 text-[11px] text-ink-faint">looking for agents…</span>}
           </div>
@@ -125,7 +125,7 @@ export function NewTerminalDialog(
           <div className="flex flex-wrap gap-1.5">
             {projectChip(null, "None", null)}
             {(board?.projects ?? []).map((p) =>
-              projectChip(p.id, p.name, p.icon ? <EntityIcon icon={p.icon} size={12} /> : null)
+              projectChip(p.id, p.name, p.icon ? <EntityIcon icon={p.icon} size={14} /> : null)
             )}
           </div>
         </div>
