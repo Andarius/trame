@@ -46,7 +46,7 @@ export function Insights({ board }: { board: BoardData | null }) {
     getStats().then(setData, (e: Error) => setError(e.message));
   }, []);
   // merged PRs arrive from GitHub/GitLab in the background: reload until they are in
-  const pending = data?.prs.pending;
+  const pending = data?.prs.pending || data?.devices.pending;
   useEffect(() => {
     if (!pending) return;
     const t = setTimeout(() => void getStats().then(setData, () => {}), 5000);
@@ -99,8 +99,12 @@ export function Insights({ board }: { board: BoardData | null }) {
           <ByAgent rows={view.cur} />
         </div>
         <p className="text-[11px] text-ink-faint">
-          Prompts and tokens come from the {fmt(data.scan.files)} Claude Code and Codex transcripts on this machine; the
-          worklog and cards from Trame.
+          Prompts and tokens come from the {fmt(data.scan.files)} Claude Code and Codex transcripts on this machine
+          {data.devices.others > 0
+            ? ` and ${data.devices.others} other device${data.devices.others === 1 ? "" : "s"} through the hub`
+            : data.devices.hub
+            ? " (other devices show up once they run this version)"
+            : " only (no hub configured)"}; the worklog and cards from Trame.
         </p>
       </div>
     </div>

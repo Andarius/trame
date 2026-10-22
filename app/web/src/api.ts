@@ -949,6 +949,8 @@ export const getStats = () =>
       rows: StatsRow[];
       scan: { files: number; parsed: number; ms: number };
       prs: { pending: boolean; fetched: boolean }; // merged PRs come from GitHub/GitLab in the background
+      // other devices' prompts and tokens, from the hub in the background
+      devices: { others: number; pending: boolean; hub: boolean };
     }>;
   });
 export const getPluginUpdates = () =>
