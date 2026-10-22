@@ -217,6 +217,18 @@ export function App() {
     return () => removeEventListener("keydown", h);
   }, [termDock]);
 
+  // Ctrl/Cmd+Shift+\\ hides or shows the card details docked right of the terminals
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.code === "Backslash") {
+        e.preventDefault();
+        setTermDetails((v) => !v);
+      }
+    };
+    addEventListener("keydown", h);
+    return () => removeEventListener("keydown", h);
+  }, [setTermDetails]);
+
   // Ctrl/Cmd+\\ hides or shows the sidebar column (Ctrl+B is bold in the editor)
   const [sidebarHidden, setSidebarHidden] = useLocalStorage("trame:sidebarHidden", false, BOOL_CODEC);
   useEffect(() => {
@@ -946,6 +958,8 @@ export function App() {
                 }
                 : null}
               onScope={(c, p) => setTermSel(c ?? (p ? `project:${p}` : "plain"))}
+              details={terminals && termSession && !openId ? termDetails : null}
+              onToggleDetails={() => setTermDetails(!termDetails)}
             />
           </Suspense>
         )}
