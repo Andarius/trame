@@ -5,9 +5,29 @@
 pub(crate) use crate::{
     blocking::spawn as blocking, db::Db, routes::Native, routes::json_response, settings,
 };
+// core helpers for plugins that write pages, sessions, tags and marks
+#[allow(unused_imports, reason = "re-exported for composed plugins")]
+pub(crate) use crate::{
+    pages::{
+        MarkRule, add_mark_roles, create as create_page, delete as delete_page, get as get_page,
+        project_above, update as update_page,
+    },
+    sessions::{
+        ensure_specs_page, ensure_tag, set_status as set_session_status, tag_key,
+        upsert as upsert_session,
+    },
+};
 use axum::{body::Body, http::Request, response::Response};
 use serde_json::{Value, json};
 use std::{future::Future, pin::Pin};
+#[allow(unused_imports, reason = "re-exported for composed plugins")]
+pub(crate) use trame_core::{
+    JS_SPACE, js_string,
+    page_markdown::{is_folder_block, markdown_to_page_blocks},
+    page_merge::merge_page_blocks,
+    todo_marks::{read_marks, strip_marks, write_mark},
+    trim as js_trim, truthy,
+};
 
 pub type RouteFuture = Pin<Box<dyn Future<Output = Response> + Send + 'static>>;
 
@@ -20,6 +40,10 @@ pub trait Plugin: Send + Sync + 'static {
     fn description(&self) -> &'static str;
     /// Semver of this build and its GitHub `owner/name`, for the update check.
     fn version(&self) -> Option<(&'static str, &'static str)> {
+        None
+    }
+    /// Sub path answering `{session id: {name, avatar}}` for tramecli's `assigner:` query.
+    fn card_faces(&self) -> Option<&'static str> {
         None
     }
     /// Nav badge from in-memory state or the settings slice already read; no other I/O.
@@ -61,6 +85,9 @@ pub fn manifest(plugin: &dyn Plugin, settings_path: &std::path::Path) -> Value {
         "enabled": slice["enabled"] == true,
         "badge": plugin.badge(&slice),
     });
+    if let Some(route) = plugin.card_faces() {
+        m["cardFaces"] = json!(route);
+    }
     if let Some((version, repo)) = plugin.version() {
         m["version"] = json!(version);
         m["repo"] = json!(repo);
