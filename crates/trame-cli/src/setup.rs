@@ -14,6 +14,9 @@ pub const TRACK_SKILL_OPENAI: &str = include_str!("../../../skills/trame-track/a
 pub const PAGE_SKILL: &str = include_str!("../../../skills/trame-page/SKILL.md");
 pub const WATCH_SKILL: &str = include_str!("../../../skills/trame-watch/SKILL.md");
 pub const TRAME_SKILL: &str = include_str!("../../../skills/trame/SKILL.md");
+pub const PLUGIN_SKILL: &str = include_str!("../../../skills/trame-plugin/SKILL.md");
+pub const PLUGIN_SKILL_TEMPLATES: &str =
+    include_str!("../../../skills/trame-plugin/references/templates.md");
 pub const PRE_PUSH: &str = include_str!("pre-push.sh");
 const MOD_MANIFEST: &str = include_str!("../../../claude-mod/.claude-plugin/plugin.json");
 const MOD_HOOKS: &str = include_str!("../../../claude-mod/hooks/hooks.json");
@@ -255,6 +258,11 @@ pub fn install_skills(home: &str, claude: bool, dirs: &[String]) -> Result<()> {
         ("trame-page/SKILL.md", PAGE_SKILL),
         ("trame-watch/SKILL.md", WATCH_SKILL),
         ("trame/SKILL.md", TRAME_SKILL),
+        ("trame-plugin/SKILL.md", PLUGIN_SKILL),
+        (
+            "trame-plugin/references/templates.md",
+            PLUGIN_SKILL_TEMPLATES,
+        ),
     ];
     for dir in dirs {
         for (path, content) in assets {

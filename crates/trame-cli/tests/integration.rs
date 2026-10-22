@@ -1104,10 +1104,13 @@ async fn setup_relinks_embeds_skills_and_respects_git_hooks_path() {
         ".claude/skills/trame-page/SKILL.md",
         ".claude/skills/trame-watch/SKILL.md",
         ".claude/skills/trame/SKILL.md",
+        ".claude/skills/trame-plugin/SKILL.md",
+        ".claude/skills/trame-plugin/references/templates.md",
         ".agents/skills/trame-track/SKILL.md",
         ".agents/skills/trame-track/agents/openai.yaml",
         ".agents/skills/trame-page/SKILL.md",
         ".agents/skills/trame-watch/SKILL.md",
+        ".agents/skills/trame-plugin/SKILL.md",
     ] {
         assert!(scratch.0.join(relative).exists(), "{relative}");
     }
