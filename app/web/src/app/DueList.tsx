@@ -95,7 +95,7 @@ export function DueList(
     if (e.shiftKey && anchor) {
       const keys = ordered.map(rowKey);
       const [a, b] = [keys.indexOf(anchor), keys.indexOf(k)].sort((x, y) => x - y);
-      if (a >= 0) return setSelected(new Set([...selected, ...keys.slice(a, b + 1)]));
+      if (a >= 0) return setSelected(new Set(keys.slice(a, b + 1)));
     }
     const next = new Set(selected);
     if (next.has(k)) next.delete(k);
@@ -142,13 +142,15 @@ export function DueList(
       <button
         type="button"
         key={rowKey(d)}
-        aria-pressed={selected.size ? on : undefined}
+        aria-pressed={on}
         onMouseDown={(e) => e.shiftKey && e.preventDefault()}
         onClick={(e) => {
-          if (e.shiftKey || e.metaKey || e.ctrlKey || selected.size) {
+          if (e.shiftKey || e.metaKey || e.ctrlKey) {
             clearSelection();
             return select(d, e);
           }
+          // a plain click selects just this todo (the Shift anchor) and opens it
+          setSelected(new Set([rowKey(d)]));
           setAnchor(rowKey(d));
           if (d.block_id) focusBlock(d.block_id);
           if (d.card_id) treeCards.open(d.card_id);
