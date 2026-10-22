@@ -114,18 +114,19 @@ function Stat({ value, prev, label, hint }: { value: number | null; prev: number
   const change = prev && value !== null ? Math.round(((value - prev) / prev) * 100) : null;
   return (
     <div className={CARD} title={hint}>
-      <div className="flex items-start gap-2">
+      <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
         <div className="text-[26px] font-semibold leading-tight tabular-nums">
           {value === null ? <span className="text-ink-faint" title="asking GitHub / GitLab…">…</span> : fmt(value)}
         </div>
         {change !== null && change !== 0 && (
           <span
-            className={`ml-auto rounded-full px-1.5 py-0.5 text-[10.5px] font-medium ${
+            className={`ml-auto shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10.5px] font-medium ${
               change > 0 ? "bg-chip-active-bg text-active" : "bg-hover text-ink-muted"
             }`}
             title="vs the previous period"
           >
-            {change > 0 ? "↗" : "↘"} {Math.abs(change)}%
+            {/* a near-empty previous period reads better as a multiple */}
+            {change > 0 ? "↗" : "↘"} {change >= 1000 ? `${Math.round(value! / prev!)}×` : `${Math.abs(change)}%`}
           </span>
         )}
       </div>
