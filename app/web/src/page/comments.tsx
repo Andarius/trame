@@ -185,7 +185,7 @@ export function CommentItem(
         </button>
         <IconButton tone="danger" title="delete"
           onClick={onDelete}
-          className="text-[11px] transition-colors"
+          className="text-[13px] transition-colors"
         >
           ✕
         </IconButton>

@@ -74,7 +74,7 @@ export function QueryBox(
         errors.length ? "border-blocked/60" : active ? "border-copper/40 bg-panel/40" : "border-line bg-panel/40 focus-within:border-chipline"
       }`}
     >
-      <svg width="13" height="13" viewBox="0 0 16 16" className="shrink-0 text-ink-muted" aria-hidden="true">
+      <svg width="15" height="15" viewBox="0 0 16 16" className="shrink-0 text-ink-muted" aria-hidden="true">
         <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
         <path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
       </svg>
@@ -120,7 +120,7 @@ export function QueryBox(
         ? (
           <IconButton tone="close" title="Clear all filters"
             onClick={onClear}
-            className="shrink-0 px-0.5 text-[11px]"
+            className="shrink-0 px-0.5 text-[13px]"
           >
             ✕
           </IconButton>

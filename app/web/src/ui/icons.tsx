@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 // inline SVG with hardcoded colors — the span version relied on the --color-copper
 // var and color-mix opacity, one of which the Linux WebKitGTK webview drops (logo
 // rendered invisible). SVG with literal hex is bulletproof across both webviews.
@@ -34,11 +36,28 @@ export function LogoMark({ debug = false }: { debug?: boolean }) {
   );
 }
 
+export function SidebarIcon({ size = 15 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      aria-hidden="true"
+    >
+      <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />
+      <path d="M6 2.75v10.5" />
+    </svg>
+  );
+}
+
 export function GroupIcon() {
   return (
     <svg
-      width="13"
-      height="13"
+      width="15"
+      height="15"
       viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"
@@ -73,7 +92,7 @@ export function GearIcon({ size = 15 }: { size?: number }) {
 }
 
 // two sliders: a list's view options (grouping)
-export function SlidersIcon({ size = 13 }: { size?: number }) {
+export function SlidersIcon({ size = 15 }: { size?: number }) {
   return (
     <svg
       width={size}
@@ -113,3 +132,41 @@ export function PrIcon({ size = 14 }: { size?: number }) {
     </svg>
   );
 }
+
+// terminal dock toolbar
+function DockSvg({ size, children }: { size: number; children: ReactNode }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {children}
+    </svg>
+  );
+}
+export const SplitRightIcon = ({ size = 16 }: { size?: number }) => (
+  <DockSvg size={size}>
+    <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.5" />
+    <path d="M8 2.75v10.5" />
+  </DockSvg>
+);
+export const SplitDownIcon = ({ size = 16 }: { size?: number }) => (
+  <DockSvg size={size}>
+    <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.5" />
+    <path d="M1.75 8h12.5" />
+  </DockSvg>
+);
+export const MaximizeIcon = ({ size = 16, restore = false }: { size?: number; restore?: boolean }) => (
+  <DockSvg size={size}>
+    {restore
+      ? <path d="M6.5 2.5v4h-4M9.5 13.5v-4h4M6.5 6.5 2 2M9.5 9.5 14 14" />
+      : <path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5 9 7M2.5 13.5 7 9" />}
+  </DockSvg>
+);
+export const ChevronIcon = ({ size = 16, up = false }: { size?: number; up?: boolean }) => (
+  <DockSvg size={size}>
+    <path d={up ? "M4 10l4-4 4 4" : "M4 6l4 4 4-4"} />
+  </DockSvg>
+);
+export const PlusIcon = ({ size = 16 }: { size?: number }) => (
+  <DockSvg size={size}>
+    <path d="M8 3v10M3 8h10" />
+  </DockSvg>
+);

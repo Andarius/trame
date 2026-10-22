@@ -119,7 +119,7 @@ export function ShareModal(
                 <IconButton tone="danger" title="Revoke — their copy is purged on their next sync"
                   onClick={() =>
                     revokeShare(s.id).then(reload)}
-                  className="rounded-md border border-line px-1.5 py-0.5 text-[11.5px]"
+                  className="rounded-md border border-line px-1.5 py-0.5 text-[13px]"
                 >
                   ×
                 </IconButton>

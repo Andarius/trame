@@ -217,6 +217,19 @@ export function App() {
     return () => removeEventListener("keydown", h);
   }, [termDock]);
 
+  // Ctrl/Cmd+\\ hides or shows the sidebar column (Ctrl+B is bold in the editor)
+  const [sidebarHidden, setSidebarHidden] = useLocalStorage("trame:sidebarHidden", false, BOOL_CODEC);
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === "\\") {
+        e.preventDefault();
+        setSidebarHidden((v) => !v);
+      }
+    };
+    addEventListener("keydown", h);
+    return () => removeEventListener("keydown", h);
+  }, [setSidebarHidden]);
+
   // Ctrl/Cmd+P — Notion-style quick find (preventDefault beats the print dialog)
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -655,6 +668,8 @@ export function App() {
           : undefined}
         wide={view === "explore"}
         bare={view === "insights" || (view === "plugin" && !pluginColumn)}
+        hidden={sidebarHidden}
+        onToggleHidden={() => setSidebarHidden((v) => !v)}
       />
       )}
       <main className="relative flex min-w-0 flex-1 flex-col">

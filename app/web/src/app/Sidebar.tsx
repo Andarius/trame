@@ -67,6 +67,8 @@ export function Sidebar(
     column,
     wide,
     bare,
+    hidden,
+    onToggleHidden,
   }: {
     view: View;
     onNav: (v: View) => void;
@@ -100,6 +102,9 @@ export function Sidebar(
     wide?: boolean;
     // a view with nothing to list beside it (plugins): the rail alone, the view takes the width
     bare?: boolean;
+    // the user hid the column (⌘\\)
+    hidden: boolean;
+    onToggleHidden: () => void;
   },
 ) {
   // my user id (null in dev / before hub login) — used to split off shared-in roots
@@ -268,8 +273,10 @@ export function Sidebar(
         update={update}
         updateState={updateState}
         onUpdate={onUpdate}
+        sidebar={bare ? null : !hidden}
+        onToggleSidebar={onToggleHidden}
       />
-      <div className={`flex-col border-r border-line ${bare ? "hidden" : "flex"} ${wide ? "w-[320px]" : "w-[240px]"}`}>
+      <div className={`flex-col border-r border-line ${bare || hidden ? "hidden" : "flex"} ${wide ? "w-[320px]" : "w-[240px]"}`}>
       {/* the rail marks the view; the column keeps the app's name, like Codex */}
       <div className="flex h-12 shrink-0 items-center gap-2.5 px-5">
         <span className="text-[15px] font-semibold">Trame</span>

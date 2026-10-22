@@ -102,7 +102,7 @@ export function SelectionBar(
       <IconButton
         onClick={onClear}
         title="Clear selection (Esc)"
-        className="text-[12px] text-ink-muted hover:text-ink-soft"
+        className="text-[13px] text-ink-muted hover:text-ink-soft"
       >
         ✕
       </IconButton>

@@ -360,7 +360,7 @@ export function DeploymentsSettings() {
                 >
                   ⇈ cards{custom ? " · custom" : ""}
                 </button>
-                <IconButton tone="danger" className="text-[11px]"
+                <IconButton tone="danger" className="text-[13px]"
                   onClick={() => setRows((rs) => rs.filter((x) => x !== r))}
                 >
                   ✕

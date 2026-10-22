@@ -131,7 +131,7 @@ export function TermCards(
                 }
                 : undefined}
             >
-              {grouping === "project" && key && <EntityIcon icon={board?.projects.find((p) => p.id === key)?.icon} size={12} />}
+              {grouping === "project" && key && <EntityIcon icon={board?.projects.find((p) => p.id === key)?.icon} size={14} />}
               {label(key)}
               {key && menuFor === key && (
                 <NewTerminalDialog
