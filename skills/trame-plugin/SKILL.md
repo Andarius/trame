@@ -106,7 +106,7 @@ From the Trame checkout, with the plugin composed:
 
 ```bash
 cargo clippy -p trame-local --all-targets --locked -- -D warnings   # the plugin compiles under Trame's lints
-cargo test -p trame-local --locked --lib                            # your #[cfg(test)] tests run with the crate's
+cargo test -p trame-local --locked --lib local_gen::                # your #[cfg(test)] tests (composed modules live under plugins::local_gen)
 (cd app/web && npm run typecheck)                                   # web side
 (cd ../my-plugin && ../trame/node_modules/.bin/oxlint -c ../trame/.oxlintrc.json web && bun test)
 just e2e                                                            # runs e2e/*.spec.ts as its own project

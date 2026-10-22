@@ -376,11 +376,11 @@ jobs:
           echo '{ "plugins": ["../trame-demo"] }' > trame/plugins.local.json
           cd trame && bun install --frozen-lockfile && (cd app/web && npm ci) && bun scripts/gen-plugins.ts
 
-      - name: Backend under Trame's lints and unit tests
+      - name: Backend under Trame's lints and the plugin's unit tests
         run: |
-          cd trame
+          cd trame && mkdir -p .scratch
           cargo clippy -p trame-local --all-targets --locked -- -D warnings
-          cargo test -p trame-local --locked --lib
+          cargo test -p trame-local --locked --lib local_gen::
 
       - name: Web typecheck, lint and tests
         run: |
@@ -390,8 +390,10 @@ jobs:
           bun test
 ```
 
-Pin the actions to commit SHAs in the real file. Trame's integration tests need PostgreSQL
-binaries and stay in Trame's own CI; `--lib` runs the plugin's `#[cfg(test)]` tests.
+Pin the actions to commit SHAs in the real file. Composed modules live under
+`plugins::local_gen`, so the `local_gen::` filter runs only the plugin's `#[cfg(test)]` tests;
+Trame's own unit tests expect a prepared `.scratch` and its integration tests need PostgreSQL
+binaries, both of which stay in Trame's CI.
 
 ## .github/workflows/release.yml
 
