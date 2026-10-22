@@ -292,7 +292,7 @@ export function Sidebar(
       <div ref={runningRef}>
         <WorkingNow board={board} onOpenSession={onOpenSession} onOpenTerminals={onOpenTerminals} onOpenPage={onOpenPage} />
       </div>
-      {due.length > 0 && <DueList due={due} board={board} onOpenPage={onOpenPage} />}
+      {due.length > 0 && <DueList due={due} board={board} onOpenPage={onOpenPage} onOpenTerminals={onOpenTerminals} />}
       {recents.length > 0 && (
         <>
           {/* a landmark, so the rows are addressable apart from STARRED's identical ones */}
