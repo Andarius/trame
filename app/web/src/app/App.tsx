@@ -31,6 +31,7 @@ import { Board } from "../sessions/Board";
 import { Drawer, TOPBAR_SLOT } from "../sessions/Drawer";
 import { Explore } from "./Explore";
 import { Insights } from "./Insights";
+import { Timeline } from "./Timeline";
 import { Diagnostics } from "./Diagnostics";
 import { List } from "../sessions/List";
 import { filterSessionBoard, sortSessionBoard, type Sort } from "../sessions/SessionSort";
@@ -622,6 +623,8 @@ export function App() {
     ? currentPlugin?.label ?? "Plugin"
     : view === "insights"
     ? "Insights"
+    : view === "timeline"
+    ? "Timeline"
     : view === "diagnostics"
     ? "Diagnostics"
     : "Explore";
@@ -679,7 +682,7 @@ export function App() {
           ? <div ref={setColumnSlot} className="contents" />
           : undefined}
         wide={view === "explore"}
-        bare={view === "insights" || (view === "plugin" && !pluginColumn)}
+        bare={view === "insights" || view === "timeline" || (view === "plugin" && !pluginColumn)}
         hidden={sidebarHidden}
         onToggleHidden={() => setSidebarHidden((v) => !v)}
       />
@@ -930,6 +933,8 @@ export function App() {
           ? null // the dock is the view (below)
           : view === "insights"
           ? <Insights board={board} />
+          : view === "timeline"
+          ? <Timeline board={board} onOpenSession={(id) => openSession(id)} />
           : view === "agents"
           ? <AgentSessions board={board} onOpenSession={(id) => openSession(id)} slot={columnSlot} />
           : view === "diagnostics"
