@@ -953,6 +953,14 @@ export const getStats = () =>
       devices: { others: number; pending: boolean; hub: boolean };
     }>;
   });
+// worklog entries of the last `days` days (newest first) and each touched card's first and last entry
+export type TimelineEntry = { id: string; session_id: string; at: string; summary: string | null; agent: string | null; agent_name: string | null };
+export type TimelineSpan = { session_id: string; first: string; last: string; n: number };
+export const getTimeline = (days: number) =>
+  fetch(`/api/timeline?days=${days}`).then(async (r) => {
+    if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? r.statusText);
+    return r.json() as Promise<{ entries: TimelineEntry[]; spans: TimelineSpan[] }>;
+  });
 export const getPluginUpdates = () =>
   fetch("/api/plugin-updates").then((r) => r.json() as Promise<PluginUpdate[]>);
 export const setPluginEnabled = (id: string, enabled: boolean) =>
