@@ -5,6 +5,7 @@ import { isText, type TextBlock } from "./editor-text";
 import { FoldHeader, TabStrip } from "./editor-blocks";
 import { FolderBlock } from "./FolderBlock";
 import { LiveEmbedBlock } from "./LiveEmbedBlock";
+import { CodeBlock } from "./CodeBlock";
 import { HtmlBlock } from "./HtmlBlock";
 
 export type SectionMeta = {
@@ -120,17 +121,19 @@ export function renderSection(ctx: SectionCtx, b: Block, i: number): ReactNode |
   return undefined;
 }
 
-// a folder, embed or html block: self-contained components with their own chrome
-export function EmbedBlock({ block, onPatch, onRemove, onOpenReport }: {
-  block: Extract<Block, { type: "folder" | "html" | "embed" }>;
+// a folder, embed, html or code block: self-contained components with their own chrome
+export function EmbedBlock({ block, onPatch, onRemove, onInsertCell, onOpenReport }: {
+  block: Extract<Block, { type: "folder" | "html" | "embed" | "code" }>;
   onPatch: (patch: Partial<Block>) => void;
   onRemove: () => void;
+  onInsertCell: (where: "above" | "below") => string;
   onOpenReport: (path: string) => void;
 }) {
   if (block.type === "folder") {
     return <FolderBlock block={block} onPatch={onPatch} onRemove={onRemove} onOpenReport={onOpenReport} />;
   }
   if (block.type === "embed") return <LiveEmbedBlock block={block} onPatch={onPatch} onRemove={onRemove} />;
+  if (block.type === "code") return <CodeBlock block={block} onPatch={onPatch} onRemove={onRemove} onInsert={onInsertCell} />;
   return <HtmlBlock block={block} onPatch={onPatch} onRemove={onRemove} />;
 }
 

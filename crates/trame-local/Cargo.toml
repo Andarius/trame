@@ -25,6 +25,7 @@ glob = "0.3.4"
 icu_collator = "2"
 sha2 = "0.10"
 serde = { version = "1", features = ["derive"] }
+toml = "1"
 futures-util = { version = "0.3", features = ["sink"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pemfile = "2"

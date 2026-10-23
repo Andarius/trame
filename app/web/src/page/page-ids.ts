@@ -2,13 +2,14 @@ import type { Block } from "../api";
 
 // Stable block id so a comment survives edits/reorders of the surrounding text.
 export const genId = () => crypto.randomUUID().slice(0, 8);
-const isTextType = (t: Block["type"]) =>
-  t === "text" || t === "heading" || t === "todo";
-// Backfill ids on text blocks that predate them; `changed` tells the caller to persist.
+// text blocks for comments, code cells for run all and cell selection
+const needsId = (t: Block["type"]) =>
+  t === "text" || t === "heading" || t === "todo" || t === "code";
+// Backfill ids on blocks written without one; `changed` tells the caller to persist.
 export function ensureIds(blocks: Block[]): { blocks: Block[]; changed: boolean } {
   let changed = false;
   const out = blocks.map((b) => {
-    if (isTextType(b.type) && !("id" in b && b.id)) {
+    if (needsId(b.type) && !("id" in b && b.id)) {
       changed = true;
       return { ...b, id: genId() } as Block;
     }

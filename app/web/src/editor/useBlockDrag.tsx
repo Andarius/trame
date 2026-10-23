@@ -73,7 +73,7 @@ export function useBlockDrag(
   const dragRow = (i: number, child: ReactNode, span?: string) => (
     <div
       // a named group: an embedded database's own group-hover styles must not fire for the whole block
-      className={`group/block relative pl-6 ${dropClass(i)}`}
+      className={`group/block relative ${span ? "pl-6" : "-ml-6 pl-6"} ${dropClass(i)}`}
       style={span ? spanStyle(span) : undefined}
       onMouseMove={() => {
         if (dragIdx !== null && overIdx !== i) setOverIdx(i);

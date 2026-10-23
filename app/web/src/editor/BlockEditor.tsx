@@ -294,6 +294,18 @@ export function BlockEditor(
     onChange(blocks.filter((_, j) => j !== i));
     setFocusIdx(Math.max(0, i - 1));
   };
+  // cells: command mode owns focus, so neither moves the text cursor
+  const insertCell = (i: number, where: "above" | "below") => {
+    snapshot();
+    const id = genId();
+    const at = where === "above" ? i : i + 1;
+    onChange([...blocks.slice(0, at), { type: "code", source: "", id } as Block, ...blocks.slice(at)]);
+    return id;
+  };
+  const removeCell = (i: number) => {
+    snapshot();
+    onChange(blocks.filter((_, j) => j !== i));
+  };
   // shared by ○/✓ list clicks: pull `item` out of block i's list and re-file its
   // `line` into the list under the first heading matching `head` (created as
   // `newHeading` if missing) — prepended for done items, appended for reopened ones
@@ -589,6 +601,19 @@ export function BlockEditor(
         ),
       );
     }
+    if (key === "code") {
+      return onChange(
+        blocks.map((b, j) =>
+          j === i
+            ? {
+              type: "code",
+              source: "",
+              id: (isText(b) && b.id) || genId(),
+            } as Block
+            : b
+        ),
+      );
+    }
     onChange(
       blocks.map((b, j) =>
         j === i
@@ -720,12 +745,18 @@ export function BlockEditor(
         // section groups: strip/accordion on the marked heading, hide inactive blocks
         const section = renderSection(sectionCtx, b, i);
         if (section !== undefined) return section;
-        if (b.type === "folder" || b.type === "html" || b.type === "embed") {
+        if (b.type === "folder" || b.type === "html" || b.type === "embed" || b.type === "code") {
           return (
             <Fragment key={b.id ?? i}>
               {dragRow(
                 i,
-                <EmbedBlock block={b} onPatch={(patch) => setBlock(i, patch)} onRemove={() => remove(i)} onOpenReport={onOpenReport} />,
+                <EmbedBlock
+                  block={b}
+                  onPatch={(patch) => setBlock(i, patch)}
+                  onRemove={() => (b.type === "code" ? removeCell(i) : remove(i))}
+                  onInsertCell={(where) => insertCell(i, where)}
+                  onOpenReport={onOpenReport}
+                />,
               )}
             </Fragment>
           );
