@@ -74,7 +74,8 @@ fills the pane, an iframe or a table is fine), `column: true` (the Panel receive
 never names the plugin. `blocks` adds page block types (`PluginBlock`: `type`, a "/" menu `label` and
 `hint`, `create()` for a new block's fields, a `View` taking `BlockViewProps`, `wide` to widen the
 page). The View renders even while the plugin is off, with `enabled: false`: show what the block holds
-and offer `onOpenSettings`. Add the block's shape to `Block` in Trame's `api.ts`.
+and offer `onOpenSettings`. `Block` leaves plugin blocks out: declare the block's shape in the
+plugin and cast `page.content` to a union with it (`Andarius/trame-notebook-cells` does).
 
 From `@trame/web-api`: `getPluginSettings(id)` / `savePluginSettings(id, patch)` (GET/POST
 `/api/plugins/<id>/settings`), `openInBrowser(url)`, `FieldRow`, `Select`, `timeAgo`,

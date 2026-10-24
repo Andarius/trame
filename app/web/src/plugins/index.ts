@@ -2,20 +2,18 @@
 // purpose: React.lazy would reintroduce the WebKitGTK dynamic-import failure
 // mode the backend defends against. Labels/glyphs/enabled come from the server
 // manifest (GET /api/plugins) — only the components live here.
-import { type ComponentType, type ReactNode, useMemo, useSyncExternalStore } from "react";
+import { type ComponentType, type ReactNode, useMemo } from "react";
 import { createPortal } from "react-dom";
-import type { Block, PageDetail, Session } from "../api";
+import type { PageDetail, Session } from "../api";
 import { DeploymentsCardPath } from "./deployments/CardPath";
 import { DeploymentsPanel } from "./deployments/Panel";
 import { DeploymentsSettings } from "./deployments/Settings";
 import { NotebookPanel } from "./notebook/Panel";
 import { NotebookSettingsView } from "./notebook/Settings";
-import { CODE_CELL } from "./notebook-cells/CodeBlock";
-import { NotebookCellsPageHeader } from "./notebook-cells/Export";
-import { NotebookCellsSettings } from "./notebook-cells/Settings";
 import { SqlSourceDatabaseActions, SqlSourceDatabaseEmpty } from "./sql-source/Actions";
 import { SqlSourceSettings } from "./sql-source/Settings";
 import { LOCAL_PLUGINS } from "./local.gen";
+export { isPluginEnabled, markPluginEnabled, openPluginSettings, setEnabledPlugins, usePluginEnabled } from "./enabled";
 
 /** What the host hands a panel. A panel may declare only the props it uses. */
 export type PanelProps = {
@@ -28,12 +26,15 @@ export type PanelProps = {
 
 export type CardFace = { name: string; avatar: string | null };
 
+/** A plugin block as a page stores it; the fields besides `type` and `id` are the plugin's. */
+export type PluginBlockData = { type: string; id?: string; [field: string]: unknown };
+
 /** What the host hands a plugin's block view. */
 export type BlockViewProps = {
-  block: Block;
+  block: PluginBlockData;
   /** off, the view only shows what the block holds */
   enabled: boolean;
-  onPatch: (patch: Partial<Block>) => void;
+  onPatch: (patch: Record<string, unknown>) => void;
   onRemove: () => void;
   /** a new empty block of the same type above or below; returns its id */
   onInsert: (where: "above" | "below") => string;
@@ -88,7 +89,6 @@ export const FRONTEND_PLUGINS: FrontendPlugin[] = [
   { id: "deployments", Panel: DeploymentsPanel, column: true, Settings: DeploymentsSettings, CardFields: DeploymentsCardPath },
   { id: "sql-source", Settings: SqlSourceSettings, DatabaseActions: SqlSourceDatabaseActions, DatabaseEmpty: SqlSourceDatabaseEmpty },
   { id: "notebook", Panel: NotebookPanel, Settings: NotebookSettingsView },
-  { id: "notebook-cells", Settings: NotebookCellsSettings, PageHeader: NotebookCellsPageHeader, blocks: [CODE_CELL] },
   ...LOCAL_PLUGINS,
 ];
 
@@ -115,25 +115,3 @@ export function blockOf(type: string): (PluginBlock & { plugin: string }) | unde
   }
 }
 export const pluginBlocks = () => FRONTEND_PLUGINS.flatMap((p) => (p.blocks ?? []).map((b) => ({ ...b, plugin: p.id })));
-
-// enabled plugin ids: App feeds them from GET /api/plugins, the plugin toggles keep them current
-let enabledIds = new Set<string>();
-const enabledListeners = new Set<() => void>();
-function setEnabled(next: Set<string>) {
-  if (next.size === enabledIds.size && [...next].every((id) => enabledIds.has(id))) return;
-  enabledIds = next;
-  for (const l of enabledListeners) l();
-}
-export const setEnabledPlugins = (ids: string[]) => setEnabled(new Set(ids));
-export function markPluginEnabled(id: string, on: boolean) {
-  const next = new Set(enabledIds);
-  if (on) next.add(id);
-  else next.delete(id);
-  setEnabled(next);
-}
-export const isPluginEnabled = (id: string) => enabledIds.has(id);
-const subscribeEnabled = (l: () => void) => (enabledListeners.add(l), () => enabledListeners.delete(l));
-export const usePluginEnabled = (id: string) => useSyncExternalStore(subscribeEnabled, () => enabledIds.has(id));
-
-/** Opens one plugin's settings modal from anywhere (App listens). */
-export const openPluginSettings = (id: string) => dispatchEvent(new CustomEvent("trame:plugin-settings", { detail: id }));

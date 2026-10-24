@@ -651,7 +651,6 @@ export type Block =
   | { type: "subpage"; page_id: string }
   | { type: "folder"; path: string; view?: "list" | "gallery"; id?: string }
   | { type: "embed"; url: string; height?: number; id?: string }
-  | { type: "code"; source: string; outputs?: CellOutput[]; count?: number | null; id?: string }
   | {
     type: "html";
     html: string;
@@ -661,16 +660,6 @@ export type Block =
     width?: number; // dragged width in px, centred on the column and capped by the pane
     id?: string;
   };
-// nbformat output shapes, so a cell round-trips with .ipynb
-export type CellOutput =
-  | { output_type: "stream"; name: "stdout" | "stderr"; text: string }
-  | {
-    output_type: "display_data" | "execute_result";
-    data: Record<string, string>;
-    metadata?: Record<string, unknown>;
-    execution_count?: number | null;
-  }
-  | { output_type: "error"; ename: string; evalue: string; traceback: string[] };
 export type FolderEntry = {
   name: string;
   path: string;

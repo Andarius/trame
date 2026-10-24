@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { Block } from "../api";
-import { openPluginSettings, type PluginBlock, usePluginEnabled } from "../plugins";
+import { openPluginSettings, type PluginBlock, type PluginBlockData, usePluginEnabled } from "../plugins";
 import { stripMarks } from "../../../../core/todo-marks.ts";
 import { isText, type TextBlock } from "./editor-text";
 import { FoldHeader, TabStrip } from "./editor-blocks";
@@ -138,8 +138,8 @@ export function EmbedBlock({ block, onPatch, onRemove, onOpenReport }: {
 // a block type a plugin owns, told whether its plugin is on
 export function PluginBlockView({ pb, ...props }: {
   pb: PluginBlock & { plugin: string };
-  block: Block;
-  onPatch: (patch: Partial<Block>) => void;
+  block: PluginBlockData;
+  onPatch: (patch: Record<string, unknown>) => void;
   onRemove: () => void;
   onInsert: (where: "above" | "below") => string;
 }) {

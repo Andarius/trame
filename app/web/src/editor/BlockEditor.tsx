@@ -756,7 +756,7 @@ export function BlockEditor(
                 <PluginBlockView
                   pb={pb}
                   block={b}
-                  onPatch={(patch) => setBlock(i, patch)}
+                  onPatch={(patch) => setBlock(i, patch as Partial<Block>)}
                   onRemove={() => removeBlock(i)}
                   onInsert={(where) => insertBlock(i, where, pb)}
                 />,

@@ -11,19 +11,14 @@ pub mod deployments;
 #[path = "plugins/local.gen.rs"]
 mod local_gen;
 pub mod notebook;
-pub mod notebook_cells;
 pub mod sql_source;
 
 use api::{Owned, Plugin, classify};
 
 /// Every compiled-in plugin: first-party ones, then the ones composed from plugins.local.json.
 pub fn registry() -> impl Iterator<Item = &'static dyn Plugin> {
-    let first_party: [&'static dyn Plugin; 4] = [
-        &deployments::PLUGIN,
-        &sql_source::PLUGIN,
-        &notebook::PLUGIN,
-        &notebook_cells::PLUGIN,
-    ];
+    let first_party: [&'static dyn Plugin; 3] =
+        [&deployments::PLUGIN, &sql_source::PLUGIN, &notebook::PLUGIN];
     first_party
         .into_iter()
         .chain(local_gen::LOCAL.iter().copied())
