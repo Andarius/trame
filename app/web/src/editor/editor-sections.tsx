@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { Block } from "../api";
+import { openPluginSettings, type PluginBlock, type PluginBlockData, usePluginEnabled } from "../plugins";
 import { stripMarks } from "../../../../core/todo-marks.ts";
 import { isText, type TextBlock } from "./editor-text";
 import { FoldHeader, TabStrip } from "./editor-blocks";
@@ -132,6 +133,18 @@ export function EmbedBlock({ block, onPatch, onRemove, onOpenReport }: {
   }
   if (block.type === "embed") return <LiveEmbedBlock block={block} onPatch={onPatch} onRemove={onRemove} />;
   return <HtmlBlock block={block} onPatch={onPatch} onRemove={onRemove} />;
+}
+
+// a block type a plugin owns, told whether its plugin is on
+export function PluginBlockView({ pb, ...props }: {
+  pb: PluginBlock & { plugin: string };
+  block: PluginBlockData;
+  onPatch: (patch: Record<string, unknown>) => void;
+  onRemove: () => void;
+  onInsert: (where: "above" | "below") => string;
+}) {
+  const enabled = usePluginEnabled(pb.plugin);
+  return <pb.View {...props} enabled={enabled} onOpenSettings={() => openPluginSettings(pb.plugin)} />;
 }
 
 // a text block row's classes: comment tint, flash ring, selection contour, drop target, live agent

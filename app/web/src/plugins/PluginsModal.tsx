@@ -11,7 +11,7 @@ import {
   setPluginEnabled,
 } from "../api";
 import { label } from "../modals/modal-ui";
-import { FRONTEND_PLUGINS } from "./index";
+import { FRONTEND_PLUGINS, markPluginEnabled } from "./index";
 
 export function Toggle(
   { on, onChange }: { on: boolean; onChange: (v: boolean) => void },
@@ -56,6 +56,7 @@ export function PluginsModal({ onClose }: { onClose: () => void }) {
 
   const toggle = (id: string, enabled: boolean) => {
     setPlugins((l) => l.map((p) => p.id === id ? { ...p, enabled } : p));
+    markPluginEnabled(id, enabled);
     setPluginEnabled(id, enabled).catch(() => {});
   };
 

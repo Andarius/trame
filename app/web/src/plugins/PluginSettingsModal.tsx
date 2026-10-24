@@ -3,7 +3,7 @@
 // full plugins manager. Same shell as PluginsModal, minus the plugin list.
 import { useEffect, useState } from "react";
 import { getPlugins, type PluginManifest, setPluginEnabled } from "../api";
-import { FRONTEND_PLUGINS } from "./index";
+import { FRONTEND_PLUGINS, markPluginEnabled } from "./index";
 import { Toggle } from "./PluginsModal";
 
 export function PluginSettingsModal(
@@ -26,6 +26,7 @@ export function PluginSettingsModal(
   const Settings = FRONTEND_PLUGINS.find((f) => f.id === pluginId)?.Settings;
   const toggle = (v: boolean) => {
     setManifest((m) => (m ? { ...m, enabled: v } : m));
+    markPluginEnabled(pluginId, v);
     setPluginEnabled(pluginId, v).catch(() => {});
   };
 
