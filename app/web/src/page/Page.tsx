@@ -37,7 +37,7 @@ import { useFocusedBlock } from "../ui/due";
 import { PAGE_STATUSES } from "../../../../core/page-status.ts";
 import { useAgents } from "../agents/agents";
 import { PageDatabase } from "./PageDatabase";
-import { FRONTEND_PLUGINS, useCardFaces } from "../plugins";
+import { blockOf, FRONTEND_PLUGINS, useCardFaces } from "../plugins";
 import { queryValues } from "../query";
 import { markRoleOf } from "../../../../core/mark-roles.ts";
 import { PageRow, ProjectChildren, useFinishedCards } from "./project-page";
@@ -224,8 +224,8 @@ export function Page(
     <PageRow key={c.id} c={c} hideTag={hideTag} live={liveAgentsAll} onOpen={onOpenPage} />
   );
   const cv = commentView(cs, blocks);
-  // code cells want room: the whole page widens with them so text and cells share one edge
-  const notebook = blocks.some((b) => b.type === "code");
+  // wide plugin blocks (code cells) want room: the whole page widens so text and they share one edge
+  const wide = blocks.some((b) => blockOf(b.type)?.wide);
 
   return (
     <div
@@ -235,7 +235,7 @@ export function Page(
     >
       <div className="@container min-h-0 flex-1 overflow-y-auto">
         <div
-          className={`mx-auto flex ${notebook ? "max-w-[1400px]" : "max-w-[820px]"} flex-col gap-4 px-8 py-7 ${
+          className={`mx-auto flex ${wide ? "max-w-[1400px]" : "max-w-[820px]"} flex-col gap-4 px-8 py-7 ${
             pageSelected
               ? "rounded-lg bg-copper/[0.07] ring-1 ring-copper/25"
               : ""

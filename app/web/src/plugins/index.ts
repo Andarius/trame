@@ -2,14 +2,15 @@
 // purpose: React.lazy would reintroduce the WebKitGTK dynamic-import failure
 // mode the backend defends against. Labels/glyphs/enabled come from the server
 // manifest (GET /api/plugins) — only the components live here.
-import { type ComponentType, type ReactNode, useMemo } from "react";
+import { type ComponentType, type ReactNode, useMemo, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import type { PageDetail, Session } from "../api";
+import type { Block, PageDetail, Session } from "../api";
 import { DeploymentsCardPath } from "./deployments/CardPath";
 import { DeploymentsPanel } from "./deployments/Panel";
 import { DeploymentsSettings } from "./deployments/Settings";
 import { NotebookPanel } from "./notebook/Panel";
 import { NotebookSettingsView } from "./notebook/Settings";
+import { CODE_CELL } from "./notebook-cells/CodeBlock";
 import { NotebookCellsPageHeader } from "./notebook-cells/Export";
 import { NotebookCellsSettings } from "./notebook-cells/Settings";
 import { SqlSourceDatabaseActions, SqlSourceDatabaseEmpty } from "./sql-source/Actions";
@@ -26,6 +27,31 @@ export type PanelProps = {
 };
 
 export type CardFace = { name: string; avatar: string | null };
+
+/** What the host hands a plugin's block view. */
+export type BlockViewProps = {
+  block: Block;
+  /** off, the view only shows what the block holds */
+  enabled: boolean;
+  onPatch: (patch: Partial<Block>) => void;
+  onRemove: () => void;
+  /** a new empty block of the same type above or below; returns its id */
+  onInsert: (where: "above" | "below") => string;
+  /** the plugin's settings, where it is turned on */
+  onOpenSettings: () => void;
+};
+
+/** A block type a plugin owns: its "/" menu entry, a new block's fields and its view. */
+export type PluginBlock = {
+  type: string;
+  label: string;
+  hint: string;
+  /** a new block's fields besides `type` and `id` */
+  create: () => Record<string, unknown>;
+  View: ComponentType<BlockViewProps>;
+  /** a page holding one widens so text and these blocks share one edge */
+  wide?: boolean;
+};
 
 /** What a plugin shows in the host's own views; the host renders these and never names a plugin. */
 export type FrontendPlugin = {
@@ -49,6 +75,8 @@ export type FrontendPlugin = {
   CardFields?: ComponentType<{ session: Session; specs: unknown[] }>;
   /** marks that are metadata: hidden in text, and a line holding only them is not empty */
   metadataMarks?: string[];
+  /** block types it renders in pages */
+  blocks?: PluginBlock[];
 };
 
 /** renders a Panel's list into the sidebar column it was handed (`PanelProps.column`), else in place */
@@ -60,7 +88,7 @@ export const FRONTEND_PLUGINS: FrontendPlugin[] = [
   { id: "deployments", Panel: DeploymentsPanel, column: true, Settings: DeploymentsSettings, CardFields: DeploymentsCardPath },
   { id: "sql-source", Settings: SqlSourceSettings, DatabaseActions: SqlSourceDatabaseActions, DatabaseEmpty: SqlSourceDatabaseEmpty },
   { id: "notebook", Panel: NotebookPanel, Settings: NotebookSettingsView },
-  { id: "notebook-cells", Settings: NotebookCellsSettings, PageHeader: NotebookCellsPageHeader },
+  { id: "notebook-cells", Settings: NotebookCellsSettings, PageHeader: NotebookCellsPageHeader, blocks: [CODE_CELL] },
   ...LOCAL_PLUGINS,
 ];
 
@@ -78,3 +106,34 @@ export function useCardFaces(): Record<string, CardFace> {
   // oxlint-disable-next-line react/use-memo, react-hooks/exhaustive-deps -- one entry per static plugin
   return useMemo(() => Object.assign({}, ...maps), maps);
 }
+
+/** The plugin block owning `type`, with its plugin's id. */
+export function blockOf(type: string): (PluginBlock & { plugin: string }) | undefined {
+  for (const p of FRONTEND_PLUGINS) {
+    const b = p.blocks?.find((x) => x.type === type);
+    if (b) return { ...b, plugin: p.id };
+  }
+}
+export const pluginBlocks = () => FRONTEND_PLUGINS.flatMap((p) => (p.blocks ?? []).map((b) => ({ ...b, plugin: p.id })));
+
+// enabled plugin ids: App feeds them from GET /api/plugins, the plugin toggles keep them current
+let enabledIds = new Set<string>();
+const enabledListeners = new Set<() => void>();
+function setEnabled(next: Set<string>) {
+  if (next.size === enabledIds.size && [...next].every((id) => enabledIds.has(id))) return;
+  enabledIds = next;
+  for (const l of enabledListeners) l();
+}
+export const setEnabledPlugins = (ids: string[]) => setEnabled(new Set(ids));
+export function markPluginEnabled(id: string, on: boolean) {
+  const next = new Set(enabledIds);
+  if (on) next.add(id);
+  else next.delete(id);
+  setEnabled(next);
+}
+export const isPluginEnabled = (id: string) => enabledIds.has(id);
+const subscribeEnabled = (l: () => void) => (enabledListeners.add(l), () => enabledListeners.delete(l));
+export const usePluginEnabled = (id: string) => useSyncExternalStore(subscribeEnabled, () => enabledIds.has(id));
+
+/** Opens one plugin's settings modal from anywhere (App listens). */
+export const openPluginSettings = (id: string) => dispatchEvent(new CustomEvent("trame:plugin-settings", { detail: id }));

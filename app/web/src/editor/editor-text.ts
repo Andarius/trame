@@ -15,7 +15,6 @@ export const SLASH: { key: string; label: string; hint: string }[] = [
   { key: "folder", label: "Folder", hint: "live files from a directory" },
   { key: "embed", label: "Embed", hint: "live https page (Grafana…)" },
   { key: "html", label: "HTML", hint: "embedded interactive doc" },
-  { key: "code", label: "Code cell", hint: "python on a Jupyter kernel" },
 ];
 
 // colors offered when typing "{{" — keys must match PILL_COLORS in md.tsx

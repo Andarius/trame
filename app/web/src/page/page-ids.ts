@@ -1,10 +1,11 @@
 import type { Block } from "../api";
+import { blockOf } from "../plugins";
 
 // Stable block id so a comment survives edits/reorders of the surrounding text.
 export const genId = () => crypto.randomUUID().slice(0, 8);
-// text blocks for comments, code cells for run all and cell selection
+// text blocks for comments, plugin blocks for their own state (cells: run all, selection)
 const needsId = (t: Block["type"]) =>
-  t === "text" || t === "heading" || t === "todo" || t === "code";
+  t === "text" || t === "heading" || t === "todo" || !!blockOf(t);
 // Backfill ids on blocks written without one; `changed` tells the caller to persist.
 export function ensureIds(blocks: Block[]): { blocks: Block[]; changed: boolean } {
   let changed = false;

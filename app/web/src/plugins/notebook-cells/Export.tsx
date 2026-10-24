@@ -1,7 +1,7 @@
 // Under a page's brief: export the page's cells as a standalone HTML report, import an .ipynb's cells.
 import { useEffect, useRef, useState } from "react";
 import { type Block, type CellOutput, openInBrowser, type PageDetail, updatePage } from "../../api";
-import { clearAll, runAll } from "../../editor/cell-mode";
+import { clearAll, runAll } from "./cell-mode";
 import { createReport, getSettings, interrupt, type Kernel, listKernels, readNotebook, restart, setPreferredKernel, usePreferredKernel } from "./api";
 import { pageToHtml } from "./export-html";
 import { KernelMenu } from "./KernelMenu";

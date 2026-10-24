@@ -1,6 +1,6 @@
 // Client of /api/plugins/notebook-cells: kernels, streamed execution, settings, export.
 import { useSyncExternalStore } from "react";
-import type { CellEvent } from "../../editor/cell-output";
+import type { CellEvent } from "./cell-output";
 
 const BASE = "/api/plugins/notebook-cells";
 

@@ -18,7 +18,7 @@ import { drawSelection, EditorView, keymap, lineNumbers, placeholder as placehol
 import { parseMixed } from "@lezer/common";
 import { tags } from "@lezer/highlight";
 import { useEffect, useRef } from "react";
-import { useCellKeymap } from "../plugins/notebook-cells/api";
+import { useCellKeymap } from "./api";
 import { bindingsFor } from "./pycharm-keymap";
 
 // A triple-quoted string that reads like a query is parsed as PostgreSQL inside the python tree.

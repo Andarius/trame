@@ -1,7 +1,7 @@
 // Notebook cells settings: the Jupyter server the page's cells run on. The token is write-only.
 import { useEffect, useState } from "react";
 import { FIELD_LABEL } from "../../ui/ui";
-import { ACTIONS } from "../../editor/pycharm-keymap";
+import { ACTIONS } from "./pycharm-keymap";
 import { getSettings, listKernels, readPyCharmKeymap, saveSettings, setCellKeymap, type Settings } from "./api";
 
 const field = "w-full rounded-md border border-line bg-panel px-2.5 py-1.5 text-[12px] text-ink outline-none focus:border-chipline";

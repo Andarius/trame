@@ -1,23 +1,17 @@
 // A python cell: source on top, outputs below, run on the page's Jupyter kernel.
 import { useEffect, useRef, useState } from "react";
-import type { Block } from "../api";
-import { execute, interrupt, setPreferredKernel, usePreferredKernel } from "../plugins/notebook-cells/api";
-import { IconButton } from "../ui/ui";
+import type { Block } from "../../api";
+import type { BlockViewProps, PluginBlock } from "../index";
+import { execute, interrupt, setPreferredKernel, usePreferredKernel } from "./api";
+import { IconButton } from "../../ui/ui";
 import { editCell, markCell, neighbourCell, registerCell, selectCell, useSelectedCell } from "./cell-mode";
 import { applyEvent, CellOutputs, type RunState, storable } from "./cell-output";
 import { CodeEditor } from "./CodeEditor";
 
 type CodeB = Extract<Block, { type: "code" }>;
 
-export function CodeBlock(
-  { block, onPatch, onRemove, onInsert }: {
-    block: CodeB;
-    onPatch: (patch: Partial<CodeB>) => void;
-    onRemove: () => void;
-    /** a new empty cell above or below; returns its id */
-    onInsert: (where: "above" | "below") => string;
-  },
-) {
+function CodeBlock({ block: raw, enabled, onPatch, onRemove, onInsert, onOpenSettings }: BlockViewProps) {
+  const block = raw as CodeB;
   const [draft, setDraft] = useState(block.source);
   const [run, setRun] = useState<RunState | null>(null); // live outputs while running, else the block's
   const [running, setRunning] = useState(false);
@@ -39,7 +33,7 @@ export function CodeBlock(
   };
 
   const execCell = async () => {
-    if (running) return;
+    if (running || !enabled) return;
     commitSource();
     setRunning(true);
     setErr(null);
@@ -135,9 +129,17 @@ export function CodeBlock(
       <span className={`absolute inset-y-0 left-0 w-[3px] ${selected ? "bg-copper" : "bg-transparent"}`} />
       <div className="flex items-center gap-2 px-2 pt-1">
         <span className="w-10 shrink-0 font-mono text-[10.5px] text-ink-faint">[{count}]</span>
-        <button type="button" onClick={running ? stop : execCell} title={running ? "interrupt the kernel (i i)" : "run (ctrl+enter)"} className={btn}>
-          {running ? "■ stop" : "▶ run"}
-        </button>
+        {enabled
+          ? (
+            <button type="button" onClick={running ? stop : execCell} title={running ? "interrupt the kernel (i i)" : "run (ctrl+enter)"} className={btn}>
+              {running ? "■ stop" : "▶ run"}
+            </button>
+          )
+          : (
+            <button type="button" onClick={onOpenSettings} title="the Notebook cells plugin runs cells on a Jupyter kernel" className={btn}>
+              turn on to run
+            </button>
+          )}
         <span className="flex-1" />
         <span className="hidden text-[10px] text-ink-faint group-hover/cell:inline">
           esc · a/b insert · dd delete · ⇧⏎ run next
@@ -162,3 +164,12 @@ export function CodeBlock(
     </div>
   );
 }
+
+export const CODE_CELL: PluginBlock = {
+  type: "code",
+  label: "Code cell",
+  hint: "python on a Jupyter kernel",
+  create: () => ({ source: "" }),
+  View: CodeBlock,
+  wide: true,
+};

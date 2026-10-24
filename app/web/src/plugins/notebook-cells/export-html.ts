@@ -1,6 +1,6 @@
 // A page with cells as one standalone HTML document: text, code and outputs, both themes.
 import type { Block, CellOutput } from "../../api";
-import { ansiRuns, outputTheme, pickMime } from "../../editor/cell-output";
+import { ansiRuns, outputTheme, pickMime } from "./cell-output";
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
 

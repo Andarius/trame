@@ -11,6 +11,7 @@ import {
 } from "../../../../core/todo-marks.ts";
 import { useAgents } from "../agents/agents";
 import { genId } from "../page/page-ids";
+import { blockOf, isPluginEnabled, openPluginSettings, type PluginBlock } from "../plugins";
 import { useBlockDrag } from "./useBlockDrag";
 import {
   type TextBlock,
@@ -23,7 +24,7 @@ import {
 import { FormatBar } from "./editor-toolbar";
 import type { CommentMode, CommentOps } from "../page/comments";
 import { type RowCtx, TextBlockRow } from "./editor-row";
-import { EmbedBlock, renderSection, type SectionCtx, sectionMeta } from "./editor-sections";
+import { EmbedBlock, PluginBlockView, renderSection, type SectionCtx, sectionMeta } from "./editor-sections";
 import type {
   PillState,
   SelState,
@@ -294,15 +295,15 @@ export function BlockEditor(
     onChange(blocks.filter((_, j) => j !== i));
     setFocusIdx(Math.max(0, i - 1));
   };
-  // cells: command mode owns focus, so neither moves the text cursor
-  const insertCell = (i: number, where: "above" | "below") => {
+  // plugin blocks keep their own focus (cells' command mode), so neither moves the text cursor
+  const insertBlock = (i: number, where: "above" | "below", pb: PluginBlock) => {
     snapshot();
     const id = genId();
     const at = where === "above" ? i : i + 1;
-    onChange([...blocks.slice(0, at), { type: "code", source: "", id } as Block, ...blocks.slice(at)]);
+    onChange([...blocks.slice(0, at), { ...pb.create(), type: pb.type, id } as Block, ...blocks.slice(at)]);
     return id;
   };
-  const removeCell = (i: number) => {
+  const removeBlock = (i: number) => {
     snapshot();
     onChange(blocks.filter((_, j) => j !== i));
   };
@@ -601,15 +602,16 @@ export function BlockEditor(
         ),
       );
     }
-    if (key === "code") {
+    const pb = blockOf(key);
+    if (pb && !isPluginEnabled(pb.plugin)) {
+      set(i, { text: "" });
+      return openPluginSettings(pb.plugin);
+    }
+    if (pb) {
       return onChange(
         blocks.map((b, j) =>
           j === i
-            ? {
-              type: "code",
-              source: "",
-              id: (isText(b) && b.id) || genId(),
-            } as Block
+            ? { ...pb.create(), type: pb.type, id: (isText(b) && b.id) || genId() } as Block
             : b
         ),
       );
@@ -745,18 +747,29 @@ export function BlockEditor(
         // section groups: strip/accordion on the marked heading, hide inactive blocks
         const section = renderSection(sectionCtx, b, i);
         if (section !== undefined) return section;
-        if (b.type === "folder" || b.type === "html" || b.type === "embed" || b.type === "code") {
+        const pb = blockOf(b.type);
+        if (pb) {
+          return (
+            <Fragment key={("id" in b && b.id) || i}>
+              {dragRow(
+                i,
+                <PluginBlockView
+                  pb={pb}
+                  block={b}
+                  onPatch={(patch) => setBlock(i, patch)}
+                  onRemove={() => removeBlock(i)}
+                  onInsert={(where) => insertBlock(i, where, pb)}
+                />,
+              )}
+            </Fragment>
+          );
+        }
+        if (b.type === "folder" || b.type === "html" || b.type === "embed") {
           return (
             <Fragment key={b.id ?? i}>
               {dragRow(
                 i,
-                <EmbedBlock
-                  block={b}
-                  onPatch={(patch) => setBlock(i, patch)}
-                  onRemove={() => (b.type === "code" ? removeCell(i) : remove(i))}
-                  onInsertCell={(where) => insertCell(i, where)}
-                  onOpenReport={onOpenReport}
-                />,
+                <EmbedBlock block={b} onPatch={(patch) => setBlock(i, patch)} onRemove={() => remove(i)} onOpenReport={onOpenReport} />,
               )}
             </Fragment>
           );

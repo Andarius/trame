@@ -1,8 +1,8 @@
 // Cell outputs: the nbformat shapes a kernel produces, reduced from execution events and
 // rendered as blocks. Rich HTML runs in a sandboxed iframe themed like the page.
 import { useEffect, useRef, useState } from "react";
-import type { CellOutput } from "../api";
-import { type Resolved, useResolvedTheme } from "../ui/theme";
+import type { CellOutput } from "../../api";
+import { type Resolved, useResolvedTheme } from "../../ui/theme";
 
 // one execution event, as /api/plugins/notebook-cells/execute streams them
 export type CellEvent =
