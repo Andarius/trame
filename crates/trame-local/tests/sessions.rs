@@ -1462,3 +1462,35 @@ fn search_finds_cards_pages_and_agent_sessions_by_id() {
     // under 6 characters is too short to be taken as an id prefix
     assert!(!ids(&card[..4]).contains(&card));
 }
+
+#[test]
+fn timeline_keeps_worklog_entries_in_the_window_and_whole_card_spans() {
+    let mut t = TestDb::new();
+    let recent = create(&mut t, json!({"title":"Recent card"}));
+    let stale = create(&mut t, json!({"title":"Stale card"}));
+    for (id, summary, kind, age) in [
+        (&recent, "old entry", "track", 90),
+        (&recent, "new entry", "track", 2),
+        (&recent, "joined", "presence", 1),
+        (&stale, "long ago", "log", 120),
+    ] {
+        sessions::add_event(&mut t.db, id, summary, kind, &json!({})).unwrap();
+        t.db.query(
+            "update session_events set at=now()-make_interval(days => $2::int) where session_id=$1 and summary=$3",
+            &[json!(id), json!(age), json!(summary)],
+        )
+        .unwrap();
+    }
+    let out = sessions::timeline(&mut t.db, 30).unwrap();
+    let summaries: Vec<_> = out["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["summary"].as_str().unwrap())
+        .collect();
+    assert_eq!(summaries, ["new entry"]);
+    let spans = out["spans"].as_array().unwrap();
+    assert_eq!(spans.len(), 1);
+    assert_eq!(spans[0]["session_id"], json!(recent));
+    assert_eq!(spans[0]["n"], json!(2));
+}

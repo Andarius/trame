@@ -6,6 +6,7 @@ export type View =
   | "terminals"
   | "explore"
   | "insights"
+  | "timeline"
   | "database"
   | "page"
   | "card"
