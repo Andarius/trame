@@ -4,6 +4,22 @@ export { SidebarColumn } from "./plugins/index";
 export { openPluginSettings, usePluginEnabled } from "./plugins/enabled";
 export { getPluginSettings, openInBrowser, savePluginSettings, updatePage } from "./api";
 export type { Block, PageDetail, Session } from "./api";
-export { appConfirm, FIELD_LABEL, FieldRow, IconButton, MENU_LABEL, MenuRow, Modal, Popover, Select, timeAgo } from "./ui/ui";
+export {
+  appConfirm,
+  Button,
+  ErrorNote,
+  Field,
+  FIELD_LABEL,
+  FieldRow,
+  IconButton,
+  MENU_LABEL,
+  MenuRow,
+  Modal,
+  Popover,
+  Select,
+  TextArea,
+  TextInput,
+  timeAgo,
+} from "./ui/ui";
 export { type Resolved, useResolvedTheme } from "./ui/theme";
 export { markOfContent } from "../../../core/content-marks.ts";
