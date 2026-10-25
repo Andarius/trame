@@ -70,8 +70,12 @@ alone.
 fills the pane, an iframe or a table is fine), `column: true` (the Panel receives
 `PanelProps.column` and renders its list into the host's sidebar column through `SidebarColumn`),
 `Settings`, `PageHeader`, `DatabaseActions`, `DatabaseEmpty`, `CardBadge`, `useCardFaces`,
-`CardFields`, `metadataMarks`. Declare only the slots you fill. The host renders them and never
-names the plugin. There is no slot for a new block type: that is an editor change in Trame.
+`CardFields`, `metadataMarks`, `blocks`. Declare only the slots you fill. The host renders them and
+never names the plugin. `blocks` adds page block types (`PluginBlock`: `type`, a "/" menu `label` and
+`hint`, `create()` for a new block's fields, a `View` taking `BlockViewProps`, `wide` to widen the
+page). The View renders even while the plugin is off, with `enabled: false`: show what the block holds
+and offer `onOpenSettings`. `Block` leaves plugin blocks out: declare the block's shape in the
+plugin and cast `page.content` to a union with it (`Andarius/trame-notebook-cells` does).
 
 From `@trame/web-api`: `getPluginSettings(id)` / `savePluginSettings(id, patch)` (GET/POST
 `/api/plugins/<id>/settings`), `openInBrowser(url)`, `FieldRow`, `Select`, `timeAgo`,

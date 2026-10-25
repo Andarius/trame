@@ -52,7 +52,7 @@ import { ShareModal } from "../modals/ShareModal";
 import { Page } from "../page/Page";
 import { ClientView } from "../sessions/ClientView";
 import { BOOL_CODEC, useLocalStorage, appConfirm, ConfirmHost, ExpandIcon, setStatuses, statusStyle, EmptyState } from "../ui/ui";
-import { FRONTEND_PLUGINS, useCardFaces } from "../plugins";
+import { FRONTEND_PLUGINS, setEnabledPlugins, useCardFaces } from "../plugins";
 import { hasTerm, queryValues, termOf, toggleTerm } from "../query";
 import { PluginsModal } from "../plugins/PluginsModal";
 import { PluginSettingsModal } from "../plugins/PluginSettingsModal";
@@ -191,6 +191,16 @@ export function App() {
   const [clientId, setClientId] = useState<string | null>(params.get("client"));
   const [plugins, setPlugins] = useState<PluginManifest[]>([]);
   const [pluginId, setPluginId] = useState<string | null>(params.get("plugin"));
+  // a plugin's settings opened from elsewhere than its panel (openPluginSettings)
+  const [settingsFor, setSettingsFor] = useState<string | null>(null);
+  useEffect(() => {
+    const h = (e: Event) => {
+      setSettingsFor((e as CustomEvent<string>).detail);
+      setModal("pluginSettings");
+    };
+    addEventListener("trame:plugin-settings", h);
+    return () => removeEventListener("trame:plugin-settings", h);
+  }, []);
   const [udbEpoch, setUdbEpoch] = useState(0); // bump to refetch the open database view
   const [dbReadOnly, setDbReadOnly] = useState(false); // active db tab is a read-only summary view
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
@@ -298,9 +308,11 @@ export function App() {
     listPages().then((d) => Array.isArray(d) && setPages(keepSame(d))).catch(
       () => {},
     );
-    getPlugins().then((p) => Array.isArray(p) && setPlugins(keepSame(p))).catch(
-      () => {},
-    );
+    getPlugins().then((p) => {
+      if (!Array.isArray(p)) return;
+      setPlugins(keepSame(p));
+      setEnabledPlugins(p.filter((x) => x.enabled).map((x) => x.id));
+    }).catch(() => {});
   };
 
   // multi-select on the sessions views (board + list): checkboxes fill `selected`,
@@ -1065,10 +1077,13 @@ export function App() {
         />
       )}
       {modal === "plugins" && <PluginsModal onClose={() => setModal(null)} />}
-      {modal === "pluginSettings" && pluginId && (
+      {modal === "pluginSettings" && (settingsFor ?? pluginId) && (
         <PluginSettingsModal
-          pluginId={pluginId}
-          onClose={() => setModal(null)}
+          pluginId={(settingsFor ?? pluginId)!}
+          onClose={() => {
+            setModal(null);
+            setSettingsFor(null);
+          }}
         />
       )}
       <UpdateBanner update={update} updateState={updateState} dismissed={updateDismissed} onUpdate={onUpdate} onDismiss={() => setUpdateDismissed(true)} />

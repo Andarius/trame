@@ -5,6 +5,10 @@
 pub(crate) use crate::{
     blocking::spawn as blocking, db::Db, routes::Native, routes::json_response, settings,
 };
+// a test's scratch directory, confined like the app's own
+#[cfg(test)]
+#[allow(unused_imports, reason = "re-exported for composed plugins")]
+pub(crate) use crate::{scratch_root, workspace};
 // core helpers for plugins that write pages, sessions, tags and marks
 #[allow(unused_imports, reason = "re-exported for composed plugins")]
 pub(crate) use crate::{
