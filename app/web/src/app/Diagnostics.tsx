@@ -37,11 +37,16 @@ export const cpuRate = (prevAt: number, prevCpu: number, at: number, cpu: number
   return Math.max(0, (cpu - prevCpu) / ((at - prevAt) / 1000));
 };
 
-const totals = (s: Snapshot) => ({
-  rss: s.processes.reduce((a, p) => a + p.rss, 0),
-  cpu: s.processes.reduce((a, p) => a + p.cpuSeconds, 0),
-  swap: s.processes.reduce((a, p) => a + (p.swap ?? 0), 0),
-});
+// Trame's own processes; what runs in its terminals is counted apart
+const totals = (s: Snapshot) => {
+  const own = s.processes.filter((p) => !p.terminal);
+  return {
+    rss: own.reduce((a, p) => a + p.rss, 0),
+    cpu: own.reduce((a, p) => a + p.cpuSeconds, 0),
+    swap: own.reduce((a, p) => a + (p.swap ?? 0), 0),
+    terminalRss: s.processes.reduce((a, p) => a + (p.terminal ? p.rss : 0), 0),
+  };
+};
 
 // one series, no legend: the tile's label names it
 function Sparkline({ values, max, color, format }: { values: number[]; max?: number; color: string; format: (v: number) => string }) {
@@ -210,7 +215,14 @@ export function Diagnostics() {
         </div>
 
         <div className="flex flex-wrap gap-3">
-          <Tile label="Memory" value={formatBytes(t.rss)} hint={t.swap > 0 ? `+ ${formatBytes(t.swap)} swapped out` : "resident, all processes"}>
+          <Tile
+            label="Memory"
+            value={formatBytes(t.rss)}
+            hint={[
+              t.swap > 0 ? `+ ${formatBytes(t.swap)} swapped out` : "resident",
+              t.terminalRss > 0 && `${formatBytes(t.terminalRss)} more in terminals`,
+            ].filter(Boolean).join(" · ")}
+          >
             <Sparkline values={series.rss} color="var(--color-chart-1)" format={formatBytes} />
           </Tile>
           <Tile
@@ -244,9 +256,9 @@ export function Diagnostics() {
                 const r = rates.get(p.pid);
                 const depth = p.pid === snap.pid ? 0 : p.ppid === snap.pid ? 1 : 2;
                 return (
-                  <tr key={p.pid} className="border-t border-line-soft">
+                  <tr key={p.pid} className={`border-t border-line-soft ${p.terminal ? "opacity-60" : ""}`}>
                     <td className="px-4 py-1.5" style={{ paddingLeft: 16 + depth * 14 }}>
-                      <span className="text-ink">{p.role}</span>
+                      <span className="text-ink">{p.terminal && p.role === "process" ? "in terminal" : p.role}</span>
                       <span className="ml-2 text-[11px] text-ink-faint" title={[p.name, ...p.args].join(" ")}>{byRole(p)}</span>
                     </td>
                     <td className="px-3 py-1.5 tabular-nums text-ink-muted">{p.pid}</td>

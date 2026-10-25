@@ -21,6 +21,7 @@ use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
     reason = "tauri::generate_context! expands to process::exit"
 )]
 fn main() -> anyhow::Result<()> {
+    trame_local::tune_allocator();
     if let Some(result) = trame_local::pg::supervisor_args() {
         return result;
     }

@@ -60,3 +60,34 @@ fn built_frontend_uses_source_mime_cache_and_missing_asset_contract() {
         );
     });
 }
+
+#[test]
+fn polled_board_answers_304_until_it_changes() {
+    let t = TestDb::new();
+    let base = t.base_url();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let client = reqwest::Client::new();
+    rt.block_on(async {
+        let get = |tag: Option<String>| {
+            let mut req = client.get(format!("{base}/api/board"));
+            if let Some(tag) = tag {
+                req = req.header("if-none-match", tag);
+            }
+            req.send()
+        };
+        let first = get(None).await.unwrap();
+        assert_eq!(first.status(), 200);
+        let tag = first.headers()["etag"].to_str().unwrap().to_owned();
+        assert_eq!(get(Some(tag.clone())).await.unwrap().status(), 304);
+        let created = client
+            .post(format!("{base}/api/sessions"))
+            .json(&serde_json::json!({"title": "Etag check", "repo_path": "/tmp/etag"}))
+            .send()
+            .await
+            .unwrap();
+        assert!(created.status().is_success());
+        let changed = get(Some(tag.clone())).await.unwrap();
+        assert_eq!(changed.status(), 200);
+        assert_ne!(changed.headers()["etag"], tag.as_str());
+    });
+}

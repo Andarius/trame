@@ -224,7 +224,7 @@ fn aws_uri(path: &str) -> String {
     }
     out
 }
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().fold(String::new(), |mut acc, b| {
         let _ = write!(acc, "{b:02x}");
         acc

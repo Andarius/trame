@@ -47,6 +47,16 @@ use std::{
     time::Duration,
 };
 use tokio::sync::oneshot;
+/// Cap glibc malloc arenas so each blocking thread does not keep its own peak heap; call before spawning threads.
+/// Call before any thread is spawned.
+#[allow(unsafe_code, reason = "glibc mallopt")]
+pub fn tune_allocator() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    // SAFETY: mallopt only sets an allocator tunable; no threads exist yet
+    unsafe {
+        libc::mallopt(libc::M_ARENA_MAX, 2);
+    }
+}
 
 pub fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
