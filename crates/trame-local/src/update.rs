@@ -5,7 +5,23 @@ use std::{
 };
 use tokio::sync::Mutex;
 
-const ENDPOINT: &str = "https://api.github.com/repos/Andarius/trame/releases/latest";
+// a composed build publishes its own releases (see .github/workflows/compose.yml); "none" turns self-update off
+fn repo() -> Option<&'static str> {
+    match option_env!("TRAME_UPDATE_REPO") {
+        None | Some("") => Some("Andarius/trame"),
+        Some("none") => None,
+        Some(repo) => Some(repo),
+    }
+}
+fn endpoint(repo: &str) -> String {
+    format!("https://api.github.com/repos/{repo}/releases/latest")
+}
+/// The version releases are compared with: a composed build's own (`0.23.0-2`), else Trame's.
+fn installed() -> &'static str {
+    option_env!("TRAME_DISTRO_VERSION")
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(crate::runtime::version)
+}
 const AUTO_EVERY: Duration = Duration::from_hours(6);
 
 /// What a self-update replaces: the running `AppImage` file or the macOS `.app` bundle.
@@ -67,30 +83,28 @@ fn sibling(bundle: &Path, suffix: &str) -> PathBuf {
     bundle.with_file_name(format!(".{name}.{suffix}"))
 }
 
-#[allow(
-    clippy::float_cmp,
-    reason = "exact float comparison is intentional for parity"
-)]
-pub fn newer(a: &str, b: &str) -> bool {
-    let a: Vec<_> = a
-        .split('.')
-        .map(|s| crate::routes::number(s).unwrap_or(f64::NAN))
-        .collect();
-    let b: Vec<_> = b
-        .split('.')
-        .map(|s| crate::routes::number(s).unwrap_or(f64::NAN))
-        .collect();
-    for i in 0..3 {
-        let a = a.get(i).copied().unwrap_or(0.0);
-        let b = b.get(i).copied().unwrap_or(0.0);
-        if a != b {
-            return a > b;
-        }
+// up to four integer parts (`0.23.0`, a composed build's `0.23.0-2`); anything else is None
+fn parts(version: &str) -> Option<[u64; 4]> {
+    let mut out = [0; 4];
+    let mut it = version.split(['.', '-']);
+    for (slot, part) in out.iter_mut().zip(&mut it) {
+        *slot = part.parse().ok()?;
     }
-    false
+    it.next().is_none().then_some(out)
+}
+
+/// Whether `a` is a later version than `b`; an unparseable version is never newer.
+pub fn newer(a: &str, b: &str) -> bool {
+    parts(a).zip(parts(b)).is_some_and(|(a, b)| a > b)
 }
 impl Updater {
-    async fn check(&mut self, force: bool, endpoint: &str, target: Option<&Target>) -> Value {
+    async fn check(
+        &mut self,
+        force: bool,
+        repo: &str,
+        endpoint: &str,
+        target: Option<&Target>,
+    ) -> Value {
         if !force {
             if let Some((at, info)) = &self.cache {
                 if at.elapsed() < Duration::from_hours(1) {
@@ -98,7 +112,7 @@ impl Updater {
                 }
             }
         }
-        let mut info = json!({"current":crate::runtime::version(),"latest":null,"available":false,"releaseUrl":"https://github.com/Andarius/trame/releases/latest","canSelfUpdate":target.is_some(),"applied":self.applied.is_some()});
+        let mut info = json!({"current":installed(),"latest":null,"available":false,"releaseUrl":format!("https://github.com/{repo}/releases/latest"),"canSelfUpdate":target.is_some(),"applied":self.applied.is_some()});
         if let Some(applied) = &self.applied {
             info["latest"] = json!(applied);
         }
@@ -123,10 +137,7 @@ impl Updater {
                         info["latest"] = json!(tag);
                         reached = true;
                     }
-                    let installed = self
-                        .applied
-                        .as_deref()
-                        .unwrap_or_else(|| crate::runtime::version());
+                    let installed = self.applied.as_deref().unwrap_or(installed());
                     info["available"] = json!(!tag.is_empty() && newer(tag, installed));
                     if !rel["html_url"].is_null() {
                         info["releaseUrl"] = rel["html_url"].clone();
@@ -151,11 +162,11 @@ impl Updater {
         info["checked"] = json!(reached);
         info
     }
-    async fn apply(&mut self, endpoint: &str, target: Option<&Target>) -> Value {
+    async fn apply(&mut self, repo: &str, endpoint: &str, target: Option<&Target>) -> Value {
         let Some(target) = target else {
             return json!({"ok":false,"error":"self-update only works for the AppImage or the macOS app"});
         };
-        let info = self.check(true, endpoint, Some(target)).await;
+        let info = self.check(true, repo, endpoint, Some(target)).await;
         if info["available"] != true {
             // a background update already staged it: the caller only needs to restart
             return if self.applied.is_some() {
@@ -332,7 +343,10 @@ pub async fn background() {
     {
         return;
     }
-    let Some(target) = target() else { return };
+    let (Some(target), Some(repo)) = (target(), repo()) else {
+        return;
+    };
+    let endpoint = endpoint(repo);
     if let Target::App(bundle) = &target {
         let _ = tokio::fs::remove_dir_all(sibling(bundle, "old")).await;
     }
@@ -340,9 +354,9 @@ pub async fn background() {
     loop {
         {
             let mut updater = UPDATER.lock().await;
-            let info = updater.check(true, ENDPOINT, Some(&target)).await;
+            let info = updater.check(true, repo, &endpoint, Some(&target)).await;
             if info["available"] == true {
-                let result = updater.apply(ENDPOINT, Some(&target)).await;
+                let result = updater.apply(repo, &endpoint, Some(&target)).await;
                 match result["error"].as_str() {
                     None => eprintln!(
                         "update: v{} staged, restart to run it",
@@ -403,20 +417,31 @@ pub async fn serve(post: bool, force: bool, offline: bool) -> (u16, Value) {
     if offline && post {
         return (503, json!({"error":"unavailable in offline mode"}));
     }
+    let Some(repo) = repo() else {
+        return (
+            200,
+            if post {
+                json!({"ok":false,"error":"this build does not self-update: rebuild it with its plugins"})
+            } else {
+                json!({"current":installed(),"latest":null,"available":false,"releaseUrl":"","canSelfUpdate":false})
+            },
+        );
+    };
     if !post && (offline || std::env::var("TRACKER_UPDATE_CHECK").as_deref() == Ok("0")) {
         return (
             200,
-            json!({"current":crate::runtime::version(),"latest":null,"available":false,"releaseUrl":"","canSelfUpdate":false}),
+            json!({"current":installed(),"latest":null,"available":false,"releaseUrl":"","canSelfUpdate":false}),
         );
     }
     let target = target();
+    let endpoint = endpoint(repo);
     let mut updater = UPDATER.lock().await;
     (
         200,
         if post {
-            updater.apply(ENDPOINT, target.as_ref()).await
+            updater.apply(repo, &endpoint, target.as_ref()).await
         } else {
-            updater.check(force, ENDPOINT, target.as_ref()).await
+            updater.check(force, repo, &endpoint, target.as_ref()).await
         },
     )
 }
@@ -431,6 +456,13 @@ mod tests {
             ("0.13.0", "0.13.0", false),
             ("0.12.9", "0.13.0", false),
             ("x", "0.1.0", false),
+            ("0.23.0-2", "0.23.0-1", true),
+            ("0.23.0-1", "0.23.0", true),
+            ("0.23.0", "0.23.0-1", false),
+            ("0.24.0", "0.23.0-9", true),
+            ("1.x.0", "0.1.0", false),
+            ("0.23.0-rc1", "0.22.0", false),
+            ("0.23.0-1-2", "0.22.0", false),
         ] {
             assert_eq!(newer(a, b), want);
         }
@@ -485,7 +517,7 @@ mod tests {
         );
         assert_eq!(
             serve(false, false, true).await.1,
-            json!({"current":crate::runtime::version(),"latest":null,"available":false,"releaseUrl":"","canSelfUpdate":false})
+            json!({"current":installed(),"latest":null,"available":false,"releaseUrl":"","canSelfUpdate":false})
         );
     }
     // self-update is AppImage-only
@@ -508,7 +540,10 @@ mod tests {
         let mut updater = Updater::default();
         let endpoint = format!("{base}/latest");
         std::fs::write(path.with_extension("AppImage.new"), "other process").unwrap();
-        assert_eq!(updater.apply(&endpoint, Some(&target)).await["ok"], false);
+        assert_eq!(
+            updater.apply("o/r", &endpoint, Some(&target)).await["ok"],
+            false
+        );
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "old");
         assert_eq!(
             std::fs::read_to_string(path.with_extension("AppImage.new")).unwrap(),
@@ -516,12 +551,12 @@ mod tests {
         );
         std::fs::remove_file(path.with_extension("AppImage.new")).unwrap();
         assert_eq!(
-            updater.apply(&endpoint, Some(&target)).await,
+            updater.apply("o/r", &endpoint, Some(&target)).await,
             json!({"ok":true})
         );
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "new image");
         assert_eq!(
-            updater.check(false, &endpoint, Some(&target)).await["applied"],
+            updater.check(false, "o/r", &endpoint, Some(&target)).await["applied"],
             true
         );
         server.abort();
@@ -546,12 +581,16 @@ mod tests {
             .into_future(),
         );
         let mut updater = Updater::default();
-        let failed = updater.check(false, &format!("{base}/down"), None).await;
+        let failed = updater
+            .check(false, "o/r", &format!("{base}/down"), None)
+            .await;
         assert_eq!(
             (failed["checked"].clone(), failed["latest"].clone()),
             (json!(false), Value::Null)
         );
-        let info = updater.check(false, &format!("{base}/latest"), None).await;
+        let info = updater
+            .check(false, "o/r", &format!("{base}/latest"), None)
+            .await;
         assert_eq!(
             (info["checked"].clone(), info["latest"].clone()),
             (json!(true), json!("99.0.0"))
@@ -606,7 +645,7 @@ mod tests {
         let endpoint = format!("{base}/latest");
         assert_eq!(
             updater
-                .apply(&endpoint, Some(&Target::App(bundle.clone())))
+                .apply("o/r", &endpoint, Some(&Target::App(bundle.clone())))
                 .await,
             json!({"ok":true})
         );
@@ -617,7 +656,7 @@ mod tests {
         // a later click (e.g. the banner) after the background update just reports success
         assert_eq!(
             updater
-                .apply(&endpoint, Some(&Target::App(bundle.clone())))
+                .apply("o/r", &endpoint, Some(&Target::App(bundle.clone())))
                 .await,
             json!({"ok":true})
         );

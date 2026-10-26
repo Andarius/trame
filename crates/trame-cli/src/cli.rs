@@ -1,5 +1,6 @@
 use crate::{
-    board, claude_hook, comment, db, deployments, due, help, mcp, open, page, presence, setup,
+    board, claude_hook, comment, db, deployments, due, help, mcp, open, page, plugins, presence,
+    setup,
     target::{self, resolve_target},
     track, watch,
 };
@@ -120,6 +121,7 @@ pub async fn run(args: &[String]) -> Result<i32> {
         "move" => Some("MOVE_HELP"),
         "open" => Some("OPEN_HELP"),
         "setup" => Some("SETUP_HELP"),
+        "plugins" => Some("PLUGINS_HELP"),
         "deployments" => Some("DEPLOYMENTS_HELP"),
         "db" => Some("UDB_CONTRACT"),
         "query" => Some("QUERY_SYNTAX"),
@@ -164,6 +166,7 @@ pub async fn run(args: &[String]) -> Result<i32> {
             "move" => Some("MOVE_HELP"),
             "open" => Some("OPEN_HELP"),
             "setup" => Some("SETUP_HELP"),
+            "plugins" => Some("PLUGINS_HELP"),
             "deployments" => Some("DEPLOYMENTS_HELP"),
             "db" => Some("UDB_CONTRACT"),
             "query" => Some("QUERY_SYNTAX"),
@@ -225,6 +228,7 @@ pub async fn run(args: &[String]) -> Result<i32> {
         "deployments" => deployments::main(&rest, json_out, &resolve_target().await?).await?,
         "open" => return open::main(&rest).await,
         "setup" => return setup::run(&rest),
+        "plugins" => return plugins::main(&rest),
         "mcp" => mcp::serve().await?,
         other => {
             eprintln!("unknown command: {other}\n\n{}", help::topic("OVERVIEW"));

@@ -72,6 +72,7 @@ export default defineConfig({
 						{ label: 'Native runtime', slug: 'native-runtime' },
 						{ label: 'Data model', slug: 'data-model' },
 						{ label: 'Hub API & sync', slug: 'sync-walkthrough' },
+						{ label: 'Plugins', slug: 'plugins' },
 					],
 				},
 				{
