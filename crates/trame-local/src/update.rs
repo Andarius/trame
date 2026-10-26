@@ -102,6 +102,7 @@ impl Updater {
         if let Some(applied) = &self.applied {
             info["latest"] = json!(applied);
         }
+        let mut reached = false;
         let client = reqwest::Client::new();
         if let Ok(response) = client
             .get(endpoint)
@@ -120,6 +121,7 @@ impl Updater {
                         .unwrap_or_else(|| rel["tag_name"].as_str().unwrap_or(""));
                     if !tag.is_empty() {
                         info["latest"] = json!(tag);
+                        reached = true;
                     }
                     let installed = self
                         .applied
@@ -142,7 +144,11 @@ impl Updater {
                 }
             }
         }
-        self.cache = Some((Instant::now(), info.clone()));
+        // a failed check is retried next time, not served as "up to date" for an hour
+        if reached {
+            self.cache = Some((Instant::now(), info.clone()));
+        }
+        info["checked"] = json!(reached);
         info
     }
     async fn apply(&mut self, endpoint: &str, target: Option<&Target>) -> Value {
@@ -520,6 +526,37 @@ mod tests {
         );
         server.abort();
         std::fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn failed_check_is_not_cached() {
+        use axum::{Router, http::StatusCode, routing::get};
+        use std::future::IntoFuture;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(
+            axum::serve(
+                listener,
+                Router::new()
+                    .route("/down", get(|| async { StatusCode::FORBIDDEN }))
+                    .route(
+                        "/latest",
+                        get(|| async { axum::Json(json!({"tag_name":"v99.0.0","assets":[]})) }),
+                    ),
+            )
+            .into_future(),
+        );
+        let mut updater = Updater::default();
+        let failed = updater.check(false, &format!("{base}/down"), None).await;
+        assert_eq!(
+            (failed["checked"].clone(), failed["latest"].clone()),
+            (json!(false), Value::Null)
+        );
+        let info = updater.check(false, &format!("{base}/latest"), None).await;
+        assert_eq!(
+            (info["checked"].clone(), info["latest"].clone()),
+            (json!(true), json!("99.0.0"))
+        );
+        server.abort();
     }
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     #[tokio::test]
