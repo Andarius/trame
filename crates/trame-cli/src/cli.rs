@@ -1,5 +1,5 @@
 use crate::{
-    board, claude_hook, comment, db, deployments, help, mcp, open, page, presence, setup,
+    board, claude_hook, comment, db, deployments, due, help, mcp, open, page, presence, setup,
     target::{self, resolve_target},
     track, watch,
 };
@@ -113,6 +113,7 @@ pub async fn run(args: &[String]) -> Result<i32> {
         "presence" => Some("PRESENCE_HELP"),
         "show" => Some("SHOW_HELP"),
         "list" => Some("LIST_HELP"),
+        "due" => Some("DUE_HELP"),
         "stories" => Some("STORIES_HELP"),
         "convert" => Some("CONVERT_HELP"),
         "archive" => Some("ARCHIVE_HELP"),
@@ -135,6 +136,7 @@ pub async fn run(args: &[String]) -> Result<i32> {
                 | "watch"
                 | "answer"
                 | "list"
+                | "due"
                 | "convert"
                 | "mcp"
                 | "db"
@@ -155,6 +157,7 @@ pub async fn run(args: &[String]) -> Result<i32> {
             "presence" => Some("PRESENCE_HELP"),
             "show" => Some("SHOW_HELP"),
             "list" => Some("LIST_HELP"),
+            "due" => Some("DUE_HELP"),
             "stories" => Some("STORIES_HELP"),
             "convert" => Some("CONVERT_HELP"),
             "archive" => Some("ARCHIVE_HELP"),
@@ -213,6 +216,7 @@ pub async fn run(args: &[String]) -> Result<i32> {
         "watch" => watch::watch_main(&rest).await?,
         "answer" => watch::answer_main(&rest).await?,
         "list" => board::list(&rest, json_out, &resolve_target().await?).await?,
+        "due" => due::main(&rest, json_out, &resolve_target().await?).await?,
         "stories" => board::stories(&rest, json_out, &resolve_target().await?).await?,
         "convert" => board::convert(&rest, json_out, &resolve_target().await?).await?,
         "archive" => board::archive(&rest, json_out, &resolve_target().await?).await?,

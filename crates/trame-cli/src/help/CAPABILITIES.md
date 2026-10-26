@@ -56,7 +56,7 @@ A session's specs are a page too (a subpage of the card's story) — write them 
 - **trame_new_story** — create the story/epic sessions ladder up to.
 
 ## Read / sync
-- **trame_board** — read sessions, stories, projects. **trame_reports** — list reports.
+- **trame_board** — read sessions, stories, projects. **trame_due** — due todos (late or soon) with their card and project. **trame_reports** — list reports.
 - **trame_sync** — push/pull with the hub now.
 
 The app must be running (it writes its port for these tools). All writes ride the normal

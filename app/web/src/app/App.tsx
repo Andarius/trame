@@ -53,6 +53,7 @@ import { ShareModal } from "../modals/ShareModal";
 import { Page } from "../page/Page";
 import { ClientView } from "../sessions/ClientView";
 import { BOOL_CODEC, useLocalStorage, appConfirm, ConfirmHost, ExpandIcon, setStatuses, statusStyle, EmptyState } from "../ui/ui";
+import { focusBlock } from "../ui/due";
 import { FRONTEND_PLUGINS, setEnabledPlugins, useCardFaces } from "../plugins";
 import { hasTerm, queryValues, termOf, toggleTerm } from "../query";
 import { PluginsModal } from "../plugins/PluginsModal";
@@ -363,6 +364,11 @@ export function App() {
   // Browser Back from the full-screen ticket returns to the view behind it (the
   // board for a direct link) instead of leaving the app: the underlying view is
   // written as its own history entry beneath the ticket, and popstate closes it.
+  // a `&block=<id>` link (tramecli due) rings that todo once its page renders
+  useEffect(() => {
+    const block = new URLSearchParams(location.search).get("block");
+    if (block) focusBlock(block);
+  }, []);
   useEffect(() => {
     // Back/Forward: restore the location (and drawer) the entry was written with
     const onPop = () => {

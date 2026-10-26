@@ -10,6 +10,7 @@ pub mod cli;
 pub mod comment;
 pub mod db;
 pub mod deployments;
+pub mod due;
 pub mod help;
 pub mod mcp;
 pub mod open;

@@ -1,3 +1,4 @@
+pub mod due;
 pub mod page_markdown;
 pub mod page_merge;
 pub mod todo_marks;
