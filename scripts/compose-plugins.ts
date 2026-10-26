@@ -17,7 +17,7 @@ const fail = (msg: string): never => {
 
 // same rule as plugin_updates::valid_repo: safe in an API path and a directory name
 const NAME = /^(?!\.)[A-Za-z0-9._-]+$/;
-const REF = /^(?![-.])[A-Za-z0-9._\/-]+$/;
+const REF = /^(?![-.])[A-Za-z0-9._/-]+$/;
 
 export type Spec = { repo: string; ref: string | null };
 export function parseSpec(entry: string): Spec {
