@@ -12,12 +12,13 @@ import {
   getUpdate,
   restartApp,
   importPage,
-  listPages,
   listUdbs,
   movePage,
   openInBrowser,
   type PageMeta,
   type PluginManifest,
+  pollBoard,
+  pollPages,
   type SearchHit,
   setStatus as apiSetStatus,
   type Session,
@@ -297,7 +298,8 @@ export function App() {
       ? prev
       : next;
   const refresh = () => {
-    getBoard().then((b) => {
+    pollBoard().then((b) => {
+      if (!b) return;
       setBoard(keepSame(b));
       setStatuses(b.statuses); // keep the status registry (labels/colors) in sync with the board
     }).catch(() => {});
@@ -305,7 +307,7 @@ export function App() {
     listUdbs().then((d) => Array.isArray(d) && setUdbs(keepSame(d))).catch(
       () => {},
     );
-    listPages().then((d) => Array.isArray(d) && setPages(keepSame(d))).catch(
+    pollPages().then((d) => Array.isArray(d) && setPages(keepSame(d))).catch(
       () => {},
     );
     getPlugins().then((p) => {
@@ -458,7 +460,8 @@ export function App() {
         }
         : b
     );
-    apiSetStatus(id, s).then(refresh).catch(refresh);
+    // a failed move leaves the server board as it was: a poll would answer 304 and keep the optimistic status
+    apiSetStatus(id, s).then(refresh).catch(() => getBoard().then((b) => setBoard(b)).catch(() => {}));
   };
   const createSession = (s: Record<string, unknown>) =>
     post("/api/sessions", s).then(() => {
