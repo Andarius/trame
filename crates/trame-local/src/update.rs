@@ -581,12 +581,16 @@ mod tests {
             .into_future(),
         );
         let mut updater = Updater::default();
-        let failed = updater.check(false, &format!("{base}/down"), None).await;
+        let failed = updater
+            .check(false, "o/r", &format!("{base}/down"), None)
+            .await;
         assert_eq!(
             (failed["checked"].clone(), failed["latest"].clone()),
             (json!(false), Value::Null)
         );
-        let info = updater.check(false, &format!("{base}/latest"), None).await;
+        let info = updater
+            .check(false, "o/r", &format!("{base}/latest"), None)
+            .await;
         assert_eq!(
             (info["checked"].clone(), info["latest"].clone()),
             (json!(true), json!("99.0.0"))
