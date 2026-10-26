@@ -135,6 +135,11 @@ fails on anything else.
 `git tag vX.Y.Z <merge commit>`, `git push origin vX.Y.Z`. Trame checks the latest release hourly
 and shows "Update available" in the plugins manager and Settings.
 
+Users install a plugin by its repo link, never from a checkout: `tramecli plugins add owner/repo`
+builds Trame locally with it, and a repo calling `Andarius/trame/.github/workflows/compose.yml`
+builds and publishes their own self-updating Trame (docs: "Plugins"). Both fetch the latest
+release tag, so an unreleased plugin cannot be installed; compose rebuilds pick up a new tag.
+
 ## Conventions
 
 Terse one-line comments on non-obvious lines only; English everywhere. The README has three

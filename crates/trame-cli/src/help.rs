@@ -15,6 +15,7 @@ const SOURCES: &[(&str, &str)] = &[
     ("OVERVIEW", include_str!("help/OVERVIEW.md")),
     ("PAGE_DIALECT", include_str!("help/PAGE_DIALECT.md")),
     ("PAGE_HELP", include_str!("help/PAGE_HELP.md")),
+    ("PLUGINS_HELP", include_str!("help/PLUGINS_HELP.md")),
     ("PRESENCE_HELP", include_str!("help/PRESENCE_HELP.md")),
     ("QUERY_SYNTAX", include_str!("help/QUERY_SYNTAX.md")),
     ("SETUP_HELP", include_str!("help/SETUP_HELP.md")),
