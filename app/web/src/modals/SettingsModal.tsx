@@ -309,7 +309,11 @@ export function SettingsModal(
           )
           : update?.applied
           ? restartBtn
-          : update && <span className="text-[11px] text-ink-muted/70">· up to date</span>}
+          : update && (
+            <span className="text-[11px] text-ink-muted/70">
+              {update.checked === false ? "· couldn't reach GitHub" : "· up to date"}
+            </span>
+          )}
       </div>
 
       <div className="h-px bg-line" />

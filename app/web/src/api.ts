@@ -638,6 +638,8 @@ export type UpdateInfo = {
   current: string;
   latest: string | null;
   available: boolean;
+  // false when GitHub could not be reached; absent when update checks are off
+  checked?: boolean;
   releaseUrl: string;
   canSelfUpdate: boolean;
   applied: boolean;
