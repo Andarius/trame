@@ -1610,6 +1610,7 @@ async fn mcp_initialize_lists_and_calls_real_tools() {
     for name in [
         "trame_capabilities",
         "trame_board",
+        "trame_due",
         "trame_session",
         "trame_track",
         "trame_set_status",

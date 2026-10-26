@@ -93,6 +93,31 @@ fn ancestors<'a>(session: &Value, pages: &'a HashMap<String, Value>) -> Vec<&'a 
     }
     out
 }
+/// Names of every project enclosing the card, innermost first; its `client_id` when it sits outside the tree.
+pub fn project_names(session: &Value, board: &Value) -> Vec<String> {
+    let pages = pages_by_id(board);
+    let chain = ancestors(session, &pages);
+    let mut ids = chain
+        .iter()
+        .filter(|p| p["kind"] == "project")
+        .filter_map(|p| p["id"].as_str())
+        .collect::<Vec<_>>();
+    if ids.is_empty() {
+        ids.extend(session["client_id"].as_str().filter(|s| !s.is_empty()));
+    }
+    ids.iter()
+        .filter_map(|id| {
+            board["projects"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|p| p["id"] == *id)
+                .and_then(|p| p["name"].as_str())
+                .or_else(|| pages.get(*id).and_then(|p| p["title"].as_str()))
+                .map(str::to_owned)
+        })
+        .collect()
+}
 fn fields(session: &Value, board: &Value, assigners: &Value, key: Option<&str>) -> Vec<String> {
     let assigner = session["id"]
         .as_str()
@@ -135,17 +160,9 @@ fn fields(session: &Value, board: &Value, assigners: &Value, key: Option<&str>) 
             vec![string(session, "status"), label]
         }
         Some("tag") => tags.clone(),
-        Some("project") => projects
+        Some("project") => project_names(session, board)
             .iter()
-            .filter_map(|id| {
-                board["projects"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .find(|p| p["id"] == *id)
-                    .map(|p| string(p, "name"))
-                    .or_else(|| pages.get(*id).map(|p| string(p, "title")))
-            })
+            .map(|name| name.to_lowercase())
             .collect(),
         Some("story") => chain
             .iter()

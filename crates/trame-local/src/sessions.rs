@@ -15,15 +15,7 @@ pub use write::upsert;
 pub use write::{client_for, default_tags, default_tags_for, split_tag_label, tag_color, tag_key};
 pub(crate) use write::{ensure_specs_page, ensure_tag};
 
-pub fn days_until(due: &str, today: &str) -> Result<i64> {
-    let due = chrono::NaiveDate::parse_from_str(due, "%Y-%m-%d")?;
-    let today = chrono::NaiveDate::parse_from_str(today, "%Y-%m-%d")?;
-    Ok((due - today).num_days())
-}
-
-pub fn shown_due(due: &str, today: &str) -> Result<bool> {
-    Ok(days_until(due, today)? <= 7)
-}
+pub use trame_core::due::{days_until, shown_due};
 
 pub fn story_similarity(a: &str, b: &str) -> f64 {
     stories::similarity(a, b)
