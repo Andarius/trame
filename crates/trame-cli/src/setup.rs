@@ -136,15 +136,31 @@ fn find_on_path(name: &str) -> Option<PathBuf> {
     }
     None
 }
+/// Links `~/.local/bin/tramecli` to this binary, or copies it when it runs from a mounted `AppImage`.
 pub fn ensure_on_path(home: &str, self_path: &Path) -> Result<Option<String>> {
     let self_path = self_path
         .canonicalize()
         .unwrap_or_else(|_| self_path.to_path_buf());
     let dest = PathBuf::from(home).join(".local/bin/tramecli");
-    let current = dest.canonicalize().ok();
-    if current.as_deref() != Some(self_path.as_path()) {
+    // the AppImage mount goes away when the app quits: a link into it would dangle
+    let copy = env::var_os("APPDIR").is_some_and(|dir| self_path.starts_with(dir));
+    let current = if copy {
+        dest.symlink_metadata().is_ok_and(|m| m.is_file())
+            && fs::read(&dest).ok() == fs::read(&self_path).ok()
+    } else {
+        dest.canonicalize().ok().as_deref() == Some(self_path.as_path())
+    };
+    if !current {
         if let Err(error) = (|| -> Result<()> {
             fs::create_dir_all(dest.parent().unwrap())?;
+            if copy {
+                let tmp = dest.with_extension("new");
+                fs::copy(&self_path, &tmp)?;
+                #[cfg(unix)]
+                fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755))?;
+                fs::rename(&tmp, &dest)?;
+                return Ok(());
+            }
             if dest.symlink_metadata().is_ok() {
                 fs::remove_file(&dest)?;
             }
@@ -153,13 +169,19 @@ pub fn ensure_on_path(home: &str, self_path: &Path) -> Result<Option<String>> {
             Ok(())
         })() {
             return Ok(Some(format!(
-                "could not link {} ({error}) — put {} on PATH as `tramecli`",
+                "could not install {} ({error}) — put {} on PATH as `tramecli`",
                 dest.display(),
                 self_path.display()
             )));
         }
-        println!("linked {} → {}", dest.display(), self_path.display());
+        let how = if copy { "copied" } else { "linked" };
+        println!("{how} {} → {}", dest.display(), self_path.display());
     }
+    let self_path = if copy {
+        dest.canonicalize().unwrap_or_else(|_| dest.clone())
+    } else {
+        self_path
+    };
     let found = find_on_path("tramecli");
     if found.is_none() {
         return Ok(Some(format!(

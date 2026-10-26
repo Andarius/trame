@@ -48,8 +48,9 @@ fn detach(image: &Path) -> Result<(), String> {
     }
 }
 
-/// Replaces a `tramecli` installed as a plain file in `~/.local/bin` with the one bundled in this `AppImage`.
-/// A symlink (dev checkout, snap alias) is left alone.
+/// Replaces a `tramecli` installed as a plain file in `~/.local/bin` with the one bundled in this `AppImage`,
+/// and a symlink into an `AppImage` mount (it dangles once that app quits). Other symlinks (dev checkout,
+/// snap alias) are left alone.
 pub(crate) fn refresh_cli() {
     if std::env::var_os("APPIMAGE").is_none() {
         return;
@@ -70,7 +71,13 @@ fn replace_cli(bundled: &Path, installed: &Path) -> std::io::Result<()> {
     let Ok(meta) = std::fs::symlink_metadata(installed) else {
         return Ok(());
     };
-    if !meta.file_type().is_file() || std::fs::read(installed)? == std::fs::read(bundled)? {
+    let into_mount = meta.file_type().is_symlink()
+        && std::fs::read_link(installed)?
+            .components()
+            .any(|c| c.as_os_str().to_string_lossy().starts_with(".mount_"));
+    if !into_mount
+        && (!meta.file_type().is_file() || std::fs::read(installed)? == std::fs::read(bundled)?)
+    {
         return Ok(());
     }
     let tmp = installed.with_extension("new");
@@ -180,6 +187,15 @@ mod tests {
             std::fs::read_to_string(&plain).unwrap(),
             "old",
             "symlink target untouched"
+        );
+        let into_mount = dir.join("into-mount");
+        std::os::unix::fs::symlink(dir.join(".mount_Trame.gone/usr/bin/tramecli"), &into_mount)
+            .unwrap();
+        replace_cli(&bundled, &into_mount).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&into_mount).unwrap(),
+            "new",
+            "a link into an AppImage mount becomes a copy"
         );
         replace_cli(&bundled, &plain).unwrap();
         assert_eq!(std::fs::read_to_string(&plain).unwrap(), "new");
