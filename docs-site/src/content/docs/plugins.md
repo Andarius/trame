@@ -14,7 +14,9 @@ There are two ways to get one. Both take plain `owner/repo` links.
 | Platforms | Linux AppImage and `.deb`, macOS dmg | the machine you build on |
 
 Only native plugins (a `src/mod.rs`) can be composed. Each plugin is fetched at a release tag,
-never a branch.
+never a branch, and declares the Trame versions it works with (`TRAME` in its `version.ts`). A
+build stops when a plugin's range excludes the Trame being built; pin an older plugin tag
+(`owner/repo@v1.2.0`) or wait for the plugin's next release.
 
 ## Your own build
 

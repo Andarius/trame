@@ -162,6 +162,8 @@ for both). Routes run inside Trame's process: a panic takes the app down, so han
 // src/mod.rs carries the same two constants; version_test.ts keeps them equal.
 export const VERSION = "0.1.0";
 export const REPO = "owner/trame-demo";
+// Trame versions this release works with; compose-plugins refuses a build outside it
+export const TRAME = ">=0.25.0 <0.26.0";
 
 /** Why a pushed tag cannot release this version, or null when it matches (`v` prefix optional). */
 export function tagMismatch(tag: string, version = VERSION): string | null {

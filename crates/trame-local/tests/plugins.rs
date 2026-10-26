@@ -518,3 +518,46 @@ async fn gitlab_live_adapter_maps_latest_environment_and_compare() {
     assert_eq!(refs, vec![vec![12]]);
     server.abort();
 }
+
+#[test]
+fn a_write_plan_that_fails_leaves_nothing_written() {
+    use plugins::api::{Write, apply};
+    let mut t = TestDb::new();
+    let ok = apply(
+        &mut t.db,
+        &[
+            Write::CreatePage(json!({"title": "kept"})),
+            Write::EnsureTag {
+                label: "fixture-tag".into(),
+                color: None,
+            },
+        ],
+    )
+    .unwrap();
+    let kept = ok[0].as_str().unwrap().to_owned();
+    let failed = apply(
+        &mut t.db,
+        &[
+            Write::CreatePage(json!({"title": "rolled back"})),
+            Write::UpdatePage {
+                id: kept.clone(),
+                patch: json!({"title": "renamed"}),
+            },
+            Write::UpdatePage {
+                id: kept.clone(),
+                patch: json!({"status": "not-a-status"}),
+            },
+        ],
+    );
+    assert!(failed.is_err());
+    let titles: Vec<Value> =
+        t.db.query(
+            "select title from pages where not deleted order by title",
+            &[],
+        )
+        .unwrap()
+        .into_iter()
+        .map(|r| r["title"].clone())
+        .collect();
+    assert_eq!(titles, [json!("kept")]);
+}

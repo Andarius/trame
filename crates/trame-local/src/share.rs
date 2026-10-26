@@ -219,8 +219,7 @@ pub fn import(db: &mut Db, bundle: &Value, parent: &Value) -> Result<Value> {
     let last=db.query("select max(sort_key) as k from pages where parent_id is not distinct from $1 and not deleted",std::slice::from_ref(parent))?;
     let root_key = pages::mid_key(last[0]["k"].as_str().unwrap_or(""), "");
     let owner = db.identity()?["userId"].clone();
-    db.batch_execute("begin")?;
-    let result = (|| -> Result<()> {
+    db.transaction(|db| {
         for p in pages {
             let root = p["id"] == bundle["root"];
             db.query("insert into pages(id,parent_id,kind,title,icon,brief,client_id,status,content,sort_key,color,owner_id,origin) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",&[mapped(&page_map,&p["id"]),if root{parent.clone()}else{mapped(&page_map,&p["parent_id"])},p["kind"].clone(),p["title"].clone(),p["icon"].clone(),p["brief"].clone(),mapped(&page_map,&p["client_id"]),p["status"].clone(),json!(crate::json::stringify(&remap_content(&p["content"],&page_map,&db_map))),if root{json!(root_key)}else{p["sort_key"].clone()},p["color"].clone(),owner.clone(),json!(db.origin)])?;
@@ -259,13 +258,6 @@ pub fn import(db: &mut Db, bundle: &Value, parent: &Value) -> Result<Value> {
             )?;
         }
         Ok(())
-    })();
-    match result {
-        Ok(()) => db.batch_execute("commit")?,
-        Err(e) => {
-            let _ = db.batch_execute("rollback");
-            return Err(e);
-        }
-    }
+    })?;
     Ok(mapped(&page_map, &bundle["root"]))
 }

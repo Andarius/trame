@@ -1,8 +1,9 @@
 // Fetches native plugins from GitHub and composes them into this checkout for a build.
 // USAGE: bun scripts/compose-plugins.ts <plugins.json> [--lock <out.json>]
 //   plugins.json: { "plugins": ["owner/repo", "owner/repo@v1.2.0"] }   (no tag = latest release)
-// Clones each into .scratch/plugins/, writes plugins.local.json, runs gen-plugins, and writes a
-// lock (Trame version + each plugin's tag and commit) that identifies the build.
+// Clones each into .scratch/plugins/, refuses one whose `TRAME` range (version.ts) excludes this
+// Trame, writes plugins.local.json, runs gen-plugins, and writes a lock (Trame version + each
+// plugin's tag, commit and range) that identifies the build.
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 
@@ -28,6 +29,29 @@ export function parseSpec(entry: string): Spec {
   }
   if (ref !== null && (!REF.test(ref) || ref.includes(".."))) throw new Error(`bad tag in ${JSON.stringify(entry)}`);
   return { repo, ref };
+}
+
+const COMPARATOR = /^(>=|<=|>|<|=)?(\d+)\.(\d+)\.(\d+)$/;
+
+/** Whether `version` (x.y.z) meets every space-separated comparator in `range`, e.g. ">=0.24.0 <0.25.0". */
+export function satisfies(version: string, range: string): boolean {
+  const parts = (v: string) => v.split(".").map(Number);
+  const cmp = (a: number[], b: number[]) => a.map((x, i) => x - b[i]).find((d) => d !== 0) ?? 0;
+  const have = parts(version);
+  const comparators = range.trim().split(/\s+/).filter(Boolean);
+  if (!comparators.length) throw new Error(`empty Trame range`);
+  return comparators.every((c) => {
+    const m = COMPARATOR.exec(c);
+    if (!m) throw new Error(`bad Trame range ${JSON.stringify(range)}`);
+    const d = cmp(have, [m[2], m[3], m[4]].map(Number));
+    return { ">=": d >= 0, "<=": d <= 0, ">": d > 0, "<": d < 0, "=": d === 0 }[m[1] ?? "="];
+  });
+}
+
+/** The `TRAME` range a plugin checkout declares in version.ts, or null. */
+export async function trameRange(dir: string): Promise<string | null> {
+  const text = await readFile(join(dir, "version.ts"), "utf8").catch(() => "");
+  return /export const TRAME = "([^"]+)"/.exec(text)?.[1] ?? null;
 }
 
 async function latestTag(repo: string) {
@@ -73,6 +97,7 @@ if (import.meta.main) {
 
   await rm(DIR, { recursive: true, force: true });
   await mkdir(DIR, { recursive: true });
+  const trame: string = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8")).version;
   const lock = [];
   for (const { repo, ref } of specs) {
     const tag = ref ?? await latestTag(repo);
@@ -85,7 +110,15 @@ if (import.meta.main) {
     if (!await exists(join(dir, "src/mod.rs"))) {
       fail(`${repo}@${tag} has no src/mod.rs: only native plugins can be composed`);
     }
-    lock.push({ repo, tag, commit });
+    const range = await trameRange(dir) ?? fail(`${repo}@${tag} declares no TRAME range in version.ts`);
+    let ok = false;
+    try {
+      ok = satisfies(trame, range);
+    } catch (e) {
+      fail(`${repo}@${tag}: ${(e as Error).message}`);
+    }
+    if (!ok) fail(`${repo}@${tag} needs Trame ${range}, this is ${trame}; pin a matching plugin tag`);
+    lock.push({ repo, tag, commit, trame: range });
   }
 
   const paths = specs.map(({ repo }) => relative(ROOT, join(DIR, repo.replace("/", "__"))));
@@ -93,7 +126,6 @@ if (import.meta.main) {
   const gen = Bun.spawnSync(["bun", join(ROOT, "scripts/gen-plugins.ts")], { cwd: ROOT, stdout: "inherit", stderr: "inherit" });
   if (gen.exitCode !== 0) process.exit(gen.exitCode ?? 1);
 
-  const trame = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8")).version;
   const text = JSON.stringify({ trame, plugins: lock }, null, 2) + "\n";
   await writeFile(resolve(lockOut ?? join(DIR, "lock.json")), text);
   process.stdout.write(text);

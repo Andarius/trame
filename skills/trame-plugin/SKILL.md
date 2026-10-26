@@ -25,7 +25,7 @@ checkout before coding: they are the contract, and this skill paraphrases them.
 my-plugin/
   src/mod.rs          backend: `pub static PLUGIN` implementing crate::plugins::api::Plugin
   src/*.rs            submodules (`mod x;` next to mod.rs), unit tests in #[cfg(test)]
-  version.ts          VERSION + REPO, and the tag check the release workflow runs
+  version.ts          VERSION + REPO + TRAME (supported Trame range), and the release tag check
   web/index.ts        FrontendPlugin (default export), imports Trame only via "@trame/web-api"
   web/*.tsx           Panel, Settings, …   (react, @trame/web-api, ./ and ../model.ts only)
   web/*_test.ts       bun tests for pure web logic (boundary_test.ts is mandatory)
@@ -63,6 +63,10 @@ subprocesses) goes through `blocking(move || …).await`; the database is `Db::c
 .join("socket"), &native.origin, Some(native.settings.clone()))`. Writing pages or sessions syncs
 to the hub and to other devices, so gate it behind an explicit setting, never behind "enabled"
 alone.
+
+Write through `api::apply(db, &[Write::…])`: it runs a plan of page, session, status and tag writes
+in one transaction, so a failed poll leaves nothing half-written. A write it lacks is a new `Write`
+variant in Trame, not a new helper re-export. Reads stay plain `db.query`.
 
 ## Frontend contract (`web/index.ts`)
 
@@ -128,7 +132,9 @@ fails on anything else.
 
 ## Release
 
-`version.ts` holds `VERSION` and `REPO`; `src/mod.rs` returns the same pair from `version()`
+`version.ts` holds `VERSION`, `REPO` and `TRAME`, the Trame range the release works with
+(`">=0.25.0 <0.26.0"`: space-separated `>=`, `>`, `<=`, `<`, `=` comparators). Builds from repo
+links refuse a plugin without one, or one whose range excludes the Trame being built. `VERSION`/`REPO`: `src/mod.rs` returns the same pair from `version()`
 (`version_test.ts` keeps them equal). `release.yml` runs on `v*` tags: it runs
 `bun version.ts "$GITHUB_REF_NAME"` (refuses a tag that differs from `VERSION`) then
 `gh release create --verify-tag --generate-notes`. To ship: bump `VERSION`, merge,
