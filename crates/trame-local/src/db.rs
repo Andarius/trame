@@ -35,6 +35,7 @@ pub struct Db {
     settings: Option<PathBuf>,
     gate: OperationGate,
     in_operation: bool,
+    in_transaction: bool,
 }
 
 #[derive(Debug)]
@@ -110,6 +111,7 @@ impl Db {
             settings,
             gate: operation_gate(root)?,
             in_operation: false,
+            in_transaction: false,
         })
     }
     /// Keep multi-query local operations and sync scans from interleaving.
@@ -128,6 +130,32 @@ impl Db {
             Ok(result) => result,
             Err(panic) => std::panic::resume_unwind(panic),
         }
+    }
+    /// Runs `work` in one transaction: an error rolls back everything it wrote. Nests by joining the outer one.
+    pub fn transaction<T>(&mut self, work: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
+        self.exclusive(|db| {
+            if db.in_transaction {
+                return work(db);
+            }
+            db.batch_execute("begin")?;
+            db.in_transaction = true;
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(db)));
+            db.in_transaction = false;
+            match result {
+                Ok(Ok(value)) => {
+                    db.batch_execute("commit")?;
+                    Ok(value)
+                }
+                Ok(Err(e)) => {
+                    let _ = db.batch_execute("rollback");
+                    Err(e)
+                }
+                Err(panic) => {
+                    let _ = db.batch_execute("rollback");
+                    std::panic::resume_unwind(panic)
+                }
+            }
+        })
     }
     pub fn batch_execute(&mut self, sql: &str) -> Result<()> {
         self.exclusive(|db| db.client.batch_execute(sql).map_err(db_error))

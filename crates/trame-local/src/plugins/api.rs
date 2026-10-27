@@ -9,7 +9,8 @@ pub(crate) use crate::{
 #[cfg(test)]
 #[allow(unused_imports, reason = "re-exported for composed plugins")]
 pub(crate) use crate::{scratch_root, workspace};
-// core helpers for plugins that write pages, sessions, tags and marks
+// core helpers for plugins that write pages, sessions, tags and marks; a new write capability
+// becomes a `Write` variant below, not another re-export, so the contract stays a plan of writes
 #[allow(unused_imports, reason = "re-exported for composed plugins")]
 pub(crate) use crate::{
     pages::{
@@ -34,6 +35,57 @@ pub(crate) use trame_core::{
 };
 
 pub type RouteFuture = Pin<Box<dyn Future<Output = Response> + Send + 'static>>;
+
+/// One write in a plan for [`apply`].
+#[derive(Debug, Clone, PartialEq)]
+pub enum Write {
+    /// `create_page`'s fields; yields the new page id.
+    CreatePage(Value),
+    UpdatePage {
+        id: String,
+        patch: Value,
+    },
+    DeletePage(String),
+    /// `upsert_session`'s card; yields the stored card.
+    UpsertSession(Value),
+    SetSessionStatus {
+        id: String,
+        status: Value,
+    },
+    /// A tag label (and optional color); yields the tag.
+    EnsureTag {
+        label: String,
+        color: Option<Value>,
+    },
+}
+
+/// Applies `plan` in one transaction, in order: a failure leaves nothing written.
+/// Returns one value per write (`null` for writes that yield nothing).
+pub fn apply(db: &mut Db, plan: &[Write]) -> anyhow::Result<Vec<Value>> {
+    db.transaction(|db| {
+        plan.iter()
+            .map(|write| {
+                Ok(match write {
+                    Write::CreatePage(fields) => create_page(db, fields)?,
+                    Write::UpdatePage { id, patch } => {
+                        update_page(db, id, patch)?;
+                        Value::Null
+                    }
+                    Write::DeletePage(id) => {
+                        delete_page(db, id)?;
+                        Value::Null
+                    }
+                    Write::UpsertSession(card) => upsert_session(db, card, None)?,
+                    Write::SetSessionStatus { id, status } => {
+                        set_session_status(db, id, status)?;
+                        Value::Null
+                    }
+                    Write::EnsureTag { label, color } => ensure_tag(db, label, color.as_ref())?,
+                })
+            })
+            .collect()
+    })
+}
 
 pub trait Plugin: Send + Sync + 'static {
     /// URL slug and settings key (`plugins.<id>` in settings.json).
