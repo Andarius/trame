@@ -32,10 +32,11 @@ export function RailTip({ label, hint }: { label: string; hint?: string }) {
 }
 
 function RailButton(
-  { label, hint, active, onClick, children, badge }: {
+  { label, hint, active, disabled, onClick, children, badge }: {
     label: string;
     hint?: string;
     active: boolean;
+    disabled?: boolean;
     onClick: () => void;
     children: React.ReactNode;
     badge?: React.ReactNode;
@@ -46,9 +47,14 @@ function RailButton(
       type="button"
       aria-label={hint ? `${label}, ${hint}` : label}
       aria-current={active ? "page" : undefined}
+      disabled={disabled}
       onClick={onClick}
       className={`group/rail relative grid h-9 w-9 place-items-center rounded-lg text-[14px] ${
-        active ? "bg-active-row text-copper" : "text-ink-muted hover:bg-active-row/60 hover:text-ink-soft"
+        active
+          ? "bg-active-row text-copper"
+          : disabled
+          ? "text-ink-muted opacity-30"
+          : "text-ink-muted hover:bg-active-row/60 hover:text-ink-soft"
       }`}
     >
       {children}
@@ -107,16 +113,16 @@ export function Rail(
       <div className="mb-3">
         <LogoMark debug={status?.debug} />
       </div>
-      {sidebar !== null && (
-        <RailButton
-          label={sidebar ? "Hide sidebar" : "Show sidebar"}
-          hint={`${navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl+"}\\`}
-          active={false}
-          onClick={onToggleSidebar}
-        >
-          <SidebarIcon />
-        </RailButton>
-      )}
+      {/* always rendered, so the icons below never shift between views */}
+      <RailButton
+        label={sidebar === null ? "No sidebar in this view" : sidebar ? "Hide sidebar" : "Show sidebar"}
+        hint={sidebar === null ? undefined : `${navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl+"}\\`}
+        active={false}
+        disabled={sidebar === null}
+        onClick={onToggleSidebar}
+      >
+        <SidebarIcon />
+      </RailButton>
       {NAV.map((n) => (
         <RailButton
           key={n.key}
