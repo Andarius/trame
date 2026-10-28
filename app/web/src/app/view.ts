@@ -12,5 +12,6 @@ export type View =
   | "card"
   | "client"
   | "plugin"
-  | "diagnostics";
+  | "diagnostics"
+  | "settings";
 

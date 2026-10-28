@@ -40,7 +40,6 @@ import { SessionBar } from "../sessions/SessionBar";
 import { ImportClaudeModal } from "../modals/ImportClaudeModal";
 import { DemoBanner, WelcomeCard } from "./Demo";
 import { NewSessionModal, NewUdbModal } from "../modals/modals";
-import { SettingsModal } from "../modals/SettingsModal";
 import { DbActions, HeaderTitle, PageActions } from "./AppHeader";
 import { BoardToolbar } from "./BoardToolbar";
 import { Palette } from "./Palette";
@@ -56,8 +55,7 @@ import { BOOL_CODEC, useLocalStorage, appConfirm, ConfirmHost, ExpandIcon, setSt
 import { focusBlock } from "../ui/due";
 import { FRONTEND_PLUGINS, setEnabledPlugins, useCardFaces } from "../plugins";
 import { hasTerm, queryValues, termOf, toggleTerm } from "../query";
-import { PluginsModal } from "../plugins/PluginsModal";
-import { PluginSettingsModal } from "../plugins/PluginSettingsModal";
+import { Settings, settingsSection, SettingsNav } from "./Settings";
 import { DatabaseView } from "../udb/DatabaseTable";
 import { buildClock } from "../build-info";
 import { TermCards } from "../term/TermCards";
@@ -84,6 +82,7 @@ export function App() {
     if (params.get("card") || (params.get("session") && params.get("full") !== "0")) return "card";
     const v = params.get("view") as View | null;
     if (v) return v;
+    if (params.get("new") === "settings") return "settings"; // the old Settings modal link
     // bare entity links (?page=, ?db=, ...) imply their view
     if (params.get("page")) return "page";
     if (params.get("db")) return "database";
@@ -130,14 +129,11 @@ export function App() {
   const [welcomeHidden, setWelcomeHidden] = useLocalStorage("trame:welcomeHidden", false, BOOL_CODEC);
   const [modal, setModal] = useState<
     | "session"
-    | "settings"
-    | "plugins"
-    | "pluginSettings"
     | "udb"
     | "import"
     | null
   >(
-    (params.get("new") as "session" | "settings" | "udb" | "import" | null) ??
+    (params.get("new") === "settings" ? null : params.get("new") as "session" | "udb" | "import" | null) ??
       null,
   );
   // the side panel only; a full session is the card view (cardId)
@@ -193,13 +189,19 @@ export function App() {
   const [clientId, setClientId] = useState<string | null>(params.get("client"));
   const [plugins, setPlugins] = useState<PluginManifest[]>([]);
   const [pluginId, setPluginId] = useState<string | null>(params.get("plugin"));
+  // Settings is a view with pages; Cancel and Save go back to where it was opened from
+  const [settingsPage, setSettingsPage] = useState(() => settingsSection(params.get("section")));
+  const settingsBack = useRef<View>("board");
+  const openSettings = (section = "general") => {
+    setSettingsPage(section);
+    setView((v) => {
+      if (v !== "settings") settingsBack.current = v;
+      return "settings";
+    });
+  };
   // a plugin's settings opened from elsewhere than its panel (openPluginSettings)
-  const [settingsFor, setSettingsFor] = useState<string | null>(null);
   useEffect(() => {
-    const h = (e: Event) => {
-      setSettingsFor((e as CustomEvent<string>).detail);
-      setModal("pluginSettings");
-    };
+    const h = (e: Event) => openSettings(`plugin:${(e as CustomEvent<string>).detail}`);
     addEventListener("trame:plugin-settings", h);
     return () => removeEventListener("trame:plugin-settings", h);
   }, []);
@@ -348,6 +350,7 @@ export function App() {
     put("plugin", view === "plugin" ? pluginId : null);
     put("card", view === "card" ? cardId : null);
     put("term", view === "terminals" ? termSel : null);
+    put("section", view === "settings" && settingsPage !== "general" ? settingsPage : null);
     put("session", openId);
     put("full", openId ? (drawerFull ? "1" : "0") : null);
     put("group", group === "none" ? null : group);
@@ -360,7 +363,7 @@ export function App() {
       lastLoc.current = k;
       history.pushState(null, "", u);
     } else history.replaceState(null, "", u);
-  }, [view, pageId, dbId, clientId, pluginId, cardId, termSel, openId, drawerFull, group, sessionQuery, zen]);
+  }, [view, pageId, dbId, clientId, pluginId, cardId, termSel, settingsPage, openId, drawerFull, group, sessionQuery, zen]);
   // Browser Back from the full-screen ticket returns to the view behind it (the
   // board for a direct link) instead of leaving the app: the underlying view is
   // written as its own history entry beneath the ticket, and popstate closes it.
@@ -389,6 +392,7 @@ export function App() {
       if (v === "plugin") setPluginId(q.get("plugin"));
       if (v === "card") setCardId(q.get("card"));
       if (v === "terminals") setTermSel(q.get("term"));
+      if (v === "settings") setSettingsPage(settingsSection(q.get("section")));
       setOpenId(q.get("session"));
       setDrawerFull(false);
     };
@@ -552,14 +556,7 @@ export function App() {
   const currentDb = view === "database"
     ? udbs.find((d) => d.id === dbId) ?? null
     : null;
-  // settings cover the main area only — navigating from the sidebar closes them
-  const navKey = useRef(`${view}:${pageId}:${dbId}:${pluginId}:${clientId}:${cardId}`);
-  useEffect(() => {
-    const k = `${view}:${pageId}:${dbId}:${pluginId}:${clientId}:${cardId}`;
-    if (k === navKey.current) return; // mount (e.g. ?new=settings deep link)
-    navKey.current = k;
-    setModal((m) => (m === "settings" ? null : m));
-  }, [view, pageId, dbId, pluginId, clientId, cardId]);
+
   const currentPage = view === "page"
     ? pages.find((p) => p.id === pageId) ?? null
     : null;
@@ -648,6 +645,8 @@ export function App() {
     ? "Timeline"
     : view === "diagnostics"
     ? "Diagnostics"
+    : view === "settings"
+    ? "Settings"
     : "Explore";
 
   // starred pages: per-browser shortcuts to deep pages (Soren → Weekly → …)
@@ -667,7 +666,7 @@ export function App() {
           setView(v);
         }}
         status={status}
-        onSettings={() => setModal("settings")}
+        onSettings={() => openSettings()}
         pages={pages.filter((x) => !specPageIds.has(x.id))}
         pageId={pageId}
         plugins={plugins}
@@ -701,6 +700,8 @@ export function App() {
           )
           : view === "explore" || view === "agents" || (view === "plugin" && pluginColumn)
           ? <div ref={setColumnSlot} className="contents" />
+          : view === "settings"
+          ? <SettingsNav section={settingsPage} onSection={setSettingsPage} />
           : undefined}
         wide={view === "explore"}
         bare={view === "insights" || view === "timeline" || (view === "plugin" && !pluginColumn)}
@@ -943,7 +944,7 @@ export function App() {
               ? (
                 <Panel
                   column={columnSlot}
-                  onOpenSettings={() => setModal("pluginSettings")}
+                  onOpenSettings={() => pluginId && openSettings(`plugin:${pluginId}`)}
                   onOpenPage={openPage}
                   onOpenSession={openSession}
                 />
@@ -960,11 +961,21 @@ export function App() {
           ? <AgentSessions board={board} onOpenSession={(id) => openSession(id)} slot={columnSlot} />
           : view === "diagnostics"
           ? <Diagnostics />
+          : view === "settings"
+          ? (
+            <Settings
+              section={settingsPage}
+              onSection={setSettingsPage}
+              onClose={() => setView(settingsBack.current)}
+              onSaved={() => setExploreEpoch((e) => e + 1)}
+              onOpenDiagnostics={() => setView("diagnostics")}
+            />
+          )
           : (
             <Explore
               key={exploreEpoch}
               board={board}
-              onOpenSettings={() => setModal("settings")}
+              onOpenSettings={() => openSettings("explore")}
               initialPath={exploreTarget}
               onConsumed={() => setExploreTarget(null)}
               onBack={exploreReturn ? () => openPage(exploreReturn) : undefined}
@@ -1068,31 +1079,10 @@ export function App() {
             })}
         />
       )}
-      {modal === "settings" && (
-        <SettingsModal
-          onClose={() => setModal(null)}
-          onSaved={() => setExploreEpoch((e) => e + 1)}
-          onOpenPlugins={() => setModal("plugins")}
-          onOpenDiagnostics={() => {
-            setModal(null);
-            setView("diagnostics");
-          }}
-        />
-      )}
       {sharePageId && (
         <ShareModal
           pageId={sharePageId}
           onClose={() => setSharePageId(null)}
-        />
-      )}
-      {modal === "plugins" && <PluginsModal onClose={() => setModal(null)} />}
-      {modal === "pluginSettings" && (settingsFor ?? pluginId) && (
-        <PluginSettingsModal
-          pluginId={(settingsFor ?? pluginId)!}
-          onClose={() => {
-            setModal(null);
-            setSettingsFor(null);
-          }}
         />
       )}
       <UpdateBanner update={update} updateState={updateState} dismissed={updateDismissed} onUpdate={onUpdate} onDismiss={() => setUpdateDismissed(true)} />

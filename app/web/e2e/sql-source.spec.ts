@@ -69,14 +69,13 @@ test("sources live in Settings: no sidebar entry, edit on click, Delete asks fir
   await expect(page.getByRole("button", { name: "SQL sources" })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Manage plugins →" }).click();
-  await page.getByRole("button", { name: /SQL sources/ }).click();
+  await page.getByRole("navigation", { name: "Settings sections" }).getByRole("button", { name: /SQL sources/ }).click();
   const row = page.locator("div.cursor-pointer", { hasText: `→ ${DB}` });
   await expect(row.getByRole("img", { name: "PostgreSQL" })).toBeVisible();
   await row.click();
   await expect(page.getByRole("heading", { name: "Fill from a SQL query" })).toBeVisible();
   await expect(page.getByLabel("Query", { exact: true })).toHaveValue(/Alpha/);
-  // Esc closes the drawer only; the plugins window stays
+  // Esc closes the drawer only; the plugin page stays
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Fill from a SQL query" })).toHaveCount(0);
   await expect(row).toBeVisible();
