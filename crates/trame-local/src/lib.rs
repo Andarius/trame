@@ -255,19 +255,28 @@ pub async fn run(
         scratch_path(&published)?;
     }
     refuse_live_port(&published)?;
-    fs::create_dir_all(published.parent().context("port file parent")?)?;
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(&published)?;
-    write!(
-        file,
-        "{}",
-        serde_json::json!({"port":port,"pid":std::process::id()})
-    )?;
+    let parent = published.parent().context("port file parent")?;
+    fs::create_dir_all(parent)?;
+    // written aside and renamed in, so a reader never sees a half-written file
+    let tmp = parent.join(format!(".port-{}.tmp", uuid::Uuid::new_v4()));
+    let result = (|| -> Result<()> {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp)?;
+        write!(
+            file,
+            "{}",
+            serde_json::json!({"port":port,"pid":std::process::id()})
+        )?;
+        fs::rename(&tmp, &published)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result?;
     let offline = config.demo
         || std::env::var("TRAME_OFFLINE").as_deref() == Ok("1")
         || scratch_path(&config.root).is_ok();
