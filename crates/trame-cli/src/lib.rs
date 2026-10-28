@@ -15,6 +15,7 @@ pub mod help;
 pub mod mcp;
 pub mod open;
 pub mod page;
+pub mod plugin_cmd;
 pub mod plugins;
 pub mod presence;
 pub mod query;

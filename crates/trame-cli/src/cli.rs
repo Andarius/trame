@@ -1,6 +1,6 @@
 use crate::{
-    board, claude_hook, comment, db, deployments, due, help, mcp, open, page, plugins, presence,
-    setup,
+    board, claude_hook, comment, db, deployments, due, help, mcp, open, page, plugin_cmd, plugins,
+    presence, setup,
     target::{self, resolve_target},
     track, watch,
 };
@@ -231,6 +231,9 @@ pub async fn run(args: &[String]) -> Result<i32> {
         "plugins" => return plugins::main(&rest),
         "mcp" => mcp::serve().await?,
         other => {
+            if let Some(code) = plugin_cmd::run(other, &rest, json_out).await? {
+                return Ok(code);
+            }
             eprintln!("unknown command: {other}\n\n{}", help::topic("OVERVIEW"));
             return Ok(2);
         }

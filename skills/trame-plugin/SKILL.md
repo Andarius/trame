@@ -55,7 +55,8 @@ and `@trame/web-api` from `window.__trame`. Templates for every file: `reference
 - `stop()` runs when Trame exits: kill what you spawned (process groups, see `notebook::shutdown`).
 - `badge(slice)` reads in-memory state or the settings slice it is handed. No other I/O.
 - `sanitize(raw, current)` is **required for any plugin with settings**: the registry saves what it returns, so the default stores nothing. Allowlist each field, coerce types, drop the rest. `settings_view(slice)` redacts the GET: never echo a token, return `hasToken` booleans. A secret that only has to live as long as the process (a token you generated) stays in memory, not in the slice.
-- `/enable` and `/settings` are owned by the registry. Do not route them.
+- `commands()` declares `tramecli <id> <name> …` subcommands (`CliCommand { name, usage, summary }`); `command(native, name, args)` runs one and returns a `CliReply` (`ok(text, json)` / `fail(text)`, or a custom exit code). The registry checks the gate and the name first; tramecli prints `text`, or `json` under `--json`, and lists the commands on `tramecli <id>`. One reply, no prompts or streaming; it runs in the app, so the app must be up.
+- `/enable`, `/settings` and `POST /cli` are owned by the registry. Do not route them.
 
 Live state is a `static` behind a `Mutex` refreshed by the plugin's own loop. Keep the last good
 state and flag the error rather than blanking the UI on one failed poll. Blocking work (database,
