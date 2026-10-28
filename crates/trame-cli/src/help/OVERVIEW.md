@@ -20,6 +20,7 @@ Commands:
   setup      install the agent skills embedded in this binary
   plugins    build Trame with native plugins from their GitHub repos
   deployments  per-repo rules matching waiting releases to cards
+  <plugin>   a plugin's own commands (`tramecli k8s` lists them); needs the app
   db         write database rows (`db rows <db>`); bare, the database contract
   query      print the board's session-filter syntax
   mcp        serve the Trame MCP server on stdio

@@ -35,6 +35,41 @@ pub(crate) use trame_core::{
 };
 
 pub type RouteFuture = Pin<Box<dyn Future<Output = Response> + Send + 'static>>;
+pub type CliFuture = Pin<Box<dyn Future<Output = CliReply> + Send + 'static>>;
+
+/// A `tramecli <plugin id> <name> …` subcommand, listed in the manifest and the plugin's help.
+#[derive(Debug, Clone, Copy)]
+pub struct CliCommand {
+    pub name: &'static str,
+    /// Arguments after the name, e.g. `<context> [--all]`.
+    pub usage: &'static str,
+    pub summary: &'static str,
+}
+
+/// What a plugin command prints: `text` on stdout (stderr when `code` is not 0), `json` under `--json`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CliReply {
+    pub code: i32,
+    pub text: String,
+    pub json: Value,
+}
+impl CliReply {
+    pub fn ok(text: impl Into<String>, json: Value) -> Self {
+        Self {
+            code: 0,
+            text: text.into(),
+            json,
+        }
+    }
+    pub fn fail(text: impl Into<String>) -> Self {
+        let text = text.into();
+        Self {
+            code: 1,
+            json: json!({"error": text}),
+            text,
+        }
+    }
+}
 
 /// One write in a plan for [`apply`].
 #[derive(Debug, Clone, PartialEq)]
@@ -124,6 +159,14 @@ pub trait Plugin: Send + Sync + 'static {
     fn start(&'static self, _native: Native) -> Option<tokio::task::JoinHandle<()>> {
         None
     }
+    /// tramecli subcommands this plugin answers in `command`.
+    fn commands(&self) -> &'static [CliCommand] {
+        &[]
+    }
+    /// Runs `tramecli <id> <name> <args…>` once the registry checked the gate and the name.
+    fn command(&'static self, _native: Native, _name: String, _args: Vec<String>) -> CliFuture {
+        Box::pin(async { CliReply::fail("this plugin has no commands") })
+    }
     /// Just switched on: refresh now instead of waiting a tick.
     fn on_enabled(&'static self, _native: &Native) {}
     /// Trame is exiting: stop what the plugin spawned.
@@ -148,7 +191,29 @@ pub fn manifest(plugin: &dyn Plugin, settings_path: &std::path::Path) -> Value {
         m["version"] = json!(version);
         m["repo"] = json!(repo);
     }
+    let commands = plugin.commands();
+    if !commands.is_empty() {
+        m["commands"] = commands
+            .iter()
+            .map(|c| json!({"name": c.name, "usage": c.usage, "summary": c.summary}))
+            .collect();
+    }
     m
+}
+
+/// The command a `/cli` body names, with its args, if the plugin declares it.
+pub(crate) fn cli_call(plugin: &dyn Plugin, body: &Value) -> Result<(String, Vec<String>), String> {
+    let name = body["name"].as_str().unwrap_or("");
+    if !plugin.commands().iter().any(|c| c.name == name) {
+        return Err(format!("{} has no command {name:?}", plugin.id()));
+    }
+    let args = body["args"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|a| a.as_str().map(str::to_owned).ok_or("args must be strings"))
+        .collect::<Result<_, _>>()?;
+    Ok((name.to_owned(), args))
 }
 
 /// What the registry answers itself for `/api/plugins/<id><sub>`; everything else is the plugin's.
@@ -157,6 +222,7 @@ pub(crate) enum Owned {
     Enable,
     Settings,
     Gated,
+    Cli,
     Route,
 }
 
@@ -165,6 +231,7 @@ pub(crate) fn classify(plugin: &dyn Plugin, sub: &str, method: &str, enabled: bo
         ("/enable", "POST") => Owned::Enable,
         ("/settings", _) => Owned::Settings,
         _ if !enabled && !plugin.ungated(sub) => Owned::Gated,
+        ("/cli", "POST") => Owned::Cli,
         _ => Owned::Route,
     }
 }
@@ -200,7 +267,55 @@ pub fn handle_sync(
                 Some((200, view))
             }
             Owned::Gated => Some((403, json!({"error": "plugin disabled"}))),
-            Owned::Route => None,
+            Owned::Cli | Owned::Route => None,
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Fake;
+    impl Plugin for Fake {
+        fn id(&self) -> &'static str {
+            "fake"
+        }
+        fn label(&self) -> &'static str {
+            "Fake"
+        }
+        fn glyph(&self) -> &'static str {
+            "f"
+        }
+        fn description(&self) -> &'static str {
+            ""
+        }
+        fn commands(&self) -> &'static [CliCommand] {
+            &[CliCommand {
+                name: "pods",
+                usage: "<context>",
+                summary: "list pods",
+            }]
+        }
+        fn route(&'static self, _: Native, _: String, _: Request<Body>) -> RouteFuture {
+            unreachable!()
+        }
+    }
+
+    #[test]
+    fn cli_runs_only_declared_commands_of_an_enabled_plugin() {
+        assert_eq!(classify(&Fake, "/cli", "POST", true), Owned::Cli);
+        assert_eq!(classify(&Fake, "/cli", "POST", false), Owned::Gated);
+        assert_eq!(
+            cli_call(&Fake, &json!({"name":"pods","args":["prod"]})),
+            Ok(("pods".to_owned(), vec!["prod".to_owned()]))
+        );
+        for body in [
+            json!({"name":"rm","args":[]}),
+            json!({"args":["pods"]}),
+            json!({"name":"pods","args":[1]}),
+        ] {
+            assert!(cli_call(&Fake, &body).is_err(), "{body}");
+        }
+    }
 }

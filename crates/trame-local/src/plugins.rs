@@ -152,6 +152,21 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
             json_response(200, view)
         }
         Owned::Gated => json_response(403, json!({"error":"plugin disabled"})),
+        Owned::Cli => {
+            let Some(body) = json_body(req).await else {
+                return json_response(400, json!({"error":"body unavailable"}));
+            };
+            match api::cli_call(plugin, &body) {
+                Ok((name, args)) => {
+                    let reply = Box::pin(plugin.command(state, name, args)).await;
+                    json_response(
+                        200,
+                        json!({"code": reply.code, "text": reply.text, "json": reply.json}),
+                    )
+                }
+                Err(error) => json_response(400, json!({"error": error})),
+            }
+        }
         // boxed: the proxying plugins' futures would otherwise bloat every plugin request
         Owned::Route => Box::pin(plugin.route(state, sub.to_owned(), req)).await,
     }
