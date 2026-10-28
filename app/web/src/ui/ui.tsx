@@ -782,6 +782,28 @@ export const SECTION_LABEL = "text-[10.5px] font-medium tracking-[0.8px] text-in
 export const MENU_LABEL = "text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70";
 export const FIELD_LABEL = "text-[10px] font-medium tracking-[0.8px] text-ink-muted/70";
 
+// whether a sidebar section's rows are hidden, remembered per section
+export function useFold(id: string) {
+  return useLocalStorage(`trame:fold:${id}`, false, BOOL_CODEC);
+}
+
+// a section heading that folds its rows; the caret shows on hover, or always while folded
+export function FoldLabel(
+  { folded, onToggle, children }: { folded: boolean; onToggle: () => void; children: ReactNode },
+) {
+  return (
+    <button
+      type="button"
+      aria-expanded={!folded}
+      onClick={onToggle}
+      className="group/fold flex items-center gap-1 text-left hover:text-ink-soft"
+    >
+      {children}
+      <span className={`text-[10px] leading-none ${folded ? "" : "opacity-0 group-hover/fold:opacity-100"}`}>{folded ? "▸" : "▾"}</span>
+    </button>
+  );
+}
+
 export function TagChips({ keys, onClick }: { keys?: string[]; onClick?: (key: string) => void }) {
   const [vocab, setVocab] = useState<Map<string, Tag> | null>(null);
   useEffect(() => {

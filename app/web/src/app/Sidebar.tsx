@@ -10,7 +10,7 @@ import { recentRows } from "./recents";
 import type { View } from "./view";
 import { Rail } from "./Rail";
 import { ArchivedFold, isSharedIn, type LiveCount, LiveCounts, LiveMarker, PageNode, RECENTS_KEY, RECENTS_LONG, RECENTS_SHORT, splitArchived, UnfiledZone } from "./sidebar-tree";
-import { SET_CODEC, useLocalStorage, EntityIcon, pageGlyph, SECTION_LABEL, timeAgo, PresenceDot } from "../ui/ui";
+import { SET_CODEC, useLocalStorage, EntityIcon, FoldLabel, pageGlyph, SECTION_LABEL, timeAgo, PresenceDot, useFold } from "../ui/ui";
 
 
 // "New …" affordance under a sidebar section — a subtle dashed chip. `indent` is
@@ -113,6 +113,12 @@ export function Sidebar(
     getIdentity().then((i) => setMeId(i.userId)).catch(() => {});
   }, []);
   const [expanded, setExpanded] = useLocalStorage("trame:expanded", new Set<string>(), SET_CODEC);
+  const [recentsFolded, setRecentsFolded] = useFold("recents");
+  const [starredFolded, setStarredFolded] = useFold("starred");
+  const [projectsFolded, setProjectsFolded] = useFold("projects");
+  const [sharedFolded, setSharedFolded] = useFold("shared");
+  const [unfiledFolded, setUnfiledFolded] = useFold("unfiled");
+  const [dbsFolded, setDbsFolded] = useFold("databases");
 
   const byId = useMemo(() => new Map(pages.map((p) => [p.id, p])), [pages]);
   const childrenOf = useMemo(() => {
@@ -297,10 +303,10 @@ export function Sidebar(
         <>
           {/* a landmark, so the rows are addressable apart from STARRED's identical ones */}
           <nav aria-label="Recently modified" className="flex flex-col gap-1">
-          <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
-            RECENTLY MODIFIED
+<div className={`flex px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
+            <FoldLabel folded={recentsFolded} onToggle={() => setRecentsFolded((f) => !f)}>RECENTLY MODIFIED</FoldLabel>
           </div>
-          {recents.slice(0, recentsOpen ? RECENTS_LONG : RECENTS_SHORT).map((row) => {
+          {!recentsFolded && recents.slice(0, recentsOpen ? RECENTS_LONG : RECENTS_SHORT).map((row) => {
             // a bulk edit collapses to its parent, labelled with the page count
             const p = row.kind === "page" ? row.page : byId.get(row.parentId);
             if (!p) return null;
@@ -334,7 +340,7 @@ export function Sidebar(
             );
           })}
           </nav>
-          {recents.length > RECENTS_SHORT && (
+          {!recentsFolded && recents.length > RECENTS_SHORT && (
             <button
               type="button"
               onClick={() => onToggle(RECENTS_KEY)}
@@ -350,10 +356,10 @@ export function Sidebar(
           pages shared in by other users, and unfiled pages (the inbox to triage) */}
       {[...starred].some((id) => byId.has(id)) && (
         <>
-          <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
-            STARRED
+<div className={`flex px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
+            <FoldLabel folded={starredFolded} onToggle={() => setStarredFolded((f) => !f)}>STARRED</FoldLabel>
           </div>
-          {[...starred].flatMap((id) => byId.get(id) ?? []).map((p) => {
+          {!starredFolded && [...starred].flatMap((id) => byId.get(id) ?? []).map((p) => {
             const active = view === "page" && p.id === pageId;
             const path: string[] = [];
             for (let a = byId.get(p.parent_id ?? ""); a; a = byId.get(a.parent_id ?? "")) path.unshift(a.title);
@@ -386,11 +392,11 @@ export function Sidebar(
           })}
         </>
       )}
-      <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
-        PROJECTS
+      <div className={`flex px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
+        <FoldLabel folded={projectsFolded} onToggle={() => setProjectsFolded((f) => !f)}>PROJECTS</FoldLabel>
       </div>
-      {rootsOwn.normal.map(renderRoot)}
-      {rootsOwn.archived.length > 0 && (
+      {!projectsFolded && rootsOwn.normal.map(renderRoot)}
+      {!projectsFolded && rootsOwn.archived.length > 0 && (
         <ArchivedFold
           parentKey="root"
           kids={rootsOwn.archived}
@@ -400,13 +406,13 @@ export function Sidebar(
           node={renderRoot}
         />
       )}
-      <NewChip label="New project" indent={26} onClick={onNewProject} />
+      {!projectsFolded && <NewChip label="New project" indent={26} onClick={onNewProject} />}
       {(childrenOf.get(null) ?? []).some((p) => isSharedIn(p, meId)) && (
         <>
-          <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
-            SHARED WITH ME
+<div className={`flex px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
+            <FoldLabel folded={sharedFolded} onToggle={() => setSharedFolded((f) => !f)}>SHARED WITH ME</FoldLabel>
           </div>
-          {(childrenOf.get(null) ?? []).filter((p) => isSharedIn(p, meId)).map(
+          {!sharedFolded && (childrenOf.get(null) ?? []).filter((p) => isSharedIn(p, meId)).map(
             (p) => (
               <PageNode
                 key={p.id}
@@ -430,10 +436,10 @@ export function Sidebar(
         </>
       )}
       <UnfiledZone>
-        <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
-          UNFILED
+        <div className={`flex px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
+          <FoldLabel folded={unfiledFolded} onToggle={() => setUnfiledFolded((f) => !f)}>UNFILED</FoldLabel>
         </div>
-        {(childrenOf.get(null) ?? []).filter((p) =>
+        {!unfiledFolded && (childrenOf.get(null) ?? []).filter((p) =>
           // a story with no project is triage too: drag it onto a project to file it
           (p.kind === "page" || p.kind === "story") && !isSharedIn(p, meId)
         ).map((
@@ -457,15 +463,17 @@ export function Sidebar(
             meId={meId}
           />
         ))}
+        {!unfiledFolded && (
         <div className="flex flex-wrap items-center gap-1.5">
           <NewChip label="New page" indent={26} onClick={() => onNewPage(null)} />
           <NewChip label="Import" indent={9} onClick={onImportPage} />
         </div>
+        )}
       </UnfiledZone>
-      <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
-        DATABASES
+      <div className={`flex px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
+        <FoldLabel folded={dbsFolded} onToggle={() => setDbsFolded((f) => !f)}>DATABASES</FoldLabel>
       </div>
-      {looseDbs.map((d) => {
+      {!dbsFolded && looseDbs.map((d) => {
         const active = view === "database" && d.id === dbId;
         return (
           <button
@@ -489,7 +497,7 @@ export function Sidebar(
           </button>
         );
       })}
-      <NewChip label="New database" indent={26} onClick={onNewDb} />
+      {!dbsFolded && <NewChip label="New database" indent={26} onClick={onNewDb} />}
       </>
       )}
       </div>
