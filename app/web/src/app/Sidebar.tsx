@@ -301,11 +301,11 @@ export function Sidebar(
       {due.length > 0 && <DueList due={due} board={board} onOpenPage={onOpenPage} onOpenTerminals={onOpenTerminals} />}
       {recents.length > 0 && (
         <>
-          {/* a landmark, so the rows are addressable apart from STARRED's identical ones */}
-          <nav aria-label="Recently modified" className="flex flex-col gap-1">
-<div className={`flex px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
+          <div className={`flex px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
             <FoldLabel folded={recentsFolded} onToggle={() => setRecentsFolded((f) => !f)}>RECENTLY MODIFIED</FoldLabel>
           </div>
+          {/* a landmark, so the rows are addressable apart from STARRED's identical ones */}
+          <nav aria-label="Recently modified" className="flex flex-col gap-1">
           {!recentsFolded && recents.slice(0, recentsOpen ? RECENTS_LONG : RECENTS_SHORT).map((row) => {
             // a bulk edit collapses to its parent, labelled with the page count
             const p = row.kind === "page" ? row.page : byId.get(row.parentId);
@@ -356,7 +356,7 @@ export function Sidebar(
           pages shared in by other users, and unfiled pages (the inbox to triage) */}
       {[...starred].some((id) => byId.has(id)) && (
         <>
-<div className={`flex px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
+          <div className={`flex px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
             <FoldLabel folded={starredFolded} onToggle={() => setStarredFolded((f) => !f)}>STARRED</FoldLabel>
           </div>
           {!starredFolded && [...starred].flatMap((id) => byId.get(id) ?? []).map((p) => {
@@ -409,7 +409,7 @@ export function Sidebar(
       {!projectsFolded && <NewChip label="New project" indent={26} onClick={onNewProject} />}
       {(childrenOf.get(null) ?? []).some((p) => isSharedIn(p, meId)) && (
         <>
-<div className={`flex px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
+          <div className={`flex px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
             <FoldLabel folded={sharedFolded} onToggle={() => setSharedFolded((f) => !f)}>SHARED WITH ME</FoldLabel>
           </div>
           {!sharedFolded && (childrenOf.get(null) ?? []).filter((p) => isSharedIn(p, meId)).map(

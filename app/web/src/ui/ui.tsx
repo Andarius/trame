@@ -798,8 +798,8 @@ export function FoldLabel(
       onClick={onToggle}
       className="group/fold flex items-center gap-1 text-left hover:text-ink-soft"
     >
-      {children}
-      <span className={`text-[10px] leading-none ${folded ? "" : "opacity-0 group-hover/fold:opacity-100"}`}>{folded ? "▸" : "▾"}</span>
+      <span>{children}</span>
+      <span aria-hidden="true" className={`text-[10px] leading-none ${folded ? "" : "opacity-0 group-hover/fold:opacity-100"}`}>{folded ? "▸" : "▾"}</span>
     </button>
   );
 }
