@@ -212,6 +212,7 @@ export function App() {
     "idle",
   );
   const [updateDismissed, setUpdateDismissed] = useState(false);
+  const [updateError, setUpdateError] = useState<string>();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shareFlash, setShareFlash] = useState<string | null>(null); // transient Export-button label
   const [sharePageId, setSharePageId] = useState<string | null>(null); // ShareModal target
@@ -454,9 +455,11 @@ export function App() {
     }
     if (updateState !== "idle") return;
     setUpdateState("busy");
-    applyUpdate().then((r) => setUpdateState(r.ok ? "done" : "idle")).catch(
-      () => setUpdateState("idle"),
-    );
+    setUpdateError(undefined);
+    applyUpdate().then((r) => {
+      setUpdateState(r.ok ? "done" : "idle");
+      setUpdateError(r.error);
+    }).catch(() => setUpdateState("idle"));
   };
 
   const onMove = (id: string, s: Status) => {
@@ -1083,7 +1086,7 @@ export function App() {
           onClose={() => setSharePageId(null)}
         />
       )}
-      <UpdateBanner update={update} updateState={updateState} dismissed={updateDismissed} onUpdate={onUpdate} onDismiss={() => setUpdateDismissed(true)} />
+      <UpdateBanner update={update} updateState={updateState} updateError={updateError} dismissed={updateDismissed} onUpdate={onUpdate} onDismiss={() => setUpdateDismissed(true)} />
       <ConfirmHost />
       {status?.debug && <ReloadPill />}
     </div>

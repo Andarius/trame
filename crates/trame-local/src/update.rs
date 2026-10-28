@@ -13,6 +13,10 @@ fn repo() -> Option<&'static str> {
         Some(repo) => Some(repo),
     }
 }
+// a local plugin build (`tramecli plugins build`) updates by rebuilding itself, plugins included
+fn rebuilds() -> bool {
+    option_env!("TRAME_UPDATE_VIA") == Some("rebuild")
+}
 fn endpoint(repo: &str) -> String {
     format!("https://api.github.com/repos/{repo}/releases/latest")
 }
@@ -346,6 +350,10 @@ pub async fn background() {
     let (Some(target), Some(repo)) = (target(), repo()) else {
         return;
     };
+    // a rebuild takes minutes of CPU: only on request
+    if rebuilds() {
+        return;
+    }
     let endpoint = endpoint(repo);
     if let Target::App(bundle) = &target {
         let _ = tokio::fs::remove_dir_all(sibling(bundle, "old")).await;
@@ -413,7 +421,129 @@ pub fn restart(desktop: bool) -> Value {
     json!({"ok":true})
 }
 
-pub async fn serve(post: bool, force: bool, offline: bool) -> (u16, Value) {
+/// Plugins of this build with a newer release that a rebuild would pick up (not pinned in plugins.json).
+async fn pending_plugins(root: &Path, settings: &Path) -> Vec<Value> {
+    let list = std::env::var_os("TRAME_PLUGINS_FILE")
+        .map_or_else(|| root.join("plugins.json"), PathBuf::from);
+    let specs: Vec<String> = std::fs::read_to_string(list)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .and_then(|v| serde_json::from_value(v["plugins"].clone()).ok())
+        .unwrap_or_default();
+    let pinned = |repo: &str| {
+        specs.iter().any(|s| {
+            s.split_once('@')
+                .is_some_and(|(r, _)| r.eq_ignore_ascii_case(repo))
+        })
+    };
+    let manifests = crate::plugins::manifest_list(settings);
+    let updates = crate::plugin_updates::serve(false, false, settings).await;
+    updates
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|u| u["available"] == true)
+        .filter(|u| {
+            manifests
+                .iter()
+                .find(|m| m["id"] == u["id"])
+                .and_then(|m| m["repo"].as_str())
+                .is_some_and(|repo| !pinned(repo))
+        })
+        .map(|u| json!({"id":u["id"],"current":u["current"],"latest":u["latest"]}))
+        .collect()
+}
+
+static BUILDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+// the AppImage runtime's variables would point the toolchain at the mounted image
+const APPIMAGE_ENV: &[&str] = &[
+    "APPDIR",
+    "APPIMAGE",
+    "ARGV0",
+    "OWD",
+    "LD_LIBRARY_PATH",
+    "PYTHONHOME",
+    "PYTHONPATH",
+    "PERLLIB",
+    "GTK_PATH",
+    "GTK_DATA_PREFIX",
+    "GTK_EXE_PREFIX",
+    "GTK_IM_MODULE_FILE",
+    "GTK_THEME",
+    "GDK_PIXBUF_MODULE_FILE",
+    "GIO_MODULE_DIR",
+    "GI_TYPELIB_PATH",
+    "GSETTINGS_SCHEMA_DIR",
+    "GST_PLUGIN_SYSTEM_PATH",
+    "GST_PLUGIN_SYSTEM_PATH_1_0",
+    "QT_PLUGIN_PATH",
+];
+
+/// `PATH` without the entries under the mounted image (`APPDIR`).
+fn host_path(path: &std::ffi::OsStr, appdir: Option<&std::ffi::OsStr>) -> std::ffi::OsString {
+    let kept = std::env::split_paths(path).filter(|p| appdir.is_none_or(|d| !p.starts_with(d)));
+    std::env::join_paths(kept).unwrap_or_default()
+}
+
+/// Rebuilds this `AppImage` with its plugins at Trame's latest release and swaps it in place.
+async fn rebuild(image: &Path, root: &Path, latest: Option<String>) -> Value {
+    use std::sync::atomic::Ordering;
+    let Some(cli) = std::env::current_exe()
+        .ok()
+        .map(|exe| exe.with_file_name("tramecli"))
+        .filter(|cli| cli.is_file())
+    else {
+        return json!({"ok":false,"error":"no tramecli next to this build"});
+    };
+    if BUILDING.swap(true, Ordering::SeqCst) {
+        return json!({"ok":false,"error":"a rebuild is already running"});
+    }
+    let log = root.join("plugins-build.log");
+    let result = async {
+        let out = std::fs::File::create(&log).map_err(|e| e.to_string())?;
+        let mut cmd = tokio::process::Command::new(&cli);
+        cmd.args(["plugins", "build", "--latest"])
+            .arg(format!("--install={}", image.display()))
+            .stdin(std::process::Stdio::null())
+            .stdout(out.try_clone().map_err(|e| e.to_string())?)
+            .stderr(out);
+        for key in APPIMAGE_ENV {
+            cmd.env_remove(key);
+        }
+        if let Some(path) = std::env::var_os("PATH") {
+            cmd.env(
+                "PATH",
+                host_path(&path, std::env::var_os("APPDIR").as_deref()),
+            );
+        }
+        let status = cmd.status().await.map_err(|e| format!("tramecli: {e}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("rebuild failed ({status}), see {}", log.display()))
+        }
+    }
+    .await;
+    BUILDING.store(false, Ordering::SeqCst);
+    match result {
+        Ok(()) => {
+            let mut updater = UPDATER.lock().await;
+            updater.applied = Some(latest.unwrap_or_else(|| installed().to_owned()));
+            updater.cache = None;
+            json!({"ok":true})
+        }
+        Err(error) => json!({"ok":false,"error":error}),
+    }
+}
+
+pub async fn serve(
+    post: bool,
+    force: bool,
+    offline: bool,
+    root: &Path,
+    settings: &Path,
+) -> (u16, Value) {
     if offline && post {
         return (503, json!({"error":"unavailable in offline mode"}));
     }
@@ -435,6 +565,40 @@ pub async fn serve(post: bool, force: bool, offline: bool) -> (u16, Value) {
     }
     let target = target();
     let endpoint = endpoint(repo);
+    if rebuilds() {
+        let image = match &target {
+            Some(Target::AppImage(path)) => Some(path.clone()),
+            _ => None,
+        };
+        let mut info = UPDATER
+            .lock()
+            .await
+            .check(force, repo, &endpoint, image.as_ref().and(target.as_ref()))
+            .await;
+        let plugins = pending_plugins(root, settings).await;
+        let trame_newer = info["available"] == true;
+        if !plugins.is_empty() && info["applied"] != true {
+            info["available"] = json!(true);
+        }
+        info["plugins"] = json!(plugins);
+        info["rebuild"] = json!(true);
+        if !post {
+            return (200, info);
+        }
+        let Some(image) = image else {
+            return (
+                200,
+                json!({"ok":false,"error":"rebuilding only replaces an AppImage"}),
+            );
+        };
+        if info["available"] != true {
+            return (200, json!({"ok":false,"error":"already up to date"}));
+        }
+        let latest = trame_newer
+            .then(|| info["latest"].as_str().map(str::to_owned))
+            .flatten();
+        return (200, rebuild(&image, root, latest).await);
+    }
     let mut updater = UPDATER.lock().await;
     (
         200,
@@ -466,6 +630,15 @@ mod tests {
         ] {
             assert_eq!(newer(a, b), want);
         }
+    }
+    #[test]
+    fn host_path_drops_the_mounted_image() {
+        let path = std::ffi::OsStr::new("/tmp/.mount_X/usr/bin:/home/u/.cargo/bin:/usr/bin");
+        assert_eq!(
+            host_path(path, Some(std::ffi::OsStr::new("/tmp/.mount_X"))),
+            "/home/u/.cargo/bin:/usr/bin"
+        );
+        assert_eq!(host_path(path, None), path);
     }
     #[test]
     fn app_bundle_of_finds_the_enclosing_app() {
@@ -511,12 +684,13 @@ mod tests {
     }
     #[tokio::test]
     async fn offline_has_no_network_or_update() {
+        let none = Path::new("/nonexistent");
         assert_eq!(
-            serve(true, false, true).await,
+            serve(true, false, true, none, none).await,
             (503, json!({"error":"unavailable in offline mode"}))
         );
         assert_eq!(
-            serve(false, false, true).await.1,
+            serve(false, false, true, none, none).await.1,
             json!({"current":installed(),"latest":null,"available":false,"releaseUrl":"","canSelfUpdate":false})
         );
     }

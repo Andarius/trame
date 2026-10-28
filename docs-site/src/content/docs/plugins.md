@@ -10,7 +10,7 @@ There are two ways to get one. Both take plain `owner/repo` links.
 | | Your own build (GitHub) | Local build (`tramecli plugins`) |
 |---|---|---|
 | You need | a GitHub account | git, bun, npm, Rust and the native build libraries |
-| Updates | automatic, from your repo's releases | rerun `tramecli plugins build` |
+| Updates | automatic, from your repo's releases | "Update now" rebuilds it (AppImage) |
 | Platforms | Linux AppImage and `.deb`, macOS dmg | the machine you build on |
 
 Only native plugins (a `src/mod.rs`) can be composed. Each plugin is fetched at a release tag,
@@ -64,8 +64,13 @@ tramecli plugins build                               # rebuild later, e.g. after
 
 The build clones Trame at your `tramecli` version into `~/.cache/trame/build` and prints the
 path of the AppImage (`--deb` for a package, a dmg on macOS). Install it in place of your
-current Trame. A local build never self-updates, since the official releases would drop the
-plugins: rebuild after upgrading `tramecli`.
+current Trame. The AppImage then updates by rebuilding itself: when Trame or an unpinned plugin
+has a new release, Trame offers the update, and "Update now" runs
+`tramecli plugins build --latest --install=<the AppImage>` (a few minutes, same toolchain;
+log in `~/.local/share/trame/plugins-build.log`). Restart to run it. Other formats: rerun
+`tramecli plugins build` yourself.
+
+A private plugin repo builds with your `gh` login (`gh auth token`) when `GITHUB_TOKEN` is unset.
 
 On Ubuntu, the native build needs:
 

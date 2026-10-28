@@ -54,9 +54,20 @@ export async function trameRange(dir: string): Promise<string | null> {
   return /export const TRAME = "([^"]+)"/.exec(text)?.[1] ?? null;
 }
 
+// a private plugin repo needs a token; locally that is the gh login git already clones with
+function ghToken() {
+  try {
+    const out = Bun.spawnSync(["gh", "auth", "token"], { stderr: "ignore" });
+    return out.exitCode === 0 ? out.stdout.toString().trim() : "";
+  } catch {
+    return ""; // no gh installed
+  }
+}
+
 async function latestTag(repo: string) {
   const headers: Record<string, string> = { accept: "application/vnd.github+json", "user-agent": "Trame" };
-  if (process.env.GITHUB_TOKEN) headers.authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  const token = process.env.GITHUB_TOKEN || ghToken();
+  if (token) headers.authorization = `Bearer ${token}`;
   const res = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, { headers });
   if (!res.ok) fail(`${repo}: no release to build (${res.status}); pin a tag with ${repo}@<tag>`);
   return ((await res.json()) as { tag_name: string }).tag_name;

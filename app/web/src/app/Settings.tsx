@@ -13,6 +13,7 @@ import {
   syncNow,
   testHub,
   type UpdateInfo,
+  updateLabel,
 } from "../api";
 import { PresencePreview } from "../agents/PresencePreview";
 import { applyScale, getScale, SCALES } from "../ui/scale";
@@ -287,7 +288,7 @@ export function Settings(
       className="rounded-md bg-copper px-2.5 py-1 text-[11.5px] font-medium text-copper-ink hover:brightness-110"
       onClick={() => restartApp().catch(() => {})}
     >
-      ✓ v{update?.latest} ready — restart
+      ✓ {update && updateLabel(update)} ready — restart
     </button>
   );
 
@@ -339,7 +340,7 @@ export function Settings(
             ? (
               <>
                 <span className="rounded bg-copper/15 px-1.5 py-0.5 text-[10.5px] font-medium text-copper">
-                  v{update.latest} available
+                  {updateLabel(update)} available
                 </span>
                 <button
                   type="button"
@@ -358,7 +359,7 @@ export function Settings(
                       disabled={updState === "busy"}
                       onClick={runUpdate}
                     >
-                      {updState === "busy" ? "Updating…" : update.canSelfUpdate ? "Update now" : "Open release"}
+                      {updState === "busy" ? update.rebuild ? "Rebuilding…" : "Updating…" : update.canSelfUpdate ? "Update now" : "Open release"}
                     </button>
                   )}
               </>

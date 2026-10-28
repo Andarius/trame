@@ -1,10 +1,11 @@
-import { openInBrowser, type UpdateInfo } from "../api";
+import { openInBrowser, type UpdateInfo, updateLabel } from "../api";
 import { IconButton } from "../ui/ui";
 
 export function UpdateBanner(
-  { update, updateState, dismissed, onUpdate, onDismiss }: {
+  { update, updateState, updateError, dismissed, onUpdate, onDismiss }: {
     update: UpdateInfo | null;
     updateState: "idle" | "busy" | "done";
+    updateError?: string;
     dismissed: boolean;
     onUpdate: () => void;
     onDismiss: () => void;
@@ -17,10 +18,10 @@ export function UpdateBanner(
         ? (
           <>
             <p className="m-0 text-[12.5px] font-medium text-ink">
-              ✓ Updated to v{update.latest}
+              ✓ Updated to {updateLabel(update)}
             </p>
             <p className="m-0 text-[11.5px] leading-relaxed text-ink-muted">
-              Downloaded in the background — restart Trame to run it.
+              {update.rebuild ? "Rebuilt with your plugins" : "Downloaded in the background"} — restart Trame to run it.
             </p>
             <div className="flex items-center justify-end gap-2">
               <button
@@ -43,9 +44,7 @@ export function UpdateBanner(
         : (
           <>
             <p className="m-0 text-[12.5px] font-medium text-ink">
-              <span className="text-copper">↑</span> Trame v{update.latest}
-              {" "}
-              is available
+              <span className="text-copper">↑</span> {updateLabel(update)} available
             </p>
             <p className="m-0 text-[11.5px] text-ink-muted">
               You're on v{update.current}.{" "}
@@ -56,7 +55,9 @@ export function UpdateBanner(
               >
                 Release notes
               </button>
+              {update.rebuild && " Updating rebuilds Trame with your plugins (a few minutes)."}
             </p>
+            {updateError && <p className="m-0 text-[11.5px] text-blocked">{updateError}</p>}
             <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
@@ -72,7 +73,7 @@ export function UpdateBanner(
                 onClick={onUpdate}
               >
                 {updateState === "busy"
-                  ? "Updating…"
+                  ? update.rebuild ? "Rebuilding…" : "Updating…"
                   : update.canSelfUpdate
                   ? "Update now"
                   : "Open release"}

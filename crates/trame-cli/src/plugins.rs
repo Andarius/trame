@@ -82,14 +82,47 @@ fn run(cmd: &mut Command) -> Result<()> {
     Ok(())
 }
 
-fn on_path(tool: &str) -> bool {
-    env::var_os("PATH")
-        .is_some_and(|paths| env::split_paths(&paths).any(|d| d.join(tool).is_file()))
+// PATH plus the usual per-user toolchain dirs, which a desktop launch may not carry
+fn build_path() -> std::ffi::OsString {
+    let home = PathBuf::from(env::var_os("HOME").unwrap_or_default());
+    let paths = env::var_os("PATH").unwrap_or_default();
+    let extra = [".cargo/bin", ".bun/bin"].map(|d| home.join(d));
+    env::join_paths(env::split_paths(&paths).chain(extra)).unwrap_or(paths)
 }
 
-// a Trame checkout at this binary's release, kept between builds so cargo stays incremental
-fn checkout() -> Result<PathBuf> {
-    let tag = format!("v{}", env!("CARGO_PKG_VERSION"));
+fn on_path(tool: &str) -> bool {
+    env::split_paths(&build_path()).any(|d| d.join(tool).is_file())
+}
+
+/// The highest plain `vX.Y.Z` among `git ls-remote --tags` lines.
+pub fn highest_tag(ls_remote: &str) -> Option<String> {
+    ls_remote
+        .lines()
+        .filter_map(|l| l.split_once("refs/tags/")?.1.strip_prefix('v'))
+        .filter_map(|v| {
+            let parts: Vec<u64> = v
+                .split('.')
+                .map(str::parse)
+                .collect::<Result<_, _>>()
+                .ok()?;
+            (parts.len() == 3).then(|| (parts, v.to_owned()))
+        })
+        .max()
+        .map(|(_, v)| format!("v{v}"))
+}
+
+fn latest_trame() -> Result<String> {
+    let out = Command::new("git")
+        .args(["ls-remote", "--tags", "--refs", TRAME, "v*"])
+        .output()?;
+    if !out.status.success() {
+        bail!("git ls-remote {TRAME} failed");
+    }
+    highest_tag(&String::from_utf8_lossy(&out.stdout)).context("Trame has no release tag")
+}
+
+// a Trame checkout at `tag`, kept between builds so cargo stays incremental
+fn checkout(tag: &str) -> Result<PathBuf> {
     let base = env::var_os("XDG_CACHE_HOME").map_or_else(
         || PathBuf::from(env::var_os("HOME").unwrap_or_default()).join(".cache"),
         PathBuf::from,
@@ -98,7 +131,7 @@ fn checkout() -> Result<PathBuf> {
     if !dir.join(".git").is_dir() {
         fs::create_dir_all(base.join("trame"))?;
         run(Command::new("git")
-            .args(["clone", "--depth", "1", "--branch", &tag, TRAME])
+            .args(["clone", "--depth", "1", "--branch", tag, TRAME])
             .arg(&dir))?;
         return Ok(dir);
     }
@@ -108,16 +141,16 @@ fn checkout() -> Result<PathBuf> {
         .output()?;
     if String::from_utf8_lossy(&at.stdout).trim() != tag {
         run(Command::new("git")
-            .args(["fetch", "--depth", "1", "origin", "tag", &tag])
+            .args(["fetch", "--depth", "1", "origin", "tag", tag])
             .current_dir(&dir))?;
         run(Command::new("git")
-            .args(["checkout", "--force", "--quiet", &tag])
+            .args(["checkout", "--force", "--quiet", tag])
             .current_dir(&dir))?;
     }
     Ok(dir)
 }
 
-fn build(list: &Path, format: &str) -> Result<PathBuf> {
+fn build(list: &Path, format: &str, tag: &str) -> Result<PathBuf> {
     let missing: Vec<_> = ["git", "bun", "npm", "cargo"]
         .into_iter()
         .filter(|t| !on_path(t))
@@ -128,18 +161,22 @@ fn build(list: &Path, format: &str) -> Result<PathBuf> {
             missing.join(", ")
         );
     }
-    let dir = checkout()?;
+    let dir = checkout(tag)?;
+    let path = build_path();
     run(Command::new("bun")
         .args(["install", "--frozen-lockfile"])
+        .env("PATH", &path)
         .current_dir(&dir))?;
     run(Command::new("bun")
         .arg("scripts/compose-plugins.ts")
         .arg(list)
+        .env("PATH", &path)
         .current_dir(&dir))?;
-    // the release feed would replace this build with one without the plugins
+    // updates rebuild with the plugins instead of downloading a release without them
     run(Command::new("bash")
         .args(["scripts/rust-package.sh", format])
-        .env("TRAME_UPDATE_REPO", "none")
+        .env("PATH", &path)
+        .env("TRAME_UPDATE_VIA", "rebuild")
         .current_dir(&dir))?;
     Ok(dir.join(match format {
         "deb" => "dist/linux/trame.deb",
@@ -207,11 +244,26 @@ pub fn main(args: &[String]) -> Result<i32> {
             return Ok(2);
         }
     }
-    let built = build(&path, format)?;
+    let install = rest.iter().find_map(|a| a.strip_prefix("--install="));
+    if install.is_some() && format != "appimage" {
+        bail!("--install only replaces an AppImage");
+    }
+    let tag = if rest.iter().any(|a| a == "--latest") {
+        latest_trame()?
+    } else {
+        format!("v{}", env!("CARGO_PKG_VERSION"))
+    };
+    let built = build(&path, format, &tag)?;
     println!("built {}", built.display());
-    println!(
-        "install it in place of your current Trame, then restart it; this build does not self-update"
-    );
+    let Some(target) = install else {
+        println!("install it in place of your current Trame, then restart it");
+        return Ok(0);
+    };
+    // atomic: a running image keeps its inode
+    let staged = PathBuf::from(format!("{target}.new"));
+    fs::copy(&built, &staged).with_context(|| staged.display().to_string())?;
+    fs::rename(&staged, target).with_context(|| target.to_owned())?;
+    println!("installed {target}; restart Trame to run it");
     Ok(0)
 }
 
@@ -235,6 +287,13 @@ mod tests {
         ] {
             assert_eq!(valid_spec(spec), want, "{spec}");
         }
+    }
+
+    #[test]
+    fn highest_tag_takes_the_newest_plain_release() {
+        let ls = "a\trefs/tags/v0.9.0\nb\trefs/tags/v0.25.0\nc\trefs/tags/v0.24.1\nd\trefs/tags/v1.0.0-rc1\ne\trefs/tags/other";
+        assert_eq!(highest_tag(ls).as_deref(), Some("v0.25.0"));
+        assert_eq!(highest_tag(""), None);
     }
 
     #[test]
