@@ -109,7 +109,8 @@ fn main() -> anyhow::Result<()> {
         let ready_pending = pending.clone();
         let window = window
             .on_navigation(move |url| {
-                url.scheme() == "tauri" || url.host_str() == Some("tauri.localhost") ||
+                // about:srcdoc / about:blank: sandboxed output iframes, which WebKitGTK routes through here
+                url.scheme() == "about" || url.scheme() == "tauri" || url.host_str() == Some("tauri.localhost") ||
                     (url.scheme() == "http" && url.host_str() == Some("127.0.0.1") && url.port() == Some(nav_port.load(Ordering::SeqCst)))
             })
             .on_page_load(move |window, payload| {
