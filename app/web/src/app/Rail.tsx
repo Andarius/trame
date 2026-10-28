@@ -3,15 +3,14 @@ import type { AppStatus, PluginManifest, UpdateInfo } from "../api";
 import { useAgents } from "../agents/agents";
 import { FRONTEND_PLUGINS } from "../plugins";
 import { useTermDock } from "../term/term-api";
-import { ChartIcon, GearIcon, LogoMark, SidebarIcon, TimelineIcon } from "../ui/icons";
+import { ChartIcon, GearIcon, LogoMark, SidebarIcon } from "../ui/icons";
 import type { View } from "./view";
 
-export const NAV: { key: "sessions" | "agents" | "terminals" | "explore" | "timeline" | "insights"; glyph: ReactNode; label: string; view: View }[] = [
+export const NAV: { key: "sessions" | "agents" | "terminals" | "explore" | "insights"; glyph: ReactNode; label: string; view: View }[] = [
   { key: "sessions", glyph: "▦", label: "Sessions", view: "board" },
   { key: "agents", glyph: "↻", label: "AI Sessions", view: "agents" },
   { key: "terminals", glyph: "›_", label: "Terminals", view: "terminals" },
   { key: "explore", glyph: "✦", label: "Explore", view: "explore" },
-  { key: "timeline", glyph: <TimelineIcon />, label: "Timeline", view: "timeline" },
   { key: "insights", glyph: <ChartIcon />, label: "Insights", view: "insights" },
 ];
 

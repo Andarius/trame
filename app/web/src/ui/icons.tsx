@@ -74,25 +74,6 @@ export function ChartIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-export function TimelineIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      strokeLinecap="round"
-      aria-hidden="true"
-    >
-      <path d="M2.5 4h6" />
-      <path d="M5.5 8h7" />
-      <path d="M4 12h5" />
-    </svg>
-  );
-}
-
 export function GroupIcon() {
   return (
     <svg
