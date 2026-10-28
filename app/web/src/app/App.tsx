@@ -609,7 +609,7 @@ export function App() {
     return out;
   }, [currentPage, pages]);
 
-  const isSessions = view === "board" || view === "list" || view === "graph";
+  const isSessions = view === "board" || view === "list" || view === "graph" || view === "timeline";
   const terminals = view === "terminals";
   // the sidebar column Explore and AI Sessions render their list into
   const [columnSlot, setColumnSlot] = useState<HTMLDivElement | null>(null);
@@ -644,8 +644,6 @@ export function App() {
     ? currentPlugin?.label ?? "Plugin"
     : view === "insights"
     ? "Insights"
-    : view === "timeline"
-    ? "Timeline"
     : view === "diagnostics"
     ? "Diagnostics"
     : "Explore";
@@ -703,7 +701,7 @@ export function App() {
           ? <div ref={setColumnSlot} className="contents" />
           : undefined}
         wide={view === "explore"}
-        bare={view === "insights" || view === "timeline" || (view === "plugin" && !pluginColumn)}
+        bare={view === "insights" || (view === "plugin" && !pluginColumn)}
         hidden={sidebarHidden}
         onToggleHidden={() => setSidebarHidden((v) => !v)}
       />
@@ -739,7 +737,7 @@ export function App() {
             />
             {isSessions && (
               <div className="flex rounded-[7px] bg-panel p-[3px]">
-                {(["board", "list", "graph"] as const).map((v) => (
+                {(["board", "list", "graph", "timeline"] as const).map((v) => (
                   <button
                     type="button"
                     key={v}
