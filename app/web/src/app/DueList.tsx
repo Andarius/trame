@@ -4,7 +4,7 @@ import { type BoardData, type DueTodo, getPage, resumeCommand, updatePage } from
 import { openTerminal } from "../term/term-api";
 import { DUE_TONE_CLS, dueLabel, dueTone, focusBlock, refreshDue } from "../ui/due";
 import { GroupMenu } from "../ui/GroupMenu";
-import { clearSelection, EntityIcon, enumCodec, IconButton, SECTION_LABEL, useLocalStorage } from "../ui/ui";
+import { clearSelection, EntityIcon, enumCodec, FoldLabel, IconButton, SECTION_LABEL, useFold, useLocalStorage } from "../ui/ui";
 import { TreeCardsCtx } from "./sidebar-tree";
 
 const GROUPINGS = ["none", "project", "when"] as const;
@@ -58,6 +58,7 @@ export function DueList(
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [grouping, setGrouping] = useLocalStorage<Grouping>("trame:dueGrouping", "none", enumCodec(GROUPINGS));
+  const [folded, setFolded] = useFold("due");
   const lateCount = due.filter((d) => dueTone(d.due) === "late").length;
   const projectName = (id: string) => board?.projects.find((p) => p.id === id)?.name ?? "";
 
@@ -171,7 +172,7 @@ export function DueList(
   return (
     <nav aria-label="Due todos" className="group/due flex flex-col gap-0.5">
       <div className={`flex items-center gap-1 px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
-        DUE
+        <FoldLabel folded={folded} onToggle={() => setFolded((f) => !f)}>DUE</FoldLabel>
         <GroupMenu
           value={grouping}
           options={GROUPING_LABEL}
@@ -186,7 +187,7 @@ export function DueList(
           {lateCount ? `${lateCount} late · ${due.length}` : due.length}
         </span>
       </div>
-      {selected.size > 0 && (
+      {!folded && selected.size > 0 && (
         <div className="mx-1 mb-1 flex flex-col gap-0.5 rounded-md border border-line bg-panel px-1.5 py-1">
           <div className="flex items-center">
             <span className="px-1 text-[12px] tabular-nums text-ink-soft">{selected.size} selected</span>
@@ -219,7 +220,7 @@ export function DueList(
         </div>
       )}
       {error && <div className="px-2 pb-1 text-[11.5px] text-blocked">{error}</div>}
-      {keys.map((key) => (
+      {!folded && keys.map((key) => (
         <div key={key ?? "none"} className="flex flex-col gap-0.5">
           {grouping !== "none" && (
             <div className="flex items-center gap-1.5 px-2 pb-0.5 pt-1.5 text-[10px] font-medium tracking-[0.08em] text-ink-faint">
