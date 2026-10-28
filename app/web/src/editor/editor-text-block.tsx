@@ -1,6 +1,7 @@
 import type { Dispatch, MutableRefObject, ReactNode, SetStateAction } from "react";
 import { type Block, openInBrowser, type PageComment, type SessionLink, uploadAsset } from "../api";
 import { clearSelection } from "../ui/ui";
+import { isPluginEnabled, pluginBlocks } from "../plugins";
 import { Markdown } from "../md/md";
 import type { ItemLink } from "../md/md-types";
 import { normalizeMarks, setMark, stripMarks, todayMark, touchTodo } from "../../../../core/todo-marks.ts";
@@ -126,10 +127,15 @@ export const textClsOf = (b: TextBlock) =>
     ? "text-[16px] font-semibold text-ink"
     : `text-[13px] leading-relaxed ${b.type === "todo" && b.done ? "text-ink-muted line-through" : "text-ink-soft"}`;
 
-// slash-menu items matching a "/…" block
+// slash-menu items matching a "/…" block; a plugin's block while it is off opens its settings
 export function slashItems(b: TextBlock) {
   const filter = b.text.startsWith("/") ? b.text.slice(1).toLowerCase() : null;
-  return filter === null ? [] : SLASH.filter((s) =>
+  const plugin = pluginBlocks().map((p) => ({
+    key: p.type,
+    label: p.label,
+    hint: isPluginEnabled(p.plugin) ? p.hint : "plugin off: open its settings",
+  }));
+  return filter === null ? [] : [...SLASH, ...plugin].filter((s) =>
     // match the key too: "/todo" must find "To-do" despite the hyphen
     s.key.includes(filter) || s.label.toLowerCase().includes(filter)
   );

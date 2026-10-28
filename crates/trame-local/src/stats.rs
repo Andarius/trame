@@ -3,6 +3,7 @@ use crate::{
     db::Db,
     imports::{transcript, transcript_dir},
     routes::{Native, json_response},
+    settings,
 };
 use anyhow::Result;
 use axum::response::Response;
@@ -23,11 +24,12 @@ use std::{
 
 const DAYS: i64 = 366;
 const CACHE: &str = "stats-cache.json";
-const CACHE_VERSION: u32 = 2;
-// how long fetched merged PRs stay fresh
+const CACHE_VERSION: u32 = 3;
+// how long fetched merged PRs, and other devices' usage, stay fresh
 const PRS_TTL_MS: i64 = 15 * 60_000;
 static SCAN: Mutex<()> = Mutex::new(());
 static FETCHING: AtomicBool = AtomicBool::new(false);
+static SHARING: AtomicBool = AtomicBool::new(false);
 
 pub fn owns(method: &str, path: &str) -> bool {
     method == "GET" && path == "/api/stats"
@@ -70,6 +72,19 @@ struct MergedPr {
     repo: String,
 }
 
+/// Another device's daily prompts and tokens, as the hub's `GET /usage` returns them.
+#[derive(Serialize, Deserialize, Clone)]
+struct DeviceUsage {
+    node_id: String,
+    d: NaiveDate,
+    p: Option<String>,
+    r: Option<String>,
+    a: String,
+    m: Option<String>,
+    prompts: u64,
+    tokens: u64,
+}
+
 #[derive(Serialize, Deserialize, Default)]
 struct Cache {
     version: u32,
@@ -77,6 +92,10 @@ struct Cache {
     // merged PRs and MRs by link, and when each forge ("github" or a GitLab host) was last asked
     prs: BTreeMap<String, MergedPr>,
     checked: BTreeMap<String, i64>,
+    // the other devices' usage from the hub, when it was last asked, and a hash of each day this device pushed
+    usage: Vec<DeviceUsage>,
+    usage_checked: Option<i64>,
+    usage_pushed: BTreeMap<NaiveDate, u64>,
 }
 
 #[derive(Default)]
@@ -126,8 +145,22 @@ fn stats(state: &Native) -> Result<Value> {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut cache = load_cache(&cache_path);
+    let mut mine: BTreeMap<Key, Counts> = BTreeMap::new();
     let (files, parsed, changed) =
-        transcript_rows(&mut cache, &claude, &codex, from, &owners.repos, &mut rows);
+        transcript_rows(&mut cache, &claude, &codex, from, &owners.repos, &mut mine);
+    share_usage(state, &cache, &cache_path, from, &mine);
+    for (key, c) in mine {
+        let row = rows.entry(key).or_default();
+        row.prompts += c.prompts;
+        row.tokens += c.tokens;
+    }
+    for u in cache.usage.iter().filter(|u| u.d >= from) {
+        let row = rows
+            .entry((u.d, u.p.clone(), u.r.clone(), u.a.clone(), u.m.clone()))
+            .or_default();
+        row.prompts += u.prompts;
+        row.tokens += u.tokens;
+    }
     let stale = stale_forges(&cache, &owners.gitlab_hosts);
     if !state.sync.offline && !stale.is_empty() && !FETCHING.swap(true, Ordering::SeqCst) {
         let since: Vec<_> = stale
@@ -164,7 +197,128 @@ fn stats(state: &Native) -> Result<Value> {
         "rows": rows,
         "scan": {"files": files, "parsed": parsed, "ms": started.elapsed().as_millis()},
         "prs": {"pending": FETCHING.load(Ordering::SeqCst), "fetched": !cache.checked.is_empty()},
+        "devices": {
+            "others": cache.usage.iter().map(|u| &u.node_id).collect::<BTreeSet<_>>().len(),
+            "pending": SHARING.load(Ordering::SeqCst),
+            "hub": settings::hub_api(&state.settings).is_some() && !state.sync.offline,
+        },
     }))
+}
+
+/// In the background, at most every `PRS_TTL_MS`: push this device's transcript counts to the hub
+/// when they changed, then fetch the user's other devices' counts into the cache.
+fn share_usage(
+    state: &Native,
+    cache: &Cache,
+    path: &Path,
+    from: NaiveDate,
+    mine: &BTreeMap<Key, Counts>,
+) {
+    let now = Local::now().timestamp_millis();
+    if state.sync.offline || cache.usage_checked.is_some_and(|t| now - t < PRS_TTL_MS) {
+        return;
+    }
+    let Some((url, token)) = settings::hub_api(&state.settings) else {
+        return;
+    };
+    let Ok(handle) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
+    if SHARING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let (push, hashes) = usage_push(mine, &cache.usage_pushed, from);
+    let (sync, path) = (state.sync.clone(), path.to_path_buf());
+    handle.spawn(async move {
+        let pushed = push.is_some();
+        let fetched = exchange_usage(&sync, &url, &token, push, from).await;
+        if let Err(e) = &fetched {
+            eprintln!("insights: hub usage: {e:#}");
+        }
+        let _ = tokio::task::spawn_blocking(move || {
+            let _scan = SCAN
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut cache = load_cache(&path);
+            // a failure waits for the next window too, rather than retrying on every page load
+            cache.usage_checked = Some(Local::now().timestamp_millis());
+            if let Ok(usage) = fetched {
+                cache.usage = usage;
+                if pushed {
+                    cache.usage_pushed = hashes;
+                }
+            }
+            save_cache(&path, &mut cache);
+        })
+        .await;
+        SHARING.store(false, Ordering::SeqCst);
+    });
+}
+
+/// The body to push (days from the first one that changed, appeared or vanished since `pushed`,
+/// `None` when nothing did) and each day's hash, to remember once the push lands.
+fn usage_push(
+    mine: &BTreeMap<Key, Counts>,
+    pushed: &BTreeMap<NaiveDate, u64>,
+    from: NaiveDate,
+) -> (Option<Value>, BTreeMap<NaiveDate, u64>) {
+    let mut days: BTreeMap<NaiveDate, Vec<Value>> = BTreeMap::new();
+    for ((d, p, r, a, m), c) in mine.iter().filter(|(_, c)| c.prompts + c.tokens > 0) {
+        days.entry(*d)
+            .or_default()
+            .push(json!({"d":d,"p":p,"r":r,"a":a,"m":m,"prompts":c.prompts,"tokens":c.tokens}));
+    }
+    let hashes: BTreeMap<NaiveDate, u64> = days
+        .iter()
+        .map(|(d, rows)| {
+            let mut hasher = std::hash::DefaultHasher::new();
+            std::hash::Hash::hash(&Value::from(rows.clone()).to_string(), &mut hasher);
+            (*d, std::hash::Hasher::finish(&hasher))
+        })
+        .collect();
+    let changed = hashes
+        .keys()
+        .chain(pushed.keys())
+        .filter(|d| **d >= from && hashes.get(d) != pushed.get(d))
+        .min()
+        .copied();
+    let body = changed.map(|since| {
+        let rows: Vec<&Value> = days.range(since..).flat_map(|(_, rows)| rows).collect();
+        json!({"from": since, "rows": rows})
+    });
+    (body, hashes)
+}
+
+async fn exchange_usage(
+    sync: &crate::sync::Sync,
+    url: &str,
+    token: &str,
+    push: Option<Value>,
+    since: NaiveDate,
+) -> Result<Vec<DeviceUsage>> {
+    let client = sync.client()?;
+    if let Some(body) = push {
+        let res = client
+            .put(format!("{url}/usage"))
+            .bearer_auth(token)
+            .json(&body)
+            .send()
+            .await
+            .map_err(reqwest::Error::without_url)?;
+        if !res.status().is_success() {
+            anyhow::bail!("push answered {}", res.status().as_u16());
+        }
+    }
+    let res = client
+        .get(format!("{url}/usage?since={since}"))
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(reqwest::Error::without_url)?;
+    if !res.status().is_success() {
+        anyhow::bail!("fetch answered {}", res.status().as_u16());
+    }
+    Ok(res.json().await.map_err(reqwest::Error::without_url)?)
 }
 
 fn local_date(epoch: f64) -> Option<NaiveDate> {
@@ -689,5 +843,72 @@ mod tests {
         ] {
             assert_eq!(project_of(cwd, &repos).as_deref(), want, "{cwd}");
         }
+    }
+
+    #[test]
+    fn usage_push_resends_from_the_first_changed_day() {
+        let d = |n: u32| NaiveDate::from_ymd_opt(2026, 10, n).unwrap();
+        let counts = |prompts: u64| Counts {
+            prompts,
+            ..Counts::default()
+        };
+        let mine = |days: &[(u32, u64)]| -> BTreeMap<Key, Counts> {
+            days.iter()
+                .map(|(n, p)| {
+                    (
+                        (d(*n), None, Some("acme".into()), "claude".into(), None),
+                        counts(*p),
+                    )
+                })
+                .collect()
+        };
+        let (_, pushed) = usage_push(&mine(&[(1, 3), (2, 4), (3, 5)]), &BTreeMap::new(), d(1));
+        let from = |body: Option<Value>| body.map(|b| b["from"].as_str().unwrap().to_owned());
+        for (name, now, want) in [
+            ("unchanged", vec![(1, 3), (2, 4), (3, 5)], None),
+            (
+                "today grew",
+                vec![(1, 3), (2, 4), (3, 6)],
+                Some("2026-10-03"),
+            ),
+            (
+                "a new day",
+                vec![(1, 3), (2, 4), (3, 5), (4, 1)],
+                Some("2026-10-04"),
+            ),
+            ("a day vanished", vec![(1, 3), (3, 5)], Some("2026-10-02")),
+        ] {
+            assert_eq!(
+                from(usage_push(&mine(&now), &pushed, d(1)).0),
+                want.map(str::to_owned),
+                "{name}"
+            );
+        }
+        // a day before the window no longer counts as vanished
+        assert_eq!(
+            from(usage_push(&mine(&[(2, 4), (3, 5)]), &pushed, d(2)).0),
+            None
+        );
+    }
+
+    #[test]
+    fn hub_usage_rows_parse() {
+        // `GET /usage` as hub/api/usage.ts answers it
+        let body = r#"[{"node_id":"laptop","d":"2026-10-22","p":null,"r":"globex","a":"codex","m":"gpt-6-sol","prompts":0,"tokens":50000}]"#;
+        let rows: Vec<DeviceUsage> = serde_json::from_str(body).unwrap();
+        assert_eq!(
+            (
+                rows[0].d,
+                rows[0].r.as_deref(),
+                rows[0].m.as_deref(),
+                rows[0].tokens
+            ),
+            (
+                NaiveDate::from_ymd_opt(2026, 10, 22).unwrap(),
+                Some("globex"),
+                Some("gpt-6-sol"),
+                50000
+            )
+        );
     }
 }

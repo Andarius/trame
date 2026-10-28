@@ -88,12 +88,13 @@ pub struct Process {
 }
 
 impl Process {
-    fn json(&self) -> Value {
+    fn json(&self, terminal: bool) -> Value {
         json!({
             "pid": self.pid,
             "ppid": self.ppid,
             "name": self.name,
             "role": role(self),
+            "terminal": terminal,
             "args": self.args,
             "cpuSeconds": self.cpu_seconds,
             "rss": self.rss,
@@ -132,6 +133,17 @@ pub fn role(process: &Process) -> &'static str {
     } else {
         "process"
     }
+}
+
+/// Pids of the terminal shells in `tree` and everything they run (agents, builds), not the app's own.
+pub fn in_terminals(tree: &[Process]) -> std::collections::HashSet<u32> {
+    let mut out = std::collections::HashSet::new();
+    for p in tree {
+        if role(p) == "terminal shell" || out.contains(&p.ppid) {
+            out.insert(p.pid);
+        }
+    }
+    out
 }
 
 /// The app's process and everything it spawned, parents before children.
@@ -357,13 +369,14 @@ pub async fn serve(state: Native) -> Response {
     let last_sync = state.sync.last.lock().await.clone();
     let snapshot = crate::blocking::spawn(move || {
         let processes = tree(&processes(), std::process::id());
+        let terminals = in_terminals(&processes);
         let db = database(&state);
         json!({
             "sampledAt": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             "uptimeSeconds": STARTED.elapsed().as_secs_f64(),
             "version": crate::runtime::version(),
             "pid": std::process::id(),
-            "processes": processes.iter().map(Process::json).collect::<Vec<_>>(),
+            "processes": processes.iter().map(|p| p.json(terminals.contains(&p.pid))).collect::<Vec<_>>(),
             "system": system(),
             "traffic": TRAFFIC.json(),
             "lastSync": last_sync,
@@ -409,6 +422,20 @@ mod tests {
         let pids: Vec<u32> = tree(&all, 10).iter().map(|p| p.pid).collect();
         assert_eq!(pids, vec![10, 20, 30, 40]);
         assert!(tree(&all, 999).is_empty());
+    }
+
+    #[test]
+    fn terminal_shells_and_what_they_run_are_set_apart() {
+        let all = [
+            process(10, 1, "trame", &[]),
+            process(20, 10, "zsh", &[]),
+            process(30, 20, "claude", &[]),
+            process(40, 30, "cargo", &[]),
+            process(50, 10, "postgres", &["-D", "/data"]),
+        ];
+        let mut pids: Vec<_> = in_terminals(&all).into_iter().collect();
+        pids.sort_unstable();
+        assert_eq!(pids, vec![20, 30, 40]);
     }
 
     #[test]

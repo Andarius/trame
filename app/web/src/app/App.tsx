@@ -12,12 +12,13 @@ import {
   getUpdate,
   restartApp,
   importPage,
-  listPages,
   listUdbs,
   movePage,
   openInBrowser,
   type PageMeta,
   type PluginManifest,
+  pollBoard,
+  pollPages,
   type SearchHit,
   setStatus as apiSetStatus,
   type Session,
@@ -31,6 +32,7 @@ import { Board } from "../sessions/Board";
 import { Drawer, TOPBAR_SLOT } from "../sessions/Drawer";
 import { Explore } from "./Explore";
 import { Insights } from "./Insights";
+import { Timeline } from "./Timeline";
 import { Diagnostics } from "./Diagnostics";
 import { List } from "../sessions/List";
 import { filterSessionBoard, sortSessionBoard, type Sort } from "../sessions/SessionSort";
@@ -51,7 +53,8 @@ import { ShareModal } from "../modals/ShareModal";
 import { Page } from "../page/Page";
 import { ClientView } from "../sessions/ClientView";
 import { BOOL_CODEC, useLocalStorage, appConfirm, ConfirmHost, ExpandIcon, setStatuses, statusStyle, EmptyState } from "../ui/ui";
-import { FRONTEND_PLUGINS, useCardFaces } from "../plugins";
+import { focusBlock } from "../ui/due";
+import { FRONTEND_PLUGINS, setEnabledPlugins, useCardFaces } from "../plugins";
 import { hasTerm, queryValues, termOf, toggleTerm } from "../query";
 import { PluginsModal } from "../plugins/PluginsModal";
 import { PluginSettingsModal } from "../plugins/PluginSettingsModal";
@@ -190,6 +193,16 @@ export function App() {
   const [clientId, setClientId] = useState<string | null>(params.get("client"));
   const [plugins, setPlugins] = useState<PluginManifest[]>([]);
   const [pluginId, setPluginId] = useState<string | null>(params.get("plugin"));
+  // a plugin's settings opened from elsewhere than its panel (openPluginSettings)
+  const [settingsFor, setSettingsFor] = useState<string | null>(null);
+  useEffect(() => {
+    const h = (e: Event) => {
+      setSettingsFor((e as CustomEvent<string>).detail);
+      setModal("pluginSettings");
+    };
+    addEventListener("trame:plugin-settings", h);
+    return () => removeEventListener("trame:plugin-settings", h);
+  }, []);
   const [udbEpoch, setUdbEpoch] = useState(0); // bump to refetch the open database view
   const [dbReadOnly, setDbReadOnly] = useState(false); // active db tab is a read-only summary view
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
@@ -216,6 +229,18 @@ export function App() {
     addEventListener("keydown", h);
     return () => removeEventListener("keydown", h);
   }, [termDock]);
+
+  // Ctrl/Cmd+Shift+\\ hides or shows the card details docked right of the terminals
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.code === "Backslash") {
+        e.preventDefault();
+        setTermDetails((v) => !v);
+      }
+    };
+    addEventListener("keydown", h);
+    return () => removeEventListener("keydown", h);
+  }, [setTermDetails]);
 
   // Ctrl/Cmd+\\ hides or shows the sidebar column (Ctrl+B is bold in the editor)
   const [sidebarHidden, setSidebarHidden] = useLocalStorage("trame:sidebarHidden", false, BOOL_CODEC);
@@ -274,7 +299,8 @@ export function App() {
       ? prev
       : next;
   const refresh = () => {
-    getBoard().then((b) => {
+    pollBoard().then((b) => {
+      if (!b) return;
       setBoard(keepSame(b));
       setStatuses(b.statuses); // keep the status registry (labels/colors) in sync with the board
     }).catch(() => {});
@@ -282,12 +308,14 @@ export function App() {
     listUdbs().then((d) => Array.isArray(d) && setUdbs(keepSame(d))).catch(
       () => {},
     );
-    listPages().then((d) => Array.isArray(d) && setPages(keepSame(d))).catch(
+    pollPages().then((d) => Array.isArray(d) && setPages(keepSame(d))).catch(
       () => {},
     );
-    getPlugins().then((p) => Array.isArray(p) && setPlugins(keepSame(p))).catch(
-      () => {},
-    );
+    getPlugins().then((p) => {
+      if (!Array.isArray(p)) return;
+      setPlugins(keepSame(p));
+      setEnabledPlugins(p.filter((x) => x.enabled).map((x) => x.id));
+    }).catch(() => {});
   };
 
   // multi-select on the sessions views (board + list): checkboxes fill `selected`,
@@ -336,6 +364,11 @@ export function App() {
   // Browser Back from the full-screen ticket returns to the view behind it (the
   // board for a direct link) instead of leaving the app: the underlying view is
   // written as its own history entry beneath the ticket, and popstate closes it.
+  // a `&block=<id>` link (tramecli due) rings that todo once its page renders
+  useEffect(() => {
+    const block = new URLSearchParams(location.search).get("block");
+    if (block) focusBlock(block);
+  }, []);
   useEffect(() => {
     // Back/Forward: restore the location (and drawer) the entry was written with
     const onPop = () => {
@@ -433,7 +466,8 @@ export function App() {
         }
         : b
     );
-    apiSetStatus(id, s).then(refresh).catch(refresh);
+    // a failed move leaves the server board as it was: a poll would answer 304 and keep the optimistic status
+    apiSetStatus(id, s).then(refresh).catch(() => getBoard().then((b) => setBoard(b)).catch(() => {}));
   };
   const createSession = (s: Record<string, unknown>) =>
     post("/api/sessions", s).then(() => {
@@ -575,7 +609,7 @@ export function App() {
     return out;
   }, [currentPage, pages]);
 
-  const isSessions = view === "board" || view === "list" || view === "graph";
+  const isSessions = view === "board" || view === "list" || view === "graph" || view === "timeline";
   const terminals = view === "terminals";
   // the sidebar column Explore and AI Sessions render their list into
   const [columnSlot, setColumnSlot] = useState<HTMLDivElement | null>(null);
@@ -703,7 +737,7 @@ export function App() {
             />
             {isSessions && (
               <div className="flex rounded-[7px] bg-panel p-[3px]">
-                {(["board", "list", "graph"] as const).map((v) => (
+                {(["board", "list", "graph", "timeline"] as const).map((v) => (
                   <button
                     type="button"
                     key={v}
@@ -918,6 +952,8 @@ export function App() {
           ? null // the dock is the view (below)
           : view === "insights"
           ? <Insights board={board} />
+          : view === "timeline"
+          ? <Timeline board={board} onOpenSession={(id) => openSession(id)} />
           : view === "agents"
           ? <AgentSessions board={board} onOpenSession={(id) => openSession(id)} slot={columnSlot} />
           : view === "diagnostics"
@@ -946,6 +982,8 @@ export function App() {
                 }
                 : null}
               onScope={(c, p) => setTermSel(c ?? (p ? `project:${p}` : "plain"))}
+              details={terminals && termSession && !openId ? termDetails : null}
+              onToggleDetails={() => setTermDetails(!termDetails)}
             />
           </Suspense>
         )}
@@ -1046,10 +1084,13 @@ export function App() {
         />
       )}
       {modal === "plugins" && <PluginsModal onClose={() => setModal(null)} />}
-      {modal === "pluginSettings" && pluginId && (
+      {modal === "pluginSettings" && (settingsFor ?? pluginId) && (
         <PluginSettingsModal
-          pluginId={pluginId}
-          onClose={() => setModal(null)}
+          pluginId={(settingsFor ?? pluginId)!}
+          onClose={() => {
+            setModal(null);
+            setSettingsFor(null);
+          }}
         />
       )}
       <UpdateBanner update={update} updateState={updateState} dismissed={updateDismissed} onUpdate={onUpdate} onDismiss={() => setUpdateDismissed(true)} />

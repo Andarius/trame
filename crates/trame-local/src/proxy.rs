@@ -63,9 +63,43 @@ fn content_length(headers: &HeaderMap) -> u64 {
         .unwrap_or(0)
 }
 
+// polled every few seconds by the UI: an unchanged body answers 304
+const POLLED: &[&str] = &["/api/board", "/api/pages"];
+
+async fn not_modified(if_none_match: Option<String>, response: Response) -> Response {
+    if response.status() != StatusCode::OK {
+        return response;
+    }
+    let (mut parts, body) = response.into_parts();
+    let Ok(bytes) = axum::body::to_bytes(body, usize::MAX).await else {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    };
+    let digest = <sha2::Sha256 as sha2::Digest>::digest(&bytes);
+    let tag = format!("\"{}\"", crate::assets::hex(&digest[..12]));
+    parts
+        .headers
+        .insert("cache-control", "no-store".parse().unwrap());
+    parts.headers.insert("etag", tag.parse().unwrap());
+    if if_none_match.as_deref() == Some(tag.as_str()) {
+        parts.status = StatusCode::NOT_MODIFIED;
+        return Response::from_parts(parts, Body::empty());
+    }
+    Response::from_parts(parts, Body::from(bytes))
+}
+
 async fn forward(State(state): State<Proxy>, req: Request<Body>) -> Response {
     let bytes_in = content_length(req.headers());
-    let response = route(&state, req).await;
+    let polled = (req.method() == axum::http::Method::GET && POLLED.contains(&req.uri().path()))
+        .then(|| {
+            req.headers()
+                .get("if-none-match")
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_owned)
+        });
+    let mut response = route(&state, req).await;
+    if let Some(if_none_match) = polled {
+        response = not_modified(if_none_match, response).await;
+    }
     // streamed bodies (SSE, upgrades) have no exact size and count as 0
     let bytes_out = HttpBody::size_hint(response.body()).exact().unwrap_or(0);
     crate::diagnostics::TRAFFIC.http(bytes_in, bytes_out);

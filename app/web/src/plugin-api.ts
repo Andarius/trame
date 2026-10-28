@@ -1,7 +1,25 @@
 // The one module a web plugin outside this repo may import from Trame (as "@trame/web-api").
-export type { CardFace, FrontendPlugin, PanelProps } from "./plugins/index";
+export type { BlockViewProps, CardFace, FrontendPlugin, PanelProps, PluginBlock, PluginBlockData } from "./plugins/index";
 export { SidebarColumn } from "./plugins/index";
-export { getPluginSettings, openInBrowser, savePluginSettings } from "./api";
-export type { PageDetail, Session } from "./api";
-export { FieldRow, Select, timeAgo } from "./ui/ui";
+export { openPluginSettings, usePluginEnabled } from "./plugins/enabled";
+export { getPluginSettings, openInBrowser, savePluginSettings, updatePage } from "./api";
+export type { Block, PageDetail, Session } from "./api";
+export {
+  appConfirm,
+  Button,
+  ErrorNote,
+  Field,
+  FIELD_LABEL,
+  FieldRow,
+  IconButton,
+  MENU_LABEL,
+  MenuRow,
+  Modal,
+  Popover,
+  Select,
+  TextArea,
+  TextInput,
+  timeAgo,
+} from "./ui/ui";
+export { type Resolved, useResolvedTheme } from "./ui/theme";
 export { markOfContent } from "../../../core/content-marks.ts";

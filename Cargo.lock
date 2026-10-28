@@ -4460,7 +4460,7 @@ dependencies = [
 
 [[package]]
 name = "trame-cli"
-version = "0.22.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4480,6 +4480,7 @@ dependencies = [
 name = "trame-core"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "regex",
  "serde_json",
  "wasm-bindgen",
@@ -4487,7 +4488,7 @@ dependencies = [
 
 [[package]]
 name = "trame-desktop"
-version = "0.22.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "libc",
@@ -4500,7 +4501,7 @@ dependencies = [
 
 [[package]]
 name = "trame-local"
-version = "0.22.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4522,9 +4523,20 @@ dependencies = [
  "sha2 0.10.9",
  "tokio",
  "tokio-tungstenite 0.30.0",
+ "toml 1.1.8+spec-1.1.0",
  "tower",
  "trame-core",
+ "trame-protocol",
  "uuid",
+]
+
+[[package]]
+name = "trame-protocol"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

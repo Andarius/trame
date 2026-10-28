@@ -1,16 +1,17 @@
+import type { ReactNode } from "react";
 import type { AppStatus, PluginManifest, UpdateInfo } from "../api";
 import { useAgents } from "../agents/agents";
 import { FRONTEND_PLUGINS } from "../plugins";
 import { useTermDock } from "../term/term-api";
-import { GearIcon, LogoMark, SidebarIcon } from "../ui/icons";
+import { ChartIcon, GearIcon, LogoMark, SidebarIcon } from "../ui/icons";
 import type { View } from "./view";
 
-export const NAV: { key: "sessions" | "agents" | "terminals" | "explore" | "insights"; glyph: string; label: string; view: View }[] = [
+export const NAV: { key: "sessions" | "agents" | "terminals" | "explore" | "insights"; glyph: ReactNode; label: string; view: View }[] = [
   { key: "sessions", glyph: "▦", label: "Sessions", view: "board" },
   { key: "agents", glyph: "↻", label: "AI Sessions", view: "agents" },
   { key: "terminals", glyph: "›_", label: "Terminals", view: "terminals" },
   { key: "explore", glyph: "✦", label: "Explore", view: "explore" },
-  { key: "insights", glyph: "▥", label: "Insights", view: "insights" },
+  { key: "insights", glyph: <ChartIcon />, label: "Insights", view: "insights" },
 ];
 
 // the rail's tab for the current view: plugins are their own, page/db/card views belong to Sessions
@@ -31,10 +32,11 @@ export function RailTip({ label, hint }: { label: string; hint?: string }) {
 }
 
 function RailButton(
-  { label, hint, active, onClick, children, badge }: {
+  { label, hint, active, disabled, onClick, children, badge }: {
     label: string;
     hint?: string;
     active: boolean;
+    disabled?: boolean;
     onClick: () => void;
     children: React.ReactNode;
     badge?: React.ReactNode;
@@ -45,9 +47,14 @@ function RailButton(
       type="button"
       aria-label={hint ? `${label}, ${hint}` : label}
       aria-current={active ? "page" : undefined}
+      disabled={disabled}
       onClick={onClick}
       className={`group/rail relative grid h-9 w-9 place-items-center rounded-lg text-[14px] ${
-        active ? "bg-active-row text-copper" : "text-ink-muted hover:bg-active-row/60 hover:text-ink-soft"
+        active
+          ? "bg-active-row text-copper"
+          : disabled
+          ? "text-ink-muted opacity-30"
+          : "text-ink-muted hover:bg-active-row/60 hover:text-ink-soft"
       }`}
     >
       {children}
@@ -106,16 +113,16 @@ export function Rail(
       <div className="mb-3">
         <LogoMark debug={status?.debug} />
       </div>
-      {sidebar !== null && (
-        <RailButton
-          label={sidebar ? "Hide sidebar" : "Show sidebar"}
-          hint={`${navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl+"}\\`}
-          active={false}
-          onClick={onToggleSidebar}
-        >
-          <SidebarIcon />
-        </RailButton>
-      )}
+      {/* always rendered, so the icons below never shift between views */}
+      <RailButton
+        label={sidebar === null ? "No sidebar in this view" : sidebar ? "Hide sidebar" : "Show sidebar"}
+        hint={sidebar === null ? undefined : `${navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl+"}\\`}
+        active={false}
+        disabled={sidebar === null}
+        onClick={onToggleSidebar}
+      >
+        <SidebarIcon />
+      </RailButton>
       {NAV.map((n) => (
         <RailButton
           key={n.key}

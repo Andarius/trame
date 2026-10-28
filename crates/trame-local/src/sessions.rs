@@ -7,7 +7,7 @@ mod presence;
 mod stories;
 mod write;
 
-pub use board::{add_event, ensure_link, get_session, list_due, search};
+pub use board::{add_event, ensure_link, get_session, list_due, search, timeline};
 pub use presence::{list_agent_presence, list_presence, touch_agent_presence, touch_presence};
 pub use stories::similar as similar_stories;
 pub use stories::{find_similar_stories, resolve_story};
@@ -15,15 +15,7 @@ pub use write::upsert;
 pub use write::{client_for, default_tags, default_tags_for, split_tag_label, tag_color, tag_key};
 pub(crate) use write::{ensure_specs_page, ensure_tag};
 
-pub fn days_until(due: &str, today: &str) -> Result<i64> {
-    let due = chrono::NaiveDate::parse_from_str(due, "%Y-%m-%d")?;
-    let today = chrono::NaiveDate::parse_from_str(today, "%Y-%m-%d")?;
-    Ok((due - today).num_days())
-}
-
-pub fn shown_due(due: &str, today: &str) -> Result<bool> {
-    Ok(days_until(due, today)? <= 7)
-}
+pub use trame_core::due::{days_until, shown_due};
 
 pub fn story_similarity(a: &str, b: &str) -> f64 {
     stories::similarity(a, b)
@@ -80,7 +72,7 @@ pub fn owns(method: &str, path: &str) -> bool {
         [
             "",
             "api",
-            "board" | "search" | "due" | "agent-presence" | "presence" | "tags",
+            "board" | "search" | "due" | "timeline" | "agent-presence" | "presence" | "tags",
         ] => true,
         ["", "api", "stories"] => method == "POST",
         ["", "api", "sessions" | "statuses"] => method == "POST",
@@ -125,6 +117,10 @@ fn route(db: &mut Db, method: &str, path: &str, query: &str, body: &Value) -> Re
         ["", "api", "board"] => (200, board::board(db, query_param(query, "deleted").as_deref() == Some("1"))?),
         ["", "api", "search"] => (200, search(db, &query_param(query, "q").unwrap_or_default())?),
         ["", "api", "due"] => (200, list_due(db)?),
+        ["", "api", "timeline"] => {
+            let days = query_param(query, "days").and_then(|d| d.parse::<i64>().ok()).unwrap_or(42).clamp(1, 366);
+            (200, board::timeline(db, days)?)
+        }
         ["", "api", "agent-presence"] => (200, list_agent_presence(db)?),
         ["", "api", "presence"] if method == "POST" => { touch_presence(db, body)?; (200, ok()) },
         ["", "api", "presence"] => (200, list_presence(&query_param(query, "page").unwrap_or_default())),

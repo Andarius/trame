@@ -3,7 +3,7 @@ import { AgentIcon } from "../agents/agents";
 import type { BoardData, Project } from "../api";
 import { projectFor } from "./project-for";
 import { EntityIcon, IconButton, useLocalStorage } from "../ui/ui";
-import { ChevronIcon, MaximizeIcon, PlusIcon, SplitDownIcon, SplitRightIcon } from "../ui/icons";
+import { ChevronIcon, MaximizeIcon, PlusIcon, SidebarIcon, SplitDownIcon, SplitRightIcon } from "../ui/icons";
 import { NewTerminalDialog } from "./NewTerminalDialog";
 import { TerminalView } from "./TerminalView";
 import {
@@ -57,10 +57,12 @@ export type DockScope = { card: string | null; project: string | null; cwd: stri
 // With a `scope` it is the Terminals view's center instead: always open, full size, one card's tabs.
 // Both are the same mounted component, so moving between them never remounts (and replays) a shell.
 export default function TerminalDock(
-  { board, scope, onScope }: {
+  { board, scope, onScope, details = null, onToggleDetails }: {
     board?: BoardData | null;
     scope?: DockScope | null;
     onScope?: (card: string | null, project: string | null) => void; // show another card's or project's shells
+    details?: boolean | null; // the docked card details are shown; null = no card in scope
+    onToggleDetails?: () => void;
   },
 ) {
   const dock = useTermDock();
@@ -211,6 +213,17 @@ export default function TerminalDock(
               <SplitDownIcon />
             </IconButton>
           </>
+        )}
+        {scope && details !== null && (
+          <IconButton
+            tone="close"
+            className="grid h-7 w-7 place-items-center rounded-md hover:bg-hover"
+            title={`${details ? "hide" : "show"} the card's details (${navigator.platform.startsWith("Mac") ? "⌘⇧\\" : "Ctrl+Shift+\\"})`}
+            aria-label={details ? "Hide card details" : "Show card details"}
+            onClick={onToggleDetails}
+          >
+            <SidebarIcon right />
+          </IconButton>
         )}
         {!scope && (
         <>

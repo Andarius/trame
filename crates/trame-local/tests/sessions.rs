@@ -1428,3 +1428,69 @@ fn story_from_page_rejects_nested_and_spec_pages() {
         assert_eq!(row["parent_id"], project);
     }
 }
+
+#[test]
+fn search_finds_cards_pages_and_agent_sessions_by_id() {
+    let mut t = TestDb::new();
+    let harness = "5e7a1c2d-0b9f-4c3e-8a6d-2f4b1e9c7a30";
+    let card = create(
+        &mut t,
+        json!({"title":"Id lookup card","claude_id":harness}),
+    );
+    let page = pages::create(&mut t.db, &json!({"title":"Id lookup page"}))
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut ids = |q: &str| -> Vec<String> {
+        sessions::search(&mut t.db, q)
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|h| h["id"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    for (q, want) in [
+        (card.clone(), &card),
+        (card[..8].to_owned(), &card),
+        (harness.to_uppercase(), &card),
+        (page.clone(), &page),
+    ] {
+        assert_eq!(ids(&q), vec![want.clone()], "query {q}");
+    }
+    // under 6 characters is too short to be taken as an id prefix
+    assert!(!ids(&card[..4]).contains(&card));
+}
+
+#[test]
+fn timeline_keeps_worklog_entries_in_the_window_and_whole_card_spans() {
+    let mut t = TestDb::new();
+    let recent = create(&mut t, json!({"title":"Recent card"}));
+    let stale = create(&mut t, json!({"title":"Stale card"}));
+    for (id, summary, kind, age) in [
+        (&recent, "old entry", "track", 90),
+        (&recent, "new entry", "track", 2),
+        (&recent, "joined", "presence", 1),
+        (&stale, "long ago", "log", 120),
+    ] {
+        sessions::add_event(&mut t.db, id, summary, kind, &json!({})).unwrap();
+        t.db.query(
+            "update session_events set at=now()-make_interval(days => $2::int) where session_id=$1 and summary=$3",
+            &[json!(id), json!(age), json!(summary)],
+        )
+        .unwrap();
+    }
+    let out = sessions::timeline(&mut t.db, 30).unwrap();
+    let summaries: Vec<_> = out["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["summary"].as_str().unwrap())
+        .collect();
+    assert_eq!(summaries, ["new entry"]);
+    let spans = out["spans"].as_array().unwrap();
+    assert_eq!(spans.len(), 1);
+    assert_eq!(spans[0]["session_id"], json!(recent));
+    assert_eq!(spans[0]["n"], json!(2));
+}

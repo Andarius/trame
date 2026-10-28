@@ -13,6 +13,7 @@ import { NotebookSettingsView } from "./notebook/Settings";
 import { SqlSourceDatabaseActions, SqlSourceDatabaseEmpty } from "./sql-source/Actions";
 import { SqlSourceSettings } from "./sql-source/Settings";
 import { LOCAL_PLUGINS } from "./local.gen";
+export { isPluginEnabled, markPluginEnabled, openPluginSettings, setEnabledPlugins, usePluginEnabled } from "./enabled";
 
 /** What the host hands a panel. A panel may declare only the props it uses. */
 export type PanelProps = {
@@ -24,6 +25,34 @@ export type PanelProps = {
 };
 
 export type CardFace = { name: string; avatar: string | null };
+
+/** A plugin block as a page stores it; the fields besides `type` and `id` are the plugin's. */
+export type PluginBlockData = { type: string; id?: string; [field: string]: unknown };
+
+/** What the host hands a plugin's block view. */
+export type BlockViewProps = {
+  block: PluginBlockData;
+  /** off, the view only shows what the block holds */
+  enabled: boolean;
+  onPatch: (patch: Record<string, unknown>) => void;
+  onRemove: () => void;
+  /** a new empty block of the same type above or below; returns its id */
+  onInsert: (where: "above" | "below") => string;
+  /** the plugin's settings, where it is turned on */
+  onOpenSettings: () => void;
+};
+
+/** A block type a plugin owns: its "/" menu entry, a new block's fields and its view. */
+export type PluginBlock = {
+  type: string;
+  label: string;
+  hint: string;
+  /** a new block's fields besides `type` and `id` */
+  create: () => Record<string, unknown>;
+  View: ComponentType<BlockViewProps>;
+  /** a page holding one widens so text and these blocks share one edge */
+  wide?: boolean;
+};
 
 /** What a plugin shows in the host's own views; the host renders these and never names a plugin. */
 export type FrontendPlugin = {
@@ -47,6 +76,8 @@ export type FrontendPlugin = {
   CardFields?: ComponentType<{ session: Session; specs: unknown[] }>;
   /** marks that are metadata: hidden in text, and a line holding only them is not empty */
   metadataMarks?: string[];
+  /** block types it renders in pages */
+  blocks?: PluginBlock[];
 };
 
 /** renders a Panel's list into the sidebar column it was handed (`PanelProps.column`), else in place */
@@ -75,3 +106,12 @@ export function useCardFaces(): Record<string, CardFace> {
   // oxlint-disable-next-line react/use-memo, react-hooks/exhaustive-deps -- one entry per static plugin
   return useMemo(() => Object.assign({}, ...maps), maps);
 }
+
+/** The plugin block owning `type`, with its plugin's id. */
+export function blockOf(type: string): (PluginBlock & { plugin: string }) | undefined {
+  for (const p of FRONTEND_PLUGINS) {
+    const b = p.blocks?.find((x) => x.type === type);
+    if (b) return { ...b, plugin: p.id };
+  }
+}
+export const pluginBlocks = () => FRONTEND_PLUGINS.flatMap((p) => (p.blocks ?? []).map((b) => ({ ...b, plugin: p.id })));

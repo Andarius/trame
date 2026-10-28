@@ -26,18 +26,23 @@ pub fn search(db: &mut Db, q: &str) -> Result<Value> {
         pat.push(c);
     }
     pat.push('%');
+    // an id or its first characters (6+ hex) also matches cards, pages, databases and agent sessions
+    let id = q.trim().to_ascii_lowercase();
+    let id_pat = (id.len() >= 6 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-'))
+        .then(|| format!("{id}%"));
     Ok(json!(db.query("select * from (
        select 'session' as kind,id::text as id,title,coalesce(summary,'') as sub,
               '' as icon,status as meta,'' as color,last_touched as at,null::text as mark_role
-         from sessions where not deleted and (title ilike $1 or summary ilike $1 or coalesce(next_step,'') ilike $1)
+         from sessions where not deleted and (title ilike $1 or summary ilike $1 or coalesce(next_step,'') ilike $1
+           or id::text like $2 or claude_id::text like $2)
        union all
        select case when kind='project' then 'client' else 'page' end,id::text,title,
               coalesce(brief,''),coalesce(icon,''),kind,coalesce(color,''),updated_at,null::text
-         from pages where not deleted and (title ilike $1 or brief ilike $1 or content::text ilike $1)
+         from pages where not deleted and (title ilike $1 or brief ilike $1 or content::text ilike $1 or id::text like $2)
        union all
        select 'database',id::text,name,'',coalesce(icon,''),'database','',updated_at,null::text
-         from udb_databases where not deleted and name ilike $1
-     ) hits order by at desc limit 20", &[json!(pat)])?))
+         from udb_databases where not deleted and (name ilike $1 or id::text like $2)
+     ) hits order by at desc limit 20", &[json!(pat), json!(id_pat)])?))
 }
 
 pub(super) fn list_events(db: &mut Db, id: &str, limit: Option<i64>) -> Result<Value> {
@@ -48,6 +53,20 @@ pub(super) fn list_events(db: &mut Db, id: &str, limit: Option<i64>) -> Result<V
         db.query(sql, &[json!(id)])?
     };
     Ok(json!(rows))
+}
+
+/// Worklog entries of the last `days` days, newest first, and each touched card's first and last entry ever.
+pub fn timeline(db: &mut Db, days: i64) -> Result<Value> {
+    let since = "now() - make_interval(days => $1::int)";
+    let entries = db.query(&format!(
+        "select e.id,e.session_id,e.at,e.summary,e.agent,e.agent_name from session_events e join sessions s on s.id=e.session_id
+          where not e.deleted and not s.deleted and e.kind in ('track','log') and e.at >= {since} order by e.at desc,e.id desc"
+    ), &[json!(days)])?;
+    let spans = db.query(&format!(
+        "select session_id,min(at) first,max(at) last,count(*)::int n from session_events
+          where not deleted and kind in ('track','log') group by session_id having max(at) >= {since}"
+    ), &[json!(days)])?;
+    Ok(json!({"entries":entries,"spans":spans}))
 }
 
 pub fn add_event(db: &mut Db, id: &str, summary: &str, kind: &str, body: &Value) -> Result<()> {

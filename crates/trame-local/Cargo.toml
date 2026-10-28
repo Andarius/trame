@@ -1,11 +1,12 @@
 [package]
 name = "trame-local"
-version = "0.22.0"
+version = "0.25.0"
 edition.workspace = true
 publish.workspace = true
 
 [dependencies]
 anyhow = "1"
+trame-protocol = { path = "../trame-protocol" }
 axum = { version = "0.8", features = ["ws"] }
 libc = "0.2"
 portable-pty = "0.9"
@@ -24,6 +25,7 @@ glob = "0.3.4"
 icu_collator = "2"
 sha2 = "0.10"
 serde = { version = "1", features = ["derive"] }
+toml = "1" # read by composed plugins (notebook-cells parses pyproject.toml)
 futures-util = { version = "0.3", features = ["sink"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pemfile = "2"

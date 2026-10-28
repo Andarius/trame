@@ -25,7 +25,7 @@ checkout before coding: they are the contract, and this skill paraphrases them.
 my-plugin/
   src/mod.rs          backend: `pub static PLUGIN` implementing crate::plugins::api::Plugin
   src/*.rs            submodules (`mod x;` next to mod.rs), unit tests in #[cfg(test)]
-  version.ts          VERSION + REPO, and the tag check the release workflow runs
+  version.ts          VERSION + REPO + TRAME (supported Trame range), and the release tag check
   web/index.ts        FrontendPlugin (default export), imports Trame only via "@trame/web-api"
   web/*.tsx           Panel, Settings, …   (react, @trame/web-api, ./ and ../model.ts only)
   web/*_test.ts       bun tests for pure web logic (boundary_test.ts is mandatory)
@@ -64,14 +64,22 @@ subprocesses) goes through `blocking(move || …).await`; the database is `Db::c
 to the hub and to other devices, so gate it behind an explicit setting, never behind "enabled"
 alone.
 
+Write through `api::apply(db, &[Write::…])`: it runs a plan of page, session, status and tag writes
+in one transaction, so a failed poll leaves nothing half-written. A write it lacks is a new `Write`
+variant in Trame, not a new helper re-export. Reads stay plain `db.query`.
+
 ## Frontend contract (`web/index.ts`)
 
 `FrontendPlugin` slots (`app/web/src/plugins/index.ts`): `Panel` (own rail entry and view; it
 fills the pane, an iframe or a table is fine), `column: true` (the Panel receives
 `PanelProps.column` and renders its list into the host's sidebar column through `SidebarColumn`),
 `Settings`, `PageHeader`, `DatabaseActions`, `DatabaseEmpty`, `CardBadge`, `useCardFaces`,
-`CardFields`, `metadataMarks`. Declare only the slots you fill. The host renders them and never
-names the plugin. There is no slot for a new block type: that is an editor change in Trame.
+`CardFields`, `metadataMarks`, `blocks`. Declare only the slots you fill. The host renders them and
+never names the plugin. `blocks` adds page block types (`PluginBlock`: `type`, a "/" menu `label` and
+`hint`, `create()` for a new block's fields, a `View` taking `BlockViewProps`, `wide` to widen the
+page). The View renders even while the plugin is off, with `enabled: false`: show what the block holds
+and offer `onOpenSettings`. `Block` leaves plugin blocks out: declare the block's shape in the
+plugin and cast `page.content` to a union with it (`Andarius/trame-notebook-cells` does).
 
 From `@trame/web-api`: `getPluginSettings(id)` / `savePluginSettings(id, patch)` (GET/POST
 `/api/plugins/<id>/settings`), `openInBrowser(url)`, `FieldRow`, `Select`, `timeAgo`,
@@ -124,12 +132,19 @@ fails on anything else.
 
 ## Release
 
-`version.ts` holds `VERSION` and `REPO`; `src/mod.rs` returns the same pair from `version()`
+`version.ts` holds `VERSION`, `REPO` and `TRAME`, the Trame range the release works with
+(`">=0.25.0 <0.26.0"`: space-separated `>=`, `>`, `<=`, `<`, `=` comparators). Builds from repo
+links refuse a plugin without one, or one whose range excludes the Trame being built. `VERSION`/`REPO`: `src/mod.rs` returns the same pair from `version()`
 (`version_test.ts` keeps them equal). `release.yml` runs on `v*` tags: it runs
 `bun version.ts "$GITHUB_REF_NAME"` (refuses a tag that differs from `VERSION`) then
 `gh release create --verify-tag --generate-notes`. To ship: bump `VERSION`, merge,
 `git tag vX.Y.Z <merge commit>`, `git push origin vX.Y.Z`. Trame checks the latest release hourly
 and shows "Update available" in the plugins manager and Settings.
+
+Users install a plugin by its repo link, never from a checkout: `tramecli plugins add owner/repo`
+builds Trame locally with it, and a repo calling `Andarius/trame/.github/workflows/compose.yml`
+builds and publishes their own self-updating Trame (docs: "Plugins"). Both fetch the latest
+release tag, so an unreleased plugin cannot be installed; compose rebuilds pick up a new tag.
 
 ## Conventions
 

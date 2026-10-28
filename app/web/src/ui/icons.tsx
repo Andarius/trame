@@ -36,7 +36,8 @@ export function LogoMark({ debug = false }: { debug?: boolean }) {
   );
 }
 
-export function SidebarIcon({ size = 15 }: { size?: number }) {
+// `right`: the panel on the right (the docked card details)
+export function SidebarIcon({ size = 15, right = false }: { size?: number; right?: boolean }) {
   return (
     <svg
       width={size}
@@ -48,7 +49,27 @@ export function SidebarIcon({ size = 15 }: { size?: number }) {
       aria-hidden="true"
     >
       <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />
-      <path d="M6 2.75v10.5" />
+      <path d={right ? "M10 2.75v10.5" : "M6 2.75v10.5"} />
+    </svg>
+  );
+}
+
+export function ChartIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="M2 13.5h12" />
+      <path d="M4.5 11V8" />
+      <path d="M8 11V4" />
+      <path d="M11.5 11V6.5" />
     </svg>
   );
 }

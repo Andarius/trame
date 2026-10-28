@@ -7,6 +7,7 @@
 // Without the file the registries are written empty, which is what the committed copies hold.
 import { lstat, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
+import { satisfies, trameRange } from "./compose-plugins.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const OUT = {
@@ -30,6 +31,17 @@ for (const d of dirs) {
     console.error(`gen-plugins: ${d} (from plugins.local.json) does not exist`);
     process.exit(1);
   }
+}
+
+// a dev checkout may run ahead of a plugin's range: warn, compose-plugins is the one that refuses
+const trame: string = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8")).version;
+for (const d of dirs) {
+  const range = await trameRange(d);
+  let ok = false;
+  try {
+    ok = range !== null && satisfies(trame, range);
+  } catch { /* reported below */ }
+  if (!ok) console.warn(`gen-plugins: ${d} ${range ? `needs Trame ${range}, this is ${trame}` : "declares no TRAME range in version.ts"}`);
 }
 
 // relative import from a generated file, always ./-prefixed

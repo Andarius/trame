@@ -9,6 +9,7 @@ import { handleCoreApi } from "../../core/api.ts";
 import type { Q as CoreQ } from "../../core/ctx.ts";
 import { formulasDisabled } from "./formula.ts";
 import type { WsServer } from "./realtime.ts";
+import { getUsage, putUsage, usagePutSchema } from "./usage.ts";
 
 type Env = { Variables: { caller: Caller } };
 
@@ -21,6 +22,16 @@ function protocolMismatch(version: string | undefined): string | null {
     : `protocol mismatch: server speaks ${PROTOCOL_VERSION}, client sent ${
       version ?? "none"
     }`;
+}
+
+// explicit live member row: loadAccess treats a missing/deleted user as a member
+async function isMember(db: DB, caller: Caller): Promise<boolean> {
+  if (!caller.userId) return false;
+  const rows = await db.query(
+    `select 1 from users where id=$1 and role='member' and not deleted`,
+    [caller.userId],
+  );
+  return rows.length > 0;
 }
 
 // `core` runs the shared /api routes; main.ts gives it a connection that stores
@@ -45,6 +56,25 @@ export function createApp(
   };
   app.use("/sync", auth);
   app.use("/api/*", auth);
+  app.use("/usage", auth);
+
+  // Insights across devices (usage.ts): outside /api and /sync, so it needs no protocol bump
+  app.put("/usage", async (c) => {
+    const caller = c.get("caller");
+    if (!(await isMember(db, caller))) return c.json({ error: "usage is for members only" }, 403);
+    const parsed = usagePutSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return c.json({ error: `invalid usage: ${parsed.error.issues[0]?.message}` }, 400);
+    }
+    return c.json({ stored: await putUsage(db, caller.nodeId, caller.userId!, parsed.data) });
+  });
+  app.get("/usage", async (c) => {
+    const caller = c.get("caller");
+    if (!(await isMember(db, caller))) return c.json({ error: "usage is for members only" }, 403);
+    const since = c.req.query("since") ?? "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(since)) return c.json({ error: "since must be YYYY-MM-DD" }, 400);
+    return c.json(await getUsage(db, caller.nodeId, caller.userId!, since));
+  });
 
   // The laptop app's /api contract, for clients with no local app (tramecli on a
   // headless box). Members only until the routes apply the guest ACL filter.
@@ -52,14 +82,7 @@ export function createApp(
     const mismatch = protocolMismatch(c.req.header("x-trame-protocol"));
     if (mismatch) return c.json({ error: mismatch }, 400);
     const caller = c.get("caller");
-    // explicit live member row: loadAccess treats a missing/deleted user as a member
-    const member = caller.userId
-      ? await db.query(
-        `select 1 from users where id=$1 and role='member' and not deleted`,
-        [caller.userId],
-      )
-      : [];
-    if (!member.length) {
+    if (!(await isMember(db, caller))) {
       return c.json({ error: "the hub /api is for members only" }, 403);
     }
     let rejected: Response | undefined;

@@ -76,6 +76,7 @@ export type DiagProcess = {
   ppid: number;
   name: string;
   role: string; // backend, renderer, plugin host, postgres server, terminal shell, ...
+  terminal: boolean; // a terminal shell or what it runs (agents, builds): not Trame's own
   args: string[];
   cpuSeconds: number; // cumulative; the view derives a rate from two samples
   rss: number; // bytes
@@ -161,6 +162,22 @@ export const search = (q: string) =>
 
 export const getBoard = () =>
   fetch("/api/board").then((r) => r.json() as Promise<BoardData>);
+
+// null when unchanged since this url's last poll (304), so the caller skips the parse and the re-render
+const pollTags = new Map<string, string>();
+async function pollChanged<T>(url: string): Promise<T | null> {
+  const tag = pollTags.get(url);
+  const r = await fetch(url, { cache: "no-store", headers: tag ? { "if-none-match": tag } : {} });
+  if (r.status === 304) return null;
+  const data = (await r.json()) as T;
+  const etag = r.headers.get("etag");
+  if (etag) pollTags.set(url, etag);
+  else pollTags.delete(url);
+  return data;
+}
+// for the app's one poll loop only: a second poller would see null for data it never got
+export const pollBoard = () => pollChanged<BoardData>("/api/board");
+export const pollPages = () => pollChanged<PageMeta[]>("/api/pages");
 export const getStatus = () =>
   fetch("/api/status").then((r) => r.json() as Promise<AppStatus>);
 export const getReports = () =>
@@ -621,6 +638,8 @@ export type UpdateInfo = {
   current: string;
   latest: string | null;
   available: boolean;
+  // false when GitHub could not be reached; absent when update checks are off
+  checked?: boolean;
   releaseUrl: string;
   canSelfUpdate: boolean;
   applied: boolean;
@@ -949,7 +968,17 @@ export const getStats = () =>
       rows: StatsRow[];
       scan: { files: number; parsed: number; ms: number };
       prs: { pending: boolean; fetched: boolean }; // merged PRs come from GitHub/GitLab in the background
+      // other devices' prompts and tokens, from the hub in the background
+      devices: { others: number; pending: boolean; hub: boolean };
     }>;
+  });
+// worklog entries of the last `days` days (newest first) and each touched card's first and last entry
+export type TimelineEntry = { id: string; session_id: string; at: string; summary: string | null; agent: string | null; agent_name: string | null };
+export type TimelineSpan = { session_id: string; first: string; last: string; n: number };
+export const getTimeline = (days: number) =>
+  fetch(`/api/timeline?days=${days}`).then(async (r) => {
+    if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? r.statusText);
+    return r.json() as Promise<{ entries: TimelineEntry[]; spans: TimelineSpan[] }>;
   });
 export const getPluginUpdates = () =>
   fetch("/api/plugin-updates").then((r) => r.json() as Promise<PluginUpdate[]>);
