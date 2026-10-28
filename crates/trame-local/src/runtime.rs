@@ -30,8 +30,14 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
         .split('&')
         .any(|q| q.split('=').next() == Some("force"));
     if path == "/api/update" {
-        let (status, value) =
-            crate::update::serve(req.method() == "POST", force, state.sync.offline).await;
+        let (status, value) = crate::update::serve(
+            req.method() == "POST",
+            force,
+            state.sync.offline,
+            &state.root,
+            &state.settings,
+        )
+        .await;
         return json_response(status, value);
     }
     if path == "/api/plugin-updates" {
