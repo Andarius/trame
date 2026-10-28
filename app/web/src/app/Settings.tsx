@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   type AgentPresenceSettings,
   applyUpdate,
   completePath,
-  getPluginUpdates,
   getPlugins,
   getSettings,
   getUpdate,
@@ -18,10 +17,11 @@ import {
 import { PresencePreview } from "../agents/PresencePreview";
 import { applyScale, getScale, SCALES } from "../ui/scale";
 import { applyTheme, getTheme, type Theme } from "../ui/theme";
-import { CheckRow, Footer, label, pill, seg, segTrack } from "./modal-ui";
-import { Modal, IconButton } from "../ui/ui";
+import { CheckRow, Footer, label, pill, seg, segTrack } from "../modals/modal-ui";
+import { IconButton, SECTION_LABEL } from "../ui/ui";
 import { dataUriToIcon } from "../udb/cells";
-import { DemoLauncher, useDemoAvailable } from "../app/Demo";
+import { DemoLauncher, useDemoAvailable } from "./Demo";
+import { PluginList, PluginPage } from "../plugins/PluginsPage";
 
 // One folder input with directory autocomplete: typing fetches sub-dir suggestions
 // (debounced), ↑/↓ to move, Enter/Tab to accept, Esc to dismiss, click to pick.
@@ -157,11 +157,74 @@ function PathList(
   );
 }
 
-export function SettingsModal(
-  { onClose, onSaved, onOpenPlugins, onOpenDiagnostics }: {
+// Settings' pages; a plugin's own page is `plugin:<id>`, listed under Plugins
+const SECTIONS = [
+  ["general", "General"],
+  ["presence", "Agent presence"],
+  ["hub", "Sync hub"],
+  ["plugins", "Plugins"],
+  ["embeds", "Embeds"],
+  ["explore", "Explore folders"],
+] as const;
+// the pages saved by the footer; plugin pages save themselves
+const FORM_SECTIONS = new Set<string>(["general", "presence", "hub", "embeds", "explore"]);
+export const settingsSection = (s: string | null) =>
+  s && (SECTIONS.some(([id]) => id === s) || s.startsWith("plugin:")) ? s : "general";
+
+// the Settings view's sidebar column: its pages, with each plugin under Plugins
+export function SettingsNav({ section, onSection }: { section: string; onSection: (s: string) => void }) {
+  const [plugins, setPlugins] = useState<PluginManifest[]>([]);
+  // refetched per page, so an enable toggled on a plugin page shows in its dot
+  useEffect(() => {
+    getPlugins().then(setPlugins).catch(() => {});
+  }, [section]);
+  const row = (id: string, text: ReactNode, indent = false) => (
+    <button
+      type="button"
+      key={id}
+      aria-current={section === id ? "page" : undefined}
+      onClick={() => onSection(id)}
+      className={`flex items-center gap-2 rounded-md py-[6px] pr-2 text-left text-[13px] ${indent ? "pl-6" : "pl-2"} ${
+        section === id ? "bg-active-row font-medium text-ink" : "text-ink-muted hover:text-ink-soft"
+      }`}
+    >
+      {text}
+    </button>
+  );
+  return (
+    <nav aria-label="Settings sections" className="flex flex-col gap-0.5">
+      <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>SETTINGS</div>
+      {SECTIONS.flatMap(([id, text]) =>
+        id === "plugins"
+          ? [
+            row(id, text),
+            ...plugins.map((pl) =>
+              row(
+                `plugin:${pl.id}`,
+                <>
+                  <span className="text-[12px] text-copper">{pl.glyph}</span>
+                  <span className="min-w-0 flex-1 truncate">{pl.label}</span>
+                  <span
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${pl.enabled ? "bg-[--color-active]" : "bg-chipline"}`}
+                    title={pl.enabled ? "enabled" : "disabled"}
+                  />
+                </>,
+                true,
+              )
+            ),
+          ]
+          : [row(id, text)]
+      )}
+    </nav>
+  );
+}
+
+export function Settings(
+  { section, onSection, onClose, onSaved, onOpenDiagnostics }: {
+    section: string;
+    onSection: (s: string) => void;
     onClose: () => void;
     onSaved: () => void;
-    onOpenPlugins: () => void;
     onOpenDiagnostics: () => void;
   },
 ) {
@@ -174,7 +237,6 @@ export function SettingsModal(
   const [hubHasToken, setHubHasToken] = useState(false);
   const [hubSource, setHubSource] = useState<"settings" | "env" | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const [exploreOpen, setExploreOpen] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [updState, setUpdState] = useState<"idle" | "busy" | "done">("idle");
   const [scale, setScale] = useState(getScale);
@@ -182,8 +244,6 @@ export function SettingsModal(
   const [authorName, setAuthorName] = useState("");
   const [authorAvatar, setAuthorAvatar] = useState("");
   const demoAvailable = useDemoAvailable();
-  const [pluginList, setPluginList] = useState<PluginManifest[]>([]);
-  const [pluginUpdates, setPluginUpdates] = useState(0);
   const [presence, setPresence] = useState<AgentPresenceSettings | null>(null);
   const setP = (patch: Partial<AgentPresenceSettings>) => setPresence((p) => p && { ...p, ...patch });
 
@@ -208,9 +268,6 @@ export function SettingsModal(
       setUpdate(u);
       if (u.applied) setUpdState("done");
     }).catch(() => {});
-    getPlugins().then(setPluginList).catch(() => {});
-    getPluginUpdates().then((u) => Array.isArray(u) && setPluginUpdates(u.filter((x) => x.available).length))
-      .catch(() => {});
   }, []);
 
   const runUpdate = () => {
@@ -260,283 +317,259 @@ export function SettingsModal(
       onSaved();
       onClose();
     });
+  const submitRef = useRef(submit);
+  submitRef.current = submit;
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submitRef.current();
+    };
+    addEventListener("keydown", h);
+    return () => removeEventListener("keydown", h);
+  }, []);
 
   return (
-    <Modal full label="Settings" onClose={onClose} onSubmit={submit}>
-      <div className="flex items-center">
-        <div className={label}>SETTINGS</div>
-        <span className="flex-1" />
-        <IconButton title="Close (Esc)"
-          aria-label="Close settings"
-          autoFocus
-          className="rounded-md px-2 py-1 text-[18px] leading-none text-ink-muted hover:bg-panel hover:text-ink-soft"
-          onClick={onClose}
-        >
-          ✕
-        </IconButton>
-      </div>
-
-      <div className="text-[14px] font-semibold">Updates</div>
-      <div className="flex items-center gap-2 text-xs">
-        <span className="text-ink-soft">Trame v{update?.current ?? "…"}</span>
-        {update?.available
-          ? (
-            <>
-              <span className="rounded bg-copper/15 px-1.5 py-0.5 text-[10.5px] font-medium text-copper">
-                v{update.latest} available
+    <div className="flex-1 overflow-y-auto">
+      <div className="mx-auto flex max-w-[860px] flex-col gap-3 px-6 py-8">
+      {section === "general" && (
+        <>
+        <div className={HEADING}>Updates</div>
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-ink-soft">Trame v{update?.current ?? "…"}</span>
+          {update?.available
+            ? (
+              <>
+                <span className="rounded bg-copper/15 px-1.5 py-0.5 text-[10.5px] font-medium text-copper">
+                  v{update.latest} available
+                </span>
+                <button
+                  type="button"
+                  className="text-[10.5px] text-ink-muted underline decoration-chipline underline-offset-2 hover:text-ink-soft"
+                  onClick={() => update && openInBrowser(update.releaseUrl)}
+                >
+                  release notes
+                </button>
+                <span className="flex-1" />
+                {updState === "done"
+                  ? restartBtn
+                  : (
+                    <button
+                      type="button"
+                      className="rounded-md bg-copper px-2.5 py-1 text-[11.5px] font-medium text-copper-ink hover:brightness-110 disabled:opacity-60"
+                      disabled={updState === "busy"}
+                      onClick={runUpdate}
+                    >
+                      {updState === "busy" ? "Updating…" : update.canSelfUpdate ? "Update now" : "Open release"}
+                    </button>
+                  )}
+              </>
+            )
+            : update?.applied
+            ? restartBtn
+            : update && (
+              <span className="text-[11px] text-ink-muted/70">
+                {update.checked === false ? "· couldn't reach GitHub" : "· up to date"}
               </span>
-              <button
-                type="button"
-                className="text-[10.5px] text-ink-muted underline decoration-chipline underline-offset-2 hover:text-ink-soft"
-                onClick={() => update && openInBrowser(update.releaseUrl)}
-              >
-                release notes
-              </button>
-              <span className="flex-1" />
-              {updState === "done"
-                ? restartBtn
-                : (
-                  <button
-                    type="button"
-                    className="rounded-md bg-copper px-2.5 py-1 text-[11.5px] font-medium text-copper-ink hover:brightness-110 disabled:opacity-60"
-                    disabled={updState === "busy"}
-                    onClick={runUpdate}
-                  >
-                    {updState === "busy" ? "Updating…" : update.canSelfUpdate ? "Update now" : "Open release"}
-                  </button>
-                )}
-            </>
-          )
-          : update?.applied
-          ? restartBtn
-          : update && (
-            <span className="text-[11px] text-ink-muted/70">
-              {update.checked === false ? "· couldn't reach GitHub" : "· up to date"}
-            </span>
-          )}
-      </div>
-
-      <div className="h-px bg-line" />
-      <div className="flex items-center gap-2">
-        <div>
-          <div className="text-[14px] font-semibold">Diagnostics</div>
-          <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
-            Memory, CPU, traffic and database figures for the app and the processes it runs.
-          </p>
+            )}
         </div>
-        <span className="flex-1" />
-        <button
-          type="button"
-          className="rounded-md border border-chipline px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
-          onClick={onOpenDiagnostics}
-        >
-          Open diagnostics →
-        </button>
-      </div>
 
-      <div className="h-px bg-line" />
-      <div className="text-[14px] font-semibold">Interface scale</div>
-      <div className="flex items-center gap-2">
+        <div className="h-px bg-line" />
+        <div className="flex items-center gap-2">
+          <div>
+            <div className={HEADING}>Diagnostics</div>
+            <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
+              Memory, CPU, traffic and database figures for the app and the processes it runs.
+            </p>
+          </div>
+          <span className="flex-1" />
+          <button
+            type="button"
+            className="rounded-md border border-chipline px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
+            onClick={onOpenDiagnostics}
+          >
+            Open diagnostics →
+          </button>
+        </div>
+
+        <div className="h-px bg-line" />
+        <div className={HEADING}>Interface scale</div>
+        <div className="flex items-center gap-2">
+          <div className={segTrack}>
+            {SCALES.map((s) => (
+              <button
+                key={s}
+                type="button"
+                aria-pressed={s === scale} className={seg(s === scale)}
+                onClick={() => {
+                  setScale(s);
+                  applyScale(s);
+                }}
+              >
+                {Math.round(s * 100)}%
+              </button>
+            ))}
+          </div>
+          <span className="text-[12px] text-ink-muted/70">applies instantly</span>
+        </div>
+
+        <div className="h-px bg-line" />
+        <div className={HEADING}>Theme</div>
         <div className={segTrack}>
-          {SCALES.map((s) => (
+          {(["system", "light", "dark"] as Theme[]).map((t) => (
             <button
-              key={s}
+              key={t}
               type="button"
-              aria-pressed={s === scale} className={seg(s === scale)}
+              aria-pressed={t === theme} className={`${seg(t === theme)} capitalize`}
               onClick={() => {
-                setScale(s);
-                applyScale(s);
+                setTheme(t);
+                applyTheme(t);
               }}
             >
-              {Math.round(s * 100)}%
+              {t}
             </button>
           ))}
         </div>
-        <span className="text-[12px] text-ink-muted/70">applies instantly</span>
-      </div>
 
-      <div className="h-px bg-line" />
-      <div className="text-[14px] font-semibold">Theme</div>
-      <div className={segTrack}>
-        {(["system", "light", "dark"] as Theme[]).map((t) => (
+        <div className="h-px bg-line" />
+        <div className={HEADING}>Your name</div>
+        <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
+          Shown as the author on comments you write (so teammates see who said what). Empty falls back to this machine's node id.
+        </p>
+        <div className="flex items-center gap-2.5">
           <button
-            key={t}
             type="button"
-            aria-pressed={t === theme} className={`${seg(t === theme)} capitalize`}
-            onClick={() => {
-              setTheme(t);
-              applyTheme(t);
+            title={authorAvatar ? "change avatar" : "choose an avatar image"}
+            className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-panel text-ink-muted transition-colors hover:border-chipline"
+            onClick={async () => {
+              const res = await fetch("/api/pick-image", { method: "POST" }).then((r) => r.json()).catch(() => null);
+              if (res?.dataUri) setAuthorAvatar(await dataUriToIcon(res.dataUri));
             }}
           >
-            {t}
+            {authorAvatar
+              ? <img src={authorAvatar} alt="" className="h-full w-full object-cover" />
+              : <span className="text-[15px]">＋</span>}
           </button>
-        ))}
-      </div>
+          <input
+            className={`${pill} w-64`}
+            placeholder="e.g. Julien"
+            value={authorName}
+            onChange={(e) => setAuthorName(e.target.value)}
+            maxLength={40}
+          />
+          {authorAvatar && (
+            <button
+              type="button"
+              className="text-[11px] text-ink-muted transition-colors hover:text-blocked"
+              onClick={() => setAuthorAvatar("")}
+            >
+              Remove avatar
+            </button>
+          )}
+        </div>
 
-      {presence
-        ? <AgentPresenceSection p={presence} set={setP} />
-        : loaded && (
-          <>
-            <div className="h-px bg-line" />
-            <div className="text-[14px] font-semibold">Agent presence</div>
-            <p className="m-0 text-[12.5px] text-blocked">Couldn't load these settings — reopen Settings to retry.</p>
-          </>
-        )}
-
-      <div className="h-px bg-line" />
-      <div className="text-[14px] font-semibold">Your name</div>
-      <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
-        Shown as the author on comments you write (so teammates see who said what). Empty falls back to this machine's node id.
-      </p>
-      <div className="flex items-center gap-2.5">
-        <button
-          type="button"
-          title={authorAvatar ? "change avatar" : "choose an avatar image"}
-          className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-panel text-ink-muted transition-colors hover:border-chipline"
-          onClick={async () => {
-            const res = await fetch("/api/pick-image", { method: "POST" }).then((r) => r.json()).catch(() => null);
-            if (res?.dataUri) setAuthorAvatar(await dataUriToIcon(res.dataUri));
-          }}
-        >
-          {authorAvatar
-            ? <img src={authorAvatar} alt="" className="h-full w-full object-cover" />
-            : <span className="text-[15px]">＋</span>}
-        </button>
-        <input
-          className={`${pill} w-64`}
-          placeholder="e.g. Julien"
-          value={authorName}
-          onChange={(e) => setAuthorName(e.target.value)}
-          maxLength={40}
-        />
-        {authorAvatar && (
-          <button
-            type="button"
-            className="text-[11px] text-ink-muted transition-colors hover:text-blocked"
-            onClick={() => setAuthorAvatar("")}
-          >
-            Remove avatar
-          </button>
-        )}
-      </div>
-
-      <div className="h-px bg-line" />
-      <div className="text-[14px] font-semibold">Sync hub</div>
-      <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
-        Hub API URL and its device token (minted on the hub).{" "}
-        {hubSource === "env"
-          ? "Currently from TRACKER_HUB_API — saving here takes over."
-          : hubSource === null
-          ? "Not configured — local-only until set."
-          : "Saved in settings.json."}
-      </p>
-      <div className="flex gap-1.5">
-        <input
-          className={`${pill} min-w-0 flex-1 font-mono text-[11px]`}
-          placeholder="https://192.168.1.x:8443"
-          value={hubUrl}
-          onChange={(e) => {
-            setHubUrl(e.target.value);
-            setHubTest({ state: "idle" });
-          }}
-          spellCheck={false}
-        />
-        <input
-          type="password"
-          className={`${pill} w-44 font-mono text-[11px]`}
-          placeholder={hubHasToken ? "•••••• (saved)" : "device token"}
-          title={hubHasToken ? "a token is saved — type to replace it" : "the device token minted on the hub"}
-          value={hubToken}
-          onChange={(e) => {
-            setHubToken(e.target.value);
-            setHubTest({ state: "idle" });
-          }}
-        />
-      </div>
-      <div className="flex min-w-0 items-center gap-2">
-        <button
-          type="button"
-          className="rounded-md border border-chipline px-2 py-1 text-[11px] text-ink-muted hover:text-ink-soft disabled:opacity-40"
-          disabled={hubTest.state === "busy" || (!hubUrl.trim() && hubSource === null)}
-          onClick={runHubTest}
-        >
-          {hubTest.state === "busy" ? "Testing…" : "Test connection"}
-        </button>
-        {hubTest.state === "ok" && (
-          <span className="text-[11px]" style={{ color: "var(--color-active)" }}>
-            ✓ connected{hubTest.tls ? " · TLS" : " · no TLS!"}
-          </span>
-        )}
-        {hubTest.state === "fail" && (
-          <span className="min-w-0 truncate text-[11px] text-blocked" title={hubTest.error}>
-            ✕ {hubTest.error}
-          </span>
-        )}
-      </div>
-
-      <div className="h-px bg-line" />
-      <div className="flex items-center gap-2">
-        <span className="text-[14px] font-semibold">Plugins</span>
-        <span className="text-[10.5px] text-ink-muted/70">
-          {pluginList.filter((p) => p.enabled).length} of {pluginList.length} enabled
-        </span>
-        {pluginUpdates > 0 && (
-          <span className="flex items-center gap-1 text-[10.5px] text-copper">
-            <span className="h-1.5 w-1.5 rounded-full bg-copper" />
-            {pluginUpdates} update{pluginUpdates === 1 ? "" : "s"}
-          </span>
-        )}
-        <span className="flex-1" />
-        <button
-          type="button"
-          className="rounded-md border border-chipline px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
-          onClick={onOpenPlugins}
-        >
-          Manage plugins →
-        </button>
-      </div>
-
-      {demoAvailable && (
-        <>
-          <div className="h-px bg-line" />
-          <div className="text-[14px] font-semibold">Demo workspace</div>
-          <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
-            Sample projects, pages and databases in a separate workspace. Your data stays untouched; exit from
-            the demo banner to come back.
-          </p>
-          <DemoLauncher className="self-start" />
         </>
       )}
-
-      <div className="h-px bg-line" />
-      <div className="text-[14px] font-semibold">Embeds</div>
-      <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
-        Hostnames whose <code>https</code> URLs an <code>embed</code> page block may show in an iframe (e.g.{" "}
-        <code>grafana.example.com</code>). Empty = embeds are off.
-      </p>
-      {loaded && (
-        <PathList
-          items={embedHosts}
-          onChange={setEmbedHosts}
-          placeholder="grafana.example.com"
-          addLabel="＋ Add host"
-        />
-      )}
-
-      <div className="h-px bg-line" />
-      <button
-        type="button"
-        className="flex items-center gap-2 text-left text-[14px] font-semibold text-ink hover:text-copper"
-        onClick={() => setExploreOpen((v) => !v)}
-      >
-        <span className="w-3 text-[12px] text-ink-muted">{exploreOpen ? "▾" : "▸"}</span>
-        Explore — report folders
-        <span className="text-[10.5px] font-normal text-ink-muted/70">
-          {paths.filter(Boolean).length} folder{paths.filter(Boolean).length === 1 ? "" : "s"} · {ignore.filter(Boolean).length} ignored
-        </span>
-      </button>
-      {exploreOpen && (
+      {section === "general" && demoAvailable && (
         <>
+        <div className="h-px bg-line" />
+            <div className={HEADING}>Demo workspace</div>
+            <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
+              Sample projects, pages and databases in a separate workspace. Your data stays untouched; exit from
+              the demo banner to come back.
+            </p>
+            <DemoLauncher className="self-start" />
+        </>
+      )}
+      {section === "presence" && (
+        <>
+        {presence
+          ? <AgentPresenceSection p={presence} set={setP} />
+          : loaded && (
+            <>
+              <div className={HEADING}>Agent presence</div>
+              <p className="m-0 text-[12.5px] text-blocked">Couldn't load these settings — reopen Settings to retry.</p>
+            </>
+          )}
+
+        </>
+      )}
+      {section === "hub" && (
+        <>
+        <div className={HEADING}>Sync hub</div>
+        <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
+          Hub API URL and its device token (minted on the hub).{" "}
+          {hubSource === "env"
+            ? "Currently from TRACKER_HUB_API — saving here takes over."
+            : hubSource === null
+            ? "Not configured — local-only until set."
+            : "Saved in settings.json."}
+        </p>
+        <div className="flex gap-1.5">
+          <input
+            className={`${pill} min-w-0 flex-1 font-mono text-[11px]`}
+            placeholder="https://192.168.1.x:8443"
+            value={hubUrl}
+            onChange={(e) => {
+              setHubUrl(e.target.value);
+              setHubTest({ state: "idle" });
+            }}
+            spellCheck={false}
+          />
+          <input
+            type="password"
+            className={`${pill} w-44 font-mono text-[11px]`}
+            placeholder={hubHasToken ? "•••••• (saved)" : "device token"}
+            title={hubHasToken ? "a token is saved — type to replace it" : "the device token minted on the hub"}
+            value={hubToken}
+            onChange={(e) => {
+              setHubToken(e.target.value);
+              setHubTest({ state: "idle" });
+            }}
+          />
+        </div>
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            className="rounded-md border border-chipline px-2 py-1 text-[11px] text-ink-muted hover:text-ink-soft disabled:opacity-40"
+            disabled={hubTest.state === "busy" || (!hubUrl.trim() && hubSource === null)}
+            onClick={runHubTest}
+          >
+            {hubTest.state === "busy" ? "Testing…" : "Test connection"}
+          </button>
+          {hubTest.state === "ok" && (
+            <span className="text-[11px]" style={{ color: "var(--color-active)" }}>
+              ✓ connected{hubTest.tls ? " · TLS" : " · no TLS!"}
+            </span>
+          )}
+          {hubTest.state === "fail" && (
+            <span className="min-w-0 truncate text-[11px] text-blocked" title={hubTest.error}>
+              ✕ {hubTest.error}
+            </span>
+          )}
+        </div>
+
+        </>
+      )}
+      {section === "embeds" && (
+        <>
+        <div className={HEADING}>Embeds</div>
+        <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
+          Hostnames whose <code>https</code> URLs an <code>embed</code> page block may show in an iframe (e.g.{" "}
+          <code>grafana.example.com</code>). Empty = embeds are off.
+        </p>
+        {loaded && (
+          <PathList
+            items={embedHosts}
+            onChange={setEmbedHosts}
+            placeholder="grafana.example.com"
+            addLabel="＋ Add host"
+          />
+        )}
+
+        </>
+      )}
+      {section === "explore" && (
+        <>
+        <div className={HEADING}>Explore — report folders</div>
           <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
             Folders scanned (4 levels deep) for <code>.html</code> exploration reports. Searchable in
             the Explore view alongside published reports.
@@ -567,16 +600,26 @@ export function SettingsModal(
           )}
         </>
       )}
-      <Footer
-        hint="stored per-machine in settings.json (not synced)"
-        action="Save settings"
-        onClose={onClose}
-        onSubmit={submit}
-        disabled={!loaded}
-      />
-    </Modal>
+      {FORM_SECTIONS.has(section) && (
+        <>
+          <div className="h-px bg-line" />
+          <Footer
+            hint="stored per-machine in settings.json (not synced)"
+            action="Save settings"
+            onClose={onClose}
+            onSubmit={submit}
+            disabled={!loaded}
+          />
+        </>
+      )}
+      {section === "plugins" && <PluginList onOpen={(id) => onSection(`plugin:${id}`)} />}
+      {section.startsWith("plugin:") && <PluginPage id={section.slice("plugin:".length)} />}
+      </div>
+    </div>
   );
 }
+
+const HEADING = "text-[14px] font-semibold";
 
 // mirrors normalizeAgentPresence in app/files.ts
 const clampMinutes = (p: AgentPresenceSettings) => {
@@ -605,7 +648,7 @@ function AgentPresenceSection(
   return (
     <>
       <div className="h-px bg-line" />
-      <div className="text-[14px] font-semibold">Agent presence</div>
+      <div className={HEADING}>Agent presence</div>
       <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
         How a todo shows that an agent is working on it. The preview below follows your choices.
       </p>

@@ -9,7 +9,7 @@ test("disabled plugin: no nav entry, API gated", async ({ page }) => {
   expect(r.status()).toBe(403);
   await page.goto("/");
   await expect(page.getByText("Trame", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Deployments/ })).toHaveCount(
+  await expect(page.getByRole("navigation", { name: "Views" }).getByRole("button", { name: /Deployments/ })).toHaveCount(
     0,
   );
 });
@@ -17,17 +17,16 @@ test("disabled plugin: no nav entry, API gated", async ({ page }) => {
 test("plugins manager enables the plugin", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: /Manage plugins/ }).click();
-  // master-detail modal: deployments pre-selected, settings form visible
+  // each plugin has its own Settings page, listed under Plugins
+  await page.getByRole("navigation", { name: "Settings sections" }).getByRole("button", { name: /Deployments/ }).click();
   await expect(page.getByText("Watched repositories")).toBeVisible();
   await page.getByRole("switch").click();
   await expect(page.getByRole("switch")).toHaveAttribute(
     "aria-checked",
     "true",
   );
-  await page.keyboard.press("Escape");
   // nav picks the manifest up on the next refresh poll
-  await expect(page.getByRole("button", { name: /Deployments/ })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Views" }).getByRole("button", { name: /Deployments/ })).toBeVisible();
 });
 
 test("panel lists fixture deployments under org tabs", async ({ page }) => {
@@ -179,14 +178,13 @@ test("gitlab token is redacted and bound to its saved host (no CSRF exfil)", asy
 test("disabling removes the nav entry and re-gates the API", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: /Manage plugins/ }).click();
+  await page.getByRole("navigation", { name: "Settings sections" }).getByRole("button", { name: /Deployments/ }).click();
   await page.getByRole("switch").click();
   await expect(page.getByRole("switch")).toHaveAttribute(
     "aria-checked",
     "false",
   );
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("button", { name: /Deployments/ })).toHaveCount(
+  await expect(page.getByRole("navigation", { name: "Views" }).getByRole("button", { name: /Deployments/ })).toHaveCount(
     0,
   );
   const r = await page.request.get("/api/plugins/deployments/state");
