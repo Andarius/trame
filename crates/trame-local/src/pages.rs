@@ -74,8 +74,23 @@ fn list_cols() -> String {
                 .join(" ")
         )
     };
+    let icons: Vec<String> = crate::plugins::registry()
+        .filter_map(crate::plugins::api::Plugin::page_icon)
+        .map(|(block, icon)| {
+            format!(
+                "when content @> '{}'::jsonb then '{}'",
+                json!([{ "type": block }]).to_string().replace('\'', "''"),
+                icon.replace('\'', "''")
+            )
+        })
+        .collect();
+    let plugin_icon = if icons.is_empty() {
+        "null::text as plugin_icon".into()
+    } else {
+        format!("case {} end as plugin_icon", icons.join(" "))
+    };
     format!(
-        "id, parent_id, kind, title, icon, status, client_id, color, tags, sort_key, owner_id, updated_at, {role}"
+        "id, parent_id, kind, title, icon, status, client_id, color, tags, sort_key, owner_id, updated_at, {role}, {plugin_icon}"
     )
 }
 

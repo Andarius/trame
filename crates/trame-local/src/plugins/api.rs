@@ -133,6 +133,11 @@ pub trait Plugin: Send + Sync + 'static {
     fn version(&self) -> Option<(&'static str, &'static str)> {
         None
     }
+    /// `(block type, icon)`: pages holding a block of that type show the icon (a glyph or a `data:`
+    /// URL) in lists, unless they set their own.
+    fn page_icon(&self) -> Option<(&'static str, &'static str)> {
+        None
+    }
     /// Sub path answering `{session id: {name, avatar}}` for tramecli's `assigner:` query.
     fn card_faces(&self) -> Option<&'static str> {
         None

@@ -749,6 +749,8 @@ export type PageMeta = {
   /** tag keys, not ids — a page stays readable before the vocabulary arrives */
   tags: string[];
   mark_role?: "ticket" | "linked-story" | null;
+  /** from a plugin whose blocks the page holds, shown when `icon` is unset */
+  plugin_icon?: string | null;
   sort_key: string;
   owner_id: string | null;
   updated_at: string;

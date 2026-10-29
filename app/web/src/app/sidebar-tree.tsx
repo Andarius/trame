@@ -131,7 +131,7 @@ export function PageNode(
               ? { color: p.color }
               : undefined}
           >
-            <EntityIcon icon={p.icon} fallback={pageGlyph(p.kind, p.mark_role)} />
+            <EntityIcon icon={p.icon || p.plugin_icon} fallback={pageGlyph(p.kind, p.mark_role)} />
           </span>
           <span
             className={`truncate ${p.title ? "" : "italic text-ink-muted/60"}`}
