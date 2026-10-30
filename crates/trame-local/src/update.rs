@@ -121,8 +121,9 @@ impl Updater {
             info["latest"] = json!(applied);
         }
         let mut reached = false;
+        let mut error = "GitHub unreachable".to_owned();
         let client = reqwest::Client::new();
-        if let Ok(response) = client
+        match client
             .get(endpoint)
             .header("accept", "application/vnd.github+json")
             .header("user-agent", "Trame")
@@ -130,7 +131,18 @@ impl Updater {
             .send()
             .await
         {
-            if response.status().is_success() {
+            Err(e) if e.is_timeout() => error = "GitHub timed out".into(),
+            Err(_) => {}
+            Ok(response) if !response.status().is_success() => {
+                let status = response.status().as_u16();
+                error = if matches!(status, 403 | 429) {
+                    format!("GitHub rate limit ({status})")
+                } else {
+                    format!("GitHub answered {status}")
+                };
+            }
+            Ok(response) => {
+                error = "no release published".into();
                 if let Ok(rel) = response.json::<Value>().await {
                     let tag = rel["tag_name"]
                         .as_str()
@@ -162,6 +174,8 @@ impl Updater {
         // a failed check is retried next time, not served as "up to date" for an hour
         if reached {
             self.cache = Some((Instant::now(), info.clone()));
+        } else {
+            info["error"] = json!(error);
         }
         info["checked"] = json!(reached);
         info
@@ -553,14 +567,21 @@ pub async fn serve(
             if post {
                 json!({"ok":false,"error":"this build does not self-update: rebuild it with its plugins"})
             } else {
-                json!({"current":installed(),"latest":null,"available":false,"releaseUrl":"","canSelfUpdate":false})
+                json!({"current":installed(),"latest":null,"available":false,"releaseUrl":"","canSelfUpdate":false,"off":"this build has no release channel"})
             },
         );
     };
-    if !post && (offline || std::env::var("TRACKER_UPDATE_CHECK").as_deref() == Ok("0")) {
+    let off = if offline {
+        Some("offline mode")
+    } else if std::env::var("TRACKER_UPDATE_CHECK").as_deref() == Ok("0") {
+        Some("TRACKER_UPDATE_CHECK=0")
+    } else {
+        None
+    };
+    if let (false, Some(off)) = (post, off) {
         return (
             200,
-            json!({"current":installed(),"latest":null,"available":false,"releaseUrl":"","canSelfUpdate":false}),
+            json!({"current":installed(),"latest":null,"available":false,"releaseUrl":"","canSelfUpdate":false,"off":off}),
         );
     }
     let target = target();
@@ -691,7 +712,7 @@ mod tests {
         );
         assert_eq!(
             serve(false, false, true, none, none).await.1,
-            json!({"current":installed(),"latest":null,"available":false,"releaseUrl":"","canSelfUpdate":false})
+            json!({"current":installed(),"latest":null,"available":false,"releaseUrl":"","canSelfUpdate":false,"off":"offline mode"})
         );
     }
     // self-update is AppImage-only
@@ -761,6 +782,12 @@ mod tests {
         assert_eq!(
             (failed["checked"].clone(), failed["latest"].clone()),
             (json!(false), Value::Null)
+        );
+        assert!(
+            failed["error"]
+                .as_str()
+                .is_some_and(|e| e.starts_with("GitHub")),
+            "{failed}"
         );
         let info = updater
             .check(false, "o/r", &format!("{base}/latest"), None)

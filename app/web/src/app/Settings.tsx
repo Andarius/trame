@@ -368,7 +368,11 @@ export function Settings(
             ? restartBtn
             : update && (
               <span className="text-[11px] text-ink-muted/70">
-                {update.checked === false ? "· couldn't reach GitHub" : "· up to date"}
+                {update.off
+                  ? `· update checks off: ${update.off}`
+                  : update.checked === false
+                  ? `· couldn't check: ${update.error ?? "GitHub unreachable"}`
+                  : "· up to date"}
               </span>
             )}
         </div>
