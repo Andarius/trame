@@ -6,7 +6,6 @@ const SOURCES: &[(&str, &str)] = &[
     ("CAPABILITIES", include_str!("help/CAPABILITIES.md")),
     ("COMMENT_HELP", include_str!("help/COMMENT_HELP.md")),
     ("CONVERT_HELP", include_str!("help/CONVERT_HELP.md")),
-    ("DEPLOYMENTS_HELP", include_str!("help/DEPLOYMENTS_HELP.md")),
     ("DUE_HELP", include_str!("help/DUE_HELP.md")),
     ("GRAPH_FENCE", include_str!("help/GRAPH_FENCE.md")),
     ("LIST_HELP", include_str!("help/LIST_HELP.md")),

@@ -3,7 +3,14 @@
 // the surface an out-of-tree plugin reaches Trame through, besides this trait
 #[allow(unused_imports, reason = "re-exported for composed plugins")]
 pub(crate) use crate::{
-    blocking::spawn as blocking, db::Db, routes::Native, routes::json_response, settings,
+    blocking::spawn as blocking,
+    cli::{NETWORK_TIMEOUT, output_within},
+    db::Db,
+    plugins::encode,
+    routes::Native,
+    routes::json_response,
+    scratch_path, settings,
+    terminal::spawn_terminal,
 };
 // a test's scratch directory, confined like the app's own
 #[cfg(test)]
@@ -18,8 +25,8 @@ pub(crate) use crate::{
         project_above, update as update_page,
     },
     sessions::{
-        ensure_specs_page, ensure_tag, set_status as set_session_status, tag_key,
-        upsert as upsert_session,
+        add_event as add_session_event, ensure_specs_page, ensure_tag,
+        set_status as set_session_status, tag_key, upsert as upsert_session,
     },
 };
 use axum::{body::Body, http::Request, response::Response};
@@ -92,6 +99,13 @@ pub enum Write {
         label: String,
         color: Option<Value>,
     },
+    /// A line on a card's worklog; `body` is the event's payload.
+    AddSessionEvent {
+        id: String,
+        summary: String,
+        kind: String,
+        body: Value,
+    },
 }
 
 /// Applies `plan` in one transaction, in order: a failure leaves nothing written.
@@ -116,6 +130,15 @@ pub fn apply(db: &mut Db, plan: &[Write]) -> anyhow::Result<Vec<Value>> {
                         Value::Null
                     }
                     Write::EnsureTag { label, color } => ensure_tag(db, label, color.as_ref())?,
+                    Write::AddSessionEvent {
+                        id,
+                        summary,
+                        kind,
+                        body,
+                    } => {
+                        add_session_event(db, id, summary, kind, body)?;
+                        Value::Null
+                    }
                 })
             })
             .collect()

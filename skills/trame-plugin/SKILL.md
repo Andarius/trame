@@ -10,11 +10,12 @@ loaded at runtime from arbitrary paths: `scripts/gen-plugins.ts` writes registri
 the plugin statically. The backend is a Rust module compiled into `trame-local` itself (a
 `#[path]` module, so it uses the crate's dependencies and runs in the app's process), the
 frontend goes into one `plugins.js` bundle. There is no other backend shape: the TypeScript
-`mod.ts` plugins of the Bun host era were ported (`Getsoren/trame-k8s`, `Getsoren/trame-cockpit`
-are out-of-tree examples). The in-tree plugins show the shape in use:
+`mod.ts` plugins of the Bun host era were ported (`Andarius/trame-k8s`, `Getsoren/trame-cockpit`
+are out-of-tree examples, and `Andarius/trame-deployments`: a sidebar column, forge auth, a
+tramecli command, fixtures and e2e specs). The in-tree plugins show the shape in use:
 `crates/trame-local/src/plugins/notebook.rs` (a server the plugin spawns or attaches to, a
 same-origin proxy with WebSockets, a full-pane panel), `sql_source.rs` (settings with secrets,
-a poll loop, database writes), `deployments.rs` (a sidebar column, forge auth, fixtures).
+a poll loop, database writes).
 
 Read `crates/trame-local/src/plugins/api.rs` and `app/web/src/plugins/index.ts` in the Trame
 checkout before coding: they are the contract, and this skill paraphrases them.
@@ -30,6 +31,7 @@ my-plugin/
   web/*.tsx           Panel, Settings, …   (react, @trame/web-api, ./ and ../model.ts only)
   web/*_test.ts       bun tests for pure web logic (boundary_test.ts is mandatory)
   e2e/*.spec.ts       optional Playwright specs, run by Trame's own e2e project
+  e2e/env.json        optional backend env vars for those specs (a fixture switch, never secrets)
   mark-roles.json     optional: what the plugin's page marks mean to the hierarchy
   tsconfig.json       types from ../trame/node_modules for the web side
   .github/workflows/  ci.yml (compose into Trame, clippy, tests, typecheck) and release.yml

@@ -7,7 +7,6 @@ use axum::{
 use serde_json::{Value, json};
 
 pub mod api;
-pub mod deployments;
 #[path = "plugins/local.gen.rs"]
 mod local_gen;
 pub mod notebook;
@@ -17,8 +16,7 @@ use api::{Owned, Plugin, classify};
 
 /// Every compiled-in plugin: first-party ones, then the ones composed from plugins.local.json.
 pub fn registry() -> impl Iterator<Item = &'static dyn Plugin> {
-    let first_party: [&'static dyn Plugin; 3] =
-        [&deployments::PLUGIN, &sql_source::PLUGIN, &notebook::PLUGIN];
+    let first_party: [&'static dyn Plugin; 2] = [&sql_source::PLUGIN, &notebook::PLUGIN];
     first_party
         .into_iter()
         .chain(local_gen::LOCAL.iter().copied())

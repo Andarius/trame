@@ -7,6 +7,7 @@ export type { Block, PageDetail, Session } from "./api";
 export {
   appConfirm,
   Button,
+  EmptyState,
   ErrorNote,
   Field,
   FIELD_LABEL,
@@ -16,7 +17,9 @@ export {
   MenuRow,
   Modal,
   Popover,
+  SECTION_LABEL,
   Select,
+  StatusDot,
   TextArea,
   TextInput,
   timeAgo,

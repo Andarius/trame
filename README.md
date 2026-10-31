@@ -6,8 +6,7 @@ tool gave us, and the columns are **yours to define**. It also holds free-form *
 comments (with agent reply threads), **sandboxed interactive HTML blocks**, per-page guest sharing,
 **public read-only share links** — and **Notion-style databases** (sortable / filterable / groupable views).
 `⌘P` jumps to any session, page, or database; a card's **Resume** button reopens the session in Claude
-Code or Codex. Opt-in **plugins** add side panels — the first one lists GitHub/GitLab
-**deployments waiting for approval**.
+Code or Codex. Opt-in **plugins** add side panels, blocks and commands.
 
 Stack: **Tauri 2 + Rust** app → **bundled PostgreSQL 18** (offline read+write) →
 custom **changeset LWW sync over HTTPS** → a small **Bun API in front of Postgres** on a home
@@ -245,14 +244,9 @@ ephemeral — never synced — so avatars fade ~20s after a tab closes or the wa
 ⚙ Settings → **Manage plugins**. Everything ships disabled — a networked plugin never reaches
 out until you switch it on.
 
-**Deployments** lists GitHub/GitLab releases **waiting for approval** in the sidebar (plus
-in-progress and recently-failed ones), and approves the gate / plays the manual job from the
-panel. Point it at the repos and projects to watch, then authenticate per forge with a PAT,
-`GITHUB_TOKEN` / `GITLAB_TOKEN`, or the `gh` / `glab` CLI (optional — there's a login button
-that spawns a terminal).
-
-> Tokens live only in this machine's `settings.json` (mode 0600). They are never synced to the
-> hub and never sent back to the UI, and each is bound to the forge host you configured.
+**Deployments** (GitHub/GitLab releases waiting for approval) is its own plugin now:
+[Andarius/trame-deployments](https://github.com/Andarius/trame-deployments), added like any other
+(`tramecli plugins add Andarius/trame-deployments`). Its settings carry over.
 
 **SQL sources** fill a database from a query on a PostgreSQL you choose (local or tailnet; no TLS
 yet). On a database page (or an inline database in **Edit**), **⇣ Connect** opens a drawer: pick

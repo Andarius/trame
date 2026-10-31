@@ -5,9 +5,6 @@
 import { type ComponentType, type ReactNode, useMemo } from "react";
 import { createPortal } from "react-dom";
 import type { PageDetail, Session } from "../api";
-import { DeploymentsCardPath } from "./deployments/CardPath";
-import { DeploymentsPanel } from "./deployments/Panel";
-import { DeploymentsSettings } from "./deployments/Settings";
 import { NotebookPanel } from "./notebook/Panel";
 import { NotebookSettingsView } from "./notebook/Settings";
 import { SqlSourceDatabaseActions, SqlSourceDatabaseEmpty } from "./sql-source/Actions";
@@ -86,7 +83,6 @@ export function SidebarColumn({ column, children }: { column?: HTMLElement | nul
 }
 
 export const FRONTEND_PLUGINS: FrontendPlugin[] = [
-  { id: "deployments", Panel: DeploymentsPanel, column: true, Settings: DeploymentsSettings, CardFields: DeploymentsCardPath },
   { id: "sql-source", Settings: SqlSourceSettings, DatabaseActions: SqlSourceDatabaseActions, DatabaseEmpty: SqlSourceDatabaseEmpty },
   { id: "notebook", Panel: NotebookPanel, Settings: NotebookSettingsView },
   ...LOCAL_PLUGINS,
