@@ -108,7 +108,7 @@ jobs:
 
   build-macos:
     needs: [prepare, verify]
-    runs-on: macos-14
+    runs-on: macos-15
     env:
       RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
     steps:

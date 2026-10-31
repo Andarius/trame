@@ -146,7 +146,7 @@ jobs:
   macos:
     needs: prepare
     if: needs.prepare.outputs.skip != 'true' && inputs.macos
-    runs-on: macos-14
+    runs-on: macos-15
     env:
       TAG: ${{ needs.prepare.outputs.tag }}
     steps:
