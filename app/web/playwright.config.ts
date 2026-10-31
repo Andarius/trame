@@ -41,6 +41,15 @@ const plugins: string[] = (() => {
     return JSON.parse(readFileSync("../../plugins.local.json", "utf8")).plugins ?? [];
   } catch { return []; }
 })();
+// a plugin's e2e/env.json adds backend env vars (a fixture switch, never secrets)
+const pluginEnv: Record<string, string> = Object.assign(
+  {},
+  ...plugins.map((p) => {
+    try {
+      return JSON.parse(readFileSync(resolve("../..", p, "e2e/env.json"), "utf8"));
+    } catch { return {}; }
+  }),
+);
 
 export default defineConfig({
   testDir: "./e2e",
@@ -74,8 +83,7 @@ export default defineConfig({
       TRACKER_ASSETS_DIR: `${E2E_DIR}/assets`,
       TRACKER_CLAUDE_DIR: `${E2E_DIR}/claude-projects`,
       TRACKER_CODEX_DIR: `${E2E_DIR}/codex-sessions`,
-      // deployments plugin never hits the network in e2e
-      TRACKER_DEPLOYMENTS_FIXTURE: resolve("../plugins/deployments/fixture.sample.json"),
+      ...pluginEnv,
     },
   },
 });

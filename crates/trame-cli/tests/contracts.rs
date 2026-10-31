@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 use trame_cli::{
-    board, cli, comment, db, deployments, help, presence, query,
+    board, cli, comment, db, help, presence, query,
     refs::{RefKind, SessionRef, parse_session_ref},
     setup, watch,
 };
@@ -57,23 +57,8 @@ fn cli_help_version_and_staleness() {
     assert!(help::topic("COMMENT_HELP").contains("meta.model is required"));
     assert!(help::topic("CONVERT_HELP").contains("specs_page_id"));
     for cmd in [
-        "track",
-        "page",
-        "comment",
-        "presence",
-        "show",
-        "watch",
-        "answer",
-        "list",
-        "stories",
-        "convert",
-        "archive",
-        "move",
-        "setup",
-        "deployments",
-        "db",
-        "query",
-        "mcp",
+        "track", "page", "comment", "presence", "show", "watch", "answer", "list", "stories",
+        "convert", "archive", "move", "setup", "db", "query", "mcp",
     ] {
         assert!(help::topic("OVERVIEW").contains(cmd), "{cmd}");
     }
@@ -282,7 +267,7 @@ fn board_grouping_flat_rows_and_query() {
     ));
 }
 #[test]
-fn db_columns_and_deployments_merge() {
+fn db_columns_resolve_writable_values() {
     let props = json!([
         {"id":"p1","name":"Name","type":"text"},
         {"id":"p2","name":"When","type":"date"},
@@ -310,43 +295,6 @@ fn db_columns_and_deployments_merge() {
                 .contains(message)
         );
     }
-    let ships = json!({"a/x":{"pattern":"old","backport":false},"b/y":{"pattern":"keep"}});
-    let args = [
-        "--pattern",
-        "PR-(\\d+)",
-        "--env",
-        "prod, stage",
-        "--backport",
-    ]
-    .map(str::to_owned);
-    let updated = deployments::apply_flags(&ships, "a/x", &args).unwrap();
-    assert_eq!(
-        updated["a/x"],
-        json!({"pattern":"PR-(\\d+)","environments":["prod","stage"],"backport":true})
-    );
-    assert_eq!(updated["b/y"], ships["b/y"]);
-    let env_only = deployments::apply_flags(
-        &ships,
-        "a/x",
-        &["--env".into(), "production, staging".into()],
-    )
-    .unwrap();
-    assert_eq!(
-        env_only["a/x"],
-        json!({"pattern":"old","backport":false,"environments":["production","staging"]})
-    );
-    assert!(
-        deployments::apply_flags(&ships, "a/x", &["--env".into()])
-            .unwrap_err()
-            .to_string()
-            .contains("--env needs a value")
-    );
-    assert!(
-        deployments::apply_flags(&ships, "a/x", &["--reset".into()])
-            .unwrap()
-            .get("a/x")
-            .is_none()
-    );
 }
 #[test]
 fn comment_validation_and_quote_resolution() {

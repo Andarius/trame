@@ -102,7 +102,7 @@ async fn fixture(
             json!({"sessions":[],"stories":[],"statuses":[],"pages":[],"projects":[]})
         }
         ("GET", "/api/plugins") => json!([
-            {"id":"deployments","enabled":true},
+            {"id":"k8s","enabled":true},
             {"id":"cockpit","enabled":state.card_faces,"cardFaces":"/assigners"},
             {"id":"off","enabled":false,"cardFaces":"/faces"}
         ]),
