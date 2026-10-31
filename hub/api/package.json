@@ -10,7 +10,7 @@
   "dependencies": {
     "hono": "4.12.27",
     "postgres": "3.4.9",
-    "zod": "4.4.3"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.3",
