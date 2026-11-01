@@ -1,6 +1,6 @@
 [package]
 name = "trame-local"
-version = "0.28.0"
+version = "0.28.1"
 edition.workspace = true
 publish.workspace = true
 
@@ -32,7 +32,7 @@ rustls-pemfile = "2"
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 
 [dev-dependencies]
-tower = { version = "0.5", features = ["util"] }
+tower = { version = "0.5.3", features = ["util"] }
 
 [lints]
 workspace = true
