@@ -240,6 +240,7 @@ export function Settings(
   const [loaded, setLoaded] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [updState, setUpdState] = useState<"idle" | "busy" | "done">("idle");
+  const [updError, setUpdError] = useState<string>();
   const [scale, setScale] = useState(getScale);
   const [theme, setTheme] = useState(getTheme);
   const [authorName, setAuthorName] = useState("");
@@ -279,7 +280,14 @@ export function Settings(
     }
     if (updState !== "idle") return;
     setUpdState("busy");
-    applyUpdate().then((r) => setUpdState(r.ok ? "done" : "idle")).catch(() => setUpdState("idle"));
+    setUpdError(undefined);
+    applyUpdate().then((r) => {
+      setUpdState(r.ok ? "done" : "idle");
+      setUpdError(r.error);
+    }).catch(() => {
+      setUpdState("idle");
+      setUpdError("update failed");
+    });
   };
 
   const restartBtn = (
@@ -376,6 +384,7 @@ export function Settings(
               </span>
             )}
         </div>
+        {updError && <p className="m-0 text-[11.5px] text-blocked">{updError}</p>}
 
         <div className="h-px bg-line" />
         <div className="flex items-center gap-2">
