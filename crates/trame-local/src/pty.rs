@@ -437,6 +437,25 @@ pub async fn serve(root: &Path, req: Request<Body>) -> Response {
                 .unwrap_or_default();
             json_response(200, Value::Array(agents))
         }
+        (Method::GET, ["", "api", "term", "running"]) => {
+            let shells: Vec<(String, u32)> = {
+                let terms = registry().terms.lock().unwrap();
+                terms
+                    .values()
+                    .filter(|t| !t.exited())
+                    .filter_map(|t| Some((t.id.clone(), u32::try_from(t.pid?).ok()?)))
+                    .collect()
+            };
+            let running = crate::blocking::spawn(move || {
+                let dir = claude_dir();
+                running_agents(&crate::diagnostics::processes(), &shells, |pid| {
+                    claude_session(dir.as_deref()?, pid)
+                })
+            })
+            .await
+            .unwrap_or_default();
+            json_response(200, Value::Object(running))
+        }
         (Method::GET, ["", "api", "term", "theme"]) => {
             let theme = crate::blocking::spawn(ghostty_theme).await.ok().flatten();
             json_response(200, theme.unwrap_or(Value::Null))
@@ -519,6 +538,45 @@ pub async fn serve(root: &Path, req: Request<Body>) -> Response {
         }
         _ => json_response(404, json!({"error":"not found"})),
     }
+}
+
+/// Claude Code's config dir, where `sessions/<pid>.json` names each running CLI's transcript.
+fn claude_dir() -> Option<PathBuf> {
+    std::env::var_os("CLAUDE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .or_else(|| Some(PathBuf::from(std::env::var_os("HOME")?).join(".claude")))
+}
+
+fn claude_session(dir: &Path, pid: u32) -> Option<String> {
+    let raw = std::fs::read(dir.join("sessions").join(format!("{pid}.json"))).ok()?;
+    let file: Value = serde_json::from_slice(&raw).ok()?;
+    if file["pid"].as_u64() != Some(u64::from(pid)) {
+        return None;
+    }
+    file["sessionId"].as_str().map(str::to_owned)
+}
+
+/// `{transcript id: term id}` for the Claude (by `session_of`) and `codex resume` runs under each shell.
+fn running_agents(
+    all: &[crate::diagnostics::Process],
+    shells: &[(String, u32)],
+    session_of: impl Fn(u32) -> Option<String>,
+) -> serde_json::Map<String, Value> {
+    let mut out = serde_json::Map::new();
+    for (term, pid) in shells {
+        for p in crate::diagnostics::tree(all, *pid) {
+            let codex = || {
+                let at = p.args.iter().position(|a| a == "resume")?;
+                let exe = if at == 0 { &p.name } else { &p.args[at - 1] };
+                exe.rsplit('/').next().filter(|e| *e == "codex")?;
+                p.args.get(at + 1).cloned()
+            };
+            if let Some(id) = session_of(p.pid).or_else(codex) {
+                out.insert(id, Value::String(term.clone()));
+            }
+        }
+    }
+    out
 }
 
 async fn create(root: &Path, body: &Value) -> Response {
@@ -877,9 +935,53 @@ fn parse_ghostty(config: &str) -> Option<Value> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_ghostty, process_cwd, process_name, repo_root, resolve_cwd};
+    use super::{parse_ghostty, process_cwd, process_name, repo_root, resolve_cwd, running_agents};
+    use crate::diagnostics::Process;
     use serde_json::{Value, json};
     use std::fs;
+
+    fn proc(pid: u32, ppid: u32, name: &str, args: &[&str]) -> Process {
+        Process {
+            pid,
+            ppid,
+            name: name.to_owned(),
+            args: args.iter().map(|a| (*a).to_owned()).collect(),
+            cpu_seconds: 0.0,
+            rss: 0,
+            swap: None,
+            threads: None,
+            fds: None,
+            sockets: None,
+        }
+    }
+
+    #[test]
+    fn agents_running_in_shells_map_to_their_terminal() {
+        let all = [
+            proc(10, 1, "zsh", &[]),
+            proc(11, 10, "claude", &["--resume", "c-1"]),
+            proc(20, 1, "zsh", &[]),
+            proc(
+                21,
+                20,
+                "node",
+                &["/usr/lib/node_modules/codex", "resume", "x-2"],
+            ),
+            proc(30, 1, "zsh", &[]),
+            proc(31, 30, "git", &["resume", "nope"]),
+            proc(40, 1, "claude", &[]), // outside any Trame shell
+        ];
+        let shells = [("t1".into(), 10), ("t2".into(), 20), ("t3".into(), 30)];
+        let session = |pid| match pid {
+            11 => Some("c-1".to_owned()),
+            40 => Some("c-out".to_owned()),
+            _ => None,
+        };
+        assert_eq!(
+            Value::Object(running_agents(&all, &shells, session)),
+            json!({"c-1":"t1","x-2":"t2"})
+        );
+    }
 
     #[test]
     fn ghostty_config_maps_to_xterm_theme() {

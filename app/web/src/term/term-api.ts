@@ -259,6 +259,17 @@ export async function closeTab(tabId: string) {
 }
 
 export const selectTab = (id: string) => set({ active: id, open: true });
+
+// `{transcript id: term id}` for the Claude/Codex sessions running in a live shell
+export const runningAgents = () => call("/api/term/running") as Promise<Record<string, string>>;
+
+// opens the dock on the tab holding `term`, focused on it
+export function revealTerminal(term: string) {
+  const t = state.tabs.find((x) => leaves(x.root).includes(term));
+  if (!t) return false;
+  set({ tabs: state.tabs.map((x) => (x === t ? { ...x, focus: term } : x)), active: t.id, open: true });
+  return true;
+}
 export type DropSide = "left" | "right" | "top" | "bottom";
 // `sub` beside the `at` shell: left/top put it first, right/bottom after
 const insertAt = (n: PaneNode, at: string, side: DropSide, sub: PaneNode): PaneNode => {

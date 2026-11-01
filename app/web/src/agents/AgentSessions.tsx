@@ -13,7 +13,7 @@ import {
 } from "../api";
 import { matchQuery, parseQuery } from "../query";
 import { clientColor, MenuRow, Popover, PresenceDot, SECTION_LABEL, STRING_CODEC, useLocalStorage, Select, timeAgo } from "../ui/ui";
-import { openTerminal, TermError } from "../term/term-api";
+import { openTerminal, revealTerminal, runningAgents, TermError, useTermDock } from "../term/term-api";
 import { AgentIcon, Elapsed, type Live, useAgents } from "./agents";
 import { agentLabel, notLaunched, RESUME_DONE, RESUME_MODES, useResumeMode } from "./resume-modes";
 
@@ -22,6 +22,7 @@ const agentCmd = (s: ClaudeSession) =>
   s.source === "codex" ? `codex resume ${s.claudeId}` : `claude --resume ${s.claudeId}`;
 const resumeCmd = (s: ClaudeSession) => s.repoPath ? `cd ${shq(s.repoPath)} && ${agentCmd(s)}` : agentCmd(s);
 const COPIED_MS = 60_000; // how long a copied row stays highlighted
+const RUNNING_POLL_MS = 10_000;
 
 // Brand marks (Simple Icons paths, 24×24); unknown agents fall back to their
 // initial so a new source stays identifiable before it gets an icon here.
@@ -67,6 +68,7 @@ function SessionRow(
     repoColor,
     showRepo,
     card,
+    term,
     copied,
     onCopied,
     modePick,
@@ -80,6 +82,8 @@ function SessionRow(
     repoColor: string;
     showRepo: boolean;
     card: { id: string } | undefined;
+    // the Trame shell this session runs in right now
+    term: string | undefined;
     copied: boolean;
     onCopied: () => void;
     modePick: ModePick; // one for the whole list, so a pick on any row drives every row
@@ -107,6 +111,16 @@ function SessionRow(
         >
           {s.suggestedStatus === "active" ? "current" : "past"}
         </button>
+        {term && (
+          <button
+            type="button"
+            title="Running in a Trame terminal — click to show it"
+            onClick={() => revealTerminal(term)}
+            className="shrink-0 rounded border border-copper/50 bg-copper/10 px-1.5 py-px text-[9.5px] text-copper hover:brightness-125"
+          >
+            ▣ in Trame
+          </button>
+        )}
         {showRepo && (
           <button
             type="button"
@@ -416,6 +430,15 @@ export function AgentSessions(
   // persisted so a `-term` hide sticks across visits
   const [q, setQ] = useLocalStorage("trame:agentsQuery", "", STRING_CODEC);
   const modePick = useResumeMode();
+  // transcript → the Trame shell running it; refreshed as shells open/close and while the view stays open
+  const [inTrame, setInTrame] = useState<Record<string, string>>({});
+  const shellIds = Object.keys(useTermDock().terms).sort().join();
+  useEffect(() => {
+    const poll = () => runningAgents().then(setInTrame, () => {});
+    poll();
+    const id = setInterval(poll, RUNNING_POLL_MS);
+    return () => clearInterval(id);
+  }, [shellIds]);
   const [allMsg, setAllMsg] = useState<string | null>(null);
   const allTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(allTimer.current), []);
@@ -666,6 +689,7 @@ export function AgentSessions(
                   repoColor={repoColor(g.repoName)}
                   showRepo={false}
                   card={cardFor(s)}
+                  term={inTrame[s.claudeId]}
                   copied={s.claudeId in copiedAt}
                   onCopied={() => markCopied(s.claudeId)}
                   modePick={modePick}
@@ -704,6 +728,7 @@ export function AgentSessions(
                   repoColor={repoColor(repoName)}
                   showRepo
                   card={cardFor(s)}
+                  term={inTrame[s.claudeId]}
                   copied={s.claudeId in copiedAt}
                   onCopied={() => markCopied(s.claudeId)}
                   modePick={modePick}
