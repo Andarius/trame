@@ -1,15 +1,21 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  type AgentKind,
   type BoardData,
   type ClaudeScan,
   type ClaudeSession,
+  probeResume,
+  type ResumeInfo,
+  type ResumeMode,
+  resumeSession,
   scanClaudeImport,
 } from "../api";
 import { matchQuery, parseQuery } from "../query";
-import { clientColor, PresenceDot, SECTION_LABEL, STRING_CODEC, useLocalStorage, Select, timeAgo } from "../ui/ui";
+import { clientColor, MenuRow, Popover, PresenceDot, SECTION_LABEL, STRING_CODEC, useLocalStorage, Select, timeAgo } from "../ui/ui";
 import { openTerminal, TermError } from "../term/term-api";
 import { AgentIcon, Elapsed, type Live, useAgents } from "./agents";
+import { agentLabel, notLaunched, RESUME_DONE, RESUME_MODES, useResumeMode } from "./resume-modes";
 
 const shq = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`; // POSIX single-quote
 const agentCmd = (s: ClaudeSession) =>
@@ -63,6 +69,7 @@ function SessionRow(
     card,
     copied,
     onCopied,
+    modePick,
     onOpenSession,
     onFilterRepo,
     onFilterStatus,
@@ -75,6 +82,7 @@ function SessionRow(
     card: { id: string } | undefined;
     copied: boolean;
     onCopied: () => void;
+    modePick: ModePick; // one for the whole list, so a pick on any row drives every row
     onOpenSession: (id: string) => void;
     onFilterRepo: () => void;
     onFilterStatus: () => void;
@@ -139,7 +147,7 @@ function SessionRow(
             tracked ↗
           </button>
         )}
-        <ResumeButton session={s} card={card?.id} onCopied={onCopied} />
+        <ResumeButton session={s} card={card?.id} onCopied={onCopied} modePick={modePick} />
       </div>
       {copied && (
         <div className="select-all break-all pl-8 pt-0.5 font-mono text-[10.5px] text-copper">
@@ -256,16 +264,37 @@ function LiveColumn(
   );
 }
 
+// the card drawer's split button, for a transcript: same modes, shared last pick
+type ModePick = readonly [ResumeMode, (m: ResumeMode) => void];
+
 function ResumeButton(
-  { session, card, onCopied }: { session: ClaudeSession; card?: string; onCopied: () => void },
+  { session, card, onCopied, modePick: [storedMode, setMode] }: {
+    session: ClaudeSession;
+    card?: string;
+    onCopied: () => void;
+    modePick: ModePick;
+  },
 ) {
   const [msg, setMsg] = useState<string | null>(null);
+  const [menu, setMenu] = useState(false);
+  const [info, setInfo] = useState<ResumeInfo | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
 
   if (!session.repoPath) return null;
-  const repoPath = session.repoPath;
+  const local = { repoPath: session.repoPath, agent: (session.source === "codex" ? "codex" : "claude") as AgentKind };
   const cmd = resumeCmd(session);
+  // Claude Desktop can't pick up a CLI transcript
+  const unavailable = (m: ResumeMode) =>
+    m !== "desktop"
+      ? null
+      : local.agent === "claude"
+      ? "Claude Desktop can't resume a CLI session"
+      : info?.desktop?.codex === false
+      ? "Codex desktop app not installed"
+      : null;
+  const mode = unavailable(storedMode) ? "window" : storedMode;
+  const active = RESUME_MODES.find((m) => m.mode === mode) ?? RESUME_MODES[0];
   const flash = (text: string, ms = 2500) => {
     setMsg(text);
     clearTimeout(timer.current);
@@ -281,27 +310,48 @@ function ResumeButton(
       flash("clipboard blocked");
     }
   };
-  const resume = async () => {
-    const agent = session.source === "codex" ? "Codex" : "Claude";
+  const resume = async (m: ResumeMode) => {
+    setMenu(false);
+    setMode(m);
     try {
-      await openTerminal({ cwd: repoPath, command: agentCmd(session), title: `${agent} · ${session.title}`, card });
-      flash("opened");
+      if (m === "embedded") {
+        const title = `${agentLabel(local.agent)} · ${session.title}`;
+        await openTerminal({ cwd: local.repoPath, command: agentCmd(session), title, card });
+        flash(RESUME_DONE.embedded);
+        return;
+      }
+      const r = await resumeSession(session.claudeId, m, local);
+      flash(r.launched ? RESUME_DONE[m] : await notLaunched(r));
     } catch (e) {
       // a deleted worktree: its transcript can't be resumed anywhere else
-      flash(e instanceof TermError && e.info.code === "missing_cwd" ? "folder gone" : "failed", 5000);
+      const gone = e instanceof TermError && e.info.code === "missing_cwd";
+      flash(gone ? "folder gone" : e instanceof Error && e.message ? e.message : "failed", 6000);
     }
+  };
+  const openMenu = () => {
+    setMenu((v) => !v);
+    if (!info) probeResume(session.claudeId, local).then(setInfo).catch(() => {});
   };
 
   const btn = "shrink-0 whitespace-nowrap border border-chipline py-1 text-[11px] text-ink-muted hover:border-copper/60 hover:text-copper";
   return (
-    <div className="flex shrink-0">
+    <div className="relative flex shrink-0">
       <button
         type="button"
-        title={`Resume in a Trame terminal: ${cmd}`}
-        onClick={resume}
+        title={`Resume — ${active.label}: ${active.hint}`}
+        onClick={() => resume(mode)}
         className={`${btn} rounded-l-md px-2`}
       >
         {msg ?? "⏵ Resume"}
+      </button>
+      <button
+        type="button"
+        title="choose how to open it"
+        aria-label="Resume options"
+        onClick={openMenu}
+        className={`${btn} -ml-px px-1 text-[9px]`}
+      >
+        ▾
       </button>
       <button
         type="button"
@@ -312,12 +362,36 @@ function ResumeButton(
       >
         ⧉
       </button>
+      {menu && (
+        <Popover portal onClose={() => setMenu(false)} className="min-w-[240px]">
+          <div className="px-2 pb-0.5 pt-1.5 text-[10px] font-medium uppercase tracking-wide text-ink-muted/70">
+            Open as
+          </div>
+          {RESUME_MODES.map((m) => {
+            const why = unavailable(m.mode);
+            return (
+              <MenuRow
+                key={m.mode}
+                className={`items-start ${why ? "opacity-50" : ""}`}
+                disabled={!!why}
+                onClick={() => resume(m.mode)}
+              >
+                <span className="flex-1">
+                  <span className="block text-xs text-ink-soft">{m.label}</span>
+                  <span className="block text-[10px] text-ink-muted/70">{why ?? m.hint}</span>
+                </span>
+                {m.mode === mode && <span className="pt-0.5 text-[10px] text-copper">✓</span>}
+              </MenuRow>
+            );
+          })}
+        </Popover>
+      )}
     </div>
   );
 }
 
 // Browse Claude Code + Codex transcripts found on this machine — current (touched
-// recently) and past — with one-click resume in a Trame terminal (or copy of the command), independent of
+// recently) and past — with the card drawer's resume options (or a copy of the command), independent of
 // whether the session has ever been tracked as a Trame board card. Mainly useful
 // right after a reboot, when every terminal (and the memory of what was open) is gone.
 // last scan per day range, kept across visits to the view
@@ -341,6 +415,7 @@ export function AgentSessions(
   const [sortBy, setSortBy] = useState<"date" | "repo">("date");
   // persisted so a `-term` hide sticks across visits
   const [q, setQ] = useLocalStorage("trame:agentsQuery", "", STRING_CODEC);
+  const modePick = useResumeMode();
   const [allMsg, setAllMsg] = useState<string | null>(null);
   const allTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(allTimer.current), []);
@@ -593,6 +668,7 @@ export function AgentSessions(
                   card={cardFor(s)}
                   copied={s.claudeId in copiedAt}
                   onCopied={() => markCopied(s.claudeId)}
+                  modePick={modePick}
                   onOpenSession={onOpenSession}
                   onFilterRepo={() => toggleRepoFilter(g.repoName)}
                   onFilterStatus={() => toggleStatusFilter(s.suggestedStatus)}
@@ -630,6 +706,7 @@ export function AgentSessions(
                   card={cardFor(s)}
                   copied={s.claudeId in copiedAt}
                   onCopied={() => markCopied(s.claudeId)}
+                  modePick={modePick}
                   onOpenSession={onOpenSession}
                   onFilterRepo={() => toggleRepoFilter(repoName)}
                   onFilterStatus={() => toggleStatusFilter(s.suggestedStatus)}
