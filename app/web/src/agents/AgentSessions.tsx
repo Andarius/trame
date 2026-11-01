@@ -111,16 +111,6 @@ function SessionRow(
         >
           {s.suggestedStatus === "active" ? "current" : "past"}
         </button>
-        {term && (
-          <button
-            type="button"
-            title="Running in a Trame terminal — click to show it"
-            onClick={() => revealTerminal(term)}
-            className="shrink-0 rounded border border-copper/50 bg-copper/10 px-1.5 py-px text-[9.5px] text-copper hover:brightness-125"
-          >
-            ▣ in Trame
-          </button>
-        )}
         {showRepo && (
           <button
             type="button"
@@ -135,6 +125,16 @@ function SessionRow(
             <span className="truncate text-[10.5px]" style={{ color: repoColor }}>
               {repoName}
             </span>
+          </button>
+        )}
+        {term && (
+          <button
+            type="button"
+            title="Running in a Trame terminal — click to show it"
+            onClick={() => revealTerminal(term)}
+            className="shrink-0 rounded border border-copper/50 bg-copper/10 px-1.5 py-px text-[9.5px] text-copper hover:brightness-125"
+          >
+            ▣ in Trame
           </button>
         )}
         <span
