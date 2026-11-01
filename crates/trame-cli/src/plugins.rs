@@ -1,7 +1,14 @@
 use crate::{help, target::data_file};
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
-use std::{env, fs, path::Path, path::PathBuf, process::Command};
+use std::{
+    env, fs,
+    io::Read,
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
+    sync::OnceLock,
+    time::{Duration, Instant},
+};
 
 const TRAME: &str = "https://github.com/Andarius/trame.git";
 
@@ -82,12 +89,55 @@ fn run(cmd: &mut Command) -> Result<()> {
     Ok(())
 }
 
-// PATH plus the usual per-user toolchain dirs, which a desktop launch may not carry
+// PATH plus the login shell's and the usual per-user toolchain dirs, which a desktop launch may not carry (nvm, …)
 fn build_path() -> std::ffi::OsString {
-    let home = PathBuf::from(env::var_os("HOME").unwrap_or_default());
-    let paths = env::var_os("PATH").unwrap_or_default();
-    let extra = [".cargo/bin", ".bun/bin"].map(|d| home.join(d));
-    env::join_paths(env::split_paths(&paths).chain(extra)).unwrap_or(paths)
+    static PATH: OnceLock<std::ffi::OsString> = OnceLock::new();
+    PATH.get_or_init(|| {
+        let home = PathBuf::from(env::var_os("HOME").unwrap_or_default());
+        let paths = env::var_os("PATH").unwrap_or_default();
+        let login = login_path().unwrap_or_default();
+        let extra = [".cargo/bin", ".bun/bin"].map(|d| home.join(d));
+        let all = env::split_paths(&paths)
+            .chain(env::split_paths(&login))
+            .chain(extra);
+        env::join_paths(all).unwrap_or(paths)
+    })
+    .clone()
+}
+
+const PATH_MARK: &str = "@@trame-path@@";
+
+/// `$PATH` as the user's interactive login shell sets it; `None` when it fails or hangs.
+fn login_path() -> Option<String> {
+    let shell = env::var("SHELL").ok().filter(|s| !s.is_empty())?;
+    let script = format!("printf '{PATH_MARK}%s{PATH_MARK}' \"$PATH\"");
+    let mut child = Command::new(shell)
+        .args(["-l", "-i", "-c", &script])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    // a slow or stuck shell profile must not hang the build
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while matches!(child.try_wait(), Ok(None)) {
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let mut out = String::new();
+    child.stdout.take()?.read_to_string(&mut out).ok()?;
+    marked_path(&out).map(str::to_owned)
+}
+
+/// The PATH between the markers, ignoring whatever the shell profile prints around it.
+fn marked_path(out: &str) -> Option<&str> {
+    let (_, rest) = out.split_once(PATH_MARK)?;
+    let (path, _) = rest.split_once(PATH_MARK)?;
+    Some(path).filter(|p| !p.is_empty())
 }
 
 fn on_path(tool: &str) -> bool {
@@ -286,6 +336,25 @@ mod tests {
             ("owner/repo@a@b", false),
         ] {
             assert_eq!(valid_spec(spec), want, "{spec}");
+        }
+    }
+
+    #[test]
+    fn login_path_skips_the_profile_noise() {
+        for (out, want) in [
+            (
+                "@@trame-path@@/a/bin:/b/bin@@trame-path@@",
+                Some("/a/bin:/b/bin"),
+            ),
+            (
+                "welcome!\n\x1b]7;file://x\x07@@trame-path@@/a/bin@@trame-path@@bye\n",
+                Some("/a/bin"),
+            ),
+            ("@@trame-path@@@@trame-path@@", None),
+            ("@@trame-path@@/a/bin", None),
+            ("", None),
+        ] {
+            assert_eq!(marked_path(out), want, "{out:?}");
         }
     }
 
