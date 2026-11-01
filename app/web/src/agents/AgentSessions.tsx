@@ -8,17 +8,13 @@ import {
 } from "../api";
 import { matchQuery, parseQuery } from "../query";
 import { clientColor, PresenceDot, SECTION_LABEL, STRING_CODEC, useLocalStorage, Select, timeAgo } from "../ui/ui";
+import { openTerminal, TermError } from "../term/term-api";
 import { AgentIcon, Elapsed, type Live, useAgents } from "./agents";
 
-// This view never launches terminals (unlike Drawer.tsx's tracked-card resume) —
-// it just hands you the command to paste.
 const shq = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`; // POSIX single-quote
-const resumeCmd = (s: ClaudeSession) => {
-  const cmd = s.source === "codex"
-    ? `codex resume ${s.claudeId}`
-    : `claude --resume ${s.claudeId}`;
-  return s.repoPath ? `cd ${shq(s.repoPath)} && ${cmd}` : cmd;
-};
+const agentCmd = (s: ClaudeSession) =>
+  s.source === "codex" ? `codex resume ${s.claudeId}` : `claude --resume ${s.claudeId}`;
+const resumeCmd = (s: ClaudeSession) => s.repoPath ? `cd ${shq(s.repoPath)} && ${agentCmd(s)}` : agentCmd(s);
 const COPIED_MS = 60_000; // how long a copied row stays highlighted
 
 // Brand marks (Simple Icons paths, 24×24); unknown agents fall back to their
@@ -143,7 +139,7 @@ function SessionRow(
             tracked ↗
           </button>
         )}
-        <ResumeButton session={s} onCopied={onCopied} />
+        <ResumeButton session={s} card={card?.id} onCopied={onCopied} />
       </div>
       {copied && (
         <div className="select-all break-all pl-8 pt-0.5 font-mono text-[10.5px] text-copper">
@@ -261,43 +257,67 @@ function LiveColumn(
 }
 
 function ResumeButton(
-  { session, onCopied }: { session: ClaudeSession; onCopied: () => void },
+  { session, card, onCopied }: { session: ClaudeSession; card?: string; onCopied: () => void },
 ) {
   const [msg, setMsg] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
 
   if (!session.repoPath) return null;
+  const repoPath = session.repoPath;
   const cmd = resumeCmd(session);
-
-  const copy = async () => {
-    let text: string;
-    try {
-      await navigator.clipboard.writeText(cmd);
-      text = "copied";
-      onCopied();
-    } catch {
-      text = "clipboard blocked";
-    }
+  const flash = (text: string, ms = 2500) => {
     setMsg(text);
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => setMsg(null), 2500);
+    timer.current = setTimeout(() => setMsg(null), ms);
   };
 
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(cmd);
+      onCopied();
+      flash("copied");
+    } catch {
+      flash("clipboard blocked");
+    }
+  };
+  const resume = async () => {
+    const agent = session.source === "codex" ? "Codex" : "Claude";
+    try {
+      await openTerminal({ cwd: repoPath, command: agentCmd(session), title: `${agent} · ${session.title}`, card });
+      flash("opened");
+    } catch (e) {
+      // a deleted worktree: its transcript can't be resumed anywhere else
+      flash(e instanceof TermError && e.info.code === "missing_cwd" ? "folder gone" : "failed", 5000);
+    }
+  };
+
+  const btn = "shrink-0 whitespace-nowrap border border-chipline py-1 text-[11px] text-ink-muted hover:border-copper/60 hover:text-copper";
   return (
-    <button
-      type="button"
-      title={`Copy to clipboard: ${cmd}`}
-      onClick={copy}
-      className="shrink-0 whitespace-nowrap rounded-md border border-chipline px-2 py-1 text-[11px] text-ink-muted hover:border-copper/60 hover:text-copper"
-    >
-      {msg ?? "⧉ Copy resume"}
-    </button>
+    <div className="flex shrink-0">
+      <button
+        type="button"
+        title={`Resume in a Trame terminal: ${cmd}`}
+        onClick={resume}
+        className={`${btn} rounded-l-md px-2`}
+      >
+        {msg ?? "⏵ Resume"}
+      </button>
+      <button
+        type="button"
+        title={`Copy to clipboard: ${cmd}`}
+        aria-label="Copy resume command"
+        onClick={copy}
+        className={`${btn} -ml-px rounded-r-md px-1.5`}
+      >
+        ⧉
+      </button>
+    </div>
   );
 }
 
 // Browse Claude Code + Codex transcripts found on this machine — current (touched
-// recently) and past — with one-click copy of the resume command, independent of
+// recently) and past — with one-click resume in a Trame terminal (or copy of the command), independent of
 // whether the session has ever been tracked as a Trame board card. Mainly useful
 // right after a reboot, when every terminal (and the memory of what was open) is gone.
 // last scan per day range, kept across visits to the view
