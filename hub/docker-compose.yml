@@ -43,7 +43,7 @@ services:
   # Bun terminates TLS itself with the same gen-certs material as the db. DB access
   # is docker-network-only; pg_hba scopes a scram rule to the fixed subnet below.
   trame-api:
-    image: oven/bun:1.4.4-alpine
+    image: oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a
     container_name: trame-api
     restart: unless-stopped
     depends_on:
