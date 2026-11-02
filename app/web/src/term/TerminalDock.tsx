@@ -71,8 +71,10 @@ export default function TerminalDock(
 ) {
   const dock = useTermDock();
   const { terms, tabs: allTabs } = dock;
-  // a shell running a /rename-d agent session is called by that name
-  const named = new Map(useTermSessions().filter((x) => x.named).map((x) => [x.term, x.name]));
+  // a shell running a /rename-d agent session is called by that name, and shows the agent's icon
+  const sessions = useTermSessions();
+  const named = new Map(sessions.filter((x) => x.named).map((x) => [x.term, x.name]));
+  const agentIn = new Map(sessions.map((x) => [x.term, x.agent]));
   const inScope = (t: TermTab) => {
     if (scope!.all) return true;
     if (scope!.term) return leaves(t.root).includes(scope!.term);
@@ -167,6 +169,7 @@ export default function TerminalDock(
             const panes = leaves(t.root);
             const lead = terms[t.focus];
             const name = named.get(t.focus) ?? panes.map((p) => named.get(p)).find(Boolean) ?? lead?.title;
+            const agent = agentIn.get(t.focus) ?? panes.map((p) => agentIn.get(p)).find(Boolean);
             const project = projectOf(board, lead?.card, lead?.cwd, lead?.project);
             const exited = panes.every((p) => terms[p]?.exited);
             return (
@@ -202,6 +205,7 @@ export default function TerminalDock(
                   onClick={() => (t.id === active && open && !scope ? setDockOpen(false) : selectTab(t.id))}
                 >
                   <ProjectMark project={project} />
+                  {agent && <AgentIcon a={{ harness: agent, icon: null }} />}
                   <span className={exited ? "opacity-50" : ""}>{name}</span>
                   {panes.length > 1 && <span className="pl-1 text-[10px] text-ink-faint">{panes.length}</span>}
                 </button>
@@ -482,6 +486,7 @@ function PaneHeader(
   const folder = cwd ? cwd.replace(/\/+$/, "").split("/").pop() || "/" : terms[id]?.title;
   const session = useTermSessions().find((x) => x.term === id && x.named);
   const title = [session?.name ?? folder, now?.process].filter(Boolean).join(" : ");
+  const agent = useTermSessions().find((x) => x.term === id)?.agent;
   return (
     <div
       draggable
@@ -496,7 +501,10 @@ function PaneHeader(
         focused ? "text-ink" : "text-ink-faint"
       }`}
     >
-      <span className="min-w-0 flex-1 truncate text-center">{title}</span>
+      <span className="flex min-w-0 flex-1 items-center justify-center gap-1.5">
+        {agent && <AgentIcon a={{ harness: agent, icon: null }} />}
+        <span className="truncate">{title}</span>
+      </span>
       <IconButton
         tone="close"
         className="px-1"

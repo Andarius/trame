@@ -190,7 +190,7 @@ export function TermCards(
                   title={x.busy ? "working" : "idle"}
                 />
                 <span className="min-w-0 flex-1 truncate">{sessionLabel(x)}</span>
-                <span className="shrink-0 text-[10.5px] text-ink-faint">{x.agent}</span>
+                <AgentIcon a={{ harness: x.agent, icon: null }} />
               </span>
             ))
           )}
