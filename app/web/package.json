@@ -52,6 +52,6 @@
     "lucide-static": "^1.24.0",
     "tailwindcss": "^4.0.0",
     "typescript": "^7.0.2",
-    "vite": "^6.0.0"
+    "vite": "^6.4.5"
   }
 }
