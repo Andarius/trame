@@ -210,12 +210,20 @@ export async function openTerminalAt(opts: TermOpts, at?: { tab: string; term: s
 }
 
 // a new shell next to the focused one, in the same folder
+// the folder a shell is in now (it may have cd'd since it started), else the one it started in
+export type TermNow = { cwd: string | null; process: string | null };
+// the folder a shell is in now and what runs in its foreground (the shell itself when idle)
+export const termNow = async (id: string) =>
+  (await call(`/api/term/${id}/now`).catch(() => null)) as TermNow | null;
+export const liveCwd = async (id: string) => (await termNow(id))?.cwd ?? state.terms[id]?.cwd ?? null;
+
+// a new shell beside the focused pane, in the folder that pane's shell is in now
 export async function splitTerminal(dir: SplitDir) {
   const current = activeTab();
   if (!current) return openTerminal({ cwd: null });
   if (leaves(current.root).length >= MAX_PANES) return;
   const lead = state.terms[current.focus];
-  const info = await create({ cwd: lead?.cwd ?? null, card: lead?.card ?? null });
+  const info = await create({ cwd: await liveCwd(current.focus), card: lead?.card ?? null });
   const next = { ...current, root: splitAt(current.root, current.focus, dir, info.id), focus: info.id };
   set({ tabs: state.tabs.map((t) => (t.id === current.id ? next : t)), open: true });
 }

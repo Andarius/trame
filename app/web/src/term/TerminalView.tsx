@@ -20,6 +20,12 @@ const theme = (): ITheme => ({
   cursorAccent: css("--color-block"),
   selectionBackground: `${css("--color-copper")}55`,
 });
+// xterm's own scrollbar slider, readable on either theme (a Ghostty theme sets none)
+const scrollbar = (): ITheme => ({
+  scrollbarSliderBackground: `${css("--color-ink-faint")}66`,
+  scrollbarSliderHoverBackground: `${css("--color-ink-faint")}99`,
+  scrollbarSliderActiveBackground: `${css("--color-ink-faint")}cc`,
+});
 
 type Notice = "superseded" | "gone" | null;
 
@@ -87,7 +93,7 @@ export function TerminalView(
       drawBoldTextInBrightColors: false, // Ghostty's default
       cursorBlink: true,
       scrollback: 10_000,
-      theme: theme(),
+      theme: { ...theme(), ...scrollbar() },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -179,7 +185,7 @@ export function TerminalView(
     let ghostty: TermTheme | null = null;
     // Ghostty's look when found; otherwise follow the app's light/dark switch
     const restyle = () => {
-      const t = ghostty?.theme ?? theme();
+      const t = { ...(ghostty?.theme ?? theme()), ...scrollbar() };
       term.options.theme = t;
       el.style.background = t.background ?? "";
     };

@@ -14,6 +14,17 @@ export function projectFolders(board: BoardData | null, project: string): string
 }
 
 const short = (path: string) => path.split("/").slice(-2).join("/");
+const FOLDERS_CODEC = {
+  parse: (raw: string): Record<string, string> => {
+    try {
+      const v: unknown = JSON.parse(raw);
+      return v && typeof v === "object" && !Array.isArray(v) ? v as Record<string, string> : {};
+    } catch {
+      return {};
+    }
+  },
+  stringify: (v: Record<string, string>) => JSON.stringify(v),
+};
 const SHELL = "shell";
 const STRING_CODEC = { parse: (r: string) => r, stringify: (v: string) => v };
 
@@ -42,11 +53,15 @@ export function NewTerminalDialog(
     known(presetProject) ?? known(hereProject) ?? known(lastProject),
   );
   const [error, setError] = useState<string | null>(null);
+  // the folder last opened per project ("" = none), preselected the next time
+  const [lastFolders, setLastFolders] = useLocalStorage<Record<string, string>>("trame:termFolders", {}, FOLDERS_CODEC);
+  const lastFolder = lastFolders[project ?? ""] ?? null;
   const list = useRef<HTMLDivElement>(null);
+  useEffect(() => void termAgents().then(setAgents), []);
   useEffect(() => {
-    void termAgents().then(setAgents);
-    list.current?.querySelector<HTMLButtonElement>("[data-choice]")?.focus({ preventScroll: true });
-  }, []);
+    const all = [...(list.current?.querySelectorAll<HTMLButtonElement>("[data-choice]") ?? [])];
+    (all.find((b) => b.dataset.folder === lastFolder) ?? all[0])?.focus({ preventScroll: true });
+  }, [project, lastFolder]);
   const chosen = agents?.find((a) => a.command === run) ?? null;
 
   const open = async (cwd: string | null, card: string | null = null) => {
@@ -55,6 +70,7 @@ export function NewTerminalDialog(
       await openTerminal(chosen ? { ...owner, command: chosen.command, title: chosen.label } : owner);
       setLast(chosen ? chosen.command : SHELL);
       setLastProject(project ?? "");
+      if (cwd) setLastFolders({ ...lastFolders, [project ?? ""]: cwd });
       onOpened(card, owner.project);
       onClose();
     } catch (e) {
@@ -73,7 +89,7 @@ export function NewTerminalDialog(
   const showHere = !!here && (project === null || project === hereProject);
   const choice = "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] text-ink-soft outline-none hover:bg-active-row hover:text-ink focus-visible:bg-active-row focus-visible:text-ink";
   const folder = (f: string, onClick = () => void open(f), label = short(f)) => (
-    <button key={f} type="button" data-choice className={choice} title={f} onClick={onClick}>
+    <button key={f} type="button" data-choice data-folder={f} className={choice} title={f} onClick={onClick}>
       <span className="text-ink-muted"><TerminalIcon /></span>
       <span className="truncate">{label}</span>
       <span className="ml-auto max-w-[55%] truncate text-[11px] text-ink-faint">{f}</span>
@@ -146,6 +162,8 @@ export function NewTerminalDialog(
             {showHere &&
               folder(here!.cwd ?? "~", () => void open(here!.cwd, here!.card), `Here · ${here!.cwd ? short(here!.cwd) : "~"}`)}
             {folders.filter((f) => !(showHere && f === here!.cwd)).map((f) => folder(f))}
+            {lastFolder && !(showHere && lastFolder === here!.cwd) && !folders.includes(lastFolder) &&
+              folder(lastFolder, undefined, `Last · ${short(lastFolder)}`)}
             {(showHere || folders.length > 0) && <div className="my-1 h-px bg-line" />}
             <button type="button" data-choice className={choice} onClick={() => void other()}>
               <span className="w-3.5 text-center text-ink-muted">…</span>
