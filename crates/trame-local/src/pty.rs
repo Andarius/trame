@@ -456,6 +456,30 @@ pub async fn serve(root: &Path, req: Request<Body>) -> Response {
             .unwrap_or_default();
             json_response(200, Value::Object(running))
         }
+        // an image a shell printed the path of, for the hover preview
+        (Method::GET, ["", "api", "term", "file"]) => {
+            let path = crate::sessions::query_param(req.uri().query().unwrap_or(""), "path");
+            let home = std::env::var_os("HOME").map(PathBuf::from);
+            let found =
+                crate::blocking::spawn(move || preview_image(path.as_deref()?, home.as_deref()))
+                    .await
+                    .ok()
+                    .flatten();
+            match found {
+                Some(Ok((mime, bytes))) => (
+                    axum::http::StatusCode::OK,
+                    [
+                        ("content-type", mime),
+                        ("x-content-type-options", "nosniff"),
+                        ("cache-control", "no-store"),
+                    ],
+                    bytes,
+                )
+                    .into_response(),
+                Some(Err(error)) => json_response(400, json!({"error":error})),
+                None => json_response(404, json!({"error":"no such image"})),
+            }
+        }
         (Method::GET, ["", "api", "term", "theme"]) => {
             let theme = crate::blocking::spawn(ghostty_theme).await.ok().flatten();
             json_response(200, theme.unwrap_or(Value::Null))
@@ -577,6 +601,39 @@ fn running_agents(
         }
     }
     out
+}
+
+const PREVIEW_MAX: u64 = 20 << 20;
+
+/// An image file's type and bytes, for an absolute or `~/` path; never another kind of file.
+fn preview_image(
+    path: &str,
+    home: Option<&Path>,
+) -> Option<Result<(&'static str, Vec<u8>), &'static str>> {
+    let path = match path.strip_prefix("~/") {
+        Some(rest) => home?.join(rest),
+        None => PathBuf::from(path),
+    };
+    if !path.is_absolute() {
+        return Some(Err("absolute path required"));
+    }
+    // the extension of the file read, not of a symlink pointing at it
+    let real = std::fs::canonicalize(&path).ok()?;
+    let Some(mime) = crate::platform::image_mime(&real.to_string_lossy()) else {
+        return Some(Err("not an image"));
+    };
+    let meta = std::fs::metadata(&real).ok()?;
+    if !meta.is_file() {
+        return None;
+    }
+    if meta.len() > PREVIEW_MAX {
+        return Some(Err("image too large"));
+    }
+    Some(
+        std::fs::read(&real)
+            .map(|b| (mime, b))
+            .map_err(|_| "unreadable"),
+    )
 }
 
 async fn create(root: &Path, body: &Value) -> Response {
@@ -935,7 +992,10 @@ fn parse_ghostty(config: &str) -> Option<Value> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_ghostty, process_cwd, process_name, repo_root, resolve_cwd, running_agents};
+    use super::{
+        parse_ghostty, preview_image, process_cwd, process_name, repo_root, resolve_cwd,
+        running_agents,
+    };
     use crate::diagnostics::Process;
     use serde_json::{Value, json};
     use std::fs;
@@ -981,6 +1041,33 @@ mod tests {
             Value::Object(running_agents(&all, &shells, session)),
             json!({"c-1":"t1","x-2":"t2"})
         );
+    }
+
+    #[test]
+    fn preview_serves_only_image_files() {
+        let root =
+            std::env::temp_dir().join(format!("trame-preview-{}", uuid::Uuid::new_v4().simple()));
+        fs::create_dir_all(root.join("shot.png")).unwrap();
+        fs::write(root.join("a.png"), b"png").unwrap();
+        fs::write(root.join("secret.txt"), b"key").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(root.join("secret.txt"), root.join("disguised.png")).unwrap();
+        let at = |p: &str| root.join(p).to_string_lossy().into_owned();
+        for (path, expected) in [
+            (at("a.png"), Some(Ok(("image/png", b"png".to_vec())))),
+            (
+                "~/a.png".to_owned(),
+                Some(Ok(("image/png", b"png".to_vec()))),
+            ),
+            (at("secret.txt"), Some(Err("not an image"))),
+            (at("disguised.png"), Some(Err("not an image"))),
+            (at("shot.png"), None), // a directory named like an image
+            (at("missing.png"), None),
+            ("a.png".to_owned(), Some(Err("absolute path required"))),
+        ] {
+            assert_eq!(preview_image(&path, Some(&root)), expected, "{path}");
+        }
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

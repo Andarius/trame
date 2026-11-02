@@ -77,6 +77,18 @@ export class TermError extends Error {
   }
 }
 
+// an image file a shell printed the path of, as an object URL the caller revokes
+export async function termImage(path: string) {
+  const r = await fetch(`/api/term/file?path=${encodeURIComponent(path)}`, {
+    headers: { [TOKEN_HEADER]: await termToken() },
+  });
+  if (!r.ok) {
+    const info = (await r.json().catch(() => ({}))) as Record<string, string>;
+    throw new TermError(info, info.error ?? `image: ${r.status}`);
+  }
+  return URL.createObjectURL(await r.blob());
+}
+
 // pick a local folder for a card path that doesn't exist here; remembered by the backend
 export const pickFolder = (from: string) =>
   call("/api/term/folders", { method: "POST", body: JSON.stringify({ from }) }) as Promise<

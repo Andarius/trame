@@ -280,6 +280,19 @@ pub(crate) fn pick_folder(prompt: &str, start: Option<&str>) -> Value {
     };
     dialog(commands, false)
 }
+/// The media type of an image file the app displays, from its extension.
+pub fn image_mime(path: &str) -> Option<&'static str> {
+    let ext = path.rsplit_once('.')?.1.to_lowercase();
+    Some(match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        _ => return None,
+    })
+}
+
 fn pick_image() -> Value {
     let commands = if cfg!(target_os = "macos") {
         vec![strings(&[
@@ -308,14 +321,9 @@ fn pick_image() -> Value {
     if bytes.len() > 10_000_000 {
         return json!({"error":"file too large (max 10 MB)"});
     }
-    let ext = path.rsplit('.').next().unwrap_or("").to_lowercase();
-    let mime = match ext.as_str() {
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "svg" => "image/svg+xml",
-        _ => return json!({"error":format!("not an image: .{ext}")}),
+    let Some(mime) = image_mime(path) else {
+        let ext = path.rsplit('.').next().unwrap_or("");
+        return json!({"error":format!("not an image: .{ext}")});
     };
     json!({"dataUri":format!("data:{mime};base64,{}",base64::engine::general_purpose::STANDARD.encode(bytes))})
 }

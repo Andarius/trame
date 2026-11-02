@@ -33,7 +33,7 @@ fn origin(db: &Db) -> Value {
     json!(db.origin)
 }
 
-fn query_param(query: &str, name: &str) -> Option<String> {
+pub(crate) fn query_param(query: &str, name: &str) -> Option<String> {
     reqwest::Url::parse(&format!("http://localhost/?{query}"))
         .ok()?
         .query_pairs()
