@@ -103,6 +103,25 @@ impl Term {
         self.buf.lock().unwrap().exit.is_some()
     }
 
+    /// The shell's current folder: it may have `cd`'d away from the one it started in.
+    fn live_cwd(&self) -> Option<String> {
+        self.pid.filter(|_| !self.exited()).and_then(process_cwd)
+    }
+
+    /// What runs in the foreground now (the shell itself when idle), for a Konsole-style pane title.
+    fn foreground(&self) -> Option<String> {
+        if self.exited() {
+            return None;
+        }
+        let leader = self
+            .master
+            .lock()
+            .unwrap()
+            .process_group_leader()
+            .or(self.pid)?;
+        process_name(leader)
+    }
+
     /// Snapshot and subscribe under one lock so no output falls between replay and live.
     fn attach(&self, from: Option<u64>) -> Attach {
         let buf = self.buf.lock().unwrap();
@@ -472,6 +491,19 @@ pub async fn serve(root: &Path, req: Request<Body>) -> Response {
             .unwrap_or_else(|_| json!({"error":"folder dialog failed"}));
             json_response(200, picked)
         }
+        (Method::GET, ["", "api", "term", id, "now"]) => {
+            let term = registry().terms.lock().unwrap().get(*id).cloned();
+            let Some(term) = term else {
+                return json_response(404, json!({"error":"not found"}));
+            };
+            let now = crate::blocking::spawn(move || {
+                let cwd = term.live_cwd().unwrap_or_else(|| term.cwd.clone());
+                json!({"cwd":cwd,"process":term.foreground()})
+            })
+            .await
+            .unwrap_or_else(|_| json!({"cwd":null,"process":null}));
+            json_response(200, now)
+        }
         (Method::DELETE, ["", "api", "term", id]) => {
             let id = (*id).to_owned();
             let found = crate::blocking::spawn(move || kill(&id))
@@ -648,6 +680,46 @@ async fn session(mut ws: WebSocket, id: String) {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn process_cwd(pid: i32) -> Option<String> {
+    std::fs::read_link(format!("/proc/{pid}/cwd"))
+        .ok()?
+        .into_os_string()
+        .into_string()
+        .ok()
+}
+
+#[cfg(target_os = "linux")]
+fn process_name(pid: i32) -> Option<String> {
+    let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
+    Some(comm.trim().to_owned()).filter(|c| !c.is_empty())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn process_name(pid: i32) -> Option<String> {
+    let out = std::process::Command::new("/bin/ps")
+        .args(["-o", "comm=", "-p", &pid.to_string()])
+        .output()
+        .ok()?;
+    let comm = String::from_utf8(out.stdout).ok()?;
+    let name = comm.trim().rsplit('/').next()?.trim_start_matches('-');
+    Some(name.to_owned()).filter(|n| !n.is_empty())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn process_cwd(pid: i32) -> Option<String> {
+    let out = std::process::Command::new("/usr/sbin/lsof")
+        .args(["-a", "-d", "cwd", "-Fn", "-p", &pid.to_string()])
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    String::from_utf8(out.stdout)
+        .ok()?
+        .lines()
+        .find_map(|l| l.strip_prefix('n'))
+        .map(str::to_owned)
+}
+
 /// Agent CLIs the launcher offers, as (command, label).
 const AGENTS: [(&str, &str); 5] = [
     ("claude", "Claude Code"),
@@ -792,7 +864,7 @@ fn parse_ghostty(config: &str) -> Option<Value> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_ghostty, repo_root, resolve_cwd};
+    use super::{parse_ghostty, process_cwd, process_name, repo_root, resolve_cwd};
     use serde_json::{Value, json};
     use std::fs;
 
@@ -884,5 +956,23 @@ mod tests {
         ] {
             assert_eq!(repo_root(asked), repo, "{asked}");
         }
+    }
+
+    #[test]
+    fn a_process_reports_its_live_folder_and_name() {
+        let pid = i32::try_from(std::process::id()).unwrap();
+        let here = std::env::current_dir().unwrap();
+        assert_eq!(process_cwd(pid).map(std::path::PathBuf::from), Some(here));
+        let exe = std::env::current_exe().unwrap();
+        let name = process_name(pid).unwrap();
+        // Linux truncates comm to 15 bytes
+        assert!(
+            exe.file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with(&name),
+            "{name}"
+        );
     }
 }

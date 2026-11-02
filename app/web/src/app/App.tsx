@@ -620,9 +620,10 @@ export function App() {
     setOpenId(null);
     setView("terminals");
   };
-  // the Terminals view shows a card's shells, a project's shells without a card ("project:<id>"), or plain ones
+  // the Terminals view shows every shell ("all"), a card's, a project's without a card ("project:<id>"), or plain ones
+  const termAll = termSel === "all";
   const termProject = termSel?.startsWith("project:") ? termSel.slice("project:".length) : null;
-  const termCard = termSel === "plain" || termProject
+  const termCard = termSel === "plain" || termAll || termProject
     ? null
     : termSel ?? board?.sessions.find((s) => Object.values(termDock.terms).some((t) => t.card === s.id))?.id ?? null;
   const termSession = termCard ? board?.sessions.find((s) => s.id === termCard) ?? null : null;
@@ -695,6 +696,8 @@ export function App() {
               board={board}
               selected={termCard}
               selectedProject={termProject}
+              all={termAll}
+              onSelectAll={() => setTermSel("all")}
               onSelect={(card) => setTermSel(card ?? "plain")}
               onSelectProject={(p) => setTermSel(`project:${p}`)}
             />
@@ -990,6 +993,7 @@ export function App() {
               board={board}
               scope={terminals
                 ? {
+                  all: termAll,
                   card: termCard,
                   project: termProject,
                   cwd: termSession?.repo_path ?? (termProject ? projectFolders(board, termProject)[0] ?? null : null),

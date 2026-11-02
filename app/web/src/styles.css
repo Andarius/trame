@@ -177,3 +177,10 @@ body {
     animation: none;
   }
 }
+
+/* a terminal's scrollbar stays shown, like Konsole's; xterm's `invisible` class also hits Tailwind's utility */
+.xterm .xterm-scrollable-element > .scrollbar.vertical.invisible {
+  opacity: 1;
+  pointer-events: auto;
+  visibility: inherit;
+}

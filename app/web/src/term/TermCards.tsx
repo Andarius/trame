@@ -13,10 +13,12 @@ const GROUPING_LABEL: Record<Grouping, string> = { project: "Project", status: "
 // The Terminals view's sidebar column: cards with shells or a live agent, grouped by project, status or not at all
 // (Orca's project → branch list, with cards); `selected` stays listed even without either.
 export function TermCards(
-  { board, selected, selectedProject, onSelect, onSelectProject }: {
+  { board, selected, selectedProject, all, onSelectAll, onSelect, onSelectProject }: {
     board: BoardData | null;
     selected: string | null;
     selectedProject: string | null; // its project shells are shown (selected is then null)
+    all: boolean; // every shell is shown (selected and selectedProject are then null)
+    onSelectAll: () => void;
     onSelect: (card: string | null) => void;
     onSelectProject: (project: string) => void;
   },
@@ -66,6 +68,7 @@ export function TermCards(
     return (own.find((t) => t.id === active) ?? own[0])?.id;
   };
   const plain = plainShells.count;
+  const everyShell = Object.values(terms);
   const projectRow = (p: string, label: string) =>
     row(`project:${p}`, selectedProject === p, () => onSelectProject(p), (
       <span className="flex w-full items-center gap-2">
@@ -118,6 +121,13 @@ export function TermCards(
           No terminals yet. Open one from a card with Open in agent → Trame terminal.
         </p>
       )}
+      {everyShell.length > 0 && row("all", all, onSelectAll, (
+        <span className="flex w-full items-center gap-2">
+          <span className="w-[7px] text-center text-ink-faint">·</span>
+          <span className="flex-1">All shells</span>
+          {count({ count: everyShell.length, running: everyShell.filter((t) => !t.exited).length })}
+        </span>
+      ))}
       {keys.map((key) => (
         <section key={key ?? "none"} className="flex flex-col gap-0.5">
           {grouping !== "none" && (
@@ -162,7 +172,7 @@ export function TermCards(
         <section className="flex flex-col gap-0.5">
           <div className={`px-2 pb-1 ${SECTION_LABEL}`}>OTHER</div>
           {grouping !== "project" && [...projectShells.keys()].map((p) => projectRow(p, `${projectName(board, p)} shells`))}
-          {plain > 0 && row("plain", selected === null && !selectedProject, () => onSelect(null), (
+          {plain > 0 && row("plain", selected === null && !selectedProject && !all, () => onSelect(null), (
             <span className="flex w-full items-center gap-2">
               <span className="w-[7px] text-center text-ink-faint">·</span>
               <span className="flex-1">Shells without a card</span>
