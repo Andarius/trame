@@ -438,23 +438,16 @@ pub async fn serve(root: &Path, req: Request<Body>) -> Response {
             json_response(200, Value::Array(agents))
         }
         (Method::GET, ["", "api", "term", "running"]) => {
-            let shells: Vec<(String, u32)> = {
-                let terms = registry().terms.lock().unwrap();
-                terms
-                    .values()
-                    .filter(|t| !t.exited())
-                    .filter_map(|t| Some((t.id.clone(), u32::try_from(t.pid?).ok()?)))
-                    .collect()
-            };
-            let running = crate::blocking::spawn(move || {
-                let dir = claude_dir();
-                running_agents(&crate::diagnostics::processes(), &shells, |pid| {
-                    claude_session(dir.as_deref()?, pid)
-                })
-            })
-            .await
-            .unwrap_or_default();
-            json_response(200, Value::Object(running))
+            let running = running_in_shells().await;
+            let map = running
+                .into_iter()
+                .map(|r| (r.session.id, Value::String(r.term)))
+                .collect();
+            json_response(200, Value::Object(map))
+        }
+        // the agent sessions running in Trame shells, with their name and state
+        (Method::GET, ["", "api", "term", "sessions"]) => {
+            json_response(200, json!(running_in_shells().await))
         }
         // an image a shell printed the path of, for the hover preview
         (Method::GET, ["", "api", "term", "file"]) => {
@@ -571,32 +564,86 @@ fn claude_dir() -> Option<PathBuf> {
         .or_else(|| Some(PathBuf::from(std::env::var_os("HOME")?).join(".claude")))
 }
 
-fn claude_session(dir: &Path, pid: u32) -> Option<String> {
+/// An agent's transcript and, for Claude, its `/rename` name and busy state.
+#[derive(Debug, PartialEq, serde::Serialize)]
+struct AgentSession {
+    id: String,
+    name: Option<String>,
+    named: bool, // the name was set by the user, not derived from the folder
+    busy: bool,
+}
+
+#[derive(Debug, PartialEq, serde::Serialize)]
+struct Running {
+    term: String,
+    agent: &'static str,
+    #[serde(flatten)]
+    session: AgentSession,
+}
+
+fn claude_session(dir: &Path, pid: u32) -> Option<AgentSession> {
     let raw = std::fs::read(dir.join("sessions").join(format!("{pid}.json"))).ok()?;
     let file: Value = serde_json::from_slice(&raw).ok()?;
     if file["pid"].as_u64() != Some(u64::from(pid)) {
         return None;
     }
-    file["sessionId"].as_str().map(str::to_owned)
+    Some(AgentSession {
+        id: file["sessionId"].as_str()?.to_owned(),
+        name: file["name"].as_str().map(str::to_owned),
+        named: file["nameSource"] == "user",
+        busy: file["status"] == "busy",
+    })
 }
 
-/// `{transcript id: term id}` for the Claude (by `session_of`) and `codex resume` runs under each shell.
+async fn running_in_shells() -> Vec<Running> {
+    let shells: Vec<(String, u32)> = {
+        let terms = registry().terms.lock().unwrap();
+        terms
+            .values()
+            .filter(|t| !t.exited())
+            .filter_map(|t| Some((t.id.clone(), u32::try_from(t.pid?).ok()?)))
+            .collect()
+    };
+    crate::blocking::spawn(move || {
+        let dir = claude_dir();
+        running_agents(&crate::diagnostics::processes(), &shells, |pid| {
+            claude_session(dir.as_deref()?, pid)
+        })
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// The Claude (by `session_of`) and `codex resume` runs under each shell.
 fn running_agents(
     all: &[crate::diagnostics::Process],
     shells: &[(String, u32)],
-    session_of: impl Fn(u32) -> Option<String>,
-) -> serde_json::Map<String, Value> {
-    let mut out = serde_json::Map::new();
+    session_of: impl Fn(u32) -> Option<AgentSession>,
+) -> Vec<Running> {
+    let mut out = Vec::new();
     for (term, pid) in shells {
         for p in crate::diagnostics::tree(all, *pid) {
             let codex = || {
                 let at = p.args.iter().position(|a| a == "resume")?;
                 let exe = if at == 0 { &p.name } else { &p.args[at - 1] };
                 exe.rsplit('/').next().filter(|e| *e == "codex")?;
-                p.args.get(at + 1).cloned()
+                let id = p.args.get(at + 1)?.clone();
+                Some(AgentSession {
+                    id,
+                    name: None,
+                    named: false,
+                    busy: false,
+                })
             };
-            if let Some(id) = session_of(p.pid).or_else(codex) {
-                out.insert(id, Value::String(term.clone()));
+            let found = session_of(p.pid)
+                .map(|s| ("claude", s))
+                .or_else(|| codex().map(|s| ("codex", s)));
+            if let Some((agent, session)) = found {
+                out.push(Running {
+                    term: term.clone(),
+                    agent,
+                    session,
+                });
             }
         }
     }
@@ -993,8 +1040,8 @@ fn parse_ghostty(config: &str) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_ghostty, preview_image, process_cwd, process_name, repo_root, resolve_cwd,
-        running_agents,
+        AgentSession, parse_ghostty, preview_image, process_cwd, process_name, repo_root,
+        resolve_cwd, running_agents,
     };
     use crate::diagnostics::Process;
     use serde_json::{Value, json};
@@ -1032,14 +1079,23 @@ mod tests {
             proc(40, 1, "claude", &[]), // outside any Trame shell
         ];
         let shells = [("t1".into(), 10), ("t2".into(), 20), ("t3".into(), 30)];
+        let claude = |id: &str| AgentSession {
+            id: id.into(),
+            name: Some("test".into()),
+            named: true,
+            busy: true,
+        };
         let session = |pid| match pid {
-            11 => Some("c-1".to_owned()),
-            40 => Some("c-out".to_owned()),
+            11 => Some(claude("c-1")),
+            40 => Some(claude("c-out")),
             _ => None,
         };
         assert_eq!(
-            Value::Object(running_agents(&all, &shells, session)),
-            json!({"c-1":"t1","x-2":"t2"})
+            json!(running_agents(&all, &shells, session)),
+            json!([
+                {"term":"t1","agent":"claude","id":"c-1","name":"test","named":true,"busy":true},
+                {"term":"t2","agent":"codex","id":"x-2","name":null,"named":false,"busy":false},
+            ])
         );
     }
 

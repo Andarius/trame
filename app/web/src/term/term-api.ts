@@ -275,6 +275,34 @@ export const selectTab = (id: string) => set({ active: id, open: true });
 // `{transcript id: term id}` for the Claude/Codex sessions running in a live shell
 export const runningAgents = () => call("/api/term/running") as Promise<Record<string, string>>;
 
+// an agent session running in a Trame shell; `named` = the user set its name with /rename
+export type TermSession = { term: string; agent: string; id: string; name: string | null; named: boolean; busy: boolean };
+const SESSIONS_POLL_MS = 3000;
+let sessions: TermSession[] = [];
+const sessionListeners = new Set<() => void>();
+let sessionTimer: ReturnType<typeof setInterval> | undefined;
+const pollSessions = () =>
+  void (call("/api/term/sessions") as Promise<TermSession[]>).then((next) => {
+    if (JSON.stringify(next) === JSON.stringify(sessions)) return;
+    sessions = next;
+    sessionListeners.forEach((l) => l());
+  }, () => {});
+// polled while something shows them
+const subscribeSessions = (l: () => void) => {
+  sessionListeners.add(l);
+  if (sessionListeners.size === 1) {
+    pollSessions();
+    sessionTimer = setInterval(pollSessions, SESSIONS_POLL_MS);
+  }
+  return () => {
+    sessionListeners.delete(l);
+    if (sessionListeners.size === 0) clearInterval(sessionTimer);
+  };
+};
+export const useTermSessions = () => useSyncExternalStore(subscribeSessions, () => sessions);
+// what a session is called: its /rename name, else the agent's own
+export const sessionLabel = (s: TermSession) => s.name ?? s.agent;
+
 // opens the dock on the tab holding `term`, focused on it; a shell no tab holds yet (opened elsewhere) gets one
 export async function revealTerminal(term: string) {
   const t = state.tabs.find((x) => leaves(x.root).includes(term));
