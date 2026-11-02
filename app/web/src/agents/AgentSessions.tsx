@@ -131,7 +131,7 @@ function SessionRow(
           <button
             type="button"
             title="Running in a Trame terminal — click to show it"
-            onClick={() => revealTerminal(term)}
+            onClick={() => void revealTerminal(term)}
             className="shrink-0 rounded border border-copper/50 bg-copper/10 px-1.5 py-px text-[9.5px] text-copper hover:brightness-125"
           >
             ▣ in Trame
