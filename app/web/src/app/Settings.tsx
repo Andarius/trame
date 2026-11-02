@@ -17,6 +17,7 @@ import {
 } from "../api";
 import { PresencePreview } from "../agents/PresencePreview";
 import { applyScale, getScale, SCALES } from "../ui/scale";
+import { getPreviewSize, PREVIEW_SIZES, type PreviewSize, setPreviewSize } from "../term/preview-size";
 import { applyTheme, getTheme, type Theme } from "../ui/theme";
 import { CheckRow, Footer, label, pill, seg, segTrack } from "../modals/modal-ui";
 import { IconButton, SECTION_LABEL } from "../ui/ui";
@@ -242,6 +243,7 @@ export function Settings(
   const [updState, setUpdState] = useState<"idle" | "busy" | "done">("idle");
   const [updError, setUpdError] = useState<string>();
   const [scale, setScale] = useState(getScale);
+  const [previewSize, setPreviewSizeState] = useState(getPreviewSize);
   const [theme, setTheme] = useState(getTheme);
   const [authorName, setAuthorName] = useState("");
   const [authorAvatar, setAuthorAvatar] = useState("");
@@ -423,6 +425,28 @@ export function Settings(
             ))}
           </div>
           <span className="text-[12px] text-ink-muted/70">applies instantly</span>
+        </div>
+
+        <div className="h-px bg-line" />
+        <div className={HEADING}>Terminal image preview</div>
+        <div className="flex items-center gap-2">
+          <div className={segTrack}>
+            {(Object.keys(PREVIEW_SIZES) as PreviewSize[]).map((s) => (
+              <button
+                key={s}
+                type="button"
+                aria-pressed={s === previewSize} className={seg(s === previewSize)}
+                title={`up to ${PREVIEW_SIZES[s].w}×${PREVIEW_SIZES[s].h}`}
+                onClick={() => {
+                  setPreviewSizeState(s);
+                  setPreviewSize(s);
+                }}
+              >
+                {PREVIEW_SIZES[s].label}
+              </button>
+            ))}
+          </div>
+          <span className="text-[12px] text-ink-muted/70">hover an image path in a terminal; click for full size</span>
         </div>
 
         <div className="h-px bg-line" />
