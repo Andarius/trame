@@ -204,8 +204,10 @@ export default function TerminalDock(
                   className="flex items-center gap-1.5"
                   onClick={() => (t.id === active && open && !scope ? setDockOpen(false) : selectTab(t.id))}
                 >
-                  <ProjectMark project={project} />
-                  {agent && <AgentIcon a={{ harness: agent, icon: null }} />}
+                  {/* one mark: the project's, else the agent's */}
+                  {project?.icon || project?.color || !agent
+                    ? <ProjectMark project={project} />
+                    : <AgentIcon a={{ harness: agent, icon: null }} />}
                   <span className={exited ? "opacity-50" : ""}>{name}</span>
                   {panes.length > 1 && <span className="pl-1 text-[10px] text-ink-faint">{panes.length}</span>}
                 </button>
