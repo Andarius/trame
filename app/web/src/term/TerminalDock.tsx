@@ -14,6 +14,7 @@ import {
   leaves,
   liveCwd,
   termNow,
+  useTermSessions,
   mergeTab,
   MAX_PANES,
   moveTerm,
@@ -54,7 +55,7 @@ const projectOf = (
 };
 
 // The Terminals view narrows the dock to one card's tabs, a project's shells, plain ones, or keeps all of them.
-export type DockScope = { all?: boolean; card: string | null; project: string | null; cwd: string | null };
+export type DockScope = { all?: boolean; term?: string | null; card: string | null; project: string | null; cwd: string | null };
 
 // Bottom panel of embedded terminals: a tab strip that stays when collapsed, shells kept mounted.
 // With a `scope` it is the Terminals view's center instead: always open, full size, one card's tabs.
@@ -70,8 +71,11 @@ export default function TerminalDock(
 ) {
   const dock = useTermDock();
   const { terms, tabs: allTabs } = dock;
+  // a shell running a /rename-d agent session is called by that name
+  const named = new Map(useTermSessions().filter((x) => x.named).map((x) => [x.term, x.name]));
   const inScope = (t: TermTab) => {
     if (scope!.all) return true;
+    if (scope!.term) return leaves(t.root).includes(scope!.term);
     const cards = tabCards(t, terms);
     if (scope!.card !== null) return cards.includes(scope!.card);
     // no card: shells whose card isn't on this board, by project like TermCards lists them
@@ -162,6 +166,7 @@ export default function TerminalDock(
           {tabs.map((t) => {
             const panes = leaves(t.root);
             const lead = terms[t.focus];
+            const name = named.get(t.focus) ?? panes.map((p) => named.get(p)).find(Boolean) ?? lead?.title;
             const project = projectOf(board, lead?.card, lead?.cwd, lead?.project);
             const exited = panes.every((p) => terms[p]?.exited);
             return (
@@ -197,12 +202,12 @@ export default function TerminalDock(
                   onClick={() => (t.id === active && open && !scope ? setDockOpen(false) : selectTab(t.id))}
                 >
                   <ProjectMark project={project} />
-                  <span className={exited ? "opacity-50" : ""}>{lead?.title}</span>
+                  <span className={exited ? "opacity-50" : ""}>{name}</span>
                   {panes.length > 1 && <span className="pl-1 text-[10px] text-ink-faint">{panes.length}</span>}
                 </button>
                 <IconButton
                   tone="close"
-                  aria-label={`Close ${lead?.title}`}
+                  aria-label={`Close ${name}`}
                   title={panes.length > 1 ? "close the tab (ends its processes)" : "close (ends the process)"}
                   className="opacity-0 group-hover:opacity-100"
                   onClick={() => void closeTab(t.id)}
@@ -475,7 +480,8 @@ function PaneHeader(
   }, [id, live]);
   const cwd = now?.cwd ?? terms[id]?.cwd ?? null;
   const folder = cwd ? cwd.replace(/\/+$/, "").split("/").pop() || "/" : terms[id]?.title;
-  const title = [folder, now?.process].filter(Boolean).join(" : ");
+  const session = useTermSessions().find((x) => x.term === id && x.named);
+  const title = [session?.name ?? folder, now?.process].filter(Boolean).join(" : ");
   return (
     <div
       draggable

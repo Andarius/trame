@@ -4,7 +4,7 @@ import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
 import { EntityIcon, enumCodec, SECTION_LABEL, StatusDot, useLocalStorage } from "../ui/ui";
 import { NewTerminalDialog } from "./NewTerminalDialog";
-import { setTermDrag, tabCards, type TermDrag, useTermDock } from "./term-api";
+import { revealTerminal, sessionLabel, setTermDrag, tabCards, type TermDrag, useTermDock, useTermSessions } from "./term-api";
 
 const GROUPINGS = ["project", "status", "none"] as const;
 type Grouping = typeof GROUPINGS[number];
@@ -13,12 +13,14 @@ const GROUPING_LABEL: Record<Grouping, string> = { project: "Project", status: "
 // The Terminals view's sidebar column: cards with shells or a live agent, grouped by project, status or not at all
 // (Orca's project → branch list, with cards); `selected` stays listed even without either.
 export function TermCards(
-  { board, selected, selectedProject, all, onSelectAll, onSelect, onSelectProject }: {
+  { board, selected, selectedProject, all, selectedTerm, onSelectAll, onSelectTerm, onSelect, onSelectProject }: {
     board: BoardData | null;
     selected: string | null;
     selectedProject: string | null; // its project shells are shown (selected is then null)
     all: boolean; // every shell is shown (selected and selectedProject are then null)
+    selectedTerm: string | null; // the shell of an agent session (the others are then null)
     onSelectAll: () => void;
+    onSelectTerm: (term: string) => void;
     onSelect: (card: string | null) => void;
     onSelectProject: (project: string) => void;
   },
@@ -47,6 +49,11 @@ export function TermCards(
       if (!t.exited) plainShells.running++;
     }
   }
+  // agent sessions in shells no card on this board holds: one entry each
+  const loose = useTermSessions().filter((x) => {
+    const card = terms[x.term]?.card;
+    return !(card && known.has(card));
+  });
   const cards = (board?.sessions ?? []).filter((s) => shells.has(s.id) || agentOf.has(s.id) || s.id === selected);
   const keyOf = (s: Session) => grouping === "project" ? s.client_id : grouping === "status" ? s.status : "all";
   const groups = new Map<string | null, Session[]>();
@@ -168,11 +175,26 @@ export function TermCards(
           )}
         </section>
       ))}
-      {(plain > 0 || (grouping !== "project" && projectShells.size > 0)) && (
+      {(plain > 0 || loose.length > 0 || (grouping !== "project" && projectShells.size > 0)) && (
         <section className="flex flex-col gap-0.5">
           <div className={`px-2 pb-1 ${SECTION_LABEL}`}>OTHER</div>
           {grouping !== "project" && [...projectShells.keys()].map((p) => projectRow(p, `${projectName(board, p)} shells`))}
-          {plain > 0 && row("plain", selected === null && !selectedProject && !all, () => onSelect(null), (
+          {loose.map((x) =>
+            row(`term:${x.term}:${x.id}`, selectedTerm === x.term, () => {
+              onSelectTerm(x.term);
+              void revealTerminal(x.term);
+            }, (
+              <span className="flex w-full items-center gap-2" title={`${x.agent} · ${x.id}`}>
+                <span
+                  className={`h-[7px] w-[7px] shrink-0 rounded-full ${x.busy ? "bg-live" : "bg-ink-faint"}`}
+                  title={x.busy ? "working" : "idle"}
+                />
+                <span className="min-w-0 flex-1 truncate">{sessionLabel(x)}</span>
+                <span className="shrink-0 text-[10.5px] text-ink-faint">{x.agent}</span>
+              </span>
+            ))
+          )}
+          {plain > 0 && row("plain", selected === null && !selectedProject && !all && !selectedTerm, () => onSelect(null), (
             <span className="flex w-full items-center gap-2">
               <span className="w-[7px] text-center text-ink-faint">·</span>
               <span className="flex-1">Shells without a card</span>

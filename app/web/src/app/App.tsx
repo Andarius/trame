@@ -623,7 +623,9 @@ export function App() {
   // the Terminals view shows every shell ("all"), a card's, a project's without a card ("project:<id>"), or plain ones
   const termAll = termSel === "all";
   const termProject = termSel?.startsWith("project:") ? termSel.slice("project:".length) : null;
-  const termCard = termSel === "plain" || termAll || termProject
+  // one shell, for an agent session running in it ("term:<id>")
+  const termShell = termSel?.startsWith("term:") ? termSel.slice("term:".length) : null;
+  const termCard = termSel === "plain" || termAll || termProject || termShell
     ? null
     : termSel ?? board?.sessions.find((s) => Object.values(termDock.terms).some((t) => t.card === s.id))?.id ?? null;
   const termSession = termCard ? board?.sessions.find((s) => s.id === termCard) ?? null : null;
@@ -697,7 +699,9 @@ export function App() {
               selected={termCard}
               selectedProject={termProject}
               all={termAll}
+              selectedTerm={termShell}
               onSelectAll={() => setTermSel("all")}
+              onSelectTerm={(id) => setTermSel(`term:${id}`)}
               onSelect={(card) => setTermSel(card ?? "plain")}
               onSelectProject={(p) => setTermSel(`project:${p}`)}
             />
@@ -994,6 +998,7 @@ export function App() {
               scope={terminals
                 ? {
                   all: termAll,
+                  term: termShell,
                   card: termCard,
                   project: termProject,
                   cwd: termSession?.repo_path ?? (termProject ? projectFolders(board, termProject)[0] ?? null : null),
