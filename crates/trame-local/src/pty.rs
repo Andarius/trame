@@ -224,6 +224,12 @@ pub fn spawn(
             cmd.env_remove(&key);
         }
     }
+    for (key, value) in crate::host_env::host_env() {
+        match value {
+            Some(value) => cmd.env(key, value),
+            None => cmd.env_remove(key),
+        }
+    }
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "trame");
@@ -735,7 +741,14 @@ fn installed_agents() -> Vec<Value> {
     let names = AGENTS.map(|(c, _)| c).join(" ");
     let script =
         format!("for c in {names}; do command -v \"$c\" >/dev/null 2>&1 && echo \"@@$c\"; done");
-    let Ok(mut child) = std::process::Command::new(&shell)
+    let mut probe = std::process::Command::new(&shell);
+    for (key, value) in crate::host_env::host_env() {
+        match value {
+            Some(value) => probe.env(key, value),
+            None => probe.env_remove(key),
+        };
+    }
+    let Ok(mut child) = probe
         .args(["-l", "-i", "-c", &script])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())

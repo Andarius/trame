@@ -13,6 +13,7 @@ pub mod demo;
 pub mod diagnostics;
 pub mod files;
 pub mod forge;
+pub mod host_env;
 pub mod imports;
 pub mod json;
 pub mod local;
