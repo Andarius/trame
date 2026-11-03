@@ -2,6 +2,9 @@
 // holds the per-launch token in memory and the dock's tab list.
 import { useSyncExternalStore } from "react";
 import { readStore, writeStore } from "../ui/storage";
+import { nextUnseen, type TermSession } from "./attention";
+
+export type { TermSession };
 
 // `card`: the card the shell was opened for (Open in agent, the Terminals view), else null
 // `project`: the project a shell without a card was opened for
@@ -275,18 +278,25 @@ export const selectTab = (id: string) => set({ active: id, open: true });
 // `{transcript id: term id}` for the Claude/Codex sessions running in a live shell
 export const runningAgents = () => call("/api/term/running") as Promise<Record<string, string>>;
 
-// an agent session running in a Trame shell; `named` = the user set its name with /rename
-export type TermSession = { term: string; agent: string; id: string; name: string | null; named: boolean; busy: boolean };
 const SESSIONS_POLL_MS = 3000;
 let sessions: TermSession[] = [];
+// shells whose agent finished while you looked elsewhere
+let unseen: ReadonlySet<string> = new Set();
 const sessionListeners = new Set<() => void>();
 let sessionTimer: ReturnType<typeof setInterval> | undefined;
 const pollSessions = () =>
   void (call("/api/term/sessions") as Promise<TermSession[]>).then((next) => {
     if (JSON.stringify(next) === JSON.stringify(sessions)) return;
+    unseen = nextUnseen(sessions, next, unseen);
     sessions = next;
     sessionListeners.forEach((l) => l());
   }, () => {});
+// the shell is in front of you: it no longer needs you for having finished
+export const seeTerm = (term: string) => {
+  if (!unseen.has(term)) return;
+  unseen = new Set([...unseen].filter((t) => t !== term));
+  sessionListeners.forEach((l) => l());
+};
 // polled while something shows them
 const subscribeSessions = (l: () => void) => {
   sessionListeners.add(l);
@@ -300,6 +310,7 @@ const subscribeSessions = (l: () => void) => {
   };
 };
 export const useTermSessions = () => useSyncExternalStore(subscribeSessions, () => sessions);
+export const useUnseenTerms = () => useSyncExternalStore(subscribeSessions, () => unseen);
 // what a session is called: its /rename name, else the agent's own
 export const sessionLabel = (s: TermSession) => s.name ?? s.agent;
 
