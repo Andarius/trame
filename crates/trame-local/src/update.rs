@@ -468,11 +468,53 @@ async fn pending_plugins(root: &Path, settings: &Path) -> Vec<Value> {
         .collect()
 }
 
-static BUILDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+// when the running rebuild started
+static BUILDING: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+
+fn building_since() -> std::sync::MutexGuard<'static, Option<Instant>> {
+    BUILDING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+// (marker a log line starts with, once trimmed, phase it opens); the last match wins
+const PHASES: &[(&str, &str)] = &[
+    ("bun install", "Installing dependencies"),
+    ("gen-plugins:", "Composing plugins"),
+    ("> vite build", "Building the web app"),
+    ("Compiling ", "Compiling"),
+    ("Built application", "Packaging the AppImage"),
+    ("installed ", "Installing"),
+];
+
+/// The phase a rebuild log has reached and its last line, without ANSI codes or overwritten progress.
+fn progress(log: &str) -> (&'static str, String) {
+    let ansi = regex::Regex::new(r"\x1b\[[0-9;?]*[A-Za-z]").expect("valid regex");
+    let mut phase = "Starting";
+    let mut last = String::new();
+    for raw in log.lines() {
+        let clean = ansi.replace_all(raw.rsplit('\r').next().unwrap_or(""), "");
+        let line = clean.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some((_, p)) = PHASES.iter().rev().find(|(m, _)| line.starts_with(m)) {
+            phase = p;
+        }
+        line.clone_into(&mut last);
+    }
+    (phase, last.chars().take(200).collect())
+}
+
+/// `{phase, line, elapsedSecs}` of the running rebuild, from the tail of its log.
+fn build_progress(log: &Path, since: Instant) -> Value {
+    let text = std::fs::read(log).unwrap_or_default();
+    let (phase, line) = progress(&String::from_utf8_lossy(&text));
+    json!({"phase": phase, "line": line, "elapsedSecs": since.elapsed().as_secs()})
+}
 
 /// Rebuilds this `AppImage` with its plugins at Trame's latest release and swaps it in place.
 async fn rebuild(image: &Path, root: &Path, latest: Option<String>) -> Value {
-    use std::sync::atomic::Ordering;
     let Some(cli) = std::env::current_exe()
         .ok()
         .map(|exe| exe.with_file_name("tramecli"))
@@ -480,41 +522,52 @@ async fn rebuild(image: &Path, root: &Path, latest: Option<String>) -> Value {
     else {
         return json!({"ok":false,"error":"no tramecli next to this build"});
     };
-    if BUILDING.swap(true, Ordering::SeqCst) {
-        return json!({"ok":false,"error":"a rebuild is already running"});
+    {
+        let mut since = building_since();
+        if since.is_some() {
+            return json!({"ok":false,"error":"a rebuild is already running"});
+        }
+        *since = Some(Instant::now());
     }
     let log = root.join("plugins-build.log");
-    let result = async {
-        let out = std::fs::File::create(&log).map_err(|e| e.to_string())?;
-        let mut cmd = tokio::process::Command::new(&cli);
-        cmd.args(["plugins", "build", "--latest"])
-            .arg(format!("--install={}", image.display()))
-            .stdin(std::process::Stdio::null())
-            .stdout(out.try_clone().map_err(|e| e.to_string())?)
-            .stderr(out);
-        for (key, value) in crate::host_env::host_env() {
-            match value {
-                Some(value) => cmd.env(key, value),
-                None => cmd.env_remove(key),
-            };
+    let image = image.to_owned();
+    // its own task: a dropped request (a page reload) must not skip the bookkeeping below
+    let task = tokio::spawn(async move {
+        let result = run_build(&cli, &image, &log).await;
+        *building_since() = None;
+        match result {
+            Ok(()) => {
+                let mut updater = UPDATER.lock().await;
+                updater.applied = Some(latest.unwrap_or_else(|| installed().to_owned()));
+                updater.cache = None;
+                json!({"ok":true})
+            }
+            Err(error) => json!({"ok":false,"error":error}),
         }
-        let status = cmd.status().await.map_err(|e| format!("tramecli: {e}"))?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(format!("rebuild failed ({status}), see {}", log.display()))
-        }
+    });
+    task.await
+        .unwrap_or_else(|e| json!({"ok":false,"error":format!("rebuild task: {e}")}))
+}
+
+async fn run_build(cli: &Path, image: &Path, log: &Path) -> Result<(), String> {
+    let out = std::fs::File::create(log).map_err(|e| e.to_string())?;
+    let mut cmd = tokio::process::Command::new(cli);
+    cmd.args(["plugins", "build", "--latest"])
+        .arg(format!("--install={}", image.display()))
+        .stdin(std::process::Stdio::null())
+        .stdout(out.try_clone().map_err(|e| e.to_string())?)
+        .stderr(out);
+    for (key, value) in crate::host_env::host_env() {
+        match value {
+            Some(value) => cmd.env(key, value),
+            None => cmd.env_remove(key),
+        };
     }
-    .await;
-    BUILDING.store(false, Ordering::SeqCst);
-    match result {
-        Ok(()) => {
-            let mut updater = UPDATER.lock().await;
-            updater.applied = Some(latest.unwrap_or_else(|| installed().to_owned()));
-            updater.cache = None;
-            json!({"ok":true})
-        }
-        Err(error) => json!({"ok":false,"error":error}),
+    let status = cmd.status().await.map_err(|e| format!("tramecli: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("rebuild failed ({status}), see {}", log.display()))
     }
 }
 
@@ -570,6 +623,9 @@ pub async fn serve(
         }
         info["plugins"] = json!(plugins);
         info["rebuild"] = json!(true);
+        if let Some(since) = *building_since() {
+            info["building"] = build_progress(&root.join("plugins-build.log"), since);
+        }
         if !post {
             return (200, info);
         }
@@ -600,6 +656,39 @@ pub async fn serve(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rebuild_progress_reads_the_last_phase_and_line() {
+        for (log, phase, line) in [
+            ("", "Starting", ""),
+            (
+                "bun install v1.4.0\nChecked 11 installs\n",
+                "Installing dependencies",
+                "Checked 11 installs",
+            ),
+            (
+                "gen-plugins: a\n> vite build\n✓ built in 10s\n   Compiling tokio v1\n\n",
+                "Compiling",
+                "Compiling tokio v1",
+            ),
+            (
+                "   Compiling x\n\x1b[1m    Bundling\x1b[0m T.AppImage\n",
+                "Compiling",
+                "Bundling T.AppImage",
+            ),
+            (
+                "Built application at: t\n 10%\r 55%\n",
+                "Packaging the AppImage",
+                "55%",
+            ),
+            (
+                "installed /x/Trame.AppImage; restart\n",
+                "Installing",
+                "installed /x/Trame.AppImage; restart",
+            ),
+        ] {
+            assert_eq!(progress(log), (phase, line.to_owned()), "{log:?}");
+        }
+    }
     #[test]
     fn versions() {
         for (a, b, want) in [

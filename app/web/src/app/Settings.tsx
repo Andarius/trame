@@ -1,11 +1,9 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   type AgentPresenceSettings,
-  applyUpdate,
   completePath,
   getPlugins,
   getSettings,
-  getUpdate,
   restartApp,
   openInBrowser,
   patchSettings,
@@ -24,6 +22,7 @@ import { IconButton, SECTION_LABEL } from "../ui/ui";
 import { dataUriToIcon } from "../udb/cells";
 import { DemoLauncher, useDemoAvailable } from "./Demo";
 import { PluginList, PluginPage } from "../plugins/PluginsPage";
+import { RebuildProgress } from "./UpdateBanner";
 
 // One folder input with directory autocomplete: typing fetches sub-dir suggestions
 // (debounced), ↑/↓ to move, Enter/Tab to accept, Esc to dismiss, click to pick.
@@ -222,12 +221,18 @@ export function SettingsNav({ section, onSection }: { section: string; onSection
 }
 
 export function Settings(
-  { section, onSection, onClose, onSaved, onOpenDiagnostics }: {
+  { section, onSection, onClose, onSaved, onOpenDiagnostics, update, updState, updError, onUpdate, onCheckUpdate }: {
     section: string;
     onSection: (s: string) => void;
     onClose: () => void;
     onSaved: () => void;
     onOpenDiagnostics: () => void;
+    // the app's update state, shared with the update toast
+    update: UpdateInfo | null;
+    updState: "idle" | "busy" | "done";
+    updError?: string;
+    onUpdate: () => void;
+    onCheckUpdate: () => void;
   },
 ) {
   const [paths, setPaths] = useState<string[]>([]);
@@ -239,9 +244,6 @@ export function Settings(
   const [hubHasToken, setHubHasToken] = useState(false);
   const [hubSource, setHubSource] = useState<"settings" | "env" | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const [update, setUpdate] = useState<UpdateInfo | null>(null);
-  const [updState, setUpdState] = useState<"idle" | "busy" | "done">("idle");
-  const [updError, setUpdError] = useState<string>();
   const [scale, setScale] = useState(getScale);
   const [previewSize, setPreviewSizeState] = useState(getPreviewSize);
   const [theme, setTheme] = useState(getTheme);
@@ -268,29 +270,10 @@ export function Settings(
       setHubSource(s.hubSource);
       setLoaded(true);
     }).catch(() => setLoaded(true));
-    getUpdate().then((u) => {
-      setUpdate(u);
-      if (u.applied) setUpdState("done");
-    }).catch(() => {});
   }, []);
-
-  const runUpdate = () => {
-    if (!update) return;
-    if (!update.canSelfUpdate) {
-      openInBrowser(update.releaseUrl);
-      return;
-    }
-    if (updState !== "idle") return;
-    setUpdState("busy");
-    setUpdError(undefined);
-    applyUpdate().then((r) => {
-      setUpdState(r.ok ? "done" : "idle");
-      setUpdError(r.error);
-    }).catch(() => {
-      setUpdState("idle");
-      setUpdError("update failed");
-    });
-  };
+  // re-check on open; a ref, as the app's callback changes every render
+  const checkUpdate = useRef(onCheckUpdate);
+  useEffect(() => checkUpdate.current(), []);
 
   const restartBtn = (
     <button
@@ -366,10 +349,10 @@ export function Settings(
                     <button
                       type="button"
                       className="rounded-md bg-copper px-2.5 py-1 text-[11.5px] font-medium text-copper-ink hover:brightness-110 disabled:opacity-60"
-                      disabled={updState === "busy"}
-                      onClick={runUpdate}
+                      disabled={updState === "busy" || !!update.building}
+                      onClick={onUpdate}
                     >
-                      {updState === "busy" ? update.rebuild ? "Rebuilding…" : "Updating…" : update.canSelfUpdate ? "Update now" : "Open release"}
+                      {updState === "busy" || update.building ? update.rebuild ? "Rebuilding…" : "Updating…" : update.canSelfUpdate ? "Update now" : "Open release"}
                     </button>
                   )}
               </>
@@ -386,6 +369,7 @@ export function Settings(
               </span>
             )}
         </div>
+        {update?.building && <RebuildProgress building={update.building} />}
         {updError && <p className="m-0 text-[11.5px] text-blocked">{updError}</p>}
 
         <div className="h-px bg-line" />
