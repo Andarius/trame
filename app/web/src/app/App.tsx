@@ -44,7 +44,7 @@ import { DbActions, HeaderTitle, PageActions } from "./AppHeader";
 import { BoardToolbar } from "./BoardToolbar";
 import { Palette } from "./Palette";
 import { useAgentsPoll, useSelection, useStarred, useSync } from "./app-hooks";
-import { SelectionBar, UpdateBanner } from "./UpdateBanner";
+import { SelectionBar, UpdateBanner, useRebuildPoll } from "./UpdateBanner";
 import { Sidebar } from "./Sidebar";
 import type { View } from "./view";
 import { type TreeCards, TreeCardsCtx } from "./sidebar-tree";
@@ -430,11 +430,6 @@ export function App() {
   useEffect(() => {
     refresh();
     const t = setInterval(refresh, 5000);
-    const checkUpd = () =>
-      getUpdate().then((u) => {
-        setUpdate(u);
-        if (u.applied) setUpdateState("done");
-      }).catch(() => {});
     checkUpd();
     const u = setInterval(checkUpd, 30 * 60 * 1000);
     return () => {
@@ -443,8 +438,18 @@ export function App() {
     };
   }, []);
 
+  useRebuildPoll(updateState === "busy" || !!update?.building, (u) => {
+    setUpdate(u);
+    if (u.applied) setUpdateState("done");
+  });
+  const checkUpd = () =>
+    getUpdate().then((u) => {
+      setUpdate(u);
+      if (u.applied) setUpdateState("done");
+    }).catch(() => {});
+
   const onUpdate = () => {
-    if (!update) return;
+    if (!update || update.building) return;
     if (!update.canSelfUpdate) {
       openInBrowser(update.releaseUrl);
       return;
@@ -977,6 +982,11 @@ export function App() {
               onClose={() => setView(settingsBack.current)}
               onSaved={() => setExploreEpoch((e) => e + 1)}
               onOpenDiagnostics={() => setView("diagnostics")}
+              update={update}
+              updState={updateState}
+              updError={updateError}
+              onUpdate={onUpdate}
+              onCheckUpdate={checkUpd}
             />
           )
           : (
