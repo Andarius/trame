@@ -26,7 +26,7 @@ Create a repository with two files. `plugins.json` lists the plugins, each as `o
 release) or either with `@tag` (pinned):
 
 ```json
-{ "plugins": ["Andarius/trame-notebook-cells", "someone/trame-other@v1.2.0"] }
+{ "plugins": ["Andarius/trame-plugins/notebook-cells", "someone/trame-other@v1.2.0"] }
 ```
 
 `.github/workflows/trame.yml` calls Trame's reusable workflow every night:
@@ -60,7 +60,7 @@ the release, can write to your repository.
 ## Local build
 
 ```bash
-tramecli plugins add Andarius/trame-notebook-cells   # adds it to the list and builds
+tramecli plugins add Andarius/trame-plugins/notebook-cells   # adds it to the list and builds
 tramecli plugins build                               # rebuild later, e.g. after an upgrade
 ```
 

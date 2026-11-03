@@ -10,12 +10,12 @@ loaded at runtime from arbitrary paths: `scripts/gen-plugins.ts` writes registri
 the plugin statically. The backend is a Rust module compiled into `trame-local` itself (a
 `#[path]` module, so it uses the crate's dependencies and runs in the app's process), the
 frontend goes into one `plugins.js` bundle. There is no other backend shape: the TypeScript
-`mod.ts` plugins of the Bun host era were ported (`Andarius/trame-k8s`, `Getsoren/trame-cockpit`
-are out-of-tree examples, and `Andarius/trame-deployments`: a sidebar column, forge auth, a
-tramecli command, fixtures and e2e specs). The in-tree plugins show the shape in use:
-`crates/trame-local/src/plugins/notebook.rs` (a server the plugin spawns or attaches to, a
-same-origin proxy with WebSockets, a full-pane panel), `sql_source.rs` (settings with secrets,
-a poll loop, database writes).
+`mod.ts` plugins of the Bun host era were ported. `Andarius/trame-plugins` holds the examples:
+`plugins/k8s`, `plugins/deployments` (a sidebar column, forge auth, a tramecli command, fixtures
+and e2e specs), `plugins/sql-source` (settings with secrets, a poll loop, database writes,
+integration tests); `Getsoren/trame-cockpit` is a private one. The in-tree
+`crates/trame-local/src/plugins/notebook.rs` shows a server the plugin spawns or attaches to, a
+same-origin proxy with WebSockets and a full-pane panel.
 
 Read `crates/trame-local/src/plugins/api.rs` and `app/web/src/plugins/index.ts` in the Trame
 checkout before coding: they are the contract, and this skill paraphrases them.
@@ -85,7 +85,7 @@ never names the plugin. `blocks` adds page block types (`PluginBlock`: `type`, a
 `hint`, `create()` for a new block's fields, a `View` taking `BlockViewProps`, `wide` to widen the
 page). The View renders even while the plugin is off, with `enabled: false`: show what the block holds
 and offer `onOpenSettings`. `Block` leaves plugin blocks out: declare the block's shape in the
-plugin and cast `page.content` to a union with it (`Andarius/trame-notebook-cells` does).
+plugin and cast `page.content` to a union with it (`plugins/notebook-cells` in `Andarius/trame-plugins` does).
 
 From `@trame/web-api`: `getPluginSettings(id)` / `savePluginSettings(id, patch)` (GET/POST
 `/api/plugins/<id>/settings`), `openInBrowser(url)`, `getUdb(id)` / `listUdbs()` (user databases),
