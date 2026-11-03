@@ -67,9 +67,12 @@ subprocesses) goes through `blocking(move || …).await`; the database is `Db::c
 to the hub and to other devices, so gate it behind an explicit setting, never behind "enabled"
 alone.
 
-Write through `api::apply(db, &[Write::…])`: it runs a plan of page, session, status and tag writes
-in one transaction, so a failed poll leaves nothing half-written. A write it lacks is a new `Write`
-variant in Trame, not a new helper re-export. Reads stay plain `db.query`.
+Write through `api::apply(db, &[Write::…])`: it runs a plan of page, session, status, tag and
+user-database (column, row) writes in one transaction, so a failed poll leaves nothing
+half-written. A write it lacks is a new `Write` variant in Trame, not a new helper re-export. Reads
+stay plain `db.query` (`read_database(db, id)` for a user database's columns and rows). Several
+plans in one transaction: `db.transaction(|db| …)`; a dry run that reads its own writes then
+discards them: `db.rehearse(|db| …)`.
 
 ## Frontend contract (`web/index.ts`)
 
@@ -85,8 +88,10 @@ and offer `onOpenSettings`. `Block` leaves plugin blocks out: declare the block'
 plugin and cast `page.content` to a union with it (`Andarius/trame-notebook-cells` does).
 
 From `@trame/web-api`: `getPluginSettings(id)` / `savePluginSettings(id, patch)` (GET/POST
-`/api/plugins/<id>/settings`), `openInBrowser(url)`, `FieldRow`, `Select`, `timeAgo`,
-`SidebarColumn`, types `PanelProps`, `CardFace`, `PageDetail`, `Session`. Tailwind classes work
+`/api/plugins/<id>/settings`), `openInBrowser(url)`, `getUdb(id)` / `listUdbs()` (user databases),
+`FieldRow`, `Select`, `Modal`, `timeAgo`, `TYPE_GLYPH`, `highlightCode`, `SidebarColumn`, types
+`PanelProps`, `CardFace`, `PageDetail`, `Session`, `UdbProp`, `UdbMeta`; the full list is
+`app/web/src/plugin-api.ts`. Tailwind classes work
 because gen-plugins points Tailwind at `web/` (`@source`); use the host's tokens (`text-ink`,
 `bg-panel`, `border-line`, `text-copper`, …) rather than raw colours. No modal portal exists in
 the API: a dialog is a `fixed inset-0` overlay rendered inside the panel.

@@ -1,6 +1,6 @@
 // SQL source: fill a user database from a read-only query on an external Postgres.
 // Connection strings stay in the device-local settings slice; only the rows sync.
-use crate::{db::Db, routes::Native, settings, udb};
+use crate::plugins::api::{self, Db, Native, Write, json_stringify, read_database, settings};
 use anyhow::{Context, Result, bail};
 use postgres::{NoTls, config::SslMode, types::Type};
 use serde_json::{Map, Value, json};
@@ -388,7 +388,7 @@ pub fn cell_value(kind: &str, v: &Value) -> Value {
         (_, Value::String(s)) => json!(s),
         (_, Value::Number(n)) => json!(n.to_string()),
         (_, Value::Bool(b)) => json!(b.to_string()),
-        (_, other) => json!(crate::json::stringify(other)),
+        (_, other) => json!(json_stringify(other)),
     }
 }
 
@@ -398,7 +398,7 @@ fn canon(v: &Value) -> Option<String> {
         Value::Null => None,
         Value::String(s) if s.is_empty() => None,
         Value::Number(n) => n.as_f64().map(|f| format!("{f}")),
-        other => Some(crate::json::stringify(other)),
+        other => Some(json_stringify(other)),
     }
 }
 
@@ -444,16 +444,23 @@ struct Plan {
 /// Columns match by the mapping, else by the result column they were made for, then by name;
 /// rows match by key.
 pub fn apply(db: &mut Db, source: &Source, result: &SourceResult, dry_run: bool) -> Result<Counts> {
-    db.exclusive(|db| {
-        db.batch_execute("begin")?;
-        let outcome = apply_inner(db, source, result, dry_run);
-        db.batch_execute(if dry_run || outcome.is_err() {
-            "rollback"
-        } else {
-            "commit"
-        })?;
-        outcome
-    })
+    if dry_run {
+        db.rehearse(|db| apply_inner(db, source, result, true))
+    } else {
+        db.transaction(|db| apply_inner(db, source, result, false))
+    }
+}
+
+/// The config keys that mark a column as filled by a source.
+fn source_keys() -> Vec<String> {
+    ["source", "source_column", "source_name"]
+        .map(str::to_owned)
+        .to_vec()
+}
+
+/// One write; its yield.
+fn write(db: &mut Db, w: Write) -> Result<Value> {
+    Ok(api::apply(db, &[w])?.pop().unwrap_or(Value::Null))
 }
 
 /// The database column a query column fills: its mapping, else its own name; `None` skips it.
@@ -472,7 +479,7 @@ fn apply_inner(
     result: &SourceResult,
     preview: bool,
 ) -> Result<Counts> {
-    let (status, data) = udb::read(db, &source.db_id)?;
+    let (status, data) = read_database(db, &source.db_id)?;
     if status != 200 {
         return refuse("the target database no longer exists");
     }
@@ -581,9 +588,12 @@ fn apply_inner(
     for prop in &props {
         let id = prop["id"].as_str().unwrap_or("");
         if prop["config"]["source"] == source.id.as_str() && !kept.contains(id) {
-            db.query(
-                "update udb_properties set config = config - 'source' - 'source_column' - 'source_name', origin=$2, updated_at=now() where id=$1",
-                &[json!(id), json!(db.origin)],
+            write(
+                db,
+                Write::DropPropConfig {
+                    id: id.to_owned(),
+                    keys: source_keys(),
+                },
             )?;
             counts
                 .released_columns
@@ -595,15 +605,23 @@ fn apply_inner(
             json!({"source": source.id, "source_column": plan.column, "source_name": source.name});
         match &plan.prop_id {
             Some(id) if plan.claim => {
-                udb::update_prop(db, id, &json!({"config": config}))?;
+                write(
+                    db,
+                    Write::UpdateProp {
+                        id: id.clone(),
+                        patch: json!({"config": config}),
+                    },
+                )?;
                 counts.claimed_columns.push(plan.target.clone());
             }
             Some(_) => {}
             None => {
-                let created = udb::create_prop(
+                let created = write(
                     db,
-                    &source.db_id,
-                    &json!({"name": plan.target, "type": plan.kind, "config": config}),
+                    Write::CreateProp {
+                        db_id: source.db_id.clone(),
+                        fields: json!({"name": plan.target, "type": plan.kind, "config": config}),
+                    },
                 )?;
                 plan.prop_id = created["id"].as_str().map(str::to_owned);
                 counts
@@ -615,6 +633,7 @@ fn apply_inner(
 
     // row id → (op, previous values of the cells it changes), for the preview
     let mut ops: HashMap<String, (&str, Map<String, Value>)> = HashMap::new();
+    let mut row_writes = Vec::new();
     for (row, key) in result.rows.iter().zip(&keys) {
         let vals: Map<String, Value> = plans
             .iter()
@@ -622,11 +641,11 @@ fn apply_inner(
             .collect();
         let Some(current) = existing.get(key) else {
             let vals: Map<_, _> = vals.into_iter().filter(|(_, v)| !v.is_null()).collect();
-            let created = udb::create_row(db, &source.db_id, &json!({"vals": vals}))?;
+            row_writes.push(Write::CreateRow {
+                db_id: source.db_id.clone(),
+                fields: json!({"vals": vals}),
+            });
             counts.created += 1;
-            if let Some(id) = created["id"].as_str() {
-                ops.insert(id.to_owned(), ("new", Map::new()));
-            }
             continue;
         };
         let id = current["id"].as_str().context("row id")?;
@@ -642,7 +661,10 @@ fn apply_inner(
             .keys()
             .map(|prop| (prop.clone(), current["vals"][prop].clone()))
             .collect();
-        udb::patch_row(db, id, &json!({"vals": patch}))?;
+        row_writes.push(Write::PatchRow {
+            id: id.to_owned(),
+            patch: json!({"vals": patch}),
+        });
         counts.updated += 1;
         ops.insert(id.to_owned(), ("changed", old));
     }
@@ -650,10 +672,17 @@ fn apply_inner(
     if source.delete_missing {
         for (key, row) in &existing {
             if !seen.contains(key) {
-                udb::delete_row(db, row["id"].as_str().context("row id")?)?;
+                row_writes.push(Write::DeleteRow(
+                    row["id"].as_str().context("row id")?.to_owned(),
+                ));
                 counts.deleted += 1;
                 removed.push((*row).clone());
             }
+        }
+    }
+    for created in api::apply(db, &row_writes)? {
+        if let Some(id) = created["id"].as_str() {
+            ops.insert(id.to_owned(), ("new", Map::new()));
         }
     }
     if preview {
@@ -669,7 +698,7 @@ fn preview_json(
     ops: &HashMap<String, (&str, Map<String, Value>)>,
     removed: &[Value],
 ) -> Result<Value> {
-    let (_, data) = udb::read(db, &source.db_id)?;
+    let (_, data) = read_database(db, &source.db_id)?;
     let columns: Vec<_> = data["properties"]
         .as_array()
         .into_iter()
@@ -873,10 +902,19 @@ fn save_source(
 fn disconnect(env: &Env, id: &str) -> Result<Value> {
     let mut db = env.db()?;
     // columns go back to the user: drop the marker entirely so a later source may claim them again
-    db.query(
-        "update udb_properties set config = config - 'source' - 'source_column' - 'source_name', origin=$2, updated_at=now() where not deleted and config->>'source' = $1",
-        &[json!(id), json!(db.origin)],
+    let claimed = db.query(
+        "select id from udb_properties where not deleted and config->>'source' = $1",
+        &[json!(id)],
     )?;
+    let plan: Vec<_> = claimed
+        .iter()
+        .filter_map(|p| p["id"].as_str())
+        .map(|prop| Write::DropPropConfig {
+            id: prop.to_owned(),
+            keys: source_keys(),
+        })
+        .collect();
+    api::apply(&mut db, &plan)?;
     settings::update(&env.settings, |s| {
         let slice = &mut s["plugins"][ID];
         if let Some(list) = slice["sources"].as_array_mut() {
@@ -922,7 +960,7 @@ fn user_error(e: &anyhow::Error) -> Option<Value> {
 
 /// `/api/plugins/sql-source/<sub>`; runs on a blocking thread (it may wait on the external database).
 pub fn handle(env: &Env, method: &str, sub: &str, body: &Value) -> Result<(u16, Value)> {
-    if let Some(answer) = super::api::handle_sync(&PLUGIN, &env.settings, method, sub, body)? {
+    if let Some(answer) = api::handle_sync(&PLUGIN, &env.settings, method, sub, body)? {
         return Ok(answer);
     }
     let slice = env.slice();
@@ -986,7 +1024,7 @@ fn failing(slice: &Value) -> usize {
 pub struct SqlSource;
 pub static PLUGIN: SqlSource = SqlSource;
 
-impl super::api::Plugin for SqlSource {
+impl crate::plugins::api::Plugin for SqlSource {
     fn id(&self) -> &'static str {
         ID
     }
@@ -1017,17 +1055,17 @@ impl super::api::Plugin for SqlSource {
         native: Native,
         sub: String,
         req: axum::http::Request<axum::body::Body>,
-    ) -> super::api::RouteFuture {
+    ) -> crate::plugins::api::RouteFuture {
         Box::pin(async move {
             let method = req.method().to_string();
             let Ok(bytes) = axum::body::to_bytes(req.into_body(), usize::MAX).await else {
-                return crate::routes::json_response(500, json!({"error":"body unavailable"}));
+                return api::json_response(500, json!({"error":"body unavailable"}));
             };
             let body = serde_json::from_slice::<Value>(&bytes).unwrap_or_else(|_| json!({}));
             let env = Env::of(&native);
-            match crate::blocking::spawn(move || handle(&env, &method, &sub, &body)).await {
-                Ok(Ok((status, value))) => crate::routes::json_response(status, value),
-                _ => crate::routes::json_response(500, json!({"error":"Internal Server Error"})),
+            match api::blocking(move || handle(&env, &method, &sub, &body)).await {
+                Ok(Ok((status, value))) => api::json_response(status, value),
+                _ => api::json_response(500, json!({"error":"Internal Server Error"})),
             }
         })
     }
@@ -1049,7 +1087,7 @@ pub fn start(state: &Native) -> tokio::task::JoinHandle<()> {
                 .filter(|s| due(s, &slice["status"][&s.id], at))
             {
                 let env = env.clone();
-                let _ = crate::blocking::spawn(move || refresh(&env, &source.id)).await;
+                let _ = api::blocking(move || refresh(&env, &source.id)).await;
             }
         }
     })
@@ -1110,7 +1148,7 @@ mod tests {
     #[test]
     fn settings_view_never_returns_the_dsn() {
         let slice = json!({"connections":[{"id":"c1","name":"sample","dsn":"postgres://u:hunter2@db.local:5433/x"}],"sources":[]});
-        let view = crate::json::stringify(&settings_view(&slice));
+        let view = json_stringify(&settings_view(&slice));
         assert!(!view.contains("hunter2"), "{view}");
         assert!(
             view.contains("\"hasDsn\":true") && view.contains("db.local:5433"),

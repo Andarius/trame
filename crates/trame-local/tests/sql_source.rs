@@ -1,11 +1,11 @@
 mod common;
 use common::TestDb;
 use serde_json::{Value, json};
-use trame_local::plugins::sql_source::{self, Env};
 
+// through HTTP, like the UI: the plugin's module is private once composed from its own repo
 struct Fixture {
     t: TestDb,
-    env: Env,
+    rt: tokio::runtime::Runtime,
     dsn: String,
     db_id: String,
 }
@@ -28,15 +28,16 @@ fn fixture() -> Fixture {
          create sequence s;",
     )
     .unwrap();
-    let env = Env {
-        root: t.root.clone(),
-        origin: "rust-slice2-test".into(),
-        settings: t.root.join("settings.json"),
-    };
     let (_, created) = t.request("POST", "/api/udb", json!({"name":"OKR"}));
     let db_id = created["id"].as_str().unwrap().to_owned();
-    sql_source::handle(&env, "POST", "/enable", &json!({"enabled":true})).unwrap();
-    Fixture { t, env, dsn, db_id }
+    let f = Fixture {
+        t,
+        rt: tokio::runtime::Runtime::new().unwrap(),
+        dsn,
+        db_id,
+    };
+    call(&f, "POST", "/enable", &json!({"enabled":true}));
+    f
 }
 
 fn source(f: &Fixture, extra: &Value) -> Value {
@@ -75,7 +76,18 @@ fn by_name(data: &Value, name: &str) -> String {
 }
 
 fn call(f: &Fixture, method: &str, sub: &str, body: &Value) -> (u16, Value) {
-    sql_source::handle(&f.env, method, sub, body).unwrap()
+    let url = format!("{}/api/plugins/sql-source{sub}", f.t.base_url());
+    f.rt.block_on(async {
+        let client = reqwest::Client::new();
+        let request = if method == "POST" {
+            client.post(url).json(body)
+        } else {
+            client.get(url)
+        };
+        let response = request.send().await.unwrap();
+        let status = response.status().as_u16();
+        (status, response.json().await.unwrap())
+    })
 }
 
 #[test]
@@ -100,7 +112,7 @@ fn a_source_fills_then_writes_only_what_changed() {
     let (_, saved) = call(&f, "POST", "/sources", &source(&f, &json!({})));
     assert_eq!(saved["status"]["created"], 2, "{saved}");
     let id = saved["source"]["id"].as_str().unwrap().to_owned();
-    let settings = std::fs::read_to_string(&f.env.settings).unwrap();
+    let settings = std::fs::read_to_string(f.t.root.join("settings.json")).unwrap();
     assert!(
         settings.contains(&f.dsn),
         "the dsn is kept in the device settings"
@@ -261,12 +273,19 @@ fn bad_sources_are_refused_before_any_write() {
         &f,
         "create table big as select g as k from generate_series(1, 10001) g",
     );
-    let error = sql_source::run_query(&f.dsn, "select k from big", sql_source::MAX_ROWS)
-        .err()
-        .unwrap();
+    let (status, body) = call(
+        &f,
+        "POST",
+        "/preview",
+        &json!({"dsn": f.dsn, "query": "select k from big"}),
+    );
+    assert_eq!(status, 400, "{body}");
     assert!(
-        error.to_string().contains("more than 10000 rows"),
-        "{error}"
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("more than 10000 rows"),
+        "{body}"
     );
 }
 

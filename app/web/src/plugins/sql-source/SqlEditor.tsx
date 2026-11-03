@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { highlightCode } from "../../md/md-highlight";
+import { highlightCode } from "@trame/web-api";
 
 const TEXT = "px-2.5 py-2 font-mono text-[11.5px] leading-[1.55] whitespace-pre";
 

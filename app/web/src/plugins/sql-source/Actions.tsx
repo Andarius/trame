@@ -1,7 +1,6 @@
 // Database page entry points: the header Connect button / source chip and the empty-state choice.
 import { useEffect, useState } from "react";
-import { getPlugins, getUdb, setPluginEnabled } from "../../api";
-import { appConfirm, Popover, timeAgo } from "../../ui/ui";
+import { appConfirm, getPlugins, getUdb, Popover, setPluginEnabled, timeAgo } from "@trame/web-api";
 import {
   disconnectSource,
   lastLabel,

@@ -2,8 +2,17 @@
 export type { BlockViewProps, CardFace, FrontendPlugin, PanelProps, PluginBlock, PluginBlockData } from "./plugins/index";
 export { SidebarColumn } from "./plugins/index";
 export { openPluginSettings, usePluginEnabled } from "./plugins/enabled";
-export { getPluginSettings, openInBrowser, savePluginSettings, updatePage } from "./api";
-export type { Block, PageDetail, Session } from "./api";
+export {
+  getPlugins,
+  getPluginSettings,
+  getUdb,
+  listUdbs,
+  openInBrowser,
+  savePluginSettings,
+  setPluginEnabled,
+  updatePage,
+} from "./api";
+export type { Block, PageDetail, Session, UdbMeta, UdbProp } from "./api";
 export {
   appConfirm,
   Button,
@@ -26,3 +35,7 @@ export {
 } from "./ui/ui";
 export { type Resolved, useResolvedTheme } from "./ui/theme";
 export { markOfContent } from "../../../core/content-marks.ts";
+export { TYPE_GLYPH } from "./udb/PropertyEditor";
+export { highlightCode } from "./md/md-highlight";
+// the host's react-dom: a plugin bundle carries only React (window.__trame), never a second copy
+export { createPortal } from "react-dom";

@@ -1,9 +1,6 @@
 // "Fill from a SQL query": the right-side drawer that connects (or edits) a source for one database.
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { getUdb, type UdbProp } from "../../api";
-import { Modal, FIELD_LABEL, IconButton, Select } from "../../ui/ui";
-import { TYPE_GLYPH } from "../../udb/PropertyEditor";
+import { createPortal, FIELD_LABEL, getUdb, IconButton, Modal, Select, TYPE_GLYPH, type UdbProp } from "@trame/web-api";
 import {
   type Connection,
   dryRun,

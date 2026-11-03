@@ -157,6 +157,23 @@ impl Db {
             }
         })
     }
+    /// Runs `work` in a transaction that always rolls back, for a dry run that reads its own writes.
+    pub fn rehearse<T>(&mut self, work: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
+        self.exclusive(|db| {
+            if db.in_transaction {
+                anyhow::bail!("a rehearsal can't run inside a transaction");
+            }
+            db.batch_execute("begin")?;
+            db.in_transaction = true;
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(db)));
+            db.in_transaction = false;
+            let rollback = db.batch_execute("rollback");
+            match result {
+                Ok(value) => rollback.and(value),
+                Err(panic) => std::panic::resume_unwind(panic),
+            }
+        })
+    }
     pub fn batch_execute(&mut self, sql: &str) -> Result<()> {
         self.exclusive(|db| db.client.batch_execute(sql).map_err(db_error))
     }
