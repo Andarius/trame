@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { BoardData, Session } from "../api";
 import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
-import { EntityIcon, enumCodec, SECTION_LABEL, StatusDot, useLocalStorage } from "../ui/ui";
+import { EntityIcon, enumCodec, IconButton, SECTION_LABEL, StatusDot, useLocalStorage } from "../ui/ui";
 import { NewTerminalDialog } from "./NewTerminalDialog";
 import { setTermDrag, tabCards, type TermDrag, useTermDock } from "./term-api";
 
@@ -24,6 +24,7 @@ export function TermCards(
   const { terms, tabs, active } = useTermDock();
   const [grouping, setGrouping] = useLocalStorage<Grouping>("trame:termGrouping", "project", enumCodec(GROUPINGS));
   const [menuFor, setMenuFor] = useState<string | null>(null); // the project right-clicked for a new terminal
+  const [newOpen, setNewOpen] = useState(false);
   const { live } = useAgents();
   const agentOf = new Map<string, Live>(live.map((l) => [l.a.session_id, l]));
   type Count = { count: number; running: number };
@@ -66,6 +67,9 @@ export function TermCards(
     return (own.find((t) => t.id === active) ?? own[0])?.id;
   };
   const plain = plainShells.count;
+  const selectedCard = selected ? board?.sessions.find((s) => s.id === selected) : undefined;
+  const opened = (card: string | null, project: string | null) =>
+    card ? onSelect(card) : project ? onSelectProject(project) : onSelect(null);
   const projectRow = (p: string, label: string) =>
     row(`project:${p}`, selectedProject === p, () => onSelectProject(p), (
       <span className="flex w-full items-center gap-2">
@@ -111,11 +115,29 @@ export function TermCards(
     <nav aria-label="Cards with terminals" className="flex flex-col gap-3">
       <div className="-mb-1 flex items-center px-2 text-[11px] text-ink-muted">
         <span className="flex-1">Cards</span>
+        <IconButton
+          tone="close"
+          className="px-1"
+          title="new terminal or agent"
+          aria-label="New terminal or agent"
+          onClick={() => setNewOpen(true)}
+        >
+          +
+        </IconButton>
         <GroupMenu value={grouping} options={GROUPING_LABEL} onChange={setGrouping} />
+        {newOpen && (
+          <NewTerminalDialog
+            board={board}
+            here={selectedCard ? { cwd: selectedCard.repo_path ?? null, card: selectedCard.id } : null}
+            project={selectedProject ?? undefined}
+            onClose={() => setNewOpen(false)}
+            onOpened={opened}
+          />
+        )}
       </div>
       {cards.length === 0 && plain === 0 && projectShells.size === 0 && (
         <p className="px-2 text-[11.5px] leading-snug text-ink-muted">
-          No terminals yet. Open one from a card with Open in agent → Trame terminal.
+          No terminals yet. Start one with +, or from a card with Open in agent → Trame terminal.
         </p>
       )}
       {keys.map((key) => (
@@ -138,7 +160,7 @@ export function TermCards(
                   board={board}
                   project={key}
                   onClose={() => setMenuFor(null)}
-                  onOpened={(card, project) => (card ? onSelect(card) : project ? onSelectProject(project) : onSelect(null))}
+                  onOpened={opened}
                 />
               )}
             </div>
