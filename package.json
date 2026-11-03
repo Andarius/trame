@@ -7,7 +7,7 @@
     "lint": "oxlint app core protocol hub/api scripts"
   },
   "dependencies": {
-    "@electric-sql/pglite": "0.5.13",
+    "@electric-sql/pglite": "0.5.14",
     "postgres": "3.4.9"
   },
   "devDependencies": {

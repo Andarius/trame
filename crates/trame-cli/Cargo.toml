@@ -10,10 +10,10 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
-chrono = "0.4"
-libc = "0.2"
+chrono = "0.4.45"
+libc = "0.2.191"
 regex = "1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls-tls"] }
 rmcp = { version = "3.5.1", features = ["server", "transport-io", "macros"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
@@ -22,7 +22,7 @@ trame-core = { path = "../trame-core" }
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
-axum = "0.8"
+axum = "0.8.9"
 
 [lints]
 workspace = true
