@@ -5,7 +5,8 @@ description: Install out-of-tree native plugins by building Trame with them, loc
 
 A Trame plugin is a Rust module and a React frontend in its own GitHub repo. Plugins compile
 into the app, so the official releases cannot load one: you need a build that includes it.
-There are two ways to get one. Both take plain `owner/repo` links.
+There are two ways to get one. Both take plain `owner/repo` links, or `owner/repo/name` for one
+plugin of a plugins repo such as `Andarius/trame-plugins`.
 
 | | Your own build (GitHub) | Local build (`tramecli plugins`) |
 |---|---|---|
@@ -21,7 +22,8 @@ build stops when a plugin's range excludes the Trame being built; pin an older p
 ## Your own build
 
 Create a repository with two files. `plugins.json` lists the plugins, each as `owner/repo`
-(its latest release) or `owner/repo@tag` (pinned):
+(its latest release), `owner/repo/name` (a plugin of a plugins repo, its latest `<name>-vX.Y.Z`
+release) or either with `@tag` (pinned):
 
 ```json
 { "plugins": ["Andarius/trame-notebook-cells", "someone/trame-other@v1.2.0"] }

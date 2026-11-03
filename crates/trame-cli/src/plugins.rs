@@ -12,7 +12,7 @@ use std::{
 
 const TRAME: &str = "https://github.com/Andarius/trame.git";
 
-/// `owner/repo` or `owner/repo@tag`, the shape compose-plugins.ts accepts.
+/// `owner/repo[/name][@tag]`, the shape compose-plugins.ts accepts (`name`: a plugin of a plugins repo).
 pub fn valid_spec(spec: &str) -> bool {
     let (repo, tag) = spec
         .split_once('@')
@@ -30,11 +30,8 @@ pub fn valid_spec(spec: &str) -> bool {
             && t.bytes()
                 .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'/'))
     });
-    let mut parts = repo.split('/');
-    parts.next().is_some_and(name)
-        && parts.next().is_some_and(name)
-        && parts.next().is_none()
-        && tag_ok
+    let parts: Vec<&str> = repo.split('/').collect();
+    (2..=3).contains(&parts.len()) && parts.iter().all(|p| name(p)) && tag_ok
 }
 
 fn repo_of(spec: &str) -> String {
@@ -269,7 +266,7 @@ pub fn main(args: &[String]) -> Result<i32> {
                 return Ok(2);
             }
             if let Some(bad) = names.iter().find(|n| !valid_spec(n)) {
-                eprintln!("not owner/repo[@tag]: {bad}");
+                eprintln!("not owner/repo[/name][@tag]: {bad}");
                 return Ok(2);
             }
             specs = if sub == "add" {
@@ -328,7 +325,10 @@ mod tests {
             ("Andarius/trame-notebook-cells@v0.1.0", true),
             ("owner/repo@release/1.0", true),
             ("owner", false),
-            ("owner/repo/extra", false),
+            ("Andarius/trame-plugins/k8s", true),
+            ("Andarius/trame-plugins/k8s@k8s-v0.3.0", true),
+            ("owner/repo/extra/more", false),
+            ("owner/repo/..", false),
             ("../repo", false),
             ("owner/repo@", false),
             ("owner/repo@-x", false),

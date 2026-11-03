@@ -50,7 +50,7 @@ and `@trame/web-api` from `window.__trame`. Templates for every file: `reference
 `Plugin` methods (`crates/trame-local/src/plugins/api.rs`):
 
 - `id()` is the URL slug and the settings key; `label()`, `glyph()`, `description()` show in the plugins manager.
-- `version()` returns `Some((VERSION, "owner/name"))` so Trame compares the build against the latest GitHub release and shows "Update available". Mirror both in `version.ts` for the release workflow.
+- `version()` returns `Some((VERSION, "owner/name"))` so Trame compares the build against the latest GitHub release and shows "Update available"; a member of a plugins repo returns `"owner/name/<plugin>"` and is compared against its newest `<plugin>-vX.Y.Z` release. Mirror both in `version.ts` for the release workflow.
 - `route(native, sub, req)` answers `/api/plugins/<id><sub>` with the whole axum request and returns a boxed future of a full `Response`: stream, set headers, proxy, upgrade WebSockets (see `notebook.rs`). The registry has already gated it. Return `json_response(404, …)` for unknown paths.
 - `ungated(sub)` names the sub paths reachable while disabled (a connection test used from the settings UI before enabling).
 - `start(native)` runs once at boot whether enabled or not and returns the task to abort at exit. Own the loop and check `settings::plugin(&native.settings, id)["enabled"]` on every tick, so toggling needs no teardown. `on_enabled(native)` refreshes right away instead of waiting a tick.
@@ -132,7 +132,8 @@ CI reproduces this: check out `Andarius/trame` beside the plugin, write `plugins
 `bun install` + `npm ci` + `bun scripts/gen-plugins.ts`, install the toolchain from Trame's
 `rust-toolchain.toml`, then the same commands. A plugin that uses a new `Plugin` or
 `FrontendPlugin` method fails CI until that Trame change is on `master`, so merge the Trame PR
-first and re-run. Integration tests that need PostgreSQL stay in Trame's own suite.
+first and re-run. Integration tests that need PostgreSQL go in `tests/*.rs`: gen-plugins wraps each
+into trame-local's tests (with `crate::common::TestDb`), run as `--test 'plugin_<id>_*'`.
 
 Tests: pure parsing, URL mapping and settings sanitizing are the high-value targets, as
 `#[test]` tables in the module. `web/boundary_test.ts` lists the allowed import specifiers and
@@ -148,6 +149,10 @@ links refuse a plugin without one, or one whose range excludes the Trame being b
 `gh release create --verify-tag --generate-notes`. To ship: bump `VERSION`, merge,
 `git tag vX.Y.Z <merge commit>`, `git push origin vX.Y.Z`. Trame checks the latest release hourly
 and shows "Update available" in the plugins manager and Settings.
+
+A plugins repo holds several plugins as `plugins/<name>/`, each laid out as above with its own
+`version.ts`, released as `<name>-vX.Y.Z` tags and installed as `owner/repo/<name>`
+(`Andarius/trame-plugins` is one).
 
 Users install a plugin by its repo link, never from a checkout: `tramecli plugins add owner/repo`
 builds Trame locally with it, and a repo calling `Andarius/trame/.github/workflows/compose.yml`
