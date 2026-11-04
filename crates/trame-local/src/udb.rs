@@ -183,6 +183,15 @@ pub(crate) fn update_prop(db: &mut Db, id: &str, body: &Value) -> Result<Value> 
     Ok(json!({"ok":true}))
 }
 
+/// Removes `keys` from a property's config (an explicit null would still be a value).
+pub(crate) fn drop_prop_config(db: &mut Db, id: &str, keys: &[String]) -> Result<Value> {
+    db.query(
+        "update udb_properties set config = config - $2::text[], origin=$3, updated_at=now() where id=$1 and not deleted",
+        &[json!(id), json!(keys), json!(db.origin)],
+    )?;
+    Ok(json!({"ok":true}))
+}
+
 fn delete_prop(db: &mut Db, id: &str) -> Result<Value> {
     let current = first(
         db,

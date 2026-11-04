@@ -1,7 +1,6 @@
 // SQL source settings: every source (click to edit) and the saved connections. Connection strings are write-only.
 import { useCallback, useEffect, useState } from "react";
-import { listUdbs, type UdbMeta } from "../../api";
-import { appConfirm, FIELD_LABEL, timeAgo } from "../../ui/ui";
+import { appConfirm, FIELD_LABEL, listUdbs, timeAgo, type UdbMeta } from "@trame/web-api";
 import {
   type Connection,
   disconnectSource,

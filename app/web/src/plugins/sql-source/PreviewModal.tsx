@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Modal } from "../../ui/ui";
+import { Modal } from "@trame/web-api";
 import type { DryPreview, DryRun, PreviewCell, PreviewRowOp } from "./api";
 
 const BADGE: Record<PreviewRowOp, string> = {

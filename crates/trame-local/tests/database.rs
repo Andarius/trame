@@ -130,3 +130,27 @@ fn original_adapter_types_and_failed_transaction_assertions() {
         assert_eq!(row[0]["n"], row[0]["expected"], "{literal}");
     }
 }
+#[test]
+fn a_rehearsal_rolls_back_and_refuses_to_nest() {
+    let mut t = TestDb::new();
+    t.db.batch_execute("create table rehearsal_test(id int)")
+        .unwrap();
+    let count = |t: &mut TestDb| {
+        t.db.query("select count(*)::int as n from rehearsal_test", &[])
+            .unwrap()[0]["n"]
+            .clone()
+    };
+    let seen =
+        t.db.rehearse(|db| {
+            db.batch_execute("insert into rehearsal_test values (1)")?;
+            Ok(db.query("select count(*)::int as n from rehearsal_test", &[])?[0]["n"].clone())
+        })
+        .unwrap();
+    assert_eq!(seen, 1, "the rehearsal reads its own writes");
+    assert_eq!(count(&mut t), 0, "then rolls them back");
+    let nested = t.db.transaction(|db| db.rehearse(|_| Ok(())));
+    assert!(
+        nested.is_err(),
+        "a rehearsal inside a transaction would end it"
+    );
+}
