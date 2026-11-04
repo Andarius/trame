@@ -90,7 +90,7 @@ jobs:
           echo "tag=$TRAME_TAG-$(( ${n:-0} + 1 ))" >> "$GITHUB_OUTPUT"
           {
             echo "Trame $TRAME_TAG with:"
-            jq -r '.plugins[] | "- [\(.repo)@\(.tag)](https://github.com/\(.repo)/tree/\(.commit))"' lock.json
+            jq -r '.plugins[] | (.repo | split("/")) as $p | "- [\(.repo)@\(.tag)](https://github.com/\($p[0])/\($p[1])/tree/\(.commit)\(if $p[2] then "/plugins/\($p[2])" else "" end))"' lock.json
             echo
             echo "<!-- trame-compose: $sum -->"
           } > notes.md
