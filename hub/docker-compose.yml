@@ -4,7 +4,7 @@ name: trame
 
 services:
   trame-db:
-    image: postgres:18   # >=18: uuidv7() used by the udb_* tables; matches PGlite 0.5.x (PG 18)
+    image: postgres:18@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81   # >=18: uuidv7() used by the udb_* tables; matches PGlite 0.5.x (PG 18)
     container_name: trame-db
     restart: unless-stopped
     environment:
