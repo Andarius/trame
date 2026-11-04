@@ -77,13 +77,13 @@ fn identity_claim_typescript_assertions_and_explicit_profile_sync() {
     )
     .unwrap();
     local::claim_device(&mut t.db).unwrap();
-    assert!(
+    assert_eq!(
         t.db.query(
             "select 1 from devices where node_id=$1",
             &[json!(t.db.origin)]
         )
-        .unwrap()
-        .is_empty()
+        .unwrap(),
+        [] as [serde_json::Value; 0]
     );
     settings::save_explore(&settings, &json!({"hubApi":""})).unwrap();
     local::claim_device(&mut t.db).unwrap();
@@ -122,10 +122,9 @@ fn page_link_typescript_assertions_and_share_updates() {
         json!({}),
     );
     assert_eq!(result, (200, json!({"ok":true})));
-    assert!(
-        local::list_links(&mut t.db, page.as_str().unwrap())
-            .unwrap()
-            .is_empty()
+    assert_eq!(
+        local::list_links(&mut t.db, page.as_str().unwrap()).unwrap(),
+        [] as [serde_json::Value; 0]
     );
     let share=t.request("POST","/api/shares",json!({"page_id":page,"user_id":"00000000-0000-4000-8000-000000000101","role":"viewer"})).1;
     let again=t.request("POST","/api/shares",json!({"page_id":page,"user_id":"00000000-0000-4000-8000-000000000101","role":"anything"})).1;
