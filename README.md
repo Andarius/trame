@@ -245,22 +245,12 @@ ephemeral — never synced — so avatars fade ~20s after a tab closes or the wa
 out until you switch it on.
 
 **Deployments** (GitHub/GitLab releases waiting for approval) is its own plugin now:
-[Andarius/trame-deployments](https://github.com/Andarius/trame-deployments), added like any other
-(`tramecli plugins add Andarius/trame-deployments`). Its settings carry over.
+[trame-plugins/deployments](https://github.com/Andarius/trame-plugins/tree/main/plugins/deployments), added like any other
+(`tramecli plugins add Andarius/trame-plugins/deployments`). Its settings carry over.
 
-**SQL sources** fill a database from a query on a PostgreSQL you choose (local or tailnet; no TLS
-yet). On a database page (or an inline database in **Edit**), **⇣ Connect** opens a drawer: pick
-or paste a connection, run the query, map each result column to a database column (existing, new
-or skipped) and pick the key that matches rows, a schedule (manual, or every 5 minutes to 30 days),
-and whether rows whose key disappears are removed; **Preview** shows the resulting table, row by
-row, before anything syncs. The query runs from
-this device in a read-only transaction (30 s timeout, at most 10 000 rows, refused beyond). Result
-columns become read-only columns of the database (also in `tramecli db rows`) until you **Detach**
-one; a refresh writes only the cells whose source value changed, so your own columns and comments
-survive it.
-
-> Connection strings stay in this machine's `settings.json` (0600) and are never sent back to the
-> UI. The query **results** are ordinary rows: they sync to the hub and your other devices.
+**SQL sources** (fill a database from a read-only query on a PostgreSQL you choose) is its own
+plugin now: [trame-plugins/sql-source](https://github.com/Andarius/trame-plugins/tree/main/plugins/sql-source)
+(`tramecli plugins add Andarius/trame-plugins/sql-source`). Its settings and connections carry over.
 
 **Notebook** shows one Jupyter notebook in the sidebar, nothing else: no file browser, menus or
 side panels (**Open in browser** gives the full JupyterLab). Pick the notebook from the server's
