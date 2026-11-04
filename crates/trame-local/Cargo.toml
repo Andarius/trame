@@ -23,7 +23,7 @@ chrono = { version = "0.4.45", features = ["serde"] }
 base64 = "0.22"
 glob = "0.3.4"
 icu_collator = "2.4.0"
-sha2 = "0.10"
+sha2 = "0.11.1"
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.1.8" # read by composed plugins (notebook-cells parses pyproject.toml)
 futures-util = { version = "0.3.34", features = ["sink"] }
