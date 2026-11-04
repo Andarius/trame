@@ -245,12 +245,12 @@ ephemeral — never synced — so avatars fade ~20s after a tab closes or the wa
 out until you switch it on.
 
 **Deployments** (GitHub/GitLab releases waiting for approval) is its own plugin now:
-[Andarius/trame-deployments](https://github.com/Andarius/trame-deployments), added like any other
-(`tramecli plugins add Andarius/trame-deployments`). Its settings carry over.
+[trame-plugins/deployments](https://github.com/Andarius/trame-plugins/tree/main/plugins/deployments), added like any other
+(`tramecli plugins add Andarius/trame-plugins/deployments`). Its settings carry over.
 
 **SQL sources** (fill a database from a read-only query on a PostgreSQL you choose) is its own
-plugin now: [Andarius/trame-sql-source](https://github.com/Andarius/trame-sql-source)
-(`tramecli plugins add Andarius/trame-sql-source`). Its settings and connections carry over.
+plugin now: [trame-plugins/sql-source](https://github.com/Andarius/trame-plugins/tree/main/plugins/sql-source)
+(`tramecli plugins add Andarius/trame-plugins/sql-source`). Its settings and connections carry over.
 
 **Notebook** shows one Jupyter notebook in the sidebar, nothing else: no file browser, menus or
 side panels (**Open in browser** gives the full JupyterLab). Pick the notebook from the server's

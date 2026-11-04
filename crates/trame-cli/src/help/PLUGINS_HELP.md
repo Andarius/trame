@@ -2,6 +2,7 @@ tramecli plugins — build Trame with native plugins from their GitHub repos
 
   tramecli plugins                         list the plugins in your build list
   tramecli plugins add owner/repo[@tag]…   add (or re-pin) plugins, then build
+  tramecli plugins add owner/repo/name…    one plugin of a plugins repo (plugins/<name>/, tags <name>-vX.Y.Z)
   tramecli plugins remove owner/repo…      drop plugins, then build
   tramecli plugins build                   rebuild from the list (after a plugin or Trame release)
     --no-build                             with add/remove: only edit the list
