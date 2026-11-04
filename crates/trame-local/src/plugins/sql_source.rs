@@ -767,8 +767,7 @@ pub fn refresh(env: &Env, id: &str) -> Result<Option<Value>> {
 fn is_running(id: &str) -> bool {
     RUNNING
         .lock()
-        .ok()
-        .is_some_and(|r| r.as_ref().is_some_and(|r| r.contains(id)))
+        .is_ok_and(|r| r.as_ref().is_some_and(|r| r.contains(id)))
 }
 
 fn next_at(source: &Source, last: &Value) -> Value {

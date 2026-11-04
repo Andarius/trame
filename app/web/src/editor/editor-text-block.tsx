@@ -34,7 +34,9 @@ const keepNativeUndo = (el: HTMLTextAreaElement) => {
       document.activeElement === el
         ? el.value
         : defaultValueProp.get!.call(el) as string,
-    set: (v: string) => defaultValueProp.set!.call(el, v),
+    set: (v: string) => {
+      defaultValueProp.set!.call(el, v);
+    },
     configurable: true,
   });
 };

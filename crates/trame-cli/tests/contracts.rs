@@ -243,7 +243,7 @@ fn board_grouping_flat_rows_and_query() {
         ("title:fix status:", true),
     ] {
         let parsed = query::parse(filter);
-        assert!(parsed.errors.is_empty());
+        assert_eq!(parsed.errors, [] as [std::string::String; 0]);
         assert_eq!(
             query::matches(&board["sessions"][0], &board, &assigners, &parsed.terms),
             want,

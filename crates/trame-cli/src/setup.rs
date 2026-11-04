@@ -126,8 +126,7 @@ fn find_on_path(name: &str) -> Option<PathBuf> {
         #[cfg(unix)]
         let executable = candidate
             .metadata()
-            .ok()
-            .is_some_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0);
+            .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0);
         #[cfg(not(unix))]
         let executable = candidate.is_file();
         if executable {
