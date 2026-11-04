@@ -58,13 +58,13 @@ fn original_changelog_assertions() {
             .unwrap();
     t.db.batch_execute(include_str!("../../../db/schema.sql"))
         .unwrap();
-    assert!(
+    assert_eq!(
         t.db.query(
             "select 1 from change_log where row_id='00000000-0000-4000-8000-00000000eeee'",
             &[]
         )
-        .unwrap()
-        .is_empty()
+        .unwrap(),
+        [] as [serde_json::Value; 0]
     );
     assert_eq!(
         t.db.query("select count(*)::int as n from change_log", &[])

@@ -274,7 +274,9 @@ impl<'a> postgres::types::FromSql<'a> for Numeric {
             return Err("invalid numeric header".into());
         }
         let fields: Vec<_> = bytes
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|b| u16::from_be_bytes([b[0], b[1]]))
             .collect();
         let count = usize::from(fields[0]);

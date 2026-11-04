@@ -183,7 +183,7 @@ fn rejected_mutations_keep_watermark_and_failed_pull_keeps_cursor() {
         assert_eq!(state["api_cursor"],10);assert_eq!(state["last_pushed_at"],before["last_pushed_at"]);
         assert!(config.once().await.is_err());
         let after=config.db(|db|Ok(db.query("select api_cursor,last_pushed_at from sync_state where id=1",&[])?.remove(0))).await.unwrap();assert_eq!(state,after);
-        let calls=calls.lock().unwrap();assert_eq!(calls.len(),3);assert!(!calls[0]["mutations"].as_array().unwrap().is_empty());assert_eq!(calls[0]["mutations"],calls[1]["mutations"]);assert_eq!(calls[2]["mutations"],json!([]));
+        let calls=calls.lock().unwrap();assert_eq!(calls.len(),3);assert_ne!(calls[0]["mutations"].as_array().unwrap(), &Vec::<serde_json::Value>::new());assert_eq!(calls[0]["mutations"],calls[1]["mutations"]);assert_eq!(calls[2]["mutations"],json!([]));
         server.abort();
     });
 }

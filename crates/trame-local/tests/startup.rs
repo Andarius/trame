@@ -90,21 +90,21 @@ fn failed_outbox_line_keeps_stamp_and_rolls_back_receipt() {
         serde_json::from_str(std::fs::read_to_string(&path).unwrap().trim()).unwrap();
     let receipt = stamped["_trame_outbox_id"].as_str().unwrap().to_owned();
     assert!(uuid::Uuid::parse_str(&receipt).is_ok());
-    assert!(
+    assert_eq!(
         t.db.query(
             "select id from trame_local.outbox_receipts where id=$1::uuid",
             &[json!(receipt)]
         )
-        .unwrap()
-        .is_empty()
+        .unwrap(),
+        [] as [serde_json::Value; 0]
     );
-    assert!(
+    assert_eq!(
         t.db.query(
             "select id from pages where kind='project' and title='Outbox rollback project'",
             &[]
         )
-        .unwrap()
-        .is_empty()
+        .unwrap(),
+        [] as [serde_json::Value; 0]
     );
     stamped["id"] = json!("00000000-0000-4000-8000-00000000bb02");
     std::fs::write(&path, format!("{stamped}\n")).unwrap();

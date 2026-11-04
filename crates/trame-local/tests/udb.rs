@@ -102,7 +102,10 @@ fn database_rows_views_icons_and_soft_delete() {
         &format!("/api/udb/rows/{row}/delete"),
         Value::Null,
     );
-    assert!(read(&mut t, &db)["rows"].as_array().unwrap().is_empty());
+    assert_eq!(
+        read(&mut t, &db)["rows"].as_array().unwrap(),
+        &Vec::<serde_json::Value>::new()
+    );
     call(
         &mut t,
         "POST",
