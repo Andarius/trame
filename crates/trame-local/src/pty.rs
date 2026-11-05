@@ -572,13 +572,14 @@ fn claude_dir() -> Option<PathBuf> {
         .or_else(|| Some(PathBuf::from(std::env::var_os("HOME")?).join(".claude")))
 }
 
-/// An agent's transcript and, for Claude, its `/rename` name and busy state.
+/// An agent's transcript and, for Claude, its `/rename` name and busy / waiting state.
 #[derive(Debug, PartialEq, serde::Serialize)]
 struct AgentSession {
     id: String,
     name: Option<String>,
     named: bool, // the name was set by the user, not derived from the folder
     busy: bool,
+    waiting: Option<String>, // what it waits on you for ("input needed", a permission), when it does
 }
 
 #[derive(Debug, PartialEq, serde::Serialize)]
@@ -597,11 +598,22 @@ fn claude_session(dir: &Path, pid: u32) -> Option<AgentSession> {
     if file["pid"].as_u64() != Some(u64::from(pid)) {
         return None;
     }
+    parse_claude_session(&file)
+}
+
+fn parse_claude_session(file: &Value) -> Option<AgentSession> {
+    let waiting = (file["status"] == "waiting").then(|| {
+        file["waitingFor"]
+            .as_str()
+            .unwrap_or("input needed")
+            .to_owned()
+    });
     Some(AgentSession {
         id: file["sessionId"].as_str()?.to_owned(),
         name: file["name"].as_str().map(str::to_owned),
         named: file["nameSource"] == "user",
         busy: file["status"] == "busy",
+        waiting,
     })
 }
 
@@ -643,6 +655,7 @@ fn running_agents(
                     name: None,
                     named: false,
                     busy: false,
+                    waiting: None,
                 })
             };
             let found = session_of(p.pid)
@@ -1234,8 +1247,8 @@ fn parse_ghostty(config: &str) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::{
-        AgentSession, Saved, SavedAgent, parse_ghostty, preview_image, process_cwd, process_name,
-        reopen_plan, repo_root, resolve_cwd, running_agents,
+        AgentSession, Saved, SavedAgent, parse_claude_session, parse_ghostty, preview_image,
+        process_cwd, process_name, reopen_plan, repo_root, resolve_cwd, running_agents,
     };
     use crate::diagnostics::Process;
     use serde_json::{Value, json};
@@ -1278,6 +1291,7 @@ mod tests {
             name: Some("test".into()),
             named: true,
             busy: true,
+            waiting: None,
         };
         let session = |pid| match pid {
             11 => Some(claude("c-1")),
@@ -1287,10 +1301,32 @@ mod tests {
         assert_eq!(
             json!(running_agents(&all, &shells, session)),
             json!([
-                {"term":"t1","agent":"claude","id":"c-1","name":"test","named":true,"busy":true},
-                {"term":"t2","agent":"codex","id":"x-2","name":null,"named":false,"busy":false},
+                {"term":"t1","agent":"claude","id":"c-1","name":"test","named":true,"busy":true,"waiting":null},
+                {"term":"t2","agent":"codex","id":"x-2","name":null,"named":false,"busy":false,"waiting":null},
             ])
         );
+    }
+
+    #[test]
+    fn claude_session_states() {
+        // Claude's own ~/.claude/sessions/<pid>.json shape
+        for (file, busy, waiting) in [
+            (json!({"sessionId":"s","status":"busy"}), true, None),
+            (json!({"sessionId":"s","status":"idle"}), false, None),
+            (
+                json!({"sessionId":"s","status":"waiting","waitingFor":"permission"}),
+                false,
+                Some("permission"),
+            ),
+            (
+                json!({"sessionId":"s","status":"waiting"}),
+                false,
+                Some("input needed"),
+            ),
+        ] {
+            let s = parse_claude_session(&file).unwrap();
+            assert_eq!((s.busy, s.waiting.as_deref()), (busy, waiting), "{file}");
+        }
     }
 
     #[test]

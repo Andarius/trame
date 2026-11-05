@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { AgentIcon } from "../agents/agents";
 import type { BoardData, Project } from "../api";
 import { projectFor } from "./project-for";
-import { EntityIcon, IconButton, useLocalStorage } from "../ui/ui";
+import { EntityIcon, IconButton, PresenceDot, useLocalStorage } from "../ui/ui";
+import { needsYou } from "./attention";
 import { ChevronIcon, MaximizeIcon, PlusIcon, SidebarIcon, SplitDownIcon, SplitRightIcon } from "../ui/icons";
 import { NewTerminalDialog } from "./NewTerminalDialog";
 import { TerminalView } from "./TerminalView";
@@ -13,8 +14,10 @@ import {
   focusPane,
   leaves,
   liveCwd,
+  seeTerm,
   termNow,
   useTermSessions,
+  useUnseenTerms,
   mergeTab,
   MAX_PANES,
   moveTerm,
@@ -75,6 +78,8 @@ export default function TerminalDock(
   const sessions = useTermSessions();
   const named = new Map(sessions.filter((x) => x.named).map((x) => [x.term, x.name]));
   const agentIn = new Map(sessions.map((x) => [x.term, x.agent]));
+  const sessionIn = new Map(sessions.map((x) => [x.term, x]));
+  const unseen = useUnseenTerms();
   const inScope = (t: TermTab) => {
     if (scope!.all) return true;
     if (scope!.term) return leaves(t.root).includes(scope!.term);
@@ -112,6 +117,21 @@ export default function TerminalDock(
   useEffect(() => {
     void termAgents().then(setAgents);
   }, []);
+  // the focused pane of the shown tab, in a focused window, has been seen
+  const [windowFocused, setWindowFocused] = useState(() => document.hasFocus());
+  useEffect(() => {
+    const on = () => setWindowFocused(document.hasFocus());
+    addEventListener("focus", on);
+    addEventListener("blur", on);
+    return () => {
+      removeEventListener("focus", on);
+      removeEventListener("blur", on);
+    };
+  }, []);
+  const seen = open && windowFocused ? current?.focus : undefined;
+  useEffect(() => {
+    if (seen) seeTerm(seen);
+  }, [seen, unseen]);
   const lead = current ? terms[current.focus] : null;
   const cwd = lead?.cwd ?? scope?.cwd ?? null;
   const card = scope && !scope.all ? scope.card : lead?.card ?? null;
@@ -176,6 +196,7 @@ export default function TerminalDock(
             const agent = agentIn.get(t.focus) ?? panes.map((p) => agentIn.get(p)).find(Boolean);
             const project = projectOf(board, lead?.card, lead?.cwd, lead?.project);
             const exited = panes.every((p) => terms[p]?.exited);
+            const why = needsYou(panes.map((p) => sessionIn.get(p)), unseen);
             return (
               <div
                 key={t.id}
@@ -199,7 +220,11 @@ export default function TerminalDock(
                 }}
                 onDragLeave={() => clearTimeout(hoverTimer.current)}
                 className={`group flex shrink-0 cursor-grab items-center gap-1 rounded-md px-2 py-0.5 ${
-                  t.id === active && open ? "bg-tab-active text-ink" : "text-ink-muted hover:text-ink-soft"
+                  why
+                    ? "bg-wait/15 text-wait"
+                    : t.id === active && open
+                    ? "bg-tab-active text-ink"
+                    : "text-ink-muted hover:text-ink-soft"
                 } ${drag?.kind === "tab" && drag.id === t.id ? "opacity-50" : ""}`}
               >
                 <button
@@ -213,6 +238,11 @@ export default function TerminalDock(
                     ? <ProjectMark project={project} />
                     : <AgentIcon a={{ harness: agent, icon: null }} />}
                   <span className={exited ? "opacity-50" : ""}>{name}</span>
+                  {why && (
+                    <span title={why} className="flex">
+                      <PresenceDot state="waiting" />
+                    </span>
+                  )}
                   {panes.length > 1 && <span className="pl-1 text-[10px] text-ink-faint">{panes.length}</span>}
                 </button>
                 <IconButton
@@ -492,7 +522,9 @@ function PaneHeader(
   const folder = cwd ? cwd.replace(/\/+$/, "").split("/").pop() || "/" : terms[id]?.title;
   const session = useTermSessions().find((x) => x.term === id && x.named);
   const title = [session?.name ?? folder, now?.process].filter(Boolean).join(" : ");
-  const agent = useTermSessions().find((x) => x.term === id)?.agent;
+  const running = useTermSessions().find((x) => x.term === id);
+  const agent = running?.agent;
+  const why = needsYou([running], useUnseenTerms());
   return (
     <div
       draggable
@@ -504,12 +536,17 @@ function PaneHeader(
       }}
       onDragEnd={() => setTermDrag(null)}
       className={`flex h-6 shrink-0 cursor-grab items-center gap-0.5 border-b border-line pl-14 pr-1 text-[11px] ${
-        focused ? "text-ink" : "text-ink-faint"
+        why ? "bg-wait/15 text-wait" : focused ? "text-ink" : "text-ink-faint"
       }`}
     >
       <span className="flex min-w-0 flex-1 items-center justify-center gap-1.5">
         {agent && <AgentIcon a={{ harness: agent, icon: null }} />}
         <span className="truncate">{title}</span>
+        {why && (
+          <span title={why} className="flex">
+            <PresenceDot state="waiting" />
+          </span>
+        )}
       </span>
       <IconButton
         tone="close"
