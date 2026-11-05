@@ -5,30 +5,30 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
-anyhow = "1"
+anyhow = "1.0.104"
 trame-protocol = { path = "../trame-protocol" }
-axum = { version = "0.8", features = ["ws"] }
-libc = "0.2"
+axum = { version = "0.8.9", features = ["ws"] }
+libc = "0.2.191"
 portable-pty = "0.9"
 postgres = { version = "0.19.14", features = ["with-serde_json-1", "with-uuid-1", "with-chrono-0_4"] }
-reqwest = { version = "0.12", default-features = false, features = ["stream", "json", "rustls-tls"] }
-serde_json = { version = "1", features = ["preserve_order"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time", "signal", "sync", "fs", "io-util", "process"] }
-uuid = { version = "1", features = ["v4", "v5"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["stream", "json", "query", "rustls"] }
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "time", "signal", "sync", "fs", "io-util", "process"] }
+uuid = { version = "1.29.0", features = ["v4", "v5"] }
 
 trame-core = { path = "../trame-core" }
-bytes = "1"
-regex = "1"
-chrono = { version = "0.4", features = ["serde"] }
-base64 = "0.22"
+bytes = "1.12.1"
+regex = "1.13.1"
+chrono = { version = "0.4.45", features = ["serde"] }
+base64 = "0.23.1"
 glob = "0.3.4"
-icu_collator = "2"
-sha2 = "0.10"
-serde = { version = "1", features = ["derive"] }
-toml = "1" # read by composed plugins (notebook-cells parses pyproject.toml)
-futures-util = { version = "0.3", features = ["sink"] }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
-rustls-pemfile = "2"
+icu_collator = "2.4.0"
+sha2 = "0.11.1"
+serde = { version = "1.0.229", features = ["derive"] }
+toml = "1.1.8" # read by composed plugins (notebook-cells parses pyproject.toml)
+futures-util = { version = "0.3.34", features = ["sink"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pemfile = "2.2.0"
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 
 [dev-dependencies]

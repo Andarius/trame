@@ -8,10 +8,7 @@ pub fn resolve_agent(input: &Value) -> String {
         .as_str()
         .map(str::to_owned)
         .unwrap_or_else(|| {
-            if std::env::var("CODEX_THREAD_ID")
-                .ok()
-                .is_some_and(|s| !s.is_empty())
-            {
+            if std::env::var("CODEX_THREAD_ID").is_ok_and(|s| !s.is_empty()) {
                 "codex"
             } else {
                 "claude"

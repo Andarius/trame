@@ -6,6 +6,7 @@ pub(crate) use crate::{
     blocking::spawn as blocking,
     cli::{NETWORK_TIMEOUT, output_within},
     db::Db,
+    json::stringify as json_stringify,
     plugins::encode,
     routes::Native,
     routes::json_response,
@@ -28,6 +29,8 @@ pub(crate) use crate::{
         add_event as add_session_event, ensure_specs_page, ensure_tag,
         set_status as set_session_status, tag_key, upsert as upsert_session,
     },
+    // a user database as `(status, {properties, rows, …})`; 404 once it is gone
+    udb::read as read_database,
 };
 use axum::{body::Body, http::Request, response::Response};
 use serde_json::{Value, json};
@@ -106,6 +109,32 @@ pub enum Write {
         kind: String,
         body: Value,
     },
+    /// A user-database column (`{name, type, config}`); yields `{id}`.
+    CreateProp {
+        db_id: String,
+        fields: Value,
+    },
+    /// `{name?, config?, width?, sort_key?}`; `config` merges into the current one.
+    UpdateProp {
+        id: String,
+        patch: Value,
+    },
+    /// Removes these config keys from a column.
+    DropPropConfig {
+        id: String,
+        keys: Vec<String>,
+    },
+    /// A user-database row (`{vals, icon?}`); yields `{id}`.
+    CreateRow {
+        db_id: String,
+        fields: Value,
+    },
+    /// `{vals?, icon?}`; `vals` merges into the row's, a null value clears that cell.
+    PatchRow {
+        id: String,
+        patch: Value,
+    },
+    DeleteRow(String),
 }
 
 /// Applies `plan` in one transaction, in order: a failure leaves nothing written.
@@ -137,6 +166,28 @@ pub fn apply(db: &mut Db, plan: &[Write]) -> anyhow::Result<Vec<Value>> {
                         body,
                     } => {
                         add_session_event(db, id, summary, kind, body)?;
+                        Value::Null
+                    }
+                    Write::CreateProp { db_id, fields } => {
+                        crate::udb::create_prop(db, db_id, fields)?
+                    }
+                    Write::UpdateProp { id, patch } => {
+                        crate::udb::update_prop(db, id, patch)?;
+                        Value::Null
+                    }
+                    Write::DropPropConfig { id, keys } => {
+                        crate::udb::drop_prop_config(db, id, keys)?;
+                        Value::Null
+                    }
+                    Write::CreateRow { db_id, fields } => {
+                        crate::udb::create_row(db, db_id, fields)?
+                    }
+                    Write::PatchRow { id, patch } => {
+                        crate::udb::patch_row(db, id, patch)?;
+                        Value::Null
+                    }
+                    Write::DeleteRow(id) => {
+                        crate::udb::delete_row(db, id)?;
                         Value::Null
                     }
                 })

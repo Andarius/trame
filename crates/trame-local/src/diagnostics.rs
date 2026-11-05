@@ -421,7 +421,7 @@ mod tests {
         ];
         let pids: Vec<u32> = tree(&all, 10).iter().map(|p| p.pid).collect();
         assert_eq!(pids, vec![10, 20, 30, 40]);
-        assert!(tree(&all, 999).is_empty());
+        assert_eq!(tree(&all, 999), []);
     }
 
     #[test]
@@ -483,7 +483,7 @@ mod tests {
             command_args("/usr/bin/postgres\x00-D\x00/data\x00-c\x00a=b\x00-p\x00"),
             vec!["-D", "/data", "-c", "a=b"]
         );
-        assert!(command_args("").is_empty());
+        assert_eq!(command_args(""), [] as [String; 0]);
     }
 
     #[test]

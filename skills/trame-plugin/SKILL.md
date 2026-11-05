@@ -10,12 +10,12 @@ loaded at runtime from arbitrary paths: `scripts/gen-plugins.ts` writes registri
 the plugin statically. The backend is a Rust module compiled into `trame-local` itself (a
 `#[path]` module, so it uses the crate's dependencies and runs in the app's process), the
 frontend goes into one `plugins.js` bundle. There is no other backend shape: the TypeScript
-`mod.ts` plugins of the Bun host era were ported (`Andarius/trame-k8s`, `Getsoren/trame-cockpit`
-are out-of-tree examples, and `Andarius/trame-deployments`: a sidebar column, forge auth, a
-tramecli command, fixtures and e2e specs). The in-tree plugins show the shape in use:
-`crates/trame-local/src/plugins/notebook.rs` (a server the plugin spawns or attaches to, a
-same-origin proxy with WebSockets, a full-pane panel), `sql_source.rs` (settings with secrets,
-a poll loop, database writes).
+`mod.ts` plugins of the Bun host era were ported. `Andarius/trame-plugins` holds the examples:
+`plugins/k8s`, `plugins/deployments` (a sidebar column, forge auth, a tramecli command, fixtures
+and e2e specs), `plugins/sql-source` (settings with secrets, a poll loop, database writes,
+integration tests); `Getsoren/trame-cockpit` is a private one. The in-tree
+`crates/trame-local/src/plugins/notebook.rs` shows a server the plugin spawns or attaches to, a
+same-origin proxy with WebSockets and a full-pane panel.
 
 Read `crates/trame-local/src/plugins/api.rs` and `app/web/src/plugins/index.ts` in the Trame
 checkout before coding: they are the contract, and this skill paraphrases them.
@@ -50,7 +50,7 @@ and `@trame/web-api` from `window.__trame`. Templates for every file: `reference
 `Plugin` methods (`crates/trame-local/src/plugins/api.rs`):
 
 - `id()` is the URL slug and the settings key; `label()`, `glyph()`, `description()` show in the plugins manager.
-- `version()` returns `Some((VERSION, "owner/name"))` so Trame compares the build against the latest GitHub release and shows "Update available". Mirror both in `version.ts` for the release workflow.
+- `version()` returns `Some((VERSION, "owner/name"))` so Trame compares the build against the latest GitHub release and shows "Update available"; a member of a plugins repo returns `"owner/name/<plugin>"` and is compared against its newest `<plugin>-vX.Y.Z` release. Mirror both in `version.ts` for the release workflow.
 - `route(native, sub, req)` answers `/api/plugins/<id><sub>` with the whole axum request and returns a boxed future of a full `Response`: stream, set headers, proxy, upgrade WebSockets (see `notebook.rs`). The registry has already gated it. Return `json_response(404, …)` for unknown paths.
 - `ungated(sub)` names the sub paths reachable while disabled (a connection test used from the settings UI before enabling).
 - `start(native)` runs once at boot whether enabled or not and returns the task to abort at exit. Own the loop and check `settings::plugin(&native.settings, id)["enabled"]` on every tick, so toggling needs no teardown. `on_enabled(native)` refreshes right away instead of waiting a tick.
@@ -67,9 +67,12 @@ subprocesses) goes through `blocking(move || …).await`; the database is `Db::c
 to the hub and to other devices, so gate it behind an explicit setting, never behind "enabled"
 alone.
 
-Write through `api::apply(db, &[Write::…])`: it runs a plan of page, session, status and tag writes
-in one transaction, so a failed poll leaves nothing half-written. A write it lacks is a new `Write`
-variant in Trame, not a new helper re-export. Reads stay plain `db.query`.
+Write through `api::apply(db, &[Write::…])`: it runs a plan of page, session, status, tag and
+user-database (column, row) writes in one transaction, so a failed poll leaves nothing
+half-written. A write it lacks is a new `Write` variant in Trame, not a new helper re-export. Reads
+stay plain `db.query` (`read_database(db, id)` for a user database's columns and rows). Several
+plans in one transaction: `db.transaction(|db| …)`; a dry run that reads its own writes then
+discards them: `db.rehearse(|db| …)`.
 
 ## Frontend contract (`web/index.ts`)
 
@@ -82,11 +85,13 @@ never names the plugin. `blocks` adds page block types (`PluginBlock`: `type`, a
 `hint`, `create()` for a new block's fields, a `View` taking `BlockViewProps`, `wide` to widen the
 page). The View renders even while the plugin is off, with `enabled: false`: show what the block holds
 and offer `onOpenSettings`. `Block` leaves plugin blocks out: declare the block's shape in the
-plugin and cast `page.content` to a union with it (`Andarius/trame-notebook-cells` does).
+plugin and cast `page.content` to a union with it (`plugins/notebook-cells` in `Andarius/trame-plugins` does).
 
 From `@trame/web-api`: `getPluginSettings(id)` / `savePluginSettings(id, patch)` (GET/POST
-`/api/plugins/<id>/settings`), `openInBrowser(url)`, `FieldRow`, `Select`, `timeAgo`,
-`SidebarColumn`, types `PanelProps`, `CardFace`, `PageDetail`, `Session`. Tailwind classes work
+`/api/plugins/<id>/settings`), `openInBrowser(url)`, `getUdb(id)` / `listUdbs()` (user databases),
+`FieldRow`, `Select`, `Modal`, `timeAgo`, `TYPE_GLYPH`, `highlightCode`, `SidebarColumn`, types
+`PanelProps`, `CardFace`, `PageDetail`, `Session`, `UdbProp`, `UdbMeta`; the full list is
+`app/web/src/plugin-api.ts`. Tailwind classes work
 because gen-plugins points Tailwind at `web/` (`@source`); use the host's tokens (`text-ink`,
 `bg-panel`, `border-line`, `text-copper`, …) rather than raw colours. No modal portal exists in
 the API: a dialog is a `fixed inset-0` overlay rendered inside the panel.
@@ -127,7 +132,8 @@ CI reproduces this: check out `Andarius/trame` beside the plugin, write `plugins
 `bun install` + `npm ci` + `bun scripts/gen-plugins.ts`, install the toolchain from Trame's
 `rust-toolchain.toml`, then the same commands. A plugin that uses a new `Plugin` or
 `FrontendPlugin` method fails CI until that Trame change is on `master`, so merge the Trame PR
-first and re-run. Integration tests that need PostgreSQL stay in Trame's own suite.
+first and re-run. Integration tests that need PostgreSQL go in `tests/*.rs`: gen-plugins wraps each
+into trame-local's tests (with `crate::common::TestDb`), run as `--test 'plugin_<id>_*'`.
 
 Tests: pure parsing, URL mapping and settings sanitizing are the high-value targets, as
 `#[test]` tables in the module. `web/boundary_test.ts` lists the allowed import specifiers and
@@ -143,6 +149,10 @@ links refuse a plugin without one, or one whose range excludes the Trame being b
 `gh release create --verify-tag --generate-notes`. To ship: bump `VERSION`, merge,
 `git tag vX.Y.Z <merge commit>`, `git push origin vX.Y.Z`. Trame checks the latest release hourly
 and shows "Update available" in the plugins manager and Settings.
+
+A plugins repo holds several plugins as `plugins/<name>/`, each laid out as above with its own
+`version.ts`, released as `<name>-vX.Y.Z` tags and installed as `owner/repo/<name>`
+(`Andarius/trame-plugins` is one).
 
 Users install a plugin by its repo link, never from a checkout: `tramecli plugins add owner/repo`
 builds Trame locally with it, and a repo calling `Andarius/trame/.github/workflows/compose.yml`

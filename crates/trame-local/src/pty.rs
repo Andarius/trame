@@ -20,7 +20,11 @@ use std::{
     collections::{HashMap, VecDeque},
     io::{Read, Write},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, OnceLock, mpsc},
+    sync::{
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
     time::{Duration, Instant},
 };
 use tokio::sync::{broadcast, oneshot};
@@ -193,6 +197,7 @@ pub fn get(id: &str) -> Option<Arc<Term>> {
 
 /// Start the user's login shell in `cwd`, running `command` first and keeping the shell afterwards.
 pub fn spawn(
+    id: Option<String>,
     cwd: &str,
     command: Option<&str>,
     title: &str,
@@ -239,7 +244,7 @@ pub fn spawn(
     let writer = pair.master.take_writer()?;
     let (tx, _) = broadcast::channel(1024);
     let term = Arc::new(Term {
-        id: uuid::Uuid::new_v4().to_string(),
+        id: id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
         title: title.to_owned(),
         cwd: cwd.to_owned(),
         card,
@@ -378,8 +383,11 @@ pub fn kill(id: &str) -> bool {
     true
 }
 
-/// Stop every terminal before the server drains its connections.
+/// Stop every terminal before the server drains its connections, saving them first for the next launch.
 pub fn shutdown() {
+    STOPPED.store(true, Ordering::SeqCst);
+    save_now(true);
+    SAVED_FILE.lock().unwrap().take();
     let terms: Vec<_> = registry()
         .terms
         .lock()
@@ -577,6 +585,8 @@ struct AgentSession {
 #[derive(Debug, PartialEq, serde::Serialize)]
 struct Running {
     term: String,
+    #[serde(skip)]
+    pid: u32,
     agent: &'static str,
     #[serde(flatten)]
     session: AgentSession,
@@ -654,6 +664,7 @@ fn running_agents(
             if let Some((agent, session)) = found {
                 out.push(Running {
                     term: term.clone(),
+                    pid: p.pid,
                     agent,
                     session,
                 });
@@ -661,6 +672,189 @@ fn running_agents(
         }
     }
     out
+}
+
+// Saved shells: reopened at the next launch, the agent in each resumed (a kill -9 included)
+
+const SAVE_EVERY: Duration = Duration::from_secs(10);
+// set while a workspace saves its shells (never the demo's), cleared once Trame stops it
+static SAVED_FILE: Mutex<Option<PathBuf>> = Mutex::new(None);
+static STOPPED: AtomicBool = AtomicBool::new(false);
+// the last JSON written, so an unchanged snapshot is not rewritten
+static WRITTEN: Mutex<Option<String>> = Mutex::new(None);
+
+fn saved_file(root: &Path) -> PathBuf {
+    root.join("terms.json")
+}
+
+/// A shell as it is reopened: its id (the dock's saved splits use it), folder, labels and agent.
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+struct Saved {
+    id: String,
+    title: String,
+    /// The agent's folder when one runs (Claude finds a transcript by folder), else the shell's.
+    cwd: String,
+    card: Option<String>,
+    project: Option<String>,
+    agent: Option<SavedAgent>,
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+struct SavedAgent {
+    kind: String,
+    session: String,
+}
+
+/// What the live shells would reopen as.
+fn snapshot() -> Vec<Saved> {
+    let terms: Vec<Arc<Term>> = registry()
+        .terms
+        .lock()
+        .unwrap()
+        .values()
+        .filter(|t| !t.exited())
+        .cloned()
+        .collect();
+    let shells: Vec<(String, u32)> = terms
+        .iter()
+        .filter_map(|t| Some((t.id.clone(), u32::try_from(t.pid?).ok()?)))
+        .collect();
+    let dir = claude_dir();
+    let running = running_agents(&crate::diagnostics::processes(), &shells, |pid| {
+        claude_session(dir.as_deref()?, pid)
+    });
+    terms
+        .iter()
+        .map(|t| {
+            let agent = running.iter().find(|r| r.term == t.id);
+            let cwd = agent
+                .and_then(|r| process_cwd(i32::try_from(r.pid).ok()?))
+                .or_else(|| t.live_cwd())
+                .unwrap_or_else(|| t.cwd.clone());
+            Saved {
+                id: t.id.clone(),
+                title: t.title.clone(),
+                cwd,
+                card: t.card.clone(),
+                project: t.project.clone(),
+                agent: agent.map(|r| SavedAgent {
+                    kind: r.agent.to_owned(),
+                    session: r.session.id.clone(),
+                }),
+            }
+        })
+        .collect()
+}
+
+/// Writes the snapshot; after shutdown began only its own final write (`last`) goes through.
+fn save_now(last: bool) {
+    let Some(path) = SAVED_FILE.lock().unwrap().clone() else {
+        return;
+    };
+    let mut written = WRITTEN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if STOPPED.load(Ordering::SeqCst) && !last {
+        return;
+    }
+    let Ok(text) = serde_json::to_string(&snapshot()) else {
+        return;
+    };
+    if written.as_deref() == Some(text.as_str()) {
+        return;
+    }
+    let tmp = path.with_extension("json.tmp");
+    if std::fs::write(&tmp, &text)
+        .and_then(|()| std::fs::rename(&tmp, &path))
+        .is_ok()
+    {
+        *written = Some(text);
+    }
+}
+
+/// Keeps `terms.json` in step with the live shells, so even a killed Trame reopens them.
+pub async fn keep_saved(root: PathBuf) {
+    *SAVED_FILE.lock().unwrap() = Some(saved_file(&root));
+    *WRITTEN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    STOPPED.store(false, Ordering::SeqCst);
+    loop {
+        tokio::time::sleep(SAVE_EVERY).await;
+        if STOPPED.load(Ordering::SeqCst) {
+            return;
+        }
+        let _ = crate::blocking::spawn(|| save_now(false)).await;
+    }
+}
+
+/// The command that resumes a saved agent session, for a session id that is a UUID.
+fn resume_command(agent: &SavedAgent) -> Option<String> {
+    let id = agent.session.as_str();
+    if !crate::routes::valid_uuid(id) {
+        return None;
+    }
+    match agent.kind.as_str() {
+        "claude" => Some(format!("claude --resume {id}")),
+        "codex" => Some(format!("codex resume {id}")),
+        _ => None,
+    }
+}
+
+/// A shell to reopen: (id, folder, command, title, card, project).
+type Reopen = (
+    Option<String>,
+    String,
+    Option<String>,
+    String,
+    Option<String>,
+    Option<String>,
+);
+
+/// What to reopen from the saved shells: folders resolved here, ids and agent sessions validated.
+fn reopen_plan(saved: Vec<Saved>, home: &Path, folders: &[(String, String)]) -> Vec<Reopen> {
+    let uuid = |v: Option<String>| v.filter(|v| crate::routes::valid_uuid(v));
+    saved
+        .into_iter()
+        .take(MAX_TERMS)
+        .filter_map(|s| {
+            let cwd = resolve_cwd(&s.cwd, home, folders)?;
+            let command = s.agent.as_ref().and_then(resume_command);
+            Some((
+                uuid(Some(s.id)),
+                cwd,
+                command,
+                trame_core::trim(&s.title).to_owned(),
+                uuid(s.card),
+                uuid(s.project),
+            ))
+        })
+        .collect()
+}
+
+/// Reopens the shells `terms.json` saved, resuming their agents; returns how many.
+pub fn restore(root: &Path) -> usize {
+    let Ok(raw) = std::fs::read(saved_file(root)) else {
+        return 0;
+    };
+    let saved: Vec<Saved> = serde_json::from_slice(&raw).unwrap_or_default();
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    reopen_plan(saved, &home, &load_folders(root))
+        .into_iter()
+        .filter(|(id, cwd, command, title, card, project)| {
+            spawn(
+                id.clone(),
+                cwd,
+                command.as_deref(),
+                title,
+                card.clone(),
+                project.clone(),
+            )
+            .is_ok()
+        })
+        .count()
 }
 
 const PREVIEW_MAX: u64 = 20 << 20;
@@ -748,7 +942,7 @@ async fn create(root: &Path, body: &Value) -> Response {
         },
     };
     let spawned = crate::blocking::spawn(move || {
-        spawn(&cwd, command.as_deref(), &title, card, project).map(|t| t.summary())
+        spawn(None, &cwd, command.as_deref(), &title, card, project).map(|t| t.summary())
     })
     .await;
     match spawned {
@@ -1053,12 +1247,12 @@ fn parse_ghostty(config: &str) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::{
-        AgentSession, parse_claude_session, parse_ghostty, preview_image, process_cwd,
-        process_name, repo_root, resolve_cwd, running_agents,
+        AgentSession, Saved, SavedAgent, parse_claude_session, parse_ghostty, preview_image,
+        process_cwd, process_name, reopen_plan, repo_root, resolve_cwd, running_agents,
     };
     use crate::diagnostics::Process;
     use serde_json::{Value, json};
-    use std::fs;
+    use std::{fs, path::Path};
 
     fn proc(pid: u32, ppid: u32, name: &str, args: &[&str]) -> Process {
         Process {
@@ -1133,6 +1327,61 @@ mod tests {
             let s = parse_claude_session(&file).unwrap();
             assert_eq!((s.busy, s.waiting.as_deref()), (busy, waiting), "{file}");
         }
+    }
+
+    #[test]
+    fn saved_shells_reopen_with_their_agent_resumed() {
+        let dir =
+            std::env::temp_dir().join(format!("trame-reopen-{}", uuid::Uuid::new_v4().simple()));
+        fs::create_dir_all(&dir).unwrap();
+        let cwd = dir.to_string_lossy().into_owned();
+        let (t1, s1, card) = (
+            "6f0a2c1e-0000-4000-8000-000000000001",
+            "6f0a2c1e-0000-4000-8000-0000000000aa",
+            "6f0a2c1e-0000-4000-8000-0000000000cc",
+        );
+        let saved = |id: &str, cwd: &str, agent: Option<(&str, &str)>, card: Option<&str>| Saved {
+            id: id.into(),
+            title: " api ".into(),
+            cwd: cwd.into(),
+            card: card.map(Into::into),
+            project: None,
+            agent: agent.map(|(kind, session)| SavedAgent {
+                kind: kind.into(),
+                session: session.into(),
+            }),
+        };
+        let plan = reopen_plan(
+            vec![
+                saved(t1, &cwd, Some(("claude", s1)), Some(card)),
+                saved("not-a-uuid", &cwd, Some(("codex", s1)), Some("bad")),
+                saved(t1, &cwd, Some(("claude", "x; rm -rf ~")), None),
+                saved(t1, &cwd, Some(("gemini", s1)), None),
+                saved(t1, "/no/such/folder/anywhere", None, None),
+            ],
+            Path::new("/nonexistent-home"),
+            &[],
+        );
+        let shell = |id: Option<&str>, command: Option<String>, card: Option<&str>| {
+            (
+                id.map(Into::into),
+                cwd.clone(),
+                command,
+                "api".to_owned(),
+                card.map(Into::into),
+                None,
+            )
+        };
+        assert_eq!(
+            plan,
+            vec![
+                shell(Some(t1), Some(format!("claude --resume {s1}")), Some(card)),
+                shell(None, Some(format!("codex resume {s1}")), None),
+                shell(Some(t1), None, None),
+                shell(Some(t1), None, None),
+            ]
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

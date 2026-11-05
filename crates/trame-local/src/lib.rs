@@ -312,6 +312,17 @@ pub async fn run(
         drop(tokio::task::spawn_blocking(startup::install_agent_hooks));
     }
     let plugin_tasks = plugins::start_all(&native);
+    // the shells open when Trame last stopped, their agents resumed, before the UI asks for them
+    if !config.demo {
+        let root = native.root.clone();
+        let n = blocking::spawn(move || pty::restore(&root))
+            .await
+            .unwrap_or(0);
+        if n > 0 {
+            eprintln!("terminals: reopened {n}");
+        }
+    }
+    let term_saver = (!config.demo).then(|| tokio::spawn(pty::keep_saved(native.root.clone())));
     let router = proxy::router(proxy::Proxy { port, native });
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let mut server = tokio::spawn(async move {
@@ -339,10 +350,11 @@ pub async fn run(
     // open terminals hold WebSocket connections the graceful shutdown would wait on
     let _ = blocking::spawn(pty::shutdown).await;
     let _ = blocking::spawn(plugins::stop_all).await;
-    for task in plugin_tasks
-        .into_iter()
-        .chain([updater, notifier, seeder].into_iter().flatten())
-    {
+    for task in plugin_tasks.into_iter().chain(
+        [updater, notifier, seeder, term_saver]
+            .into_iter()
+            .flatten(),
+    ) {
         task.abort();
         let _ = task.await;
     }

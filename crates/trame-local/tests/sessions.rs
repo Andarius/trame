@@ -207,11 +207,11 @@ fn tags_statuses_and_invalid_tags_preserve_card_integrity() {
     )
     .unwrap()
     .unwrap();
-    assert!(
+    assert_eq!(
         t.db.query("select id from statuses where id=$1 and deleted", &[status])
             .unwrap()
-            .len()
-            == 1
+            .len(),
+        1
     );
 }
 

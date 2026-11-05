@@ -7,8 +7,6 @@ import { createPortal } from "react-dom";
 import type { PageDetail, Session } from "../api";
 import { NotebookPanel } from "./notebook/Panel";
 import { NotebookSettingsView } from "./notebook/Settings";
-import { SqlSourceDatabaseActions, SqlSourceDatabaseEmpty } from "./sql-source/Actions";
-import { SqlSourceSettings } from "./sql-source/Settings";
 import { LOCAL_PLUGINS } from "./local.gen";
 export { isPluginEnabled, markPluginEnabled, openPluginSettings, setEnabledPlugins, usePluginEnabled } from "./enabled";
 
@@ -83,7 +81,6 @@ export function SidebarColumn({ column, children }: { column?: HTMLElement | nul
 }
 
 export const FRONTEND_PLUGINS: FrontendPlugin[] = [
-  { id: "sql-source", Settings: SqlSourceSettings, DatabaseActions: SqlSourceDatabaseActions, DatabaseEmpty: SqlSourceDatabaseEmpty },
   { id: "notebook", Panel: NotebookPanel, Settings: NotebookSettingsView },
   ...LOCAL_PLUGINS,
 ];

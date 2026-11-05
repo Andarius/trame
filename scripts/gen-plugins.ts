@@ -1,11 +1,12 @@
 // Composes out-of-tree plugins into this checkout from the gitignored plugins.local.json:
 //   { "plugins": ["../my-plugin"] }   (paths relative to the repo root, or absolute)
 // A plugin checkout may hold src/mod.rs (native backend, compiled into trame-local),
-// web/index.ts (frontend), e2e/*.spec.ts and mark-roles.json (what its page marks mean to the
-// hierarchy, see core/mark-roles.ts).
+// web/index.ts (frontend), e2e/*.spec.ts, tests/*.rs (trame-local integration tests, wrapped in
+// tests/plugin_<id>_<name>.rs) and mark-roles.json (what its page marks mean to the hierarchy, see
+// core/mark-roles.ts).
 // Writes the registries the app imports statically (no runtime loading).
 // Without the file the registries are written empty, which is what the committed copies hold.
-import { lstat, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { lstat, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { satisfies, trameRange } from "./compose-plugins.ts";
 
@@ -75,16 +76,19 @@ async function markRoles() {
   ).join("") + (rules.length ? "\n" : "");
 }
 
+// module name: the plugin's `pub const ID` when it declares one (a worktree folder name is not it)
+async function identOf(d: string) {
+  const file = join(d, "src/mod.rs");
+  const id = await exists(file) ? /pub const ID: &str = "([^"]+)"/.exec(await readFile(file, "utf8"))?.[1] : undefined;
+  return (id ?? d.split("/").filter(Boolean).at(-1)!.replace(/^trame-/, "")).replace(/[^A-Za-z0-9]/g, "_");
+}
+
 // native plugins: `#[path]` modules compiled into trame-local, each exporting `pub static PLUGIN`
 async function nativeRegistry() {
   const found: { ident: string; file: string }[] = [];
   for (const d of dirs) {
     const file = join(d, "src/mod.rs");
-    if (!await exists(file)) continue;
-    // module name: the plugin's `pub const ID` when it declares one (a worktree folder name is not it)
-    const id = /pub const ID: &str = "([^"]+)"/.exec(await readFile(file, "utf8"))?.[1];
-    const ident = (id ?? d.split("/").filter(Boolean).at(-1)!.replace(/^trame-/, "")).replace(/[^A-Za-z0-9]/g, "_");
-    found.push({ ident, file });
+    if (await exists(file)) found.push({ ident: await identOf(d), file });
   }
   // a #[path] in a non-mod.rs file resolves against that file's own directory
   const mods = found.map(({ ident, file }) => `#[path = ${JSON.stringify(rel(OUT.native, file))}]\n#[allow(unreachable_pub, reason = "a composed plugin's items are pub in its own repo")]\npub(super) mod ${ident};\n`).join("");
@@ -115,6 +119,22 @@ for (const d of dirs) {
   if (isLink === false) continue; // the plugin's own node_modules
   if (isLink) await rm(link);
   await symlink(join(ROOT, "app/web/node_modules"), link);
+}
+
+// integration tests: a wrapper per file gives it trame-local's `common` (as `crate::common`)
+const TESTS = join(ROOT, "crates/trame-local/tests");
+for (const name of await readdir(TESTS)) {
+  if (name.startsWith("plugin_") && name.endsWith(".rs")) await rm(join(TESTS, name));
+}
+for (const d of dirs) {
+  const own = join(d, "tests");
+  if (!await exists(own)) continue;
+  const ident = await identOf(d);
+  for (const name of await readdir(own)) {
+    if (!name.endsWith(".rs")) continue;
+    const out = join(TESTS, `plugin_${ident}_${name}`);
+    await writeFile(out, HEADER + `mod common;\n#[path = ${JSON.stringify(rel(out, join(own, name)))}]\nmod plugin;\n`);
+  }
 }
 
 // the committed copies stay empty: keep a composed checkout's copies out of commits

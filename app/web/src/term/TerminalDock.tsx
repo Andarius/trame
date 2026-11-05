@@ -146,7 +146,7 @@ export default function TerminalDock(
     <section
       className={`relative flex flex-col bg-panel ${full ? "min-h-0 flex-1" : "shrink-0 border-t border-line"}`}
       style={open && !full ? { height } : undefined}
-      // ⌘D / ⌘⇧D split like iTerm and Ghostty, Ctrl+( / Ctrl+) and Ctrl+Shift+E like Konsole, before the shell sees the key
+      // ⌘D / ⌘⇧D split like iTerm and Ghostty, Ctrl+( / Ctrl+), Ctrl+Shift+E and Ctrl+Shift+←/→ (tabs) like Konsole, before the shell sees the key
       onKeyDownCapture={(e) => {
         const ctrl = e.ctrlKey && !e.metaKey && !e.altKey;
         const run = (f: () => void) => {
@@ -164,6 +164,10 @@ export default function TerminalDock(
               ? setZoomed(zoomed === current.focus ? null : current.focus)
               : !scope && setDockMax(!full)
           );
+        } else if (ctrl && e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight") && tabs.length > 1) {
+          const at = tabs.findIndex((t) => t.id === active);
+          const next = tabs[(at + (e.key === "ArrowLeft" ? -1 : 1) + tabs.length) % tabs.length];
+          run(() => selectTab(next.id));
         }
       }}
       // the shell owns the keyboard: Escape, ⌘P, ⌘Enter must not reach the app's window handlers

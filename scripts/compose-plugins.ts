@@ -1,6 +1,7 @@
 // Fetches native plugins from GitHub and composes them into this checkout for a build.
 // USAGE: bun scripts/compose-plugins.ts <plugins.json> [--lock <out.json>]
-//   plugins.json: { "plugins": ["owner/repo", "owner/repo@v1.2.0"] }   (no tag = latest release)
+//   plugins.json: { "plugins": ["owner/repo", "owner/repo@v1.2.0", "owner/plugins/name"] }   (no tag = latest release)
+// `owner/repo/name` is one plugin of a plugins repo: its `plugins/<name>/`, released as `<name>-vX.Y.Z`.
 // Clones each into .scratch/plugins/, refuses one whose `TRAME` range (version.ts) excludes this
 // Trame, writes plugins.local.json, runs gen-plugins, and writes a lock (Trame version + each
 // plugin's tag, commit and range) that identifies the build.
@@ -20,15 +21,29 @@ const fail = (msg: string): never => {
 const NAME = /^(?!\.)[A-Za-z0-9._-]+$/;
 const REF = /^(?![-.])[A-Za-z0-9._/-]+$/;
 
-export type Spec = { repo: string; ref: string | null };
+/** `repo` is the spec without its tag; `name` the plugin inside a plugins repo, else null. */
+export type Spec = { repo: string; ref: string | null; name: string | null };
 export function parseSpec(entry: string): Spec {
   const [repo, ref = null, ...extra] = entry.split("@");
   const parts = repo.split("/");
-  if (extra.length || parts.length !== 2 || !parts.every((p) => NAME.test(p))) {
-    throw new Error(`not owner/repo[@tag]: ${JSON.stringify(entry)}`);
+  if (extra.length || parts.length < 2 || parts.length > 3 || !parts.every((p) => NAME.test(p))) {
+    throw new Error(`not owner/repo[/name][@tag]: ${JSON.stringify(entry)}`);
   }
   if (ref !== null && (!REF.test(ref) || ref.includes(".."))) throw new Error(`bad tag in ${JSON.stringify(entry)}`);
-  return { repo, ref };
+  return { repo, ref, name: parts[2] ?? null };
+}
+
+/** `owner/repo` of a spec, the GitHub repository to clone. */
+export const githubRepo = (s: Spec) => s.repo.split("/").slice(0, 2).join("/");
+
+/** The newest `<name>-vX.Y.Z` among release tags (drafts and prereleases skipped). */
+export function newestFor(releases: { tag_name: string; draft?: boolean; prerelease?: boolean }[], name: string) {
+  const prefix = `${name}-v`;
+  const key = (t: string) => t.slice(prefix.length).split(".").map(Number);
+  return releases
+    .filter((r) => !r.draft && !r.prerelease && r.tag_name.startsWith(prefix) && /^\d+\.\d+\.\d+$/.test(r.tag_name.slice(prefix.length)))
+    .map((r) => r.tag_name)
+    .sort((a, b) => key(b).map((x, i) => x - key(a)[i]).find((d) => d !== 0) ?? 0)[0] ?? null;
 }
 
 const COMPARATOR = /^(>=|<=|>|<|=)?(\d+)\.(\d+)\.(\d+)$/;
@@ -64,12 +79,19 @@ function ghToken() {
   }
 }
 
-async function latestTag(repo: string) {
+async function latestTag(spec: Spec) {
   const headers: Record<string, string> = { accept: "application/vnd.github+json", "user-agent": "Trame" };
   const token = process.env.GITHUB_TOKEN || ghToken();
   if (token) headers.authorization = `Bearer ${token}`;
-  const res = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, { headers });
-  if (!res.ok) fail(`${repo}: no release to build (${res.status}); pin a tag with ${repo}@<tag>`);
+  const gh = githubRepo(spec);
+  const none = (why: string) => fail(`${spec.repo}: no release to build (${why}); pin a tag with ${spec.repo}@<tag>`);
+  if (spec.name) {
+    const res = await fetch(`https://api.github.com/repos/${gh}/releases?per_page=100`, { headers });
+    if (!res.ok) none(String(res.status));
+    return newestFor(await res.json(), spec.name) ?? none(`no ${spec.name}-v* release`);
+  }
+  const res = await fetch(`https://api.github.com/repos/${gh}/releases/latest`, { headers });
+  if (!res.ok) none(String(res.status));
   return ((await res.json()) as { tag_name: string }).tag_name;
 }
 
@@ -110,14 +132,18 @@ if (import.meta.main) {
   await mkdir(DIR, { recursive: true });
   const trame: string = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8")).version;
   const lock = [];
-  for (const { repo, ref } of specs) {
-    const tag = ref ?? await latestTag(repo);
-    // owner names have no "_", so owner__repo cannot collide
-    const dir = join(DIR, repo.replace("/", "__"));
-    const url = `https://github.com/${repo}.git`;
+  // owner names have no "_", so owner__repo[__name] cannot collide
+  const cloneDir = (s: Spec) => join(DIR, s.repo.replaceAll("/", "__"));
+  const pluginDir = (s: Spec) => s.name ? join(cloneDir(s), "plugins", s.name) : cloneDir(s);
+  for (const spec of specs) {
+    const { repo, ref } = spec;
+    const tag = ref ?? await latestTag(spec);
+    const url = `https://github.com/${githubRepo(spec)}.git`;
+    const clone = cloneDir(spec);
+    const dir = pluginDir(spec);
     const commit = tagCommit(url, tag) ?? fail(`${repo}: ${tag} is not a tag`);
-    git(["clone", "--quiet", "--depth", "1", "--branch", tag, url, dir]);
-    if (git(["rev-parse", "HEAD"], dir) !== commit) fail(`${repo}: ${tag} moved while cloning`);
+    git(["clone", "--quiet", "--depth", "1", "--branch", tag, url, clone]);
+    if (git(["rev-parse", "HEAD"], clone) !== commit) fail(`${repo}: ${tag} moved while cloning`);
     if (!await exists(join(dir, "src/mod.rs"))) {
       fail(`${repo}@${tag} has no src/mod.rs: only native plugins can be composed`);
     }
@@ -132,7 +158,7 @@ if (import.meta.main) {
     lock.push({ repo, tag, commit, trame: range });
   }
 
-  const paths = specs.map(({ repo }) => relative(ROOT, join(DIR, repo.replace("/", "__"))));
+  const paths = specs.map((s) => relative(ROOT, pluginDir(s)));
   await writeFile(LOCAL, JSON.stringify({ composed: true, plugins: paths }, null, 2) + "\n");
   const gen = Bun.spawnSync(["bun", join(ROOT, "scripts/gen-plugins.ts")], { cwd: ROOT, stdout: "inherit", stderr: "inherit" });
   if (gen.exitCode !== 0) process.exit(gen.exitCode ?? 1);

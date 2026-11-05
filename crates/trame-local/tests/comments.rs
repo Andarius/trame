@@ -332,7 +332,7 @@ fn backend_comment_identity_and_meta_assertions() {
         .unwrap()
         .remove(0);
     assert_eq!(row["author_id"], SEED_USER);
-    assert!(!row["author"].as_str().unwrap().is_empty());
+    assert_ne!(row["author"].as_str().unwrap(), "");
 
     // app/identity_test.ts:63 — agent snapshot and reserved identity.
     let id = comments::create(

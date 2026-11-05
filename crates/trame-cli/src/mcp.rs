@@ -458,12 +458,12 @@ impl ServerHandler for TrameMcp {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("trame", "0.1.0"))
     }
-    async fn list_tools(
+    fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
-    ) -> Result<ListToolsResult, ErrorData> {
-        Ok(ListToolsResult::with_all_items(tools()))
+    ) -> impl Future<Output = Result<ListToolsResult, ErrorData>> {
+        std::future::ready(Ok(ListToolsResult::with_all_items(tools())))
     }
     async fn call_tool(
         &self,
