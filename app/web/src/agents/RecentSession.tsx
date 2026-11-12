@@ -82,35 +82,59 @@ export function RecentSession(
         <ResumeButton session={session} card={card?.id} onCopied={() => setCopied(true)} modePick={modePick} />
         <button type="button" className={btn} onClick={() => void copy()}>{copied ? "Copied" : "Copy command"}</button>
       </div>
-      <section className="flex flex-col gap-2 rounded-lg border border-line px-4 py-3">
-        <div className={SECTION_LABEL}>WHERE YOU LEFT OFF</div>
-        {error && <p className="text-[12.5px] text-ink-muted">{error}</p>}
-        {!error && !tail && <p className="text-[12.5px] text-ink-faint">reading the transcript…</p>}
-        {tail?.more && <p className="text-center text-[11px] text-ink-faint">· · · earlier messages · · ·</p>}
-        {tail?.steps.map((s, i) =>
-          s.role === "tools"
-            ? (
-              <p key={i} className="truncate pl-[52px] text-[11.5px] text-ink-faint" title={s.tools.join(", ")}>
-                ⎿ {s.tools.length > 4 ? `${s.tools.slice(0, 4).join(" · ")} +${s.tools.length - 4}` : s.tools.join(" · ")}
-              </p>
-            )
-            : (
-              <div key={i} className="flex gap-3 text-[12.5px] leading-relaxed">
-                <span className={`w-10 shrink-0 text-right text-[11px] ${s.role === "user" ? "text-copper" : "text-ink-faint"}`}>
-                  {s.role === "user" ? "you" : agent}
-                </span>
-                <span className={`min-w-0 whitespace-pre-wrap break-words ${s.role === "user" ? "text-ink" : "text-ink-soft"}`}>
-                  {s.text}
-                </span>
-              </div>
-            )
+      <section className="flex flex-col gap-1 rounded-lg border border-line bg-block px-4 py-3 font-mono text-[12px] leading-relaxed">
+        <div className={`${SECTION_LABEL} pb-1 font-sans`}>WHERE YOU LEFT OFF</div>
+        {error && <p className="text-ink-muted">{error}</p>}
+        {!error && !tail && <p className="text-ink-faint">reading the transcript…</p>}
+        {tail?.more && <p className="text-ink-faint">… earlier messages</p>}
+        {tail?.steps.map((s, i) => <ReplayStep key={i} step={s} />)}
+        {tail && tail.steps.length === 0 && <p className="text-ink-faint">Nothing said yet.</p>}
+        {tail && tail.steps.length > 0 && (
+          <p className="mt-1 flex items-center gap-2 text-[11px] text-ink-faint">
+            <span className="h-px flex-1 bg-line" />resume to continue<span className="h-px flex-1 bg-line" />
+          </p>
         )}
-        {tail && tail.steps.length === 0 && <p className="text-[12.5px] text-ink-faint">Nothing said yet.</p>}
       </section>
       <section className="flex flex-col gap-1 rounded-lg border border-line px-4 py-3">
         <div className={SECTION_LABEL}>COMMAND</div>
         <code className="break-all font-mono text-[11.5px] text-ink-soft">{resumeCmd(session)}</code>
       </section>
+    </div>
+  );
+}
+
+const SHOWN_TOOLS = 4;
+// markdown emphasis reads as noise in a terminal-style replay
+const plain = (text: string) => text.replace(/\*\*(.+?)\*\*/g, "$1");
+
+// one step of the tail, drawn the way Claude Code prints it
+function ReplayStep({ step }: { step: TailStep }) {
+  if (step.role === "tools") {
+    const rest = step.tools.length - SHOWN_TOOLS;
+    return (
+      <div className="text-ink-soft">
+        {step.tools.slice(0, SHOWN_TOOLS).map((t, i) => (
+          <div key={i} className="truncate" title={t}>
+            <span className="text-live">⏺</span> {t}
+          </div>
+        ))}
+        {rest > 0 && <div className="pl-4 text-ink-faint" title={step.tools.slice(SHOWN_TOOLS).join("\n")}>⎿ +{rest} more</div>}
+      </div>
+    );
+  }
+  if (step.role === "note") return <div className="text-ink-faint">· {step.text}</div>;
+  if (step.role === "user") {
+    return (
+      <div className="mt-2 flex gap-2 whitespace-pre-wrap break-words text-ink">
+        <span className="shrink-0 text-copper">&gt;</span>
+        <span className="min-w-0">{step.text}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex gap-2 whitespace-pre-wrap break-words text-ink-soft">
+      <span className="shrink-0 text-ink">⏺</span>
+      <span className="min-w-0">{plain(step.text)}</span>
     </div>
   );
 }

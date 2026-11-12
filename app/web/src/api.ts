@@ -928,7 +928,7 @@ export const scanClaudeImport = (days: number) =>
     r.json() as Promise<ClaudeScan>
   );
 // where a past session left off: its last steps, tool calls folded (`more`: earlier ones exist)
-export type TailStep = { role: "user" | "agent"; text: string } | { role: "tools"; tools: string[] };
+export type TailStep = { role: "user" | "agent" | "note"; text: string } | { role: "tools"; tools: string[] };
 export const transcriptTail = (source: string, id: string) =>
   fetch(`/api/import/claude/tail?source=${encodeURIComponent(source)}&id=${encodeURIComponent(id)}`).then(async (r) => {
     if (!r.ok) throw new Error(r.status === 404 ? "transcript not found on this machine" : `tail: ${r.status}`);

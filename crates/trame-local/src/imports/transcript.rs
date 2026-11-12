@@ -112,11 +112,67 @@ fn said(text: &str) -> Option<String> {
     }
     let mut out: String = text.chars().take(TAIL_TEXT).collect();
     if out.len() < text.len() {
-        out.push('…');
+        // end on a sentence or a line when one ends late enough, not mid-word
+        if let Some(cut) = out.rfind(['\n', '.']).filter(|&i| i > out.len() * 3 / 5) {
+            out.truncate(cut + 1);
+        }
+        out.push_str(" …");
     }
     Some(out)
 }
 
+/// A user turn the harness wrote (another session's message, a context summary): a short note instead.
+fn harness_note(text: &str) -> Option<&'static str> {
+    [
+        (
+            "Another Claude session sent a message",
+            "message from another session",
+        ),
+        (
+            "This session is being continued",
+            "continued from a previous conversation",
+        ),
+        ("[SYSTEM NOTIFICATION", "background task finished"),
+    ]
+    .into_iter()
+    .find(|(start, _)| text.trim_start().starts_with(start))
+    .map(|(_, note)| note)
+}
+
+/// A tool call as Claude Code prints it: `Bash(cargo test)`, `Edit(pty.rs)`, or the bare name.
+fn tool_label(name: &str, input: &Value) -> String {
+    let arg = match name {
+        "Bash" | "shell" | "exec_command" => input["command"]
+            .as_str()
+            .map(str::to_owned)
+            .or_else(|| input["cmd"].as_str().map(str::to_owned))
+            .or_else(|| {
+                input["command"].as_array().map(|parts| {
+                    let parts: Vec<&str> = parts.iter().filter_map(Value::as_str).collect();
+                    parts.join(" ")
+                })
+            }),
+        "Edit" | "Write" | "Read" | "NotebookEdit" => input["file_path"]
+            .as_str()
+            .map(|p| p.rsplit('/').next().unwrap_or(p).to_owned()),
+        "Grep" | "Glob" => input["pattern"].as_str().map(str::to_owned),
+        "Agent" | "Task" => input["description"].as_str().map(str::to_owned),
+        "WebFetch" => input["url"].as_str().map(str::to_owned),
+        "WebSearch" => input["query"].as_str().map(str::to_owned),
+        "Skill" => input["skill"].as_str().map(str::to_owned),
+        _ => None,
+    };
+    let Some(arg) = arg.and_then(|a| a.lines().next().map(str::trim).map(str::to_owned)) else {
+        return name.to_owned();
+    };
+    let mut short: String = arg.chars().take(TOOL_ARG).collect();
+    if short.len() < arg.len() {
+        short.push('…');
+    }
+    format!("{name}({short})")
+}
+
+const TOOL_ARG: usize = 60;
 const TAIL_TEXT: usize = 600;
 
 /// One step of the conversation: who spoke and what, with tool calls folded into one `tools` step.
@@ -146,7 +202,13 @@ fn steps(event: &Value, codex: bool) -> Vec<Value> {
                 .unwrap_or_default(),
             (Some("function_call"), _) => p["name"]
                 .as_str()
-                .map(|n| vec![json!({"role":"tools","tools":[n]})])
+                .map(|n| {
+                    let args = p["arguments"]
+                        .as_str()
+                        .and_then(|a| serde_json::from_str::<Value>(a).ok())
+                        .unwrap_or(Value::Null);
+                    vec![json!({"role":"tools","tools":[tool_label(n, &args)]})]
+                })
                 .unwrap_or_default(),
             _ => Vec::new(),
         };
@@ -157,7 +219,10 @@ fn steps(event: &Value, codex: bool) -> Vec<Value> {
             .as_str()
             .and_then(said)
             .or_else(|| texts(content, "text"))
-            .map(|t| vec![json!({"role":"user","text":t})])
+            .map(|t| match harness_note(&t) {
+                Some(note) => vec![json!({"role":"note","text":note})],
+                None => vec![json!({"role":"user","text":t})],
+            })
             .unwrap_or_default(),
         Some("assistant") => content
             .as_array()
@@ -171,7 +236,7 @@ fn steps(event: &Value, codex: bool) -> Vec<Value> {
                             .map(|t| json!({"role":"agent","text":t})),
                         Some("tool_use") => p["name"]
                             .as_str()
-                            .map(|n| json!({"role":"tools","tools":[n]})),
+                            .map(|n| json!({"role":"tools","tools":[tool_label(n, &p["input"])]})),
                         _ => None,
                     })
                     .collect()
@@ -181,7 +246,7 @@ fn steps(event: &Value, codex: bool) -> Vec<Value> {
     }
 }
 
-/// The last `limit` turns of a transcript tail: what you said, its tool calls folded, then the agent's final reply.
+/// The last `limit` turns of a transcript tail: what you said (or a harness note), its tool calls folded, then the agent's final reply.
 pub fn conversation_tail(tail: &str, codex: bool, limit: usize) -> Value {
     #[derive(Default)]
     struct Turn {
@@ -191,12 +256,12 @@ pub fn conversation_tail(tail: &str, codex: bool, limit: usize) -> Value {
     }
     let mut turns: Vec<Turn> = Vec::new();
     for step in lines(tail).flat_map(|e| steps(&e, codex)) {
-        if step["role"] == "user" || turns.is_empty() {
+        if step["role"] == "user" || step["role"] == "note" || turns.is_empty() {
             turns.push(Turn::default());
         }
         let turn = turns.last_mut().unwrap();
         match step["role"].as_str() {
-            Some("user") => turn.user = Some(step["text"].clone()),
+            Some("user" | "note") => turn.user = Some(step),
             Some("tools") => turn.tools.push(step["tools"][0].clone()),
             _ => turn.reply = Some(step["text"].clone()),
         }
@@ -207,7 +272,7 @@ pub fn conversation_tail(tail: &str, codex: bool, limit: usize) -> Value {
         .split_off(start)
         .into_iter()
         .flat_map(|t| {
-            let user = t.user.map(|text| json!({"role":"user","text":text}));
+            let user = t.user;
             let tools = (!t.tools.is_empty()).then(|| json!({"role":"tools","tools":t.tools}));
             let reply = t.reply.map(|text| json!({"role":"agent","text":text}));
             [user, tools, reply].into_iter().flatten()
