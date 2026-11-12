@@ -1,5 +1,6 @@
 import { useState } from "react";
-import type { BoardData, Session } from "../api";
+import type { BoardData, ClaudeSession, Session } from "../api";
+import { RecentList } from "../agents/RecentList";
 import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
 import { EntityIcon, enumCodec, SECTION_LABEL, StatusDot, useLocalStorage } from "../ui/ui";
@@ -14,7 +15,21 @@ const GROUPING_LABEL: Record<Grouping, string> = { project: "Project", status: "
 // The Terminals view's sidebar column: cards with shells or a live agent, grouped by project, status or not at all
 // (Orca's project → branch list, with cards); `selected` stays listed even without either.
 export function TermCards(
-  { board, selected, selectedProject, all, selectedTerm, onSelectAll, onSelectTerm, onSelect, onSelectProject }: {
+  {
+    board,
+    selected,
+    selectedProject,
+    all,
+    selectedTerm,
+    recent,
+    history,
+    onSelectAll,
+    onSelectTerm,
+    onSelect,
+    onSelectProject,
+    onSelectRecent,
+    onSelectHistory,
+  }: {
     board: BoardData | null;
     selected: string | null;
     selectedProject: string | null; // its project shells are shown (selected is then null)
@@ -24,11 +39,16 @@ export function TermCards(
     onSelectTerm: (term: string) => void;
     onSelect: (card: string | null) => void;
     onSelectProject: (project: string) => void;
+    recent: string | null; // the past session shown
+    history: boolean; // All sessions is shown
+    onSelectRecent: (s: ClaudeSession) => void;
+    onSelectHistory: () => void;
   },
 ) {
   const { terms, tabs, active } = useTermDock();
   const [grouping, setGrouping] = useLocalStorage<Grouping>("trame:termGrouping", "project", enumCodec(GROUPINGS));
   const [menuFor, setMenuFor] = useState<string | null>(null); // the project right-clicked for a new terminal
+  const [newOpen, setNewOpen] = useState(false);
   const [linkFor, setLinkFor] = useState<string | null>(null); // the shell right-clicked to link to a card
   const { live } = useAgents();
   const agentOf = new Map<string, Live>(live.map((l) => [l.a.session_id, l]));
@@ -43,13 +63,22 @@ export function TermCards(
   const shells = new Map<string, Count>();
   const projectShells = new Map<string, Count>();
   const plainShells: Count = { count: 0, running: 0 };
+  // agents asking you something: listed once, on top, out of their groups
+  const termSessions = useTermSessions();
+  const asking = termSessions.filter((x) => x.waiting);
+  const askingCards = live.filter((l) => l.state === "waiting" && known.has(l.a.session_id));
+  const askingCard = new Set([
+    ...askingCards.map((l) => l.a.session_id),
+    ...asking.map((x) => terms[x.term]?.card).filter((c): c is string => !!c && known.has(c)),
+  ]);
   // agent sessions in shells no card on this board holds: one entry each
-  const loose = useTermSessions().filter((x) => {
+  const cardless = termSessions.filter((x) => {
     const card = terms[x.term]?.card;
     return !(card && known.has(card));
   });
+  const loose = cardless.filter((x) => !x.waiting);
   // a shell running one of those sessions is listed by its session row, not counted again as a project or plain shell
-  const sessionShells = new Set(loose.map((x) => x.term));
+  const sessionShells = new Set(cardless.map((x) => x.term));
   for (const t of Object.values(terms)) {
     if (t.card && known.has(t.card)) add(shells, t.card, t.exited);
     else if (sessionShells.has(t.id)) continue;
@@ -65,7 +94,9 @@ export function TermCards(
     return grouping === "project" && p && knownProjects.has(p) ? p : null;
   };
   const other = loose.filter((x) => !looseProject(x));
-  const cards = (board?.sessions ?? []).filter((s) => shells.has(s.id) || agentOf.has(s.id) || s.id === selected);
+  const cards = (board?.sessions ?? []).filter((s) =>
+    (shells.has(s.id) || agentOf.has(s.id) || s.id === selected) && !askingCard.has(s.id)
+  );
   const keyOf = (s: Session) => grouping === "project" ? s.client_id : grouping === "status" ? s.status : "all";
   const groups = new Map<string | null, Session[]>();
   for (const s of cards) groups.set(keyOf(s), [...(groups.get(keyOf(s)) ?? []), s]);
@@ -181,22 +212,59 @@ export function TermCards(
 
   return (
     <nav aria-label="Cards with terminals" className="flex flex-col gap-3">
-      <div className="-mb-1 flex items-center px-2 text-[11px] text-ink-muted">
-        <span className="flex-1">Cards</span>
+      {(asking.length > 0 || askingCards.length > 0) && (
+        <section className="flex flex-col gap-0.5">
+          <div className={`px-2 pb-1 ${SECTION_LABEL} text-wait`}>NEEDS YOU · {asking.length + askingCards.length}</div>
+          {askingCards.map((l) => {
+            const s = board!.sessions.find((x) => x.id === l.a.session_id)!;
+            return row(`ask:${s.id}`, s.id === selected, () => onSelect(s.id), (
+              <>
+                <span className="flex w-full items-center gap-2">
+                  <StatusDot status={s.status} size={7} />
+                  <span className="min-w-0 flex-1 truncate" title={s.title}>{s.title}</span>
+                  {count(shells.get(s.id))}
+                </span>
+                <AgentLine l={l} />
+              </>
+            ));
+          })}
+          {asking.filter((x) => !askingCards.some((l) => l.a.session_id === terms[x.term]?.card)).map(sessionRow)}
+        </section>
+      )}
+      <div className="-mb-1 flex items-center px-2">
+        <button
+          type="button"
+          onClick={onSelectAll}
+          disabled={everyShell.length === 0}
+          title="show every shell"
+          className={`flex flex-1 items-center gap-1.5 text-left ${SECTION_LABEL} ${all ? "text-ink" : "hover:text-ink-soft"}`}
+        >
+          RUNNING
+          {everyShell.length > 0 && count({ count: everyShell.length, running: everyShell.filter((t) => !t.exited).length })}
+        </button>
+        <button
+          type="button"
+          onClick={() => setNewOpen(true)}
+          title="New terminal or agent (Ctrl+T)"
+          aria-label="New terminal or agent"
+          className="mr-1 flex h-5 w-5 items-center justify-center rounded text-[15px] leading-none text-ink-muted hover:bg-active-row hover:text-ink"
+        >
+          +
+        </button>
         <GroupMenu value={grouping} options={GROUPING_LABEL} onChange={setGrouping} />
+        {newOpen && (
+          <NewTerminalDialog
+            board={board}
+            onClose={() => setNewOpen(false)}
+            onOpened={(card, project) => (card ? onSelect(card) : project ? onSelectProject(project) : onSelect(null))}
+          />
+        )}
       </div>
       {cards.length === 0 && plain === 0 && projectShells.size === 0 && loose.length === 0 && (
         <p className="px-2 text-[11.5px] leading-snug text-ink-muted">
-          No terminals yet. Open one from a card with Open in agent → Trame terminal.
+          Nothing running. Start one with + above (Ctrl+T), or resume one below.
         </p>
       )}
-      {everyShell.length > 0 && row("all", all, onSelectAll, (
-        <span className="flex w-full items-center gap-2">
-          <span className="w-[7px] text-center text-ink-faint">·</span>
-          <span className="flex-1">All shells</span>
-          {count({ count: everyShell.length, running: everyShell.filter((t) => !t.exited).length })}
-        </span>
-      ))}
       {keys.map((key) => (
         <section key={key ?? "none"} className="flex flex-col gap-0.5">
           {grouping !== "none" && (
@@ -260,6 +328,7 @@ export function TermCards(
           )}
         </section>
       )}
+      <RecentList board={board} selected={recent} history={history} onSelect={onSelectRecent} onHistory={onSelectHistory} />
       {linkFor && (
         <LinkCardDialog
           board={board}

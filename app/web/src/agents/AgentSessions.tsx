@@ -1,26 +1,25 @@
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import {
   type AgentKind,
   type BoardData,
-  type ClaudeScan,
   type ClaudeSession,
   probeResume,
   type ResumeInfo,
   type ResumeMode,
   resumeSession,
-  scanClaudeImport,
 } from "../api";
 import { matchQuery, parseQuery } from "../query";
 import { clientColor, MenuRow, Popover, PresenceDot, SECTION_LABEL, STRING_CODEC, useLocalStorage, Select, timeAgo } from "../ui/ui";
 import { openTerminal, revealTerminal, runningAgents, TermError, useTermDock } from "../term/term-api";
 import { AgentIcon, Elapsed, type Live, useAgents } from "./agents";
+import { cachedScan, loadScan, subscribeScans } from "./scan";
 import { agentLabel, notLaunched, RESUME_DONE, RESUME_MODES, useResumeMode } from "./resume-modes";
 
 const shq = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`; // POSIX single-quote
-const agentCmd = (s: ClaudeSession) =>
+export const agentCmd = (s: ClaudeSession) =>
   s.source === "codex" ? `codex resume ${s.claudeId}` : `claude --resume ${s.claudeId}`;
-const resumeCmd = (s: ClaudeSession) => s.repoPath ? `cd ${shq(s.repoPath)} && ${agentCmd(s)}` : agentCmd(s);
+export const resumeCmd = (s: ClaudeSession) => s.repoPath ? `cd ${shq(s.repoPath)} && ${agentCmd(s)}` : agentCmd(s);
 const COPIED_MS = 60_000; // how long a copied row stays highlighted
 const RUNNING_POLL_MS = 10_000;
 
@@ -279,9 +278,9 @@ function LiveColumn(
 }
 
 // the card drawer's split button, for a transcript: same modes, shared last pick
-type ModePick = readonly [ResumeMode, (m: ResumeMode) => void];
+export type ModePick = readonly [ResumeMode, (m: ResumeMode) => void];
 
-function ResumeButton(
+export function ResumeButton(
   { session, card, onCopied, modePick: [storedMode, setMode] }: {
     session: ClaudeSession;
     card?: string;
@@ -409,19 +408,18 @@ function ResumeButton(
 // whether the session has ever been tracked as a Trame board card. Mainly useful
 // right after a reboot, when every terminal (and the memory of what was open) is gone.
 // last scan per day range, kept across visits to the view
-const scans = new Map<number, ClaudeScan>();
-
 export function AgentSessions(
-  { board, onOpenSession, slot }: {
+  { board, onOpenSession, slot, embedded = false }: {
     board: BoardData;
     onOpenSession: (id: string) => void;
     // the sidebar column: the live agents go there instead of atop the list
     slot?: HTMLElement | null;
+    embedded?: boolean; // inside the Agents view, whose sidebar already shows who is live
   },
 ) {
   const { live } = useAgents();
   const [days, setDays] = useState(7);
-  const [scan, setScan] = useState<ClaudeScan | null>(() => scans.get(days) ?? null);
+  const scan = useSyncExternalStore(subscribeScans, () => cachedScan(days));
   const [statusFilter, setStatusFilter] = useState<"active" | "paused" | "all">(
     "all",
   );
@@ -456,16 +454,8 @@ export function AgentSessions(
   };
 
   // a revisit shows the last scan while it reruns; only Rescan (or a range never scanned) clears it
-  const load = (clear: boolean) => {
-    if (clear) setScan(null);
-    else setScan(scans.get(days) ?? null);
-    scanClaudeImport(days).then((s) => {
-      scans.set(days, s);
-      setScan(s);
-    });
-  };
-  const loadRange = useEffectEvent(() => load(!scans.has(days)));
-  useEffect(() => loadRange(), [days]);
+  const load = (clear: boolean) => void loadScan(days, clear);
+  useEffect(() => void loadScan(days), [days]);
 
   // every agent found by the scan — the picker adapts as new sources appear
   const sources: string[] = [
@@ -647,7 +637,7 @@ export function AgentSessions(
             />,
             slot,
           )
-          : live.length > 0 && <LiveAgents live={live} onOpenSession={onOpenSession} />}
+          : !embedded && live.length > 0 && <LiveAgents live={live} onOpenSession={onOpenSession} />}
         {!scan && <p className="text-[12.5px] text-ink-muted">Scanning…</p>}
         {scan && !scan.groups.length && (
           <p className="py-8 text-center text-[12.5px] text-ink-muted">

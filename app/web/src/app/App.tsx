@@ -12,6 +12,7 @@ import {
   getUpdate,
   restartApp,
   importPage,
+  type ClaudeSession,
   listUdbs,
   movePage,
   openInBrowser,
@@ -28,6 +29,8 @@ import {
 } from "../api";
 import { AgentsContext } from "../agents/agents";
 import { AgentSessions } from "../agents/AgentSessions";
+import { RecentSession } from "../agents/RecentSession";
+import { cachedScan } from "../agents/scan";
 import { Board } from "../sessions/Board";
 import { Drawer, TOPBAR_SLOT } from "../sessions/Drawer";
 import { Explore } from "./Explore";
@@ -140,6 +143,13 @@ export function App() {
   const [openId, setOpenId] = useState<string | null>(params.get("full") === "0" ? params.get("session") : null);
   // the Terminals view's card: an id, "plain" for shells opened for no card, null to pick the first
   const [termSel, setTermSel] = useState<string | null>(params.get("term"));
+  const [recentPick, setRecentPick] = useState<ClaudeSession | null>(null); // the past session clicked in Recent
+  // AI Sessions lives on as Agents → All sessions; its old links land there
+  useEffect(() => {
+    if (view !== "agents") return;
+    setTermSel("history");
+    setView("terminals");
+  }, [view]);
   const [termDetails, setTermDetails] = useLocalStorage("trame:termDetails", true, BOOL_CODEC);
   const [cardId, setCardId] = useState<string | null>(
     params.get("card") ?? (params.get("full") !== "0" ? params.get("session") : null),
@@ -630,7 +640,14 @@ export function App() {
   const termProject = termSel?.startsWith("project:") ? termSel.slice("project:".length) : null;
   // one shell, for an agent session running in it ("term:<id>")
   const termShell = termSel?.startsWith("term:") ? termSel.slice("term:".length) : null;
-  const termCard = termSel === "plain" || termAll || termProject || termShell
+  // a past session ("recent:<transcript id>") or every one ("history"), over the shells
+  const termHistory = termSel === "history";
+  const termRecentId = termSel?.startsWith("recent:") ? termSel.slice("recent:".length) : null;
+  const termRecent = termRecentId
+    ? (recentPick?.claudeId === termRecentId ? recentPick : null) ??
+      cachedScan(7)?.groups.flatMap((g) => g.sessions).find((s) => s.claudeId === termRecentId) ?? null
+    : null;
+  const termCard = termSel === "plain" || termAll || termProject || termShell || termHistory || termRecentId
     ? null
     : termSel ?? board?.sessions.find((s) => Object.values(termDock.terms).some((t) => t.card === s.id))?.id ?? null;
   const termSession = termCard ? board?.sessions.find((s) => s.id === termCard) ?? null : null;
@@ -709,6 +726,13 @@ export function App() {
               onSelectTerm={(id) => setTermSel(`term:${id}`)}
               onSelect={(card) => setTermSel(card ?? "plain")}
               onSelectProject={(p) => setTermSel(`project:${p}`)}
+              recent={termRecentId}
+              history={termHistory}
+              onSelectRecent={(x) => {
+                setRecentPick(x);
+                setTermSel(`recent:${x.claudeId}`);
+              }}
+              onSelectHistory={() => setTermSel("history")}
             />
           )
           : view === "explore" || view === "agents" || (view === "plugin" && pluginColumn)
@@ -1007,7 +1031,7 @@ export function App() {
               board={board}
               scope={terminals
                 ? {
-                  all: termAll,
+                  all: termAll || termHistory || !!termRecentId,
                   term: termShell,
                   card: termCard,
                   project: termProject,
@@ -1017,6 +1041,23 @@ export function App() {
               onScope={(c, p) => setTermSel(c ?? (p ? `project:${p}` : "plain"))}
               details={terminals && termSession && !openId ? termDetails : null}
               onToggleDetails={() => setTermDetails(!termDetails)}
+              cover={!terminals || !board
+                ? undefined
+                : termHistory
+                ? <AgentSessions board={board} onOpenSession={(id) => openSession(id)} embedded />
+                : termRecent
+                ? (
+                  <RecentSession
+                    session={termRecent}
+                    board={board}
+                    onOpenSession={(id) => openSession(id)}
+                    onResumed={(term) => setTermSel(`term:${term}`)}
+                  />
+                )
+                : termRecentId
+                ? <EmptyState>This session isn't in the last week's scan.</EmptyState>
+                : undefined}
+              onUncover={(term) => setTermSel(`term:${term}`)}
             />
           </Suspense>
         )}

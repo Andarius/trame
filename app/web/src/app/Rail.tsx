@@ -2,14 +2,13 @@ import type { ReactNode } from "react";
 import type { AppStatus, PluginManifest, UpdateInfo } from "../api";
 import { useAgents } from "../agents/agents";
 import { FRONTEND_PLUGINS } from "../plugins";
-import { useTermDock } from "../term/term-api";
+import { useTermDock, useTermSessions } from "../term/term-api";
 import { ChartIcon, GearIcon, LogoMark, SidebarIcon } from "../ui/icons";
 import type { View } from "./view";
 
 export const NAV: { key: "sessions" | "agents" | "terminals" | "explore" | "insights"; glyph: ReactNode; label: string; view: View }[] = [
   { key: "sessions", glyph: "▦", label: "Sessions", view: "board" },
-  { key: "agents", glyph: "↻", label: "AI Sessions", view: "agents" },
-  { key: "terminals", glyph: "›_", label: "Terminals", view: "terminals" },
+  { key: "terminals", glyph: "›_", label: "Agents", view: "terminals" },
   { key: "explore", glyph: "✦", label: "Explore", view: "explore" },
   { key: "insights", glyph: <ChartIcon />, label: "Insights", view: "insights" },
 ];
@@ -92,20 +91,29 @@ export function Rail(
 ) {
   const { live } = useAgents();
   const shells = Object.values(useTermDock().terms).filter((t) => !t.exited).length;
-  const waiting = live.some((l) => l.state === "waiting");
+  // asking you something: card agents reporting it, and agents in Trame shells (counted once per card)
+  const asking = new Set([
+    ...live.filter((l) => l.state === "waiting").map((l) => l.a.session_id),
+    ...useTermSessions().filter((x) => x.waiting).map((x) => x.term),
+  ]).size;
   const active = railKey(view, pluginId);
   const synced = status?.remote && status.lastSync;
-  const nWaiting = live.filter((l) => l.state === "waiting").length;
   const hintOf = (key: string) =>
-    key === "agents" && live.length > 0
-      ? nWaiting ? `${nWaiting} need${nWaiting > 1 ? "" : "s"} you` : `${live.length} live`
-      : key === "terminals" && shells > 0
-      ? `${shells} shell${shells > 1 ? "s" : ""}`
-      : undefined;
+    key !== "terminals"
+      ? undefined
+      : asking
+      ? `${asking} need${asking > 1 ? "" : "s"} you`
+      : [live.length && `${live.length} live`, shells && `${shells} shell${shells > 1 ? "s" : ""}`].filter(Boolean).join(" · ") ||
+        undefined;
+  // amber count when agents need you, else a green dot while any works, else the shell count
   const badgeOf = (key: string) =>
-    key === "agents" && live.length > 0
-      ? dot(waiting ? "var(--color-wait)" : "var(--color-live)")
-      : key === "terminals" && shells > 0
+    key !== "terminals"
+      ? undefined
+      : asking
+      ? count(asking, "bg-wait text-black")
+      : live.length > 0
+      ? dot("var(--color-live)")
+      : shells > 0
       ? count(shells)
       : undefined;
   return (

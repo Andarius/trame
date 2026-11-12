@@ -31,6 +31,22 @@ pub fn read_chunks(path: &Path) -> std::io::Result<(String, String)> {
     ))
 }
 
+/// The last `max` bytes of a transcript, from its first whole line.
+pub fn read_tail(path: &Path, max: u64) -> std::io::Result<String> {
+    let mut file = File::open(path)?;
+    let start = file.metadata()?.len().saturating_sub(max);
+    file.seek(SeekFrom::Start(start))?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    let text = String::from_utf8_lossy(&bytes);
+    Ok(if start == 0 {
+        text.into_owned()
+    } else {
+        text.split_once('\n')
+            .map_or_else(String::new, |(_, rest)| rest.to_owned())
+    })
+}
+
 fn lines(text: &str) -> impl Iterator<Item = Value> + '_ {
     text.split('\n')
         .filter_map(|line| serde_json::from_str(line).ok())
@@ -86,6 +102,118 @@ pub(crate) fn codex_user(event: &Value) -> Option<String> {
         return None;
     };
     first_line(&text, true)
+}
+
+/// A message's full text, or None for tool results, command echoes and injected context.
+fn said(text: &str) -> Option<String> {
+    let text = text.trim();
+    if text.is_empty() || text.starts_with('<') || text.starts_with("Caveat:") {
+        return None;
+    }
+    let mut out: String = text.chars().take(TAIL_TEXT).collect();
+    if out.len() < text.len() {
+        out.push('…');
+    }
+    Some(out)
+}
+
+const TAIL_TEXT: usize = 600;
+
+/// One step of the conversation: who spoke and what, with tool calls folded into one `tools` step.
+fn steps(event: &Value, codex: bool) -> Vec<Value> {
+    let texts = |parts: &Value, kind: &str| -> Option<String> {
+        let joined = parts
+            .as_array()?
+            .iter()
+            .filter(|p| p["type"] == kind)
+            .filter_map(|p| p["text"].as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        said(&joined)
+    };
+    if codex {
+        let p = &event["payload"];
+        if event["type"] != "response_item" {
+            return Vec::new();
+        }
+        return match (p["type"].as_str(), p["role"].as_str()) {
+            (Some("message"), Some("user")) => texts(&p["content"], "input_text")
+                .filter(|t| !t.starts_with('#'))
+                .map(|t| vec![json!({"role":"user","text":t})])
+                .unwrap_or_default(),
+            (Some("message"), Some("assistant")) => texts(&p["content"], "output_text")
+                .map(|t| vec![json!({"role":"agent","text":t})])
+                .unwrap_or_default(),
+            (Some("function_call"), _) => p["name"]
+                .as_str()
+                .map(|n| vec![json!({"role":"tools","tools":[n]})])
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        };
+    }
+    let content = &event["message"]["content"];
+    match event["type"].as_str() {
+        Some("user") => content
+            .as_str()
+            .and_then(said)
+            .or_else(|| texts(content, "text"))
+            .map(|t| vec![json!({"role":"user","text":t})])
+            .unwrap_or_default(),
+        Some("assistant") => content
+            .as_array()
+            .map(|parts| {
+                parts
+                    .iter()
+                    .filter_map(|p| match p["type"].as_str() {
+                        Some("text") => p["text"]
+                            .as_str()
+                            .and_then(said)
+                            .map(|t| json!({"role":"agent","text":t})),
+                        Some("tool_use") => p["name"]
+                            .as_str()
+                            .map(|n| json!({"role":"tools","tools":[n]})),
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+/// The last `limit` turns of a transcript tail: what you said, its tool calls folded, then the agent's final reply.
+pub fn conversation_tail(tail: &str, codex: bool, limit: usize) -> Value {
+    #[derive(Default)]
+    struct Turn {
+        user: Option<Value>,
+        tools: Vec<Value>,
+        reply: Option<Value>,
+    }
+    let mut turns: Vec<Turn> = Vec::new();
+    for step in lines(tail).flat_map(|e| steps(&e, codex)) {
+        if step["role"] == "user" || turns.is_empty() {
+            turns.push(Turn::default());
+        }
+        let turn = turns.last_mut().unwrap();
+        match step["role"].as_str() {
+            Some("user") => turn.user = Some(step["text"].clone()),
+            Some("tools") => turn.tools.push(step["tools"][0].clone()),
+            _ => turn.reply = Some(step["text"].clone()),
+        }
+    }
+    let more = turns.len() > limit;
+    let start = turns.len().saturating_sub(limit);
+    let steps: Vec<Value> = turns
+        .split_off(start)
+        .into_iter()
+        .flat_map(|t| {
+            let user = t.user.map(|text| json!({"role":"user","text":text}));
+            let tools = (!t.tools.is_empty()).then(|| json!({"role":"tools","tools":t.tools}));
+            let reply = t.reply.map(|text| json!({"role":"agent","text":text}));
+            [user, tools, reply].into_iter().flatten()
+        })
+        .collect();
+    json!({"steps": steps, "more": more})
 }
 
 pub fn codex_meta(head: &str, tail: &str) -> Value {
