@@ -13,6 +13,7 @@ import { CLOSE_AUTH, CLOSE_GONE, CLOSE_SUPERSEDED, closeTerminal, termImage, typ
 import { imageLinks } from "./image-links";
 import { previewBox } from "./preview-size";
 import { FONT_STACK, scrollbar, theme, URL_RE } from "./xterm-look";
+import { PR_HREF, PrPreview } from "../md/chips";
 
 type Notice = "superseded" | "gone" | null;
 // an image path under the mouse (a thumbnail by it) or clicked (full size)
@@ -129,6 +130,7 @@ export function TerminalView(
   // a selection's Copy / Reply bubble, where the mouse let go (px in the pane)
   const [bubble, setBubble] = useState<{ x: number; y: number } | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [pr, setPr] = useState<{ url: string; x: number; y: number } | null>(null); // a PR link hovered
   const focusCb = useRef(onFocus);
   focusCb.current = onFocus;
 
@@ -144,7 +146,11 @@ export function TerminalView(
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon((_e, uri) => openLink(uri), { urlRegex: URL_RE }));
+    term.loadAddon(new WebLinksAddon((_e, uri) => openLink(uri), {
+      urlRegex: URL_RE,
+      hover: (e, uri) => PR_HREF.test(uri) && setPr({ url: uri, x: e.clientX, y: e.clientY }),
+      leave: () => setPr(null),
+    }));
     // image paths: hover shows a thumbnail, click the full image
     const links = term.registerLinkProvider({
       provideLinks(y, cb) {
@@ -359,6 +365,7 @@ export function TerminalView(
         </div>
       )}
       {preview && <ImagePreview p={preview} onClose={() => setPreview(null)} />}
+      {pr && <PrPreview {...pr} />}
       {notice && (
         <div className="absolute inset-0 flex items-center justify-center bg-block/80 text-xs text-ink-soft">
           {notice === "superseded"
