@@ -100,7 +100,7 @@ export function RecentList(
         <span className="flex min-w-0 flex-1 flex-col">
           <span className={`truncate ${selected === s.claudeId ? "font-medium" : ""}`}>{topic(s)}</span>
           <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-ink-faint">
-            {s.source !== "claude" && <AgentIcon a={{ harness: s.source, icon: null }} />}
+            <AgentIcon a={{ harness: s.source, icon: null }} />
             {second}
           </span>
         </span>
