@@ -8,12 +8,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "hono": "4.13.16",
+    "hono": "4.13.17",
     "postgres": "3.4.9",
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.5.14",
+    "@electric-sql/pglite": "0.5.16",
     "@types/bun": "1.4.4",
     "typescript": "7.0.2"
   }
