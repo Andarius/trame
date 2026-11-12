@@ -10,6 +10,7 @@ import type { Q as CoreQ } from "../../core/ctx.ts";
 import { formulasDisabled } from "./formula.ts";
 import type { WsServer } from "./realtime.ts";
 import { getUsage, putUsage, usagePutSchema } from "./usage.ts";
+import { commentLinkApi } from "./comment-links.ts";
 
 type Env = { Variables: { caller: Caller } };
 
@@ -75,6 +76,8 @@ export function createApp(
     if (!/^\d{4}-\d{2}-\d{2}$/.test(since)) return c.json({ error: "since must be YYYY-MM-DD" }, 400);
     return c.json(await getUsage(db, caller.nodeId, caller.userId!, since));
   });
+
+  app.route("/", commentLinkApi(db));
 
   // The laptop app's /api contract, for clients with no local app (tramecli on a
   // headless box). Members only until the routes apply the guest ACL filter.

@@ -5,6 +5,7 @@ import postgres from "postgres";
 import { pgAdapter } from "./db.ts";
 import { ensureAuthSchema, mintToken } from "./auth.ts";
 import { ensureUsageSchema } from "./usage.ts";
+import { ensureCommentLinkSchema } from "./comment-links.ts";
 import { createApp } from "./app.ts";
 import { broadcast, websocket } from "./realtime.ts";
 import {
@@ -36,6 +37,7 @@ const coreSql = postgres(
 );
 await ensureAuthSchema(db);
 await ensureUsageSchema(db);
+await ensureCommentLinkSchema(db);
 
 const args = process.argv.slice(2);
 if (args[0] === "mint") {

@@ -3,11 +3,11 @@
 // viewer bundle, so the tests check the payload and the asset routes.
 import { afterAll, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
-import type { Q } from "./db.ts";
+import type { DB, Q } from "./db.ts";
 import { createLinkApp } from "./links.ts";
 import { LINK_ENTRY } from "./link-embed.ts";
 
-function q(pg: PGlite): Q {
+function q(pg: Pick<PGlite, "query">): Q {
   return {
     query: async (text, params) =>
       (await pg.query(text, params as unknown[])).rows as Record<
@@ -16,6 +16,10 @@ function q(pg: PGlite): Q {
       >[],
   };
 }
+const asDb = (pg: PGlite): DB => ({
+  ...q(pg),
+  transaction: (fn) => pg.transaction((tx) => fn(q(tx))) as Promise<never>,
+});
 
 const pg = new PGlite();
 await pg.waitReady;
@@ -81,7 +85,7 @@ await pg.query(
   [ROOT, hash],
 );
 
-const app = createLinkApp(q(pg));
+const app = createLinkApp(asDb(pg));
 
 // oxlint-disable-next-line typescript/no-explicit-any
 async function payloadOf(path: string): Promise<any> {
@@ -99,13 +103,23 @@ test("a valid link ships the page payload, database and viewer entry", async () 
   const p = await payloadOf(`/l/${TOKEN}`);
   expect(p.page.title).toStrictEqual("Roadmap");
   expect(p.blocks[0]).toStrictEqual({ type: "heading", text: "Q3 {{tab}}" });
-  expect(p.blocks[1]).toStrictEqual({ type: "todo", text: "ship links", done: true });
+  expect(p.blocks[1]).toStrictEqual({
+    type: "todo",
+    text: "ship links",
+    done: true,
+  });
   expect(p.databases[DB_ID].rows[0].vals[PROP]).toStrictEqual("first task");
   // both the live shape and a double-encoded legacy row reach the viewer as values
   expect(p.databases[DB_ID].rows[1].vals[PROP]).toStrictEqual("double-encoded");
-  expect(p.databases[DB_ID].props[1].config.options[0].name).toStrictEqual("doing");
+  expect(p.databases[DB_ID].props[1].config.options[0].name).toStrictEqual(
+    "doing",
+  );
   expect(p.attached).toStrictEqual([DB_ID]);
-  expect(p.children).toStrictEqual([{ id: SUB, title: "Sub Plan", icon: null }]);
+  expect(p.children).toStrictEqual([{
+    id: SUB,
+    title: "Sub Plan",
+    icon: null,
+  }]);
   expect(p.subpages[SUB].title).toStrictEqual("Sub Plan");
 });
 
@@ -140,7 +154,9 @@ test("sub-page renders in scope; a page outside the subtree 404s", async () => {
   const p = await payloadOf(`/l/${TOKEN}/p/${SUB}`);
   expect(p.page.title).toStrictEqual("Sub Plan");
   expect(p.isRoot).toStrictEqual(false);
-  expect((await app.request(`/l/${TOKEN}/p/${PRIVATE}`)).status).toStrictEqual(404);
+  expect((await app.request(`/l/${TOKEN}/p/${PRIVATE}`)).status).toStrictEqual(
+    404,
+  );
 });
 
 test("unknown and revoked tokens 404", async () => {
