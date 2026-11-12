@@ -5,6 +5,7 @@ import { SECTION_LABEL, timeAgo } from "../ui/ui";
 import { AgentIcon } from "./agents";
 import { agentCmd, ResumeButton, resumeCmd } from "./AgentSessions";
 import { agentLabel, useResumeMode } from "./resume-modes";
+import { ReplayTerminal } from "../term/ReplayTerminal";
 
 const short = (path: string) => path.replace(/^\/home\/[^/]+/, "~");
 
@@ -82,18 +83,11 @@ export function RecentSession(
         <ResumeButton session={session} card={card?.id} onCopied={() => setCopied(true)} modePick={modePick} />
         <button type="button" className={btn} onClick={() => void copy()}>{copied ? "Copied" : "Copy command"}</button>
       </div>
-      <section className="flex flex-col gap-1 rounded-lg border border-line bg-block px-4 py-3 font-mono text-[12px] leading-relaxed">
-        <div className={`${SECTION_LABEL} pb-1 font-sans`}>WHERE YOU LEFT OFF</div>
-        {error && <p className="text-ink-muted">{error}</p>}
-        {!error && !tail && <p className="text-ink-faint">reading the transcript…</p>}
-        {tail?.more && <p className="text-ink-faint">… earlier messages</p>}
-        {tail?.steps.map((s, i) => <ReplayStep key={i} step={s} />)}
-        {tail && tail.steps.length === 0 && <p className="text-ink-faint">Nothing said yet.</p>}
-        {tail && tail.steps.length > 0 && (
-          <p className="mt-1 flex items-center gap-2 text-[11px] text-ink-faint">
-            <span className="h-px flex-1 bg-line" />resume to continue<span className="h-px flex-1 bg-line" />
-          </p>
-        )}
+      <section className="flex flex-col gap-2">
+        <div className={SECTION_LABEL}>WHERE YOU LEFT OFF</div>
+        {error && <p className="text-[12.5px] text-ink-muted">{error}</p>}
+        {!error && !tail && <p className="text-[12.5px] text-ink-faint">reading the transcript…</p>}
+        {tail && <ReplayTerminal text={replay(tail)} className="h-[460px] border border-line" />}
       </section>
       <section className="flex flex-col gap-1 rounded-lg border border-line px-4 py-3">
         <div className={SECTION_LABEL}>COMMAND</div>
@@ -104,37 +98,30 @@ export function RecentSession(
 }
 
 const SHOWN_TOOLS = 4;
-// markdown emphasis reads as noise in a terminal-style replay
-const plain = (text: string) => text.replace(/\*\*(.+?)\*\*/g, "$1");
+const ESC = "\x1b[";
+const dim = (t: string) => `${ESC}2m${t}${ESC}0m`;
+const green = (t: string) => `${ESC}32m${t}${ESC}0m`;
+const copper = (t: string) => `${ESC}38;2;217;130;91m${t}${ESC}0m`;
+// a reply's later lines sit under its first, past the marker
+const indent = (t: string) => t.replace(/\r?\n/g, "\r\n  ");
+// markdown emphasis reads as noise in a terminal
+const plain = (t: string) => t.replace(/\*\*(.+?)\*\*/g, "$1");
+// `Bash(cargo test)`: the name bold, like Claude Code prints a tool call
+const tool = (t: string) => t.replace(/^([^(]+)/, `${ESC}1m$1${ESC}22m`);
 
-// one step of the tail, drawn the way Claude Code prints it
-function ReplayStep({ step }: { step: TailStep }) {
-  if (step.role === "tools") {
-    const rest = step.tools.length - SHOWN_TOOLS;
-    return (
-      <div className="text-ink-soft">
-        {step.tools.slice(0, SHOWN_TOOLS).map((t, i) => (
-          <div key={i} className="truncate" title={t}>
-            <span className="text-live">⏺</span> {t}
-          </div>
-        ))}
-        {rest > 0 && <div className="pl-4 text-ink-faint" title={step.tools.slice(SHOWN_TOOLS).join("\n")}>⎿ +{rest} more</div>}
-      </div>
-    );
+// the tail as Claude Code printed it: > prompts, ⏺ tool calls and replies, notes dimmed
+const replay = ({ steps, more }: { steps: TailStep[]; more: boolean }) => {
+  const out: string[] = [];
+  if (more) out.push(dim("… earlier messages"), "");
+  for (const s of steps) {
+    if (s.role === "tools") {
+      for (const t of s.tools.slice(0, SHOWN_TOOLS)) out.push(`${green("⏺")} ${tool(t)}`);
+      if (s.tools.length > SHOWN_TOOLS) out.push(dim(`  ⎿ +${s.tools.length - SHOWN_TOOLS} more`));
+    } else if (s.role === "note") out.push(dim(`· ${s.text}`), "");
+    else if (s.role === "user") out.push(`${copper(">")} ${indent(s.text)}`, "");
+    else out.push(`⏺ ${indent(plain(s.text))}`, "");
   }
-  if (step.role === "note") return <div className="text-ink-faint">· {step.text}</div>;
-  if (step.role === "user") {
-    return (
-      <div className="mt-2 flex gap-2 whitespace-pre-wrap break-words text-ink">
-        <span className="shrink-0 text-copper">&gt;</span>
-        <span className="min-w-0">{step.text}</span>
-      </div>
-    );
-  }
-  return (
-    <div className="flex gap-2 whitespace-pre-wrap break-words text-ink-soft">
-      <span className="shrink-0 text-ink">⏺</span>
-      <span className="min-w-0">{plain(step.text)}</span>
-    </div>
-  );
-}
+  if (!steps.length) out.push(dim("Nothing said yet."));
+  else out.push(dim("── resume to continue ──"));
+  return out.join("\r\n");
+};

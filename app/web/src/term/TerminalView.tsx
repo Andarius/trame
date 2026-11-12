@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Terminal, type ITheme } from "@xterm/xterm";
+import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
@@ -12,26 +12,7 @@ import { openInBrowser } from "../api";
 import { CLOSE_AUTH, CLOSE_GONE, CLOSE_SUPERSEDED, closeTerminal, termImage, type TermTheme, termTheme, termToken } from "./term-api";
 import { imageLinks } from "./image-links";
 import { previewBox } from "./preview-size";
-
-const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-const FONT_STACK = '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace';
-// Trame's own colors, used when no Ghostty config is found
-const theme = (): ITheme => ({
-  background: css("--color-block"),
-  foreground: css("--color-ink"),
-  cursor: css("--color-copper"),
-  cursorAccent: css("--color-block"),
-  selectionBackground: `${css("--color-copper")}55`,
-});
-// xterm's own scrollbar slider, readable on either theme (a Ghostty theme sets none)
-const scrollbar = (): ITheme => ({
-  scrollbarSliderBackground: `${css("--color-ink-faint")}66`,
-  scrollbarSliderHoverBackground: `${css("--color-ink-faint")}99`,
-  scrollbarSliderActiveBackground: `${css("--color-ink-faint")}cc`,
-});
-
-// web-links' own URL pattern, plus file:// like a desktop terminal
-const URL_RE = /(https?|HTTPS?|file):[/]{2}[^\s"'!*(){}|\\^<>`]*[^\s"':,.!?{}|\\^~[\]`()<>]/;
+import { FONT_STACK, scrollbar, theme, URL_RE } from "./xterm-look";
 
 type Notice = "superseded" | "gone" | null;
 // an image path under the mouse (a thumbnail by it) or clicked (full size)
