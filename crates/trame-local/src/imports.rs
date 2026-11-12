@@ -262,6 +262,8 @@ fn scan(db: &mut Db, days: f64) -> Result<Value> {
         item["ended"] = transcript::ending(&tail, true);
         found.push(item);
     }
+    // a session still running elsewhere is attached to (background) rather than resumed
+    let live = crate::pty::live_claude_sessions();
     if let Ok(projects) = fs::read_dir(&claude_dir) {
         for project in projects.flatten() {
             let name = project.file_name().to_string_lossy().into_owned();
@@ -319,6 +321,9 @@ fn scan(db: &mut Db, days: f64) -> Result<Value> {
                     now,
                 );
                 item["ended"] = transcript::ending(&tail, false);
+                if let Some(live) = live.get(id) {
+                    item["live"] = live.clone();
+                }
                 found.push(item);
             }
         }

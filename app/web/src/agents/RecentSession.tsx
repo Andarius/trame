@@ -67,6 +67,11 @@ export function RecentSession(
           {session.repoPath && <span>{short(session.repoPath)}</span>}
           {session.branch && <span>⎇ {session.branch}</span>}
           <span>last active {timeAgo(session.lastActive)}</span>
+          {session.live && (
+            <span className="text-live" title={agentCmd(session)}>
+              ● {session.live.kind === "bg" ? "running in the background" : "open in another terminal"}
+            </span>
+          )}
           {card && (
             <button type="button" className="text-ink-muted hover:text-ink" onClick={() => onOpenSession(card.id)}>
               card: {card.title} ↗
@@ -77,7 +82,7 @@ export function RecentSession(
       <div className="flex flex-wrap items-center gap-2">
         {session.repoPath && (
           <button type="button" className={`${btn} border-copper/60 bg-copper/10 text-ink`} onClick={() => void resume()}>
-            ↻ Resume in a tab
+            {session.live?.kind === "bg" ? "↻ Attach in a tab" : "↻ Resume in a tab"}
           </button>
         )}
         <ResumeButton session={session} card={card?.id} onCopied={() => setCopied(true)} modePick={modePick} />
@@ -109,17 +114,17 @@ const plain = (t: string) => t.replace(/\*\*(.+?)\*\*/g, "$1");
 // `Bash(cargo test)`: the name bold, like Claude Code prints a tool call
 const tool = (t: string) => t.replace(/^([^(]+)/, `${ESC}1m$1${ESC}22m`);
 
-// the tail as Claude Code printed it: > prompts, ⏺ tool calls and replies, notes dimmed
+// the tail as Claude Code printed it: > prompts, ● tool calls and replies, notes dimmed
 const replay = ({ steps, more }: { steps: TailStep[]; more: boolean }) => {
   const out: string[] = [];
   if (more) out.push(dim("… earlier messages"), "");
   for (const s of steps) {
     if (s.role === "tools") {
-      for (const t of s.tools.slice(0, SHOWN_TOOLS)) out.push(`${green("⏺")} ${tool(t)}`);
+      for (const t of s.tools.slice(0, SHOWN_TOOLS)) out.push(`${green("●")} ${tool(t)}`);
       if (s.tools.length > SHOWN_TOOLS) out.push(dim(`  ⎿ +${s.tools.length - SHOWN_TOOLS} more`));
     } else if (s.role === "note") out.push(dim(`· ${s.text}`), "");
     else if (s.role === "user") out.push(`${copper(">")} ${indent(s.text)}`, "");
-    else out.push(`⏺ ${indent(plain(s.text))}`, "");
+    else out.push(`● ${indent(plain(s.text))}`, "");
   }
   if (!steps.length) out.push(dim("Nothing said yet."));
   else out.push(dim("── resume to continue ──"));

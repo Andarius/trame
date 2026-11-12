@@ -901,6 +901,8 @@ export type ClaudeSession = {
   ignored: boolean;
   // how its last turn ended: asked you (`text`: the question), done, or stopped mid-work (`text`: "interrupted")
   ended?: { kind: "asked" | "done" | "stopped"; text: string | null };
+  // a Claude process holds it right now: the background daemon ("bg", attach with `job`) or a terminal
+  live?: { kind: string | null; job: string | null };
 };
 export type ClaudeGroup = {
   repoPath: string;

@@ -620,6 +620,28 @@ struct Running {
     session: AgentSession,
 }
 
+/// Claude sessions alive now anywhere on this machine (a terminal, the background daemon), by transcript id:
+/// `{"kind": "bg" | "interactive" | …, "job": <jobId for `claude attach`>}`.
+pub(crate) fn live_claude_sessions() -> HashMap<String, Value> {
+    let Some(Ok(entries)) = claude_dir().map(|d| std::fs::read_dir(d.join("sessions"))) else {
+        return HashMap::new();
+    };
+    entries
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+        .filter_map(|e| serde_json::from_slice::<Value>(&std::fs::read(e.path()).ok()?).ok())
+        .filter(|f| {
+            let pid = f["pid"].as_i64().and_then(|p| i32::try_from(p).ok());
+            // signal 0 only checks the process exists
+            pid.is_some_and(|p| p > 0 && unsafe { libc::kill(p, 0) } == 0)
+        })
+        .filter_map(|f| {
+            let id = f["sessionId"].as_str()?.to_owned();
+            Some((id, json!({"kind": f["kind"], "job": f["jobId"]})))
+        })
+        .collect()
+}
+
 fn claude_session(dir: &Path, pid: u32) -> Option<AgentSession> {
     let raw = std::fs::read(dir.join("sessions").join(format!("{pid}.json"))).ok()?;
     let file: Value = serde_json::from_slice(&raw).ok()?;
