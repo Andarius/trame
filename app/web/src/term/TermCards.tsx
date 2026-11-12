@@ -41,19 +41,22 @@ export function TermCards(
   const shells = new Map<string, Count>();
   const projectShells = new Map<string, Count>();
   const plainShells: Count = { count: 0, running: 0 };
+  // agent sessions in shells no card on this board holds: one entry each
+  const loose = useTermSessions().filter((x) => {
+    const card = terms[x.term]?.card;
+    return !(card && known.has(card));
+  });
+  // a shell running one of those sessions is listed by its session row, not counted again as a project or plain shell
+  const sessionShells = new Set(loose.map((x) => x.term));
   for (const t of Object.values(terms)) {
     if (t.card && known.has(t.card)) add(shells, t.card, t.exited);
+    else if (sessionShells.has(t.id)) continue;
     else if (t.project && knownProjects.has(t.project)) add(projectShells, t.project, t.exited);
     else {
       plainShells.count++;
       if (!t.exited) plainShells.running++;
     }
   }
-  // agent sessions in shells no card on this board holds: one entry each
-  const loose = useTermSessions().filter((x) => {
-    const card = terms[x.term]?.card;
-    return !(card && known.has(card));
-  });
   // grouped by project, a session in a project's shell sits under that project, not OTHER
   const looseProject = (x: TermSession) => {
     const p = terms[x.term]?.project;
@@ -151,7 +154,7 @@ export function TermCards(
         <span className="flex-1">Cards</span>
         <GroupMenu value={grouping} options={GROUPING_LABEL} onChange={setGrouping} />
       </div>
-      {cards.length === 0 && plain === 0 && projectShells.size === 0 && (
+      {cards.length === 0 && plain === 0 && projectShells.size === 0 && loose.length === 0 && (
         <p className="px-2 text-[11.5px] leading-snug text-ink-muted">
           No terminals yet. Open one from a card with Open in agent → Trame terminal.
         </p>
