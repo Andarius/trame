@@ -4,7 +4,7 @@ import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
 import { EntityIcon, enumCodec, SECTION_LABEL, StatusDot, useLocalStorage } from "../ui/ui";
 import { NewTerminalDialog } from "./NewTerminalDialog";
-import { revealTerminal, sessionLabel, setTermDrag, tabCards, type TermDrag, useTermDock, useTermSessions } from "./term-api";
+import { revealTerminal, sessionLabel, setTermDrag, tabCards, type TermDrag, type TermSession, useTermDock, useTermSessions } from "./term-api";
 
 const GROUPINGS = ["project", "status", "none"] as const;
 type Grouping = typeof GROUPINGS[number];
@@ -54,6 +54,12 @@ export function TermCards(
     const card = terms[x.term]?.card;
     return !(card && known.has(card));
   });
+  // grouped by project, a session in a project's shell sits under that project, not OTHER
+  const looseProject = (x: TermSession) => {
+    const p = terms[x.term]?.project;
+    return grouping === "project" && p && knownProjects.has(p) ? p : null;
+  };
+  const other = loose.filter((x) => !looseProject(x));
   const cards = (board?.sessions ?? []).filter((s) => shells.has(s.id) || agentOf.has(s.id) || s.id === selected);
   const keyOf = (s: Session) => grouping === "project" ? s.client_id : grouping === "status" ? s.status : "all";
   const groups = new Map<string | null, Session[]>();
@@ -107,6 +113,28 @@ export function TermCards(
       {children}
     </button>
   );
+  // laid out like a card row: what it is, then the agent line
+  const sessionRow = (x: TermSession) =>
+    row(`term:${x.term}:${x.id}`, selectedTerm === x.term, () => {
+      onSelectTerm(x.term);
+      void revealTerminal(x.term);
+    }, (
+      <>
+        <span className="flex w-full items-center gap-2" title={`${x.agent} · ${x.id}`}>
+          <span
+            className={`h-[7px] w-[7px] shrink-0 rounded-full ${x.waiting ? "bg-wait" : x.busy ? "bg-live" : "bg-ink-faint"}`}
+          />
+          <span className="min-w-0 flex-1 truncate">{sessionLabel(x)}</span>
+        </span>
+        <span className={`flex w-full items-center gap-1.5 pl-[15px] pt-0.5 text-[11px] ${x.waiting ? "text-wait" : "text-ink-faint"}`}>
+          <AgentIcon a={{ harness: x.agent, icon: null }} />
+          <span className="min-w-0 flex-1 truncate">
+            {x.waiting ? `needs you: ${x.waiting}` : x.busy ? "working" : "idle"}
+          </span>
+          {x.started_at && <span className="shrink-0 font-mono text-[10px] tabular-nums">{age(x.started_at)}</span>}
+        </span>
+      </>
+    ));
   const count = (n?: { count: number; running: number }) =>
     n && (
       <span
@@ -161,6 +189,7 @@ export function TermCards(
             </div>
           )}
           {grouping === "project" && key && projectShells.has(key) && projectRow(key, "Project shells")}
+          {key && loose.filter((x) => looseProject(x) === key).map(sessionRow)}
           {groups.get(key)!.map((s) =>
             row(s.id, s.id === selected, () => onSelect(s.id), (
               <>
@@ -175,25 +204,11 @@ export function TermCards(
           )}
         </section>
       ))}
-      {(plain > 0 || loose.length > 0 || (grouping !== "project" && projectShells.size > 0)) && (
+      {(plain > 0 || other.length > 0 || (grouping !== "project" && projectShells.size > 0)) && (
         <section className="flex flex-col gap-0.5">
           <div className={`px-2 pb-1 ${SECTION_LABEL}`}>OTHER</div>
           {grouping !== "project" && [...projectShells.keys()].map((p) => projectRow(p, `${projectName(board, p)} shells`))}
-          {loose.map((x) =>
-            row(`term:${x.term}:${x.id}`, selectedTerm === x.term, () => {
-              onSelectTerm(x.term);
-              void revealTerminal(x.term);
-            }, (
-              <span className="flex w-full items-center gap-2" title={`${x.agent} · ${x.id}`}>
-                <span
-                  className={`h-[7px] w-[7px] shrink-0 rounded-full ${x.busy ? "bg-live" : "bg-ink-faint"}`}
-                  title={x.busy ? "working" : "idle"}
-                />
-                <span className="min-w-0 flex-1 truncate">{sessionLabel(x)}</span>
-                <AgentIcon a={{ harness: x.agent, icon: null }} />
-              </span>
-            ))
-          )}
+          {other.map(sessionRow)}
           {plain > 0 && row("plain", selected === null && !selectedProject && !all && !selectedTerm, () => onSelect(null), (
             <span className="flex w-full items-center gap-2">
               <span className="w-[7px] text-center text-ink-faint">·</span>
@@ -225,3 +240,9 @@ function AgentLine({ l }: { l: Live | undefined }) {
     </span>
   );
 }
+
+// how long ago, coarse: 4m, 2h, 3d
+const age = (since: number) => {
+  const m = Math.max(1, Math.round((Date.now() - since) / 60_000));
+  return m < 60 ? `${m}m` : m < 1440 ? `${Math.floor(m / 60)}h` : `${Math.floor(m / 1440)}d`;
+};

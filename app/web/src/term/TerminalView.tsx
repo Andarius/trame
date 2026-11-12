@@ -343,7 +343,7 @@ export function TerminalView(
     <div className="relative h-full w-full">
       <div
         ref={host}
-        className="h-full w-full px-2 py-1"
+        className="h-full w-full px-2 pt-1 pb-3"
         onMouseUp={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
           const at = { x: e.clientX - r.left, y: e.clientY - r.top };
