@@ -67,7 +67,9 @@ export function TermCards(
   const keyOf = (s: Session) => grouping === "project" ? s.client_id : grouping === "status" ? s.status : "all";
   const groups = new Map<string | null, Session[]>();
   for (const s of cards) groups.set(keyOf(s), [...(groups.get(keyOf(s)) ?? []), s]);
-  if (grouping === "project") for (const p of projectShells.keys()) if (!groups.has(p)) groups.set(p, []);
+  // a project gets its group for its shells, or for an agent session running in one of them
+  const shellProjects = [...projectShells.keys(), ...loose.map(looseProject).filter((p): p is string => !!p)];
+  if (grouping === "project") for (const p of shellProjects) if (!groups.has(p)) groups.set(p, []);
   const statusRank = (k: string) => board?.statuses.find((st) => st.key === k)?.sort_key ?? k;
   const keys = [...groups.keys()].sort((a, b) =>
     a === null ? 1 : b === null ? -1 : grouping === "status"
