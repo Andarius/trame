@@ -9,8 +9,9 @@ green|yellow|red|copper|gray); a `graph` fence draws an architecture diagram
 row, one `value | label` per line with an optional trailing
 `| green|yellow|red|copper|gray` to tint a card; a `decision` fence asks a human: the
 question on the first line, one option per line with an optional trailing
-`| recommended`, marks on their own line (`{{trame:ask=@who}} {{trame:due=YYYY-MM-DD}}`);
-picking an option in the app appends `{{trame:answer=…}}`, `answered_by` and
+`| recommended`, marks on their own line (`{{trame:ask=@who}} {{trame:due=YYYY-MM-DD}}`,
+`{{trame:pick=many}}` for several answers); the app lets the human pick an option or
+type another, and appends `{{trame:answer=…}}` (`a ; b` when many), `answered_by` and
 `completed_at` to that line, so read the marks back to learn the decision; other fences highlight
 python/ts/js/bash/json/sql; PR/MR links become live PR chips,
 `#123` an issue ref, `![alt](url)` an inline image; GFM tables render as
