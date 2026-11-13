@@ -98,7 +98,7 @@ export function StatusManager(
                 appConfirm(
                   `Delete the "${s.label}" status? Sessions in it move to another column.`,
                 ).then((ok) => ok && run(deleteStatus(s.id)))}
-              className="shrink-0 rounded px-1 text-[11px] text-ink-muted/60 hover:text-blocked disabled:opacity-25"
+              className="shrink-0 rounded px-1 text-[13px] text-ink-muted/60 hover:text-blocked disabled:opacity-25"
               title="delete status"
             >
               ✕

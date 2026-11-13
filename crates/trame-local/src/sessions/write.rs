@@ -79,7 +79,7 @@ pub fn tag_color(key: &str) -> &'static str {
     palette[i64::from(hash as i32).unsigned_abs() as usize % palette.len()]
 }
 
-pub(super) fn ensure_tag(db: &mut Db, label: &str, color: Option<&Value>) -> Result<Value> {
+pub(crate) fn ensure_tag(db: &mut Db, label: &str, color: Option<&Value>) -> Result<Value> {
     let key = slug(label, "tag");
     let id = uuid::Uuid::new_v5(
         &uuid::uuid!("3c9e0b71-2f45-4d18-a6c3-8e5417b9d0aa"),
@@ -508,7 +508,7 @@ fn upsert_mut(db: &mut Db, raw: &mut Value, note: Option<&mut String>) -> Result
     Ok(json!(id))
 }
 
-pub(super) fn ensure_specs_page(db: &mut Db, id: &str) -> Result<Value> {
+pub(crate) fn ensure_specs_page(db: &mut Db, id: &str) -> Result<Value> {
     let s = first(
         db,
         "select title,client_id,page_id,specs_page_id from sessions where id=$1 and not deleted",

@@ -99,8 +99,7 @@ pub fn drain_outbox(db: &mut Db, path: &Path) -> Result<usize> {
                 pending.push(line.clone());
                 continue;
             };
-            db.batch_execute("begin")?;
-            let result = (|| -> Result<bool> {
+            let result = db.transaction(|db| {
                 let inserted = !db
                     .query(
                         "insert into trame_local.outbox_receipts(id) values($1::uuid) on conflict do nothing returning id",
@@ -111,12 +110,10 @@ pub fn drain_outbox(db: &mut Db, path: &Path) -> Result<usize> {
                     crate::sessions::upsert(db, &Value::Object(object), None)?;
                 }
                 Ok(inserted)
-            })();
+            });
             if let Ok(inserted) = result {
-                db.batch_execute("commit")?;
                 count += usize::from(inserted);
             } else {
-                db.batch_execute("rollback")?;
                 pending.push(line.clone());
             }
         }

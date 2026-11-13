@@ -32,34 +32,13 @@ import { SpecsEditor } from "../page/SpecsEditor";
 import { TagEditor } from "../ui/TagEditor";
 import { openTerminal, TermError } from "../term/term-api";
 import { type MissingFolder, MissingFolderDialog } from "../term/MissingFolderDialog";
+import { agentLabel, notLaunched, RESUME_DONE, RESUME_MODES, useResumeMode } from "../agents/resume-modes";
 
-const RESUME_MODE_CODEC = enumCodec<ResumeMode>(["window", "tab", "existing", "desktop", "embedded"]);
 const AGENT_CODEC = enumCodec<AgentKind>(["claude", "codex"]);
 const AGENTS: { agent: AgentKind; label: string }[] = [
   { agent: "claude", label: "Claude Code" },
   { agent: "codex", label: "Codex" },
 ];
-const agentLabel = (a?: AgentKind) => (a === "codex" ? "Codex" : "Claude");
-
-// How the Resume button places the session; the last pick is the default, persisted.
-const ALL_RESUME_MODES: { mode: ResumeMode; label: string; hint: string }[] = [
-  { mode: "window", label: "New window", hint: "opens a fresh terminal window" },
-  { mode: "tab", label: "New tab", hint: "adds a tab to your open terminal" },
-  { mode: "existing", label: "Existing session", hint: "types into your focused konsole" },
-  { mode: "desktop", label: "Desktop app", hint: "opens Claude Desktop or Codex Desktop" },
-  { mode: "embedded", label: "Trame terminal", hint: "opens in Trame's Terminals view" },
-];
-// typing into an open session drives konsole over D-Bus: Linux only
-const RESUME_MODES = /Mac/.test(navigator.userAgent)
-  ? ALL_RESUME_MODES.filter((m) => m.mode !== "existing")
-  : ALL_RESUME_MODES;
-const RESUME_DONE: Record<ResumeMode, string> = {
-  window: "terminal opened",
-  tab: "tab opened",
-  existing: "sent to terminal",
-  desktop: "desktop app opened",
-  embedded: "opened in Terminals",
-};
 
 const rowLbl = "shrink-0 pt-[5px] text-[11px] text-ink-muted";
 
@@ -178,9 +157,7 @@ export function Drawer(
   const [missing, setMissing] = useState<MissingFolder | null>(null);
   const [resumeInfo, setResumeInfo] = useState<ResumeInfo | null>(null);
   const [resumeMenu, setResumeMenu] = useState(false);
-  const [storedMode, setResumeMode] = useLocalStorage<ResumeMode>("trame:resumeMode", "window", RESUME_MODE_CODEC);
-  // a mode remembered from another platform falls back to a new window
-  const resumeMode = RESUME_MODES.some((m) => m.mode === storedMode) ? storedMode : "window";
+  const [resumeMode, setResumeMode] = useResumeMode();
   // the last picked agent drives the main button, like the open mode above
   const [openAgent, setOpenAgent] = useLocalStorage<AgentKind>("trame:openAgent", "claude", AGENT_CODEC);
   const resumeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -224,17 +201,7 @@ export function Drawer(
       if (r.launched) {
         msg = r.fresh ? `${agentLabel(r.agent)} started — ${RESUME_DONE[mode]}` : RESUME_DONE[mode];
       } else {
-        // couldn't launch → copy the command as an escape hatch, then explain why
-        try {
-          await navigator.clipboard?.writeText(r.reason === "no-desktop-app" && r.url ? r.url : r.cmd);
-        } catch { /* clipboard blocked — still show why below */ }
-        msg = r.reason === "no-desktop-app"
-          ? `${agentLabel(r.agent)} desktop app not installed — link copied`
-          : r.reason === "api-disabled"
-          ? "enable konsole D-Bus — copied"
-          : r.local === false
-          ? (r.homeNode ? `on ${r.homeNode} — copied` : "no transcript here — copied")
-          : "command copied";
+        msg = await notLaunched(r);
       }
     } catch (e) {
       failed = true;
@@ -638,7 +605,7 @@ export function Drawer(
       {(prCollapsed ? prLinks.slice(0, 1) : prLinks).map((url) => (
         <div key={url} className="group flex min-w-0 items-center gap-1">
           <PrChip url={url} />
-          <IconButton tone="danger" className="shrink-0 text-[11.5px] opacity-0 transition-opacity group-hover:opacity-100"
+          <IconButton tone="danger" className="shrink-0 text-[13px] opacity-0 transition-opacity group-hover:opacity-100"
             title="remove"
             onClick={() => {
               const next = prLinks.filter((u) => u !== url).join("\n");

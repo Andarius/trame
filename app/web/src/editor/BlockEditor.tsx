@@ -11,6 +11,7 @@ import {
 } from "../../../../core/todo-marks.ts";
 import { useAgents } from "../agents/agents";
 import { genId } from "../page/page-ids";
+import { blockOf, isPluginEnabled, openPluginSettings, type PluginBlock } from "../plugins";
 import { useBlockDrag } from "./useBlockDrag";
 import {
   type TextBlock,
@@ -23,7 +24,7 @@ import {
 import { FormatBar } from "./editor-toolbar";
 import type { CommentMode, CommentOps } from "../page/comments";
 import { type RowCtx, TextBlockRow } from "./editor-row";
-import { EmbedBlock, renderSection, type SectionCtx, sectionMeta } from "./editor-sections";
+import { EmbedBlock, PluginBlockView, renderSection, type SectionCtx, sectionMeta } from "./editor-sections";
 import type {
   PillState,
   SelState,
@@ -293,6 +294,18 @@ export function BlockEditor(
     snapshot();
     onChange(blocks.filter((_, j) => j !== i));
     setFocusIdx(Math.max(0, i - 1));
+  };
+  // plugin blocks keep their own focus (cells' command mode), so neither moves the text cursor
+  const insertBlock = (i: number, where: "above" | "below", pb: PluginBlock) => {
+    snapshot();
+    const id = genId();
+    const at = where === "above" ? i : i + 1;
+    onChange([...blocks.slice(0, at), { ...pb.create(), type: pb.type, id } as Block, ...blocks.slice(at)]);
+    return id;
+  };
+  const removeBlock = (i: number) => {
+    snapshot();
+    onChange(blocks.filter((_, j) => j !== i));
   };
   // shared by ○/✓ list clicks: pull `item` out of block i's list and re-file its
   // `line` into the list under the first heading matching `head` (created as
@@ -589,6 +602,20 @@ export function BlockEditor(
         ),
       );
     }
+    const pb = blockOf(key);
+    if (pb && !isPluginEnabled(pb.plugin)) {
+      set(i, { text: "" });
+      return openPluginSettings(pb.plugin);
+    }
+    if (pb) {
+      return onChange(
+        blocks.map((b, j) =>
+          j === i
+            ? { ...pb.create(), type: pb.type, id: (isText(b) && b.id) || genId() } as Block
+            : b
+        ),
+      );
+    }
     onChange(
       blocks.map((b, j) =>
         j === i
@@ -720,6 +747,23 @@ export function BlockEditor(
         // section groups: strip/accordion on the marked heading, hide inactive blocks
         const section = renderSection(sectionCtx, b, i);
         if (section !== undefined) return section;
+        const pb = blockOf(b.type);
+        if (pb) {
+          return (
+            <Fragment key={("id" in b && b.id) || i}>
+              {dragRow(
+                i,
+                <PluginBlockView
+                  pb={pb}
+                  block={b}
+                  onPatch={(patch) => setBlock(i, patch as Partial<Block>)}
+                  onRemove={() => removeBlock(i)}
+                  onInsert={(where) => insertBlock(i, where, pb)}
+                />,
+              )}
+            </Fragment>
+          );
+        }
         if (b.type === "folder" || b.type === "html" || b.type === "embed") {
           return (
             <Fragment key={b.id ?? i}>

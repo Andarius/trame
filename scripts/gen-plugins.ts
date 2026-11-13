@@ -1,18 +1,21 @@
 // Composes out-of-tree plugins into this checkout from the gitignored plugins.local.json:
 //   { "plugins": ["../my-plugin"] }   (paths relative to the repo root, or absolute)
-// A plugin checkout may hold mod.ts (backend), web/index.ts (frontend), e2e/*.spec.ts and
-// mark-roles.json (what its page marks mean to the hierarchy, see core/mark-roles.ts).
+// A plugin checkout may hold src/mod.rs (native backend, compiled into trame-local),
+// web/index.ts (frontend), e2e/*.spec.ts, tests/*.rs (trame-local integration tests, wrapped in
+// tests/plugin_<id>_<name>.rs) and mark-roles.json (what its page marks mean to the hierarchy, see
+// core/mark-roles.ts).
 // Writes the registries the app imports statically (no runtime loading).
 // Without the file the registries are written empty, which is what the committed copies hold.
-import { lstat, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { lstat, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
+import { satisfies, trameRange } from "./compose-plugins.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const OUT = {
-  backend: join(ROOT, "app/plugins/local.gen.ts"),
   web: join(ROOT, "app/web/src/plugins/local.gen.ts"),
   css: join(ROOT, "app/web/src/plugins/local.gen.css"),
   roles: join(ROOT, "core/mark-roles.gen.ts"),
+  native: join(ROOT, "crates/trame-local/src/plugins/local.gen.rs"),
 };
 const exists = (p: string) => stat(p).then(() => true, () => false);
 
@@ -31,6 +34,17 @@ for (const d of dirs) {
   }
 }
 
+// a dev checkout may run ahead of a plugin's range: warn, compose-plugins is the one that refuses
+const trame: string = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8")).version;
+for (const d of dirs) {
+  const range = await trameRange(d);
+  let ok = false;
+  try {
+    ok = range !== null && satisfies(trame, range);
+  } catch { /* reported below */ }
+  if (!ok) console.warn(`gen-plugins: ${d} ${range ? `needs Trame ${range}, this is ${trame}` : "declares no TRAME range in version.ts"}`);
+}
+
 // relative import from a generated file, always ./-prefixed
 const rel = (from: string, to: string) => {
   const r = relative(dirname(from), to);
@@ -46,19 +60,48 @@ async function registry(out: string, entry: string, type: string, typeFrom: stri
     `\nexport const LOCAL_PLUGINS: ${type}[] = [${found.map((_, i) => `p${i}`).join(", ")}];\n`;
 }
 
-async function markRoles() {
+async function markRoleRules() {
   const rules: { mark: string; value: string; role: string }[] = [];
   for (const d of dirs) {
     const f = join(d, "mark-roles.json");
     if (await exists(f)) rules.push(...JSON.parse(await readFile(f, "utf8")));
   }
+  return rules;
+}
+
+async function markRoles() {
+  const rules = await markRoleRules();
   return rules.map((r) =>
     `\n  { mark: ${JSON.stringify(r.mark)}, value: new RegExp(${JSON.stringify(r.value)}), role: ${JSON.stringify(r.role)} },`
   ).join("") + (rules.length ? "\n" : "");
 }
 
+// module name: the plugin's `pub const ID` when it declares one (a worktree folder name is not it)
+async function identOf(d: string) {
+  const file = join(d, "src/mod.rs");
+  const id = await exists(file) ? /pub const ID: &str = "([^"]+)"/.exec(await readFile(file, "utf8"))?.[1] : undefined;
+  return (id ?? d.split("/").filter(Boolean).at(-1)!.replace(/^trame-/, "")).replace(/[^A-Za-z0-9]/g, "_");
+}
+
+// native plugins: `#[path]` modules compiled into trame-local, each exporting `pub static PLUGIN`
+async function nativeRegistry() {
+  const found: { ident: string; file: string }[] = [];
+  for (const d of dirs) {
+    const file = join(d, "src/mod.rs");
+    if (await exists(file)) found.push({ ident: await identOf(d), file });
+  }
+  // a #[path] in a non-mod.rs file resolves against that file's own directory
+  const mods = found.map(({ ident, file }) => `#[path = ${JSON.stringify(rel(OUT.native, file))}]\n#[allow(unreachable_pub, reason = "a composed plugin's items are pub in its own repo")]\npub(super) mod ${ident};\n`).join("");
+  const list = found.map(({ ident }) => `&${ident}::PLUGIN`).join(", ");
+  // the native side registers the composed plugins' mark roles itself
+  const roles = (await markRoleRules()).map((r) => `(${JSON.stringify(r.mark)}, ${JSON.stringify(r.value)}, ${JSON.stringify(r.role)})`).join(", ");
+  return HEADER + mods + `pub(super) static LOCAL: &[&'static dyn super::api::Plugin] = &[${list}];\n` +
+    `/// (mark, value regex, role) from the composed plugins' mark-roles.json\n` +
+    `pub(super) static MARK_ROLES: &[(&str, &str, &str)] = &[${roles}];\n`;
+}
+
 const files: [string, string][] = [
-  [OUT.backend, await registry(OUT.backend, "mod.ts", "Plugin", "./types.ts")],
+  [OUT.native, await nativeRegistry()],
   [OUT.web, await registry(OUT.web, "web/index.ts", "FrontendPlugin", "./index")],
   // tailwind only scans the app's own tree; point it at each plugin's web code
   [OUT.css, HEADER.replace("//", "/*").replace("\n", " */\n") +
@@ -76,6 +119,22 @@ for (const d of dirs) {
   if (isLink === false) continue; // the plugin's own node_modules
   if (isLink) await rm(link);
   await symlink(join(ROOT, "app/web/node_modules"), link);
+}
+
+// integration tests: a wrapper per file gives it trame-local's `common` (as `crate::common`)
+const TESTS = join(ROOT, "crates/trame-local/tests");
+for (const name of await readdir(TESTS)) {
+  if (name.startsWith("plugin_") && name.endsWith(".rs")) await rm(join(TESTS, name));
+}
+for (const d of dirs) {
+  const own = join(d, "tests");
+  if (!await exists(own)) continue;
+  const ident = await identOf(d);
+  for (const name of await readdir(own)) {
+    if (!name.endsWith(".rs")) continue;
+    const out = join(TESTS, `plugin_${ident}_${name}`);
+    await writeFile(out, HEADER + `mod common;\n#[path = ${JSON.stringify(rel(out, join(own, name)))}]\nmod plugin;\n`);
+  }
 }
 
 // the committed copies stay empty: keep a composed checkout's copies out of commits

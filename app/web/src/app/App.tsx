@@ -12,12 +12,14 @@ import {
   getUpdate,
   restartApp,
   importPage,
-  listPages,
+  type ClaudeSession,
   listUdbs,
   movePage,
   openInBrowser,
   type PageMeta,
   type PluginManifest,
+  pollBoard,
+  pollPages,
   type SearchHit,
   setStatus as apiSetStatus,
   type Session,
@@ -26,11 +28,15 @@ import {
   type UpdateInfo,
 } from "../api";
 import { AgentsContext } from "../agents/agents";
+import { closeWorkspaces, onWorkspaceNavigate, openWorkspace, save, setWorkspaces, workspaceKeys } from "./workspaces";
 import { AgentSessions } from "../agents/AgentSessions";
+import { RecentSession } from "../agents/RecentSession";
+import { cachedScan } from "../agents/scan";
 import { Board } from "../sessions/Board";
 import { Drawer, TOPBAR_SLOT } from "../sessions/Drawer";
 import { Explore } from "./Explore";
 import { Insights } from "./Insights";
+import { Timeline } from "./Timeline";
 import { Diagnostics } from "./Diagnostics";
 import { List } from "../sessions/List";
 import { filterSessionBoard, sortSessionBoard, type Sort } from "../sessions/SessionSort";
@@ -38,12 +44,11 @@ import { SessionBar } from "../sessions/SessionBar";
 import { ImportClaudeModal } from "../modals/ImportClaudeModal";
 import { DemoBanner, WelcomeCard } from "./Demo";
 import { NewSessionModal, NewUdbModal } from "../modals/modals";
-import { SettingsModal } from "../modals/SettingsModal";
 import { DbActions, HeaderTitle, PageActions } from "./AppHeader";
 import { BoardToolbar } from "./BoardToolbar";
 import { Palette } from "./Palette";
 import { useAgentsPoll, useSelection, useStarred, useSync } from "./app-hooks";
-import { SelectionBar, UpdateBanner } from "./UpdateBanner";
+import { SelectionBar, UpdateBanner, useRebuildPoll } from "./UpdateBanner";
 import { Sidebar } from "./Sidebar";
 import type { View } from "./view";
 import { type TreeCards, TreeCardsCtx } from "./sidebar-tree";
@@ -51,10 +56,10 @@ import { ShareModal } from "../modals/ShareModal";
 import { Page } from "../page/Page";
 import { ClientView } from "../sessions/ClientView";
 import { BOOL_CODEC, useLocalStorage, appConfirm, ConfirmHost, ExpandIcon, setStatuses, statusStyle, EmptyState } from "../ui/ui";
-import { FRONTEND_PLUGINS, useCardFaces } from "../plugins";
+import { focusBlock } from "../ui/due";
+import { FRONTEND_PLUGINS, setEnabledPlugins, useCardFaces } from "../plugins";
 import { hasTerm, queryValues, termOf, toggleTerm } from "../query";
-import { PluginsModal } from "../plugins/PluginsModal";
-import { PluginSettingsModal } from "../plugins/PluginSettingsModal";
+import { Settings, settingsSection, SettingsNav } from "./Settings";
 import { DatabaseView } from "../udb/DatabaseTable";
 import { buildClock } from "../build-info";
 import { TermCards } from "../term/TermCards";
@@ -81,6 +86,7 @@ export function App() {
     if (params.get("card") || (params.get("session") && params.get("full") !== "0")) return "card";
     const v = params.get("view") as View | null;
     if (v) return v;
+    if (params.get("new") === "settings") return "settings"; // the old Settings modal link
     // bare entity links (?page=, ?db=, ...) imply their view
     if (params.get("page")) return "page";
     if (params.get("db")) return "database";
@@ -127,20 +133,24 @@ export function App() {
   const [welcomeHidden, setWelcomeHidden] = useLocalStorage("trame:welcomeHidden", false, BOOL_CODEC);
   const [modal, setModal] = useState<
     | "session"
-    | "settings"
-    | "plugins"
-    | "pluginSettings"
     | "udb"
     | "import"
     | null
   >(
-    (params.get("new") as "session" | "settings" | "udb" | "import" | null) ??
+    (params.get("new") === "settings" ? null : params.get("new") as "session" | "udb" | "import" | null) ??
       null,
   );
   // the side panel only; a full session is the card view (cardId)
   const [openId, setOpenId] = useState<string | null>(params.get("full") === "0" ? params.get("session") : null);
   // the Terminals view's card: an id, "plain" for shells opened for no card, null to pick the first
   const [termSel, setTermSel] = useState<string | null>(params.get("term"));
+  const [recentPick, setRecentPick] = useState<ClaudeSession | null>(null); // the past session clicked in Recent
+  // AI Sessions lives on as Agents → All sessions; its old links land there
+  useEffect(() => {
+    if (view !== "agents") return;
+    setTermSel("history");
+    setView("terminals");
+  }, [view]);
   const [termDetails, setTermDetails] = useLocalStorage("trame:termDetails", true, BOOL_CODEC);
   const [cardId, setCardId] = useState<string | null>(
     params.get("card") ?? (params.get("full") !== "0" ? params.get("session") : null),
@@ -169,8 +179,15 @@ export function App() {
     if (!globalThis.open?.(u, "_blank")) openInBrowser(u.href);
     return true;
   };
+  // ctrl/⌘ on a card: a new workspace, not a browser tab
+  const inWorkspace = (card: string, search: string) => {
+    if (!modClick.current) return false;
+    modClick.current = false;
+    openWorkspace(card, search);
+    return true;
+  };
   const openSession = (id: string, full = false) => {
-    if (inNewTab({ view: "card", card: id })) return;
+    if (inWorkspace(id, `?view=card&card=${encodeURIComponent(id)}`)) return;
     setDrawerFull(false);
     if (full) {
       // a session opens as its own view, inside the app chrome like a page
@@ -190,6 +207,22 @@ export function App() {
   const [clientId, setClientId] = useState<string | null>(params.get("client"));
   const [plugins, setPlugins] = useState<PluginManifest[]>([]);
   const [pluginId, setPluginId] = useState<string | null>(params.get("plugin"));
+  // Settings is a view with pages; Cancel and Save go back to where it was opened from
+  const [settingsPage, setSettingsPage] = useState(() => settingsSection(params.get("section")));
+  const settingsBack = useRef<View>("board");
+  const openSettings = (section = "general") => {
+    setSettingsPage(section);
+    setView((v) => {
+      if (v !== "settings") settingsBack.current = v;
+      return "settings";
+    });
+  };
+  // a plugin's settings opened from elsewhere than its panel (openPluginSettings)
+  useEffect(() => {
+    const h = (e: Event) => openSettings(`plugin:${(e as CustomEvent<string>).detail}`);
+    addEventListener("trame:plugin-settings", h);
+    return () => removeEventListener("trame:plugin-settings", h);
+  }, []);
   const [udbEpoch, setUdbEpoch] = useState(0); // bump to refetch the open database view
   const [dbReadOnly, setDbReadOnly] = useState(false); // active db tab is a read-only summary view
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
@@ -197,6 +230,7 @@ export function App() {
     "idle",
   );
   const [updateDismissed, setUpdateDismissed] = useState(false);
+  const [updateError, setUpdateError] = useState<string>();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shareFlash, setShareFlash] = useState<string | null>(null); // transient Export-button label
   const [sharePageId, setSharePageId] = useState<string | null>(null); // ShareModal target
@@ -216,6 +250,31 @@ export function App() {
     addEventListener("keydown", h);
     return () => removeEventListener("keydown", h);
   }, [termDock]);
+
+  // Ctrl/Cmd+Shift+\\ hides or shows the card details docked right of the terminals
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.code === "Backslash") {
+        e.preventDefault();
+        setTermDetails((v) => !v);
+      }
+    };
+    addEventListener("keydown", h);
+    return () => removeEventListener("keydown", h);
+  }, [setTermDetails]);
+
+  // Ctrl/Cmd+\\ hides or shows the sidebar column (Ctrl+B is bold in the editor)
+  const [sidebarHidden, setSidebarHidden] = useLocalStorage("trame:sidebarHidden", false, BOOL_CODEC);
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === "\\") {
+        e.preventDefault();
+        setSidebarHidden((v) => !v);
+      }
+    };
+    addEventListener("keydown", h);
+    return () => removeEventListener("keydown", h);
+  }, [setSidebarHidden]);
 
   // Ctrl/Cmd+P — Notion-style quick find (preventDefault beats the print dialog)
   useEffect(() => {
@@ -261,7 +320,8 @@ export function App() {
       ? prev
       : next;
   const refresh = () => {
-    getBoard().then((b) => {
+    pollBoard().then((b) => {
+      if (!b) return;
       setBoard(keepSame(b));
       setStatuses(b.statuses); // keep the status registry (labels/colors) in sync with the board
     }).catch(() => {});
@@ -269,12 +329,14 @@ export function App() {
     listUdbs().then((d) => Array.isArray(d) && setUdbs(keepSame(d))).catch(
       () => {},
     );
-    listPages().then((d) => Array.isArray(d) && setPages(keepSame(d))).catch(
+    pollPages().then((d) => Array.isArray(d) && setPages(keepSame(d))).catch(
       () => {},
     );
-    getPlugins().then((p) => Array.isArray(p) && setPlugins(keepSame(p))).catch(
-      () => {},
-    );
+    getPlugins().then((p) => {
+      if (!Array.isArray(p)) return;
+      setPlugins(keepSame(p));
+      setEnabledPlugins(p.filter((x) => x.enabled).map((x) => x.id));
+    }).catch(() => {});
   };
 
   // multi-select on the sessions views (board + list): checkboxes fill `selected`,
@@ -287,11 +349,11 @@ export function App() {
   // drawer only rewrite the current one
   const locKey = (
     v: View,
-    ids: { page?: string | null; db?: string | null; client?: string | null; plugin?: string | null; card?: string | null },
+    ids: { page?: string | null; db?: string | null; client?: string | null; plugin?: string | null; card?: string | null; term?: string | null },
   ) =>
     [v, v === "page" ? ids.page : "", v === "database" ? ids.db : "", v === "client" ? ids.client : "",
-      v === "plugin" ? ids.plugin : "", v === "card" ? ids.card : ""].join("|");
-  const lastLoc = useRef(locKey(view, { page: pageId, db: dbId, client: clientId, plugin: pluginId, card: cardId }));
+      v === "plugin" ? ids.plugin : "", v === "card" ? ids.card : "", v === "terminals" ? ids.term : ""].join("|");
+  const lastLoc = useRef(locKey(view, { page: pageId, db: dbId, client: clientId, plugin: pluginId, card: cardId, term: termSel }));
   // mirror the navigational state into the URL so a refresh/reload restores it
   useEffect(() => {
     const u = new URL(location.href);
@@ -307,6 +369,7 @@ export function App() {
     put("plugin", view === "plugin" ? pluginId : null);
     put("card", view === "card" ? cardId : null);
     put("term", view === "terminals" ? termSel : null);
+    put("section", view === "settings" && settingsPage !== "general" ? settingsPage : null);
     put("session", openId);
     put("full", openId ? (drawerFull ? "1" : "0") : null);
     put("group", group === "none" ? null : group);
@@ -314,38 +377,65 @@ export function App() {
     put("nospecs", null);
     put("q", sessionQuery.trim() || null);
     put("zen", zen ? "1" : null);
-    const k = locKey(view, { page: pageId, db: dbId, client: clientId, plugin: pluginId, card: cardId });
+    const k = locKey(view, { page: pageId, db: dbId, client: clientId, plugin: pluginId, card: cardId, term: termSel });
     if (k !== lastLoc.current) {
       lastLoc.current = k;
       history.pushState(null, "", u);
     } else history.replaceState(null, "", u);
-  }, [view, pageId, dbId, clientId, pluginId, cardId, termSel, openId, drawerFull, group, sessionQuery, zen]);
+    setWorkspaces((s) => save(s, u.search)); // the active workspace keeps where it is
+  }, [view, pageId, dbId, clientId, pluginId, cardId, termSel, settingsPage, openId, drawerFull, group, sessionQuery, zen]);
   // Browser Back from the full-screen ticket returns to the view behind it (the
   // board for a direct link) instead of leaving the app: the underlying view is
   // written as its own history entry beneath the ticket, and popstate closes it.
+  // a `&block=<id>` link (tramecli due) rings that todo once its page renders
+  useEffect(() => {
+    const block = new URLSearchParams(location.search).get("block");
+    if (block) focusBlock(block);
+  }, []);
+  // show a place written in a URL query: Back/Forward, and switching workspace
+  const applyLocation = (q: URLSearchParams) => {
+    const v = (q.get("view") as View | null) ??
+      (q.get("card") ? "card" : q.get("page") ? "page" : q.get("db") ? "database" : q.get("client") ? "client" : q.get("plugin") ? "plugin" : "board");
+    lastLoc.current = locKey(v, {
+      page: q.get("page"),
+      db: q.get("db"),
+      client: q.get("client"),
+      plugin: q.get("plugin"),
+      card: q.get("card"),
+      term: q.get("term"),
+    });
+    setView(v);
+    if (v === "page") setPageId(q.get("page"));
+    if (v === "database") setDbId(q.get("db"));
+    if (v === "client") setClientId(q.get("client"));
+    if (v === "plugin") setPluginId(q.get("plugin"));
+    if (v === "card") setCardId(q.get("card"));
+    if (v === "terminals") setTermSel(q.get("term"));
+    if (v === "settings") setSettingsPage(settingsSection(q.get("section")));
+    setOpenId(q.get("session"));
+    setDrawerFull(false);
+  };
+  useEffect(() => {
+    const off = onWorkspaceNavigate((search) => {
+      const u = new URL(location.href);
+      u.search = search;
+      history.pushState(null, "", u);
+      applyLocation(u.searchParams);
+    });
+    const keys = workspaceKeys();
+    return () => {
+      off();
+      keys();
+    };
+  }, []);
+  // a card marked done takes its workspace with it
+  const doneCards = (board?.sessions ?? []).filter((x) => x.status === "done").map((x) => x.id).join(",");
+  useEffect(() => {
+    if (doneCards) closeWorkspaces(doneCards.split(","));
+  }, [doneCards]);
   useEffect(() => {
     // Back/Forward: restore the location (and drawer) the entry was written with
-    const onPop = () => {
-      const q = new URLSearchParams(location.search);
-      const v = (q.get("view") as View | null) ??
-        (q.get("card") ? "card" : q.get("page") ? "page" : q.get("db") ? "database" : q.get("client") ? "client" : q.get("plugin") ? "plugin" : "board");
-      lastLoc.current = locKey(v, {
-        page: q.get("page"),
-        db: q.get("db"),
-        client: q.get("client"),
-        plugin: q.get("plugin"),
-        card: q.get("card"),
-      });
-      setView(v);
-      if (v === "page") setPageId(q.get("page"));
-      if (v === "database") setDbId(q.get("db"));
-      if (v === "client") setClientId(q.get("client"));
-      if (v === "plugin") setPluginId(q.get("plugin"));
-      if (v === "card") setCardId(q.get("card"));
-      if (v === "terminals") setTermSel(q.get("term"));
-      setOpenId(q.get("session"));
-      setDrawerFull(false);
-    };
+    const onPop = () => applyLocation(new URLSearchParams(location.search));
     addEventListener("popstate", onPop);
     return () => removeEventListener("popstate", onPop);
   }, []);
@@ -379,11 +469,6 @@ export function App() {
   useEffect(() => {
     refresh();
     const t = setInterval(refresh, 5000);
-    const checkUpd = () =>
-      getUpdate().then((u) => {
-        setUpdate(u);
-        if (u.applied) setUpdateState("done");
-      }).catch(() => {});
     checkUpd();
     const u = setInterval(checkUpd, 30 * 60 * 1000);
     return () => {
@@ -392,8 +477,18 @@ export function App() {
     };
   }, []);
 
+  useRebuildPoll(updateState === "busy" || !!update?.building, (u) => {
+    setUpdate(u);
+    if (u.applied) setUpdateState("done");
+  });
+  const checkUpd = () =>
+    getUpdate().then((u) => {
+      setUpdate(u);
+      if (u.applied) setUpdateState("done");
+    }).catch(() => {});
+
   const onUpdate = () => {
-    if (!update) return;
+    if (!update || update.building) return;
     if (!update.canSelfUpdate) {
       openInBrowser(update.releaseUrl);
       return;
@@ -404,9 +499,11 @@ export function App() {
     }
     if (updateState !== "idle") return;
     setUpdateState("busy");
-    applyUpdate().then((r) => setUpdateState(r.ok ? "done" : "idle")).catch(
-      () => setUpdateState("idle"),
-    );
+    setUpdateError(undefined);
+    applyUpdate().then((r) => {
+      setUpdateState(r.ok ? "done" : "idle");
+      setUpdateError(r.error);
+    }).catch(() => setUpdateState("idle"));
   };
 
   const onMove = (id: string, s: Status) => {
@@ -420,7 +517,8 @@ export function App() {
         }
         : b
     );
-    apiSetStatus(id, s).then(refresh).catch(refresh);
+    // a failed move leaves the server board as it was: a poll would answer 304 and keep the optimistic status
+    apiSetStatus(id, s).then(refresh).catch(() => getBoard().then((b) => setBoard(b)).catch(() => {}));
   };
   const createSession = (s: Record<string, unknown>) =>
     post("/api/sessions", s).then(() => {
@@ -505,14 +603,7 @@ export function App() {
   const currentDb = view === "database"
     ? udbs.find((d) => d.id === dbId) ?? null
     : null;
-  // settings cover the main area only — navigating from the sidebar closes them
-  const navKey = useRef(`${view}:${pageId}:${dbId}:${pluginId}:${clientId}:${cardId}`);
-  useEffect(() => {
-    const k = `${view}:${pageId}:${dbId}:${pluginId}:${clientId}:${cardId}`;
-    if (k === navKey.current) return; // mount (e.g. ?new=settings deep link)
-    navKey.current = k;
-    setModal((m) => (m === "settings" ? null : m));
-  }, [view, pageId, dbId, pluginId, clientId, cardId]);
+
   const currentPage = view === "page"
     ? pages.find((p) => p.id === pageId) ?? null
     : null;
@@ -562,7 +653,7 @@ export function App() {
     return out;
   }, [currentPage, pages]);
 
-  const isSessions = view === "board" || view === "list" || view === "graph";
+  const isSessions = view === "board" || view === "list" || view === "graph" || view === "timeline";
   const terminals = view === "terminals";
   // the sidebar column Explore and AI Sessions render their list into
   const [columnSlot, setColumnSlot] = useState<HTMLDivElement | null>(null);
@@ -573,9 +664,19 @@ export function App() {
     setOpenId(null);
     setView("terminals");
   };
-  // the Terminals view shows a card's shells, a project's shells without a card ("project:<id>"), or plain ones
+  // the Terminals view shows every shell ("all"), a card's, a project's without a card ("project:<id>"), or plain ones
+  const termAll = termSel === "all";
   const termProject = termSel?.startsWith("project:") ? termSel.slice("project:".length) : null;
-  const termCard = termSel === "plain" || termProject
+  // one shell, for an agent session running in it ("term:<id>")
+  const termShell = termSel?.startsWith("term:") ? termSel.slice("term:".length) : null;
+  // a past session ("recent:<transcript id>") or every one ("history"), over the shells
+  const termHistory = termSel === "history";
+  const termRecentId = termSel?.startsWith("recent:") ? termSel.slice("recent:".length) : null;
+  const termRecent = termRecentId
+    ? (recentPick?.claudeId === termRecentId ? recentPick : null) ??
+      cachedScan(7)?.groups.flatMap((g) => g.sessions).find((s) => s.claudeId === termRecentId) ?? null
+    : null;
+  const termCard = termSel === "plain" || termAll || termProject || termShell || termHistory || termRecentId
     ? null
     : termSel ?? board?.sessions.find((s) => Object.values(termDock.terms).some((t) => t.card === s.id))?.id ?? null;
   const termSession = termCard ? board?.sessions.find((s) => s.id === termCard) ?? null : null;
@@ -599,6 +700,8 @@ export function App() {
     ? "Insights"
     : view === "diagnostics"
     ? "Diagnostics"
+    : view === "settings"
+    ? "Settings"
     : "Explore";
 
   // starred pages: per-browser shortcuts to deep pages (Soren → Weekly → …)
@@ -618,7 +721,7 @@ export function App() {
           setView(v);
         }}
         status={status}
-        onSettings={() => setModal("settings")}
+        onSettings={() => openSettings()}
         pages={pages.filter((x) => !specPageIds.has(x.id))}
         pageId={pageId}
         plugins={plugins}
@@ -646,15 +749,32 @@ export function App() {
               board={board}
               selected={termCard}
               selectedProject={termProject}
-              onSelect={(card) => setTermSel(card ?? "plain")}
+              all={termAll}
+              selectedTerm={termShell}
+              onSelectAll={() => setTermSel("all")}
+              onSelectTerm={(id) => setTermSel(`term:${id}`)}
+              onSelect={(card) => {
+                if (!card || !inWorkspace(card, `?view=terminals&term=${encodeURIComponent(card)}`)) setTermSel(card ?? "plain");
+              }}
               onSelectProject={(p) => setTermSel(`project:${p}`)}
+              recent={termRecentId}
+              history={termHistory}
+              onSelectRecent={(x) => {
+                setRecentPick(x);
+                setTermSel(`recent:${x.claudeId}`);
+              }}
+              onSelectHistory={() => setTermSel("history")}
             />
           )
           : view === "explore" || view === "agents" || (view === "plugin" && pluginColumn)
           ? <div ref={setColumnSlot} className="contents" />
+          : view === "settings"
+          ? <SettingsNav section={settingsPage} onSection={setSettingsPage} />
           : undefined}
         wide={view === "explore"}
         bare={view === "insights" || (view === "plugin" && !pluginColumn)}
+        hidden={sidebarHidden}
+        onToggleHidden={() => setSidebarHidden((v) => !v)}
       />
       )}
       <main className="relative flex min-w-0 flex-1 flex-col">
@@ -685,10 +805,11 @@ export function App() {
               onToggleStar={toggleStar}
               onOpenPage={openPage}
               onRefresh={refresh}
+              cards={board?.sessions}
             />
             {isSessions && (
               <div className="flex rounded-[7px] bg-panel p-[3px]">
-                {(["board", "list", "graph"] as const).map((v) => (
+                {(["board", "list", "graph", "timeline"] as const).map((v) => (
                   <button
                     type="button"
                     key={v}
@@ -892,7 +1013,7 @@ export function App() {
               ? (
                 <Panel
                   column={columnSlot}
-                  onOpenSettings={() => setModal("pluginSettings")}
+                  onOpenSettings={() => pluginId && openSettings(`plugin:${pluginId}`)}
                   onOpenPage={openPage}
                   onOpenSession={openSession}
                 />
@@ -903,15 +1024,32 @@ export function App() {
           ? null // the dock is the view (below)
           : view === "insights"
           ? <Insights board={board} />
+          : view === "timeline"
+          ? <Timeline board={board} onOpenSession={(id) => openSession(id)} />
           : view === "agents"
           ? <AgentSessions board={board} onOpenSession={(id) => openSession(id)} slot={columnSlot} />
           : view === "diagnostics"
           ? <Diagnostics />
+          : view === "settings"
+          ? (
+            <Settings
+              section={settingsPage}
+              onSection={setSettingsPage}
+              onClose={() => setView(settingsBack.current)}
+              onSaved={() => setExploreEpoch((e) => e + 1)}
+              onOpenDiagnostics={() => setView("diagnostics")}
+              update={update}
+              updState={updateState}
+              updError={updateError}
+              onUpdate={onUpdate}
+              onCheckUpdate={checkUpd}
+            />
+          )
           : (
             <Explore
               key={exploreEpoch}
               board={board}
-              onOpenSettings={() => setModal("settings")}
+              onOpenSettings={() => openSettings("explore")}
               initialPath={exploreTarget}
               onConsumed={() => setExploreTarget(null)}
               onBack={exploreReturn ? () => openPage(exploreReturn) : undefined}
@@ -925,12 +1063,33 @@ export function App() {
               board={board}
               scope={terminals
                 ? {
+                  all: termAll || termHistory || !!termRecentId,
+                  term: termShell,
                   card: termCard,
                   project: termProject,
                   cwd: termSession?.repo_path ?? (termProject ? projectFolders(board, termProject)[0] ?? null : null),
                 }
                 : null}
               onScope={(c, p) => setTermSel(c ?? (p ? `project:${p}` : "plain"))}
+              details={terminals && termSession && !openId ? termDetails : null}
+              onToggleDetails={() => setTermDetails(!termDetails)}
+              cover={!terminals || !board
+                ? undefined
+                : termHistory
+                ? <AgentSessions board={board} onOpenSession={(id) => openSession(id)} embedded />
+                : termRecent
+                ? (
+                  <RecentSession
+                    session={termRecent}
+                    board={board}
+                    onOpenSession={(id) => openSession(id)}
+                    onResumed={(term) => setTermSel(`term:${term}`)}
+                  />
+                )
+                : termRecentId
+                ? <EmptyState>This session isn't in the last week's scan.</EmptyState>
+                : undefined}
+              onUncover={(term) => setTermSel(`term:${term}`)}
             />
           </Suspense>
         )}
@@ -1013,31 +1172,13 @@ export function App() {
             })}
         />
       )}
-      {modal === "settings" && (
-        <SettingsModal
-          onClose={() => setModal(null)}
-          onSaved={() => setExploreEpoch((e) => e + 1)}
-          onOpenPlugins={() => setModal("plugins")}
-          onOpenDiagnostics={() => {
-            setModal(null);
-            setView("diagnostics");
-          }}
-        />
-      )}
       {sharePageId && (
         <ShareModal
           pageId={sharePageId}
           onClose={() => setSharePageId(null)}
         />
       )}
-      {modal === "plugins" && <PluginsModal onClose={() => setModal(null)} />}
-      {modal === "pluginSettings" && pluginId && (
-        <PluginSettingsModal
-          pluginId={pluginId}
-          onClose={() => setModal(null)}
-        />
-      )}
-      <UpdateBanner update={update} updateState={updateState} dismissed={updateDismissed} onUpdate={onUpdate} onDismiss={() => setUpdateDismissed(true)} />
+      <UpdateBanner update={update} updateState={updateState} updateError={updateError} dismissed={updateDismissed} onUpdate={onUpdate} onDismiss={() => setUpdateDismissed(true)} />
       <ConfirmHost />
       {status?.debug && <ReloadPill />}
     </div>

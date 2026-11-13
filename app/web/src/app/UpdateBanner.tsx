@@ -1,10 +1,36 @@
-import { openInBrowser, type UpdateInfo } from "../api";
+import { useEffect, useRef } from "react";
+import { getUpdate, openInBrowser, type UpdateInfo, updateLabel } from "../api";
 import { IconButton } from "../ui/ui";
 
+/** Re-reads the update info every 2s while `active` (a rebuild runs), so its progress shows. */
+export function useRebuildPoll(active: boolean, onInfo: (u: UpdateInfo) => void) {
+  const cb = useRef(onInfo);
+  cb.current = onInfo;
+  useEffect(() => {
+    if (!active) return;
+    const t = setInterval(() => getUpdate().then((u) => cb.current(u)).catch(() => {}), 2000);
+    return () => clearInterval(t);
+  }, [active]);
+}
+
+const elapsed = (s: number) => s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+
+export function RebuildProgress({ building }: { building: NonNullable<UpdateInfo["building"]> }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5 text-[11px]">
+      <span className="text-ink-soft">
+        {building.phase}… <span className="text-ink-muted">{elapsed(building.elapsedSecs)}</span>
+      </span>
+      {building.line && <span className="truncate font-mono text-[10.5px] text-ink-muted" title={building.line}>{building.line}</span>}
+    </div>
+  );
+}
+
 export function UpdateBanner(
-  { update, updateState, dismissed, onUpdate, onDismiss }: {
+  { update, updateState, updateError, dismissed, onUpdate, onDismiss }: {
     update: UpdateInfo | null;
     updateState: "idle" | "busy" | "done";
+    updateError?: string;
     dismissed: boolean;
     onUpdate: () => void;
     onDismiss: () => void;
@@ -17,10 +43,10 @@ export function UpdateBanner(
         ? (
           <>
             <p className="m-0 text-[12.5px] font-medium text-ink">
-              ✓ Updated to v{update.latest}
+              ✓ Updated to {updateLabel(update)}
             </p>
             <p className="m-0 text-[11.5px] leading-relaxed text-ink-muted">
-              Downloaded in the background — restart Trame to run it.
+              {update.rebuild ? "Rebuilt with your plugins" : "Downloaded in the background"} — restart Trame to run it.
             </p>
             <div className="flex items-center justify-end gap-2">
               <button
@@ -43,9 +69,7 @@ export function UpdateBanner(
         : (
           <>
             <p className="m-0 text-[12.5px] font-medium text-ink">
-              <span className="text-copper">↑</span> Trame v{update.latest}
-              {" "}
-              is available
+              <span className="text-copper">↑</span> {updateLabel(update)} available
             </p>
             <p className="m-0 text-[11.5px] text-ink-muted">
               You're on v{update.current}.{" "}
@@ -56,7 +80,10 @@ export function UpdateBanner(
               >
                 Release notes
               </button>
+              {update.rebuild && " Updating rebuilds Trame with your plugins (a few minutes)."}
             </p>
+            {update.building && <RebuildProgress building={update.building} />}
+            {updateError && <p className="m-0 text-[11.5px] text-blocked">{updateError}</p>}
             <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
@@ -68,11 +95,11 @@ export function UpdateBanner(
               <button
                 type="button"
                 className="rounded-md bg-copper px-2.5 py-1 text-[11.5px] font-medium text-copper-ink hover:brightness-110 disabled:opacity-60"
-                disabled={updateState === "busy"}
+                disabled={updateState === "busy" || !!update.building}
                 onClick={onUpdate}
               >
-                {updateState === "busy"
-                  ? "Updating…"
+                {updateState === "busy" || update.building
+                  ? update.rebuild ? "Rebuilding…" : "Updating…"
                   : update.canSelfUpdate
                   ? "Update now"
                   : "Open release"}
@@ -102,7 +129,7 @@ export function SelectionBar(
       <IconButton
         onClick={onClear}
         title="Clear selection (Esc)"
-        className="text-[12px] text-ink-muted hover:text-ink-soft"
+        className="text-[13px] text-ink-muted hover:text-ink-soft"
       >
         ✕
       </IconButton>

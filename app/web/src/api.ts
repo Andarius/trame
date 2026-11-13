@@ -76,6 +76,7 @@ export type DiagProcess = {
   ppid: number;
   name: string;
   role: string; // backend, renderer, plugin host, postgres server, terminal shell, ...
+  terminal: boolean; // a terminal shell or what it runs (agents, builds): not Trame's own
   args: string[];
   cpuSeconds: number; // cumulative; the view derives a rate from two samples
   rss: number; // bytes
@@ -161,6 +162,22 @@ export const search = (q: string) =>
 
 export const getBoard = () =>
   fetch("/api/board").then((r) => r.json() as Promise<BoardData>);
+
+// null when unchanged since this url's last poll (304), so the caller skips the parse and the re-render
+const pollTags = new Map<string, string>();
+async function pollChanged<T>(url: string): Promise<T | null> {
+  const tag = pollTags.get(url);
+  const r = await fetch(url, { cache: "no-store", headers: tag ? { "if-none-match": tag } : {} });
+  if (r.status === 304) return null;
+  const data = (await r.json()) as T;
+  const etag = r.headers.get("etag");
+  if (etag) pollTags.set(url, etag);
+  else pollTags.delete(url);
+  return data;
+}
+// for the app's one poll loop only: a second poller would see null for data it never got
+export const pollBoard = () => pollChanged<BoardData>("/api/board");
+export const pollPages = () => pollChanged<PageMeta[]>("/api/pages");
 export const getStatus = () =>
   fetch("/api/status").then((r) => r.json() as Promise<AppStatus>);
 export const getReports = () =>
@@ -621,10 +638,23 @@ export type UpdateInfo = {
   current: string;
   latest: string | null;
   available: boolean;
+  // false when GitHub could not be reached (`error` says why); absent when update checks are off
+  checked?: boolean;
+  error?: string;
+  // why update checks are off
+  off?: string;
   releaseUrl: string;
   canSelfUpdate: boolean;
   applied: boolean;
+  // a local plugin build: updating rebuilds it, and plugin releases count too
+  rebuild?: boolean;
+  plugins?: { id: string; current: string; latest: string }[];
+  // a rebuild in progress: the phase its log reached and its last line
+  building?: { phase: string; line: string; elapsedSecs: number };
 };
+/** What an update brings: a Trame release, or only plugin releases for a local plugin build. */
+export const updateLabel = (u: UpdateInfo) =>
+  u.latest && u.latest !== u.current ? `Trame v${u.latest}` : `${u.plugins?.map((p) => `${p.id} v${p.latest}`).join(", ")}`;
 export const getUpdate = () =>
   fetch("/api/update").then((r) => r.json() as Promise<UpdateInfo>);
 export const applyUpdate = () =>
@@ -724,6 +754,8 @@ export type PageMeta = {
   /** tag keys, not ids — a page stays readable before the vocabulary arrives */
   tags: string[];
   mark_role?: "ticket" | "linked-story" | null;
+  /** from a plugin whose blocks the page holds, shown when `icon` is unset */
+  plugin_icon?: string | null;
   sort_key: string;
   owner_id: string | null;
   updated_at: string;
@@ -867,6 +899,10 @@ export type ClaudeSession = {
   suggestedProject: string;
   alreadyImported: boolean;
   ignored: boolean;
+  // how its last turn ended: asked you (`text`: the question), done, or stopped mid-work (`text`: "interrupted")
+  ended?: { kind: "asked" | "done" | "stopped"; text: string | null };
+  // a Claude process holds it right now: the background daemon ("bg", attach with `job`) or a terminal
+  live?: { kind: string | null; job: string | null };
 };
 export type ClaudeGroup = {
   repoPath: string;
@@ -895,6 +931,13 @@ export const scanClaudeImport = (days: number) =>
   fetch(`/api/import/claude?days=${days}`).then((r) =>
     r.json() as Promise<ClaudeScan>
   );
+// where a past session left off: its last steps, tool calls folded (`more`: earlier ones exist)
+export type TailStep = { role: "user" | "agent" | "note"; text: string } | { role: "tools"; tools: string[] };
+export const transcriptTail = (source: string, id: string) =>
+  fetch(`/api/import/claude/tail?source=${encodeURIComponent(source)}&id=${encodeURIComponent(id)}`).then(async (r) => {
+    if (!r.ok) throw new Error(r.status === 404 ? "transcript not found on this machine" : `tail: ${r.status}`);
+    return r.json() as Promise<{ steps: TailStep[]; more: boolean }>;
+  });
 export const runClaudeImport = (items: ClaudeImportItem[]) =>
   post("/api/import/claude", { items }).then((r) =>
     r.json() as Promise<{ imported: number; skipped: number }>
@@ -949,7 +992,17 @@ export const getStats = () =>
       rows: StatsRow[];
       scan: { files: number; parsed: number; ms: number };
       prs: { pending: boolean; fetched: boolean }; // merged PRs come from GitHub/GitLab in the background
+      // other devices' prompts and tokens, from the hub in the background
+      devices: { others: number; pending: boolean; hub: boolean };
     }>;
+  });
+// worklog entries of the last `days` days (newest first) and each touched card's first and last entry
+export type TimelineEntry = { id: string; session_id: string; at: string; summary: string | null; agent: string | null; agent_name: string | null };
+export type TimelineSpan = { session_id: string; first: string; last: string; n: number };
+export const getTimeline = (days: number) =>
+  fetch(`/api/timeline?days=${days}`).then(async (r) => {
+    if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? r.statusText);
+    return r.json() as Promise<{ entries: TimelineEntry[]; spans: TimelineSpan[] }>;
   });
 export const getPluginUpdates = () =>
   fetch("/api/plugin-updates").then((r) => r.json() as Promise<PluginUpdate[]>);

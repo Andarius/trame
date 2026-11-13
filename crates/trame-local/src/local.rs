@@ -249,7 +249,7 @@ pub fn create_link(db: &mut Db, page: &str) -> Result<(Value, String)> {
     let mut raw = [0u8; 32];
     std::fs::File::open("/dev/urandom")?.read_exact(&mut raw)?;
     let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw);
-    let hash = format!("{:x}", Sha256::digest(token.as_bytes()));
+    let hash = crate::assets::hex(&Sha256::digest(token.as_bytes()));
     let id=db.query("insert into page_links (page_id, token_hash, token, origin) values ($1,$2,$3,$4) returning id",&[json!(page),json!(hash),json!(token),json!(db.origin)])?[0]["id"].clone();
     Ok((id, token))
 }

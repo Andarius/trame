@@ -158,7 +158,7 @@ export function CommentsPanel({ cv, meId }: { cv: CommentView; meId: string | nu
         )}
         <IconButton
           title="close"
-          className="text-[11px] text-ink-muted transition-colors hover:text-ink-soft"
+          className="text-[13px] text-ink-muted transition-colors hover:text-ink-soft"
           onClick={() => setPanelOpen(false)}
         >
           ✕

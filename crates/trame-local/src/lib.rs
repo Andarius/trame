@@ -13,6 +13,7 @@ pub mod demo;
 pub mod diagnostics;
 pub mod files;
 pub mod forge;
+pub mod host_env;
 pub mod imports;
 pub mod json;
 pub mod local;
@@ -21,7 +22,6 @@ pub mod open;
 pub mod pages;
 pub mod pg;
 pub mod platform;
-pub mod plugin_host;
 pub mod plugin_updates;
 pub mod plugins;
 pub mod proxy;
@@ -48,6 +48,16 @@ use std::{
     time::Duration,
 };
 use tokio::sync::oneshot;
+/// Cap glibc malloc arenas so each blocking thread does not keep its own peak heap; call before spawning threads.
+/// Call before any thread is spawned.
+#[allow(unsafe_code, reason = "glibc mallopt")]
+pub fn tune_allocator() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    // SAFETY: mallopt only sets an allocator tunable; no threads exist yet
+    unsafe {
+        libc::mallopt(libc::M_ARENA_MAX, 2);
+    }
+}
 
 pub fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -246,19 +256,28 @@ pub async fn run(
         scratch_path(&published)?;
     }
     refuse_live_port(&published)?;
-    fs::create_dir_all(published.parent().context("port file parent")?)?;
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(&published)?;
-    write!(
-        file,
-        "{}",
-        serde_json::json!({"port":port,"pid":std::process::id()})
-    )?;
+    let parent = published.parent().context("port file parent")?;
+    fs::create_dir_all(parent)?;
+    // written aside and renamed in, so a reader never sees a half-written file
+    let tmp = parent.join(format!(".port-{}.tmp", uuid::Uuid::new_v4()));
+    let result = (|| -> Result<()> {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp)?;
+        write!(
+            file,
+            "{}",
+            serde_json::json!({"port":port,"pid":std::process::id()})
+        )?;
+        fs::rename(&tmp, &published)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result?;
     let offline = config.demo
         || std::env::var("TRAME_OFFLINE").as_deref() == Ok("1")
         || scratch_path(&config.root).is_ok();
@@ -292,17 +311,18 @@ pub async fn run(
     if config.desktop && !isolated_mode() && !config.demo {
         drop(tokio::task::spawn_blocking(startup::install_agent_hooks));
     }
-    let plugin_task = if config.demo {
-        None
-    } else {
-        plugins::start(native.clone())
-    };
-    let sql_source_task = Some(plugins::sql_source::start(&native));
-    let host_task = if config.demo {
-        None
-    } else {
-        plugin_host::start(native.clone())
-    };
+    let plugin_tasks = plugins::start_all(&native);
+    // the shells open when Trame last stopped, their agents resumed, before the UI asks for them
+    if !config.demo {
+        let root = native.root.clone();
+        let n = blocking::spawn(move || pty::restore(&root))
+            .await
+            .unwrap_or(0);
+        if n > 0 {
+            eprintln!("terminals: reopened {n}");
+        }
+    }
+    let term_saver = (!config.demo).then(|| tokio::spawn(pty::keep_saved(native.root.clone())));
     let router = proxy::router(proxy::Proxy { port, native });
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let mut server = tokio::spawn(async move {
@@ -329,17 +349,12 @@ pub async fn run(
     let _ = shutdown_tx.send(());
     // open terminals hold WebSocket connections the graceful shutdown would wait on
     let _ = blocking::spawn(pty::shutdown).await;
-    for task in [
-        plugin_task,
-        sql_source_task,
-        host_task,
-        updater,
-        notifier,
-        seeder,
-    ]
-    .into_iter()
-    .flatten()
-    {
+    let _ = blocking::spawn(plugins::stop_all).await;
+    for task in plugin_tasks.into_iter().chain(
+        [updater, notifier, seeder, term_saver]
+            .into_iter()
+            .flatten(),
+    ) {
         task.abort();
         let _ = task.await;
     }

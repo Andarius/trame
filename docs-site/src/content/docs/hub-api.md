@@ -180,6 +180,20 @@ create table change_log (
 - **Compaction**: `where at < now() - interval '30 days'` is safe — poll + cursor self-heal; a
   device offline >30 d re-syncs from scratch.
 
+## Usage across devices
+
+Insights reads prompts and tokens from each machine's own Claude Code and Codex transcripts. To count every
+machine, each app sends its daily totals to the hub outside the sync protocol, so adding this needed no
+protocol bump:
+
+- `PUT /usage` `{from, rows:[{d, p, r, a, m, prompts, tokens}]}` replaces the calling device's rows from
+  `from` on. The app sends only the days that changed since its last push, at most every 15 minutes.
+- `GET /usage?since=YYYY-MM-DD` returns the same user's other devices' rows; the caller's own are fresher
+  locally.
+
+Both are members only. The hub-only `usage_days` table holds counts, never transcript text, and is keyed by
+device, day, project (`p`), repo (`r`), agent (`a`) and model (`m`).
+
 ## Realtime (WSS)
 
 WSS chosen over SSE (explicit call): a general duplex foundation for later presence/typing/cursors,

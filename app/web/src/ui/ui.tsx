@@ -7,7 +7,7 @@ import { listTags, type Status, type StatusDef, type Tag, tagRevision, TAGS_CHAN
 export function ExpandIcon({ open }: { open: boolean }) {
   return (
     <svg
-      width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor"
       strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
     >
       <path d={open ? "M2 6h4V2M14 6h-4V2M2 10h4v4M14 10h-4v4" : "M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4"} />
@@ -782,6 +782,28 @@ export const SECTION_LABEL = "text-[10.5px] font-medium tracking-[0.8px] text-in
 export const MENU_LABEL = "text-[9.5px] font-medium tracking-[0.8px] text-ink-muted/70";
 export const FIELD_LABEL = "text-[10px] font-medium tracking-[0.8px] text-ink-muted/70";
 
+// whether a sidebar section's rows are hidden, remembered per section
+export function useFold(id: string) {
+  return useLocalStorage(`trame:fold:${id}`, false, BOOL_CODEC);
+}
+
+// a section heading that folds its rows; the caret shows on hover, or always while folded
+export function FoldLabel(
+  { folded, onToggle, children }: { folded: boolean; onToggle: () => void; children: ReactNode },
+) {
+  return (
+    <button
+      type="button"
+      aria-expanded={!folded}
+      onClick={onToggle}
+      className="group/fold flex items-center gap-1 text-left hover:text-ink-soft"
+    >
+      <span>{children}</span>
+      <span aria-hidden="true" className={`text-[10px] leading-none ${folded ? "" : "opacity-0 group-hover/fold:opacity-100"}`}>{folded ? "▸" : "▾"}</span>
+    </button>
+  );
+}
+
 export function TagChips({ keys, onClick }: { keys?: string[]; onClick?: (key: string) => void }) {
   const [vocab, setVocab] = useState<Map<string, Tag> | null>(null);
   useEffect(() => {
@@ -836,6 +858,61 @@ export function IconButton(
   return <button type="button" {...props} className={`${color} ${className}`.trim() || undefined} />;
 }
 
+// primary: the one action of a form; outline: a secondary one; chip: a compact bar button;
+// ghost: toolbar text; danger: a destructive ghost; link: inline text
+const BUTTON = {
+  primary: "rounded-md bg-copper font-semibold text-copper-ink hover:brightness-110",
+  outline: "rounded-md border border-chipline text-ink-soft hover:border-copper hover:text-copper",
+  chip: "rounded-md border border-chipline bg-panel font-medium text-ink-soft hover:border-copper hover:text-copper",
+  ghost: "rounded-md text-ink-soft hover:bg-panel hover:text-ink disabled:hover:bg-transparent",
+  danger: "rounded-md text-ink-muted hover:bg-blocked/10 hover:text-blocked",
+  link: "text-ink-faint hover:text-copper",
+};
+export function Button(
+  { variant = "outline", size = "md", className = "", ...props }:
+    & { variant?: keyof typeof BUTTON; size?: "sm" | "md" }
+    & ComponentProps<"button">,
+) {
+  const pad = variant === "link" ? "text-[11px]" : size === "sm" ? "px-2 py-[2px] text-[11px]" : "px-3 py-1 text-[12px]";
+  return <button type="button" {...props} className={`${BUTTON[variant]} ${pad} disabled:opacity-40 ${className}`.trim()} />;
+}
+
+// text fields; `mono` for paths, commands and package specs
+const INPUT = "w-full rounded-md border border-chipline bg-transparent px-2.5 py-1.5 text-ink outline-none placeholder:text-ink-muted/50 focus:border-copper/60";
+const inputCls = (mono: boolean | undefined, className: string) =>
+  `${INPUT} ${mono ? "font-mono text-[12px]" : "text-[12.5px]"} ${className}`.trim();
+export function TextInput({ mono, className = "", ...props }: { mono?: boolean } & ComponentProps<"input">) {
+  return <input {...props} className={inputCls(mono, className)} />;
+}
+export function TextArea({ mono, className = "", ...props }: { mono?: boolean } & ComponentProps<"textarea">) {
+  return <textarea {...props} className={inputCls(mono, `resize-y ${className}`)} />;
+}
+
+// a labelled control: the label (and a hint on the right) above it; `group` when it holds several controls
+export function Field({ label, hint, group, children, className = "" }: {
+  label: string;
+  hint?: ReactNode;
+  group?: boolean;
+  children: ReactNode;
+  className?: string;
+}) {
+  const Tag = group ? "div" : "label";
+  return (
+    <Tag className={`flex flex-col gap-1 ${className}`.trim()}>
+      <span className="flex items-baseline justify-between">
+        <span className={FIELD_LABEL}>{label}</span>
+        {hint && <span className="text-[10.5px] text-ink-faint">{hint}</span>}
+      </span>
+      {children}
+    </Tag>
+  );
+}
+
+// an error under a form, a menu or a block
+export function ErrorNote({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <div className={`rounded-md bg-blocked/10 px-2.5 py-1.5 text-[11.5px] text-blocked ${className}`.trim()}>{children}</div>;
+}
+
 type Codec<T> = { parse: (raw: string) => T; stringify: (v: T) => string };
 export const STRING_CODEC: Codec<string> = { parse: (r) => r, stringify: (v) => v };
 export const BOOL_CODEC: Codec<boolean> = { parse: (r) => r === "1", stringify: (v) => (v ? "1" : "0") };
@@ -874,11 +951,16 @@ export function useLocalStorage<T>(key: string, init: T, codec: Codec<T>) {
   useEffect(() => {
     persist(cur.key, cur.value);
   }, [cur.key, cur.value]);
-  const setValue = useCallback(
-    (v: T | ((prev: T) => T)) =>
-      setEntry((p) => ({ key: p.key, value: typeof v === "function" ? (v as (prev: T) => T)(p.value) : v })),
-    [],
-  );
+  // written right away: a component that sets then unmounts (a dialog closing) never runs the effect above
+  const latest = useRef({ entry: cur, codec });
+  latest.current = { entry: cur, codec };
+  const setValue = useCallback((v: T | ((prev: T) => T)) => {
+    const { entry: p, codec: c } = latest.current;
+    const next = { key: p.key, value: typeof v === "function" ? (v as (prev: T) => T)(p.value) : v };
+    writeStore(next.key, c.stringify(next.value));
+    latest.current = { entry: next, codec: c };
+    setEntry(next);
+  }, []);
   return [cur.value, setValue] as const;
 }
 

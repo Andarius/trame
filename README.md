@@ -6,8 +6,7 @@ tool gave us, and the columns are **yours to define**. It also holds free-form *
 comments (with agent reply threads), **sandboxed interactive HTML blocks**, per-page guest sharing,
 **public read-only share links** — and **Notion-style databases** (sortable / filterable / groupable views).
 `⌘P` jumps to any session, page, or database; a card's **Resume** button reopens the session in Claude
-Code or Codex. Opt-in **plugins** add side panels — the first one lists GitHub/GitLab
-**deployments waiting for approval**.
+Code or Codex. Opt-in **plugins** add side panels, blocks and commands.
 
 Stack: **Tauri 2 + Rust** app → **bundled PostgreSQL 18** (offline read+write) →
 custom **changeset LWW sync over HTTPS** → a small **Bun API in front of Postgres** on a home
@@ -70,10 +69,9 @@ crates/trame-local/         axum API, supervised PostgreSQL, sync, plugins, file
 crates/trame-core/          shared markdown/merge/todo logic, also compiled to Wasm
 crates/trame-cli/           native tramecli writers, setup, watcher and MCP stdio server
 app/web/                   existing React app (Vite)
-app/plugin-host.ts         TS plugin host, compiled and supervised by trame-local
 scripts/rust-db-migrate.ts  legacy PGlite export helper (dev/CI only; no longer bundled in packages)
 bin/quickstart.sh          curl-able laptop setup: clone + packaged app + agent integrations
-skills/trame-{track,page,watch}/ the agent skills (Claude Code, Codex & friends) — embedded in tramecli, installed by `tramecli setup`
+skills/trame-{track,page,watch,plugin}/ the agent skills (Claude Code, Codex & friends) — embedded in tramecli, installed by `tramecli setup`
 ```
 
 See [native runtime and migration](crates/trame-local/README.md) for isolated development, packaging, and the one-shot PGlite conversion.
@@ -246,33 +244,39 @@ ephemeral — never synced — so avatars fade ~20s after a tab closes or the wa
 ⚙ Settings → **Manage plugins**. Everything ships disabled — a networked plugin never reaches
 out until you switch it on.
 
-**Deployments** lists GitHub/GitLab releases **waiting for approval** in the sidebar (plus
-in-progress and recently-failed ones), and approves the gate / plays the manual job from the
-panel. Point it at the repos and projects to watch, then authenticate per forge with a PAT,
-`GITHUB_TOKEN` / `GITLAB_TOKEN`, or the `gh` / `glab` CLI (optional — there's a login button
-that spawns a terminal).
+**Deployments** (GitHub/GitLab releases waiting for approval) is its own plugin now:
+[trame-plugins/deployments](https://github.com/Andarius/trame-plugins/tree/main/plugins/deployments), added like any other
+(`tramecli plugins add Andarius/trame-plugins/deployments`). Its settings carry over.
 
-> Tokens live only in this machine's `settings.json` (mode 0600). They are never synced to the
-> hub and never sent back to the UI, and each is bound to the forge host you configured.
+**SQL sources** (fill a database from a read-only query on a PostgreSQL you choose) is its own
+plugin now: [trame-plugins/sql-source](https://github.com/Andarius/trame-plugins/tree/main/plugins/sql-source)
+(`tramecli plugins add Andarius/trame-plugins/sql-source`). Its settings and connections carry over.
 
-**SQL sources** fill a database from a query on a PostgreSQL you choose (local or tailnet; no TLS
-yet). On a database page (or an inline database in **Edit**), **⇣ Connect** opens a drawer: pick
-or paste a connection, run the query, map each result column to a database column (existing, new
-or skipped) and pick the key that matches rows, a schedule (manual, or every 5 minutes to 30 days),
-and whether rows whose key disappears are removed; **Preview** shows the resulting table, row by
-row, before anything syncs. The query runs from
-this device in a read-only transaction (30 s timeout, at most 10 000 rows, refused beyond). Result
-columns become read-only columns of the database (also in `tramecli db rows`) until you **Detach**
-one; a refresh writes only the cells whose source value changed, so your own columns and comments
-survive it.
+**Notebook** shows one Jupyter notebook in the sidebar, nothing else: no file browser, menus or
+side panels (**Open in browser** gives the full JupyterLab). Pick the notebook from the server's
+folder in the panel bar. **Start JupyterLab** launches a server in the folder
+you pick (`jupyter lab` when it is on your `PATH`, else `uvx --from jupyterlab jupyter lab`; set a
+project command such as `uv run --with jupyterlab jupyter lab` in the plugin settings), or
+**Attach** to a server already running on this machine (found through Jupyter's runtime dir, or by
+URL and token, or paste the Lab URL from your browser). Trame proxies the server under its own
+origin, so the Lab iframe needs no CSP exception; the token stays in the backend. Lab follows Trame's light/dark theme, **Export →
+Trame report** turns the open notebook into a report, **Export → .html** writes it next to the
+notebook. A server Trame started stops with Trame; an attached one is only detached.
 
-> Connection strings stay in this machine's `settings.json` (0600) and are never sent back to the
-> UI. The query **results** are ordinary rows: they sync to the hub and your other devices.
+> The token of a spawned server is generated per start and never written to disk; an attached
+> server's token is read from Jupyter's runtime file and kept in memory only.
+
+![Notebook plugin: start a server, pick a notebook, see it alone in the sidebar](docs/notebook.gif)
 
 **Out-of-tree plugins** are composed at build time: list their checkouts in a gitignored
-`plugins.local.json` (`{ "plugins": ["../my-plugin"] }`) and run `just plugins`. A plugin holds
-`mod.ts` (backend, imports Trame only via `@trame/plugin-api`), `web/index.ts` (a `FrontendPlugin`,
-via `@trame/web-api`) and optional `e2e/` specs.
+`plugins.local.json` (`{ "plugins": ["../my-plugin"] }`) and run `just plugins`. A plugin repo
+holds `src/mod.rs`, a Rust module compiled into `trame-local` that exports `pub static PLUGIN`
+implementing `plugins::api::Plugin` (manifest, routes with the full axum request and response,
+settings sanitizing, start and stop), and `web/index.ts`, a `FrontendPlugin` on
+`@trame/web-api`, plus optional `e2e/` specs and `mark-roles.json`. The registry owns
+`/enable`, `/settings` and the enabled gate; the plugin answers everything else under
+`/api/plugins/<id>/`. The `trame-plugin` skill (installed by `tramecli setup`) walks an agent
+through writing, composing, testing and releasing one.
 
 ## How sync works
 
@@ -333,9 +337,7 @@ execution still need qualification.
 
 **Auto-update**: the AppImage and the macOS `.app` check the latest release every 6h,
 download it in the background and swap it in place; a banner offers **Restart now** (or the
-next launch runs it). On each launch the AppImage also repairs its menu entry and `trame://`
-handler, and replaces a `~/.local/bin/tramecli` installed as a plain file with its bundled CLI
-(a symlink is left alone). deb/snap/source installs only get a link to the release.
+next launch runs it). deb/snap/source installs only get a link to the release.
 `TRACKER_AUTO_UPDATE=0` keeps the check but skips the download; `TRACKER_UPDATE_CHECK=0`
 disables both.
 

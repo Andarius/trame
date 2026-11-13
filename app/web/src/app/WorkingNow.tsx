@@ -3,7 +3,7 @@ import type { BoardData } from "../api";
 import { AgentIcon, Elapsed, useAgents } from "../agents/agents";
 import { setTermDrag, useTermDock } from "../term/term-api";
 import { PrIcon, TerminalIcon } from "../ui/icons";
-import { EntityIcon, SECTION_LABEL, SET_CODEC, StatusDot, useLocalStorage } from "../ui/ui";
+import { EntityIcon, FoldLabel, SECTION_LABEL, SET_CODEC, StatusDot, useFold, useLocalStorage } from "../ui/ui";
 import { type CardNode, type StoryNode, workingNow } from "./working-now";
 
 type Open = {
@@ -126,10 +126,14 @@ export function WorkingNow({ board, ...open }: { board: BoardData | null } & Ope
   const { terms } = useTermDock();
   const tree = useMemo(() => (board ? workingNow(board, live, Object.values(terms)) : []), [board, live, terms]);
   const [collapsed, setCollapsed] = useLocalStorage("trame:workingCollapsed", new Set<string>(), SET_CODEC);
+  const [folded, setFolded] = useFold("working");
   if (tree.length === 0) return null;
   return (
     <nav aria-label="Working now" className="flex flex-col">
-      <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>WORKING NOW</div>
+      <div className={`flex px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>
+        <FoldLabel folded={folded} onToggle={() => setFolded((f) => !f)}>WORKING NOW</FoldLabel>
+      </div>
+      {!folded && (
       <ul className="flex flex-col">
         {tree.map((s) => {
           const key = s.id ?? "none";
@@ -148,6 +152,7 @@ export function WorkingNow({ board, ...open }: { board: BoardData | null } & Ope
           );
         })}
       </ul>
+      )}
     </nav>
   );
 }

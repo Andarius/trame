@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Terminal, type ITheme } from "@xterm/xterm";
+import { createPortal } from "react-dom";
+import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
@@ -8,20 +9,72 @@ import "@fontsource/jetbrains-mono/latin-400.css";
 import "@fontsource/jetbrains-mono/latin-700.css";
 import "@fontsource/jetbrains-mono/latin-400-italic.css";
 import { openInBrowser } from "../api";
-import { CLOSE_AUTH, CLOSE_GONE, CLOSE_SUPERSEDED, closeTerminal, type TermTheme, termTheme, termToken } from "./term-api";
-
-const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-const FONT_STACK = '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace';
-// Trame's own colors, used when no Ghostty config is found
-const theme = (): ITheme => ({
-  background: css("--color-block"),
-  foreground: css("--color-ink"),
-  cursor: css("--color-copper"),
-  cursorAccent: css("--color-block"),
-  selectionBackground: `${css("--color-copper")}55`,
-});
+import { CLOSE_AUTH, CLOSE_GONE, CLOSE_SUPERSEDED, closeTerminal, termImage, type TermTheme, termTheme, termToken } from "./term-api";
+import { imageLinks } from "./image-links";
+import { previewBox } from "./preview-size";
+import { FONT_STACK, scrollbar, theme, URL_RE } from "./xterm-look";
+import { PR_HREF, PrPreview } from "../md/chips";
 
 type Notice = "superseded" | "gone" | null;
+// an image path under the mouse (a thumbnail by it) or clicked (full size)
+type Preview = { path: string; x: number; y: number; full: boolean };
+
+function ImagePreview({ p, onClose }: { p: Preview; onClose: () => void }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let url: string | null = null;
+    let live = true;
+    termImage(p.path).then(
+      (u) => (live ? setSrc((url = u)) : URL.revokeObjectURL(u)),
+      (e: Error) => live && setError(e.message),
+    );
+    return () => {
+      live = false;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [p.path]);
+  useEffect(() => {
+    if (!p.full) return;
+    const h = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    addEventListener("keydown", h);
+    return () => removeEventListener("keydown", h);
+  }, [p.full, onClose]);
+  const box = previewBox();
+  const body = error
+    ? <span className="px-3 py-2 text-[11.5px] text-ink-muted">{error}</span>
+    : src
+    ? (
+      <img
+        src={src}
+        alt={p.path}
+        className={p.full ? "max-h-[88vh] max-w-[92vw] object-contain" : "object-contain"}
+        style={p.full ? undefined : { maxWidth: box.w, maxHeight: box.h }}
+      />
+    )
+    : <span className="px-3 py-2 text-[11.5px] text-ink-muted">loading…</span>;
+  if (p.full) {
+    return createPortal(
+      <div role="dialog" aria-label={p.path} className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-2 bg-black/75" onClick={onClose}>
+        {body}
+        <span className="font-mono text-[11px] text-white/70">{p.path}</span>
+      </div>,
+      document.body,
+    );
+  }
+  // beside the pointer, flipped to stay on screen
+  const left = p.x + box.w + 20 > innerWidth ? p.x - box.w - 16 : p.x + 16;
+  const top = p.y + box.h + 20 > innerHeight ? p.y - box.h - 16 : p.y + 16;
+  return createPortal(
+    <div
+      className="pointer-events-none fixed z-50 overflow-hidden rounded-md border border-chipline bg-panel-modal shadow-lg shadow-black/40"
+      style={{ left: Math.max(4, left), top: Math.max(4, top) }}
+    >
+      {body}
+    </div>,
+    document.body,
+  );
+}
 
 // the selection as a quote to answer under, like a chat's Reply: "> " lines, terminal padding trimmed
 export const quoteReply = (text: string) =>
@@ -76,6 +129,8 @@ export function TerminalView(
   const [notice, setNotice] = useState<Notice>(null);
   // a selection's Copy / Reply bubble, where the mouse let go (px in the pane)
   const [bubble, setBubble] = useState<{ x: number; y: number } | null>(null);
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [pr, setPr] = useState<{ url: string; x: number; y: number } | null>(null); // a PR link hovered
   const focusCb = useRef(onFocus);
   focusCb.current = onFocus;
 
@@ -87,11 +142,30 @@ export function TerminalView(
       drawBoldTextInBrightColors: false, // Ghostty's default
       cursorBlink: true,
       scrollback: 10_000,
-      theme: theme(),
+      theme: { ...theme(), ...scrollbar() },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon((_e, uri) => openLink(uri)));
+    term.loadAddon(new WebLinksAddon((_e, uri) => openLink(uri), {
+      urlRegex: URL_RE,
+      hover: (e, uri) => PR_HREF.test(uri) && setPr({ url: uri, x: e.clientX, y: e.clientY }),
+      leave: () => setPr(null),
+    }));
+    // image paths: hover shows a thumbnail, click the full image
+    const links = term.registerLinkProvider({
+      provideLinks(y, cb) {
+        const line = term.buffer.active.getLine(y - 1)?.translateToString(true) ?? "";
+        const found = imageLinks(line).map((m) => ({
+          range: { start: { x: m.start + 1, y }, end: { x: m.end, y } },
+          text: m.path,
+          decorations: { underline: true, pointerCursor: true },
+          activate: (e: MouseEvent) => setPreview({ path: m.path, x: e.clientX, y: e.clientY, full: true }),
+          hover: (e: MouseEvent) => setPreview((p) => p?.full ? p : { path: m.path, x: e.clientX, y: e.clientY, full: false }),
+          leave: () => setPreview((p) => (p?.full ? p : null)),
+        }));
+        cb(found.length ? found : undefined);
+      },
+    });
     term.open(el);
     term.textarea?.addEventListener("focus", () => focusCb.current());
     // DOM renderer on purpose: WebGL ignores the app's thin (antialiased) font smoothing
@@ -179,7 +253,7 @@ export function TerminalView(
     let ghostty: TermTheme | null = null;
     // Ghostty's look when found; otherwise follow the app's light/dark switch
     const restyle = () => {
-      const t = ghostty?.theme ?? theme();
+      const t = { ...(ghostty?.theme ?? theme()), ...scrollbar() };
       term.options.theme = t;
       el.style.background = t.background ?? "";
     };
@@ -228,6 +302,7 @@ export function TerminalView(
       themeObserver.disconnect();
       media.removeEventListener("change", restyle);
       ws?.close();
+      links.dispose();
       term.dispose();
       api.current = null;
     };
@@ -258,7 +333,7 @@ export function TerminalView(
     <div className="relative h-full w-full">
       <div
         ref={host}
-        className="h-full w-full px-2 py-1"
+        className="h-full w-full px-2 pt-1 pb-3"
         onMouseUp={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
           const at = { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -289,6 +364,8 @@ export function TerminalView(
           </button>
         </div>
       )}
+      {preview && <ImagePreview p={preview} onClose={() => setPreview(null)} />}
+      {pr && <PrPreview {...pr} />}
       {notice && (
         <div className="absolute inset-0 flex items-center justify-center bg-block/80 text-xs text-ink-soft">
           {notice === "superseded"

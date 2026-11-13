@@ -1,7 +1,41 @@
 // The one module a web plugin outside this repo may import from Trame (as "@trame/web-api").
-export type { CardFace, FrontendPlugin, PanelProps } from "./plugins/index";
+export type { BlockViewProps, CardFace, FrontendPlugin, PanelProps, PluginBlock, PluginBlockData } from "./plugins/index";
 export { SidebarColumn } from "./plugins/index";
-export { getPluginSettings, openInBrowser, savePluginSettings } from "./api";
-export type { PageDetail, Session } from "./api";
-export { FieldRow, Select, timeAgo } from "./ui/ui";
+export { openPluginSettings, usePluginEnabled } from "./plugins/enabled";
+export {
+  getPlugins,
+  getPluginSettings,
+  getUdb,
+  listUdbs,
+  openInBrowser,
+  savePluginSettings,
+  setPluginEnabled,
+  updatePage,
+} from "./api";
+export type { Block, PageDetail, Session, UdbMeta, UdbProp } from "./api";
+export {
+  appConfirm,
+  Button,
+  EmptyState,
+  ErrorNote,
+  Field,
+  FIELD_LABEL,
+  FieldRow,
+  IconButton,
+  MENU_LABEL,
+  MenuRow,
+  Modal,
+  Popover,
+  SECTION_LABEL,
+  Select,
+  StatusDot,
+  TextArea,
+  TextInput,
+  timeAgo,
+} from "./ui/ui";
+export { type Resolved, useResolvedTheme } from "./ui/theme";
 export { markOfContent } from "../../../core/content-marks.ts";
+export { TYPE_GLYPH } from "./udb/PropertyEditor";
+export { highlightCode } from "./md/md-highlight";
+// the host's react-dom: a plugin bundle carries only React (window.__trame), never a second copy
+export { createPortal } from "react-dom";

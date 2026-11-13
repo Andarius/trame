@@ -52,8 +52,8 @@ type ToolIconName = keyof typeof TOOL_PATHS;
 function ToolIcon({ name }: { name: ToolIconName }) {
   return (
     <svg
-      width="12"
-      height="12"
+      width="14"
+      height="14"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -90,8 +90,8 @@ const SI_MERMAID =
 
 const brandLogo = (d: string, color: string) => (
   <svg
-    width="12"
-    height="12"
+    width="14"
+    height="14"
     viewBox="0 0 24 24"
     fill={color}
     aria-hidden="true"
@@ -101,8 +101,8 @@ const brandLogo = (d: string, color: string) => (
 );
 const strokeLogo = (paths: JSX.Element, color?: string) => (
   <svg
-    width="12"
-    height="12"
+    width="14"
+    height="14"
     viewBox="0 0 24 24"
     fill="none"
     stroke={color ?? "currentColor"}

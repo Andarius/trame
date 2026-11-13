@@ -157,6 +157,10 @@ export function DueMenu(
   );
 }
 
+const DUE_CHANGED = "trame:due-changed";
+// reload every useDue now, after a write that changed due todos
+export const refreshDue = () => dispatchEvent(new Event(DUE_CHANGED));
+
 // late or due within a week, refreshed every 30 s and when the window regains focus
 export function useDue(): DueTodo[] {
   const [due, setDue] = useState<DueTodo[]>([]);
@@ -172,9 +176,11 @@ export function useDue(): DueTodo[] {
     load();
     const t = setInterval(load, 30_000);
     addEventListener("focus", load);
+    addEventListener(DUE_CHANGED, load);
     return () => {
       clearInterval(t);
       removeEventListener("focus", load);
+      removeEventListener(DUE_CHANGED, load);
     };
   }, []);
   return due;

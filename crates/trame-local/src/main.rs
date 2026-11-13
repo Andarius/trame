@@ -5,6 +5,7 @@
 )]
 
 fn main() -> anyhow::Result<()> {
+    trame_local::tune_allocator();
     if let Some(result) = trame_local::pg::supervisor_args() {
         return result;
     }

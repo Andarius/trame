@@ -137,7 +137,7 @@ export function PropertyEditor(
               ▼ Descending
             </button>
             {sortDir != null && (
-              <IconButton tone="danger" className="rounded-md border border-chipline px-2 py-1 text-[11px]"
+              <IconButton tone="danger" className="rounded-md border border-chipline px-2 py-1 text-[13px]"
                 title="clear sort"
                 onClick={() => {
                   onSort(null);
@@ -490,7 +490,7 @@ export function PropertyEditor(
                         set({ rules });
                       }}
                     />
-                    <IconButton tone="danger" className="px-1 text-[11px]"
+                    <IconButton tone="danger" className="px-1 text-[13px]"
                       onClick={() =>
                         set({
                           rules: (config.rules ?? []).filter((_, j) =>

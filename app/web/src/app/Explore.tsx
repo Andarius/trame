@@ -428,7 +428,7 @@ export function Explore(
                   : "border-copper/50 text-copper"
               }`}
             >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
                 <path d="M8 2 14 5 8 8 2 5 8 2Z" />
                 <path d="M2 8 8 11 14 8" />
               </svg>

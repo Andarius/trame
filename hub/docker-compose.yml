@@ -4,7 +4,7 @@ name: trame
 
 services:
   trame-db:
-    image: postgres:18   # >=18: uuidv7() used by the udb_* tables; matches PGlite 0.5.x (PG 18)
+    image: postgres:18@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81   # >=18: uuidv7() used by the udb_* tables; matches PGlite 0.5.x (PG 18)
     container_name: trame-db
     restart: unless-stopped
     environment:
@@ -43,7 +43,7 @@ services:
   # Bun terminates TLS itself with the same gen-certs material as the db. DB access
   # is docker-network-only; pg_hba scopes a scram rule to the fixed subnet below.
   trame-api:
-    image: oven/bun:1.3.11-alpine
+    image: oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a
     container_name: trame-api
     restart: unless-stopped
     depends_on:

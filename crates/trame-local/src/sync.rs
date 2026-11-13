@@ -1,90 +1,8 @@
 use crate::{db::Db, settings};
 use anyhow::{Result, bail};
-use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, json};
-use std::{
-    path::PathBuf,
-    sync::{Arc, OnceLock},
-    time::Duration,
-};
-
-#[derive(Deserialize)]
-pub struct Entity {
-    pub name: String,
-    pub cols: Vec<String>,
-}
-#[derive(Deserialize)]
-pub struct Registry {
-    pub version: u32,
-    pub entities: Vec<Entity>,
-}
-pub fn registry() -> &'static Registry {
-    static REGISTRY: OnceLock<Registry> = OnceLock::new();
-    REGISTRY.get_or_init(|| {
-        serde_json::from_str(include_str!("../../../protocol/rust-entities.json"))
-            .expect("generated wire registry")
-    })
-}
-fn entity(name: &str) -> Result<&'static Entity> {
-    registry()
-        .entities
-        .iter()
-        .find(|e| e.name == name)
-        .ok_or_else(|| anyhow::anyhow!("unknown entity: {name}"))
-}
-
-#[derive(Clone, Deserialize, Serialize)]
-pub struct Change {
-    pub rev: i64,
-    pub entity: String,
-    pub id: String,
-    pub value: Option<Map<String, Value>>,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Response {
-    #[serde(rename = "acknowledgements")]
-    _acknowledgements: Vec<String>,
-    rejected_mutations: Vec<Rejected>,
-    changes: Vec<Change>,
-    next_cursor: i64,
-    has_more: bool,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Rejected {
-    #[serde(rename = "mutationId")]
-    _mutation_id: String,
-    #[serde(rename = "reason")]
-    _reason: String,
-}
-
-pub fn lww_upsert(name: &str, row: &Map<String, Value>) -> Result<(String, Vec<Value>)> {
-    let e = entity(name)?;
-    let placeholders = (1..=e.cols.len())
-        .map(|i| format!("${i}"))
-        .collect::<Vec<_>>()
-        .join(",");
-    let update = e
-        .cols
-        .iter()
-        .filter(|c| *c != "id")
-        .map(|c| format!("{c}=excluded.{c}"))
-        .collect::<Vec<_>>()
-        .join(",");
-    Ok((
-        format!(
-            "insert into {} ({}) values ({placeholders}) on conflict (id) do update set {update} where excluded.updated_at > {}.updated_at",
-            e.name,
-            e.cols.join(","),
-            e.name
-        ),
-        e.cols
-            .iter()
-            .map(|c| row.get(c).cloned().unwrap_or(Value::Null))
-            .collect(),
-    ))
-}
+use serde_json::{Value, json};
+use std::{path::PathBuf, sync::Arc, time::Duration};
+use trame_protocol::{Change, Response, lww_soft_delete, lww_upsert, registry};
 
 pub fn apply_changes(
     db: &mut Db,
@@ -108,12 +26,8 @@ pub fn apply_changes(
             let (sql, params) = if let Some(row) = &change.value {
                 lww_upsert(&change.entity, row)?
             } else {
-                let e = entity(&change.entity)?;
                 (
-                    format!(
-                        "update {} set deleted=true, updated_at=$2 where id=$1 and updated_at < $2",
-                        e.name
-                    ),
+                    lww_soft_delete(&change.entity)?,
                     vec![
                         json!(change.id),
                         json!(

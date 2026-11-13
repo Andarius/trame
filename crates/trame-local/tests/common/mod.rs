@@ -31,7 +31,6 @@ impl TestDb {
             .env("TRACKER_PORT", "0")
             .env("TRACKER_NODE_ID", "rust-slice2-test")
             .env("TRACKER_SETTINGS_FILE", root.join("settings.json"))
-            .env_remove("TRACKER_DEPLOYMENTS_FIXTURE")
             .envs(env.iter().copied())
             .stdout(Stdio::from(log.try_clone().unwrap()))
             .stderr(Stdio::from(log))

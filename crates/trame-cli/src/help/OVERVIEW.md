@@ -11,13 +11,15 @@ Commands:
   watch      wait for human feedback on page(s); exits 0 when feedback is ready
   answer     daemon: auto-answer human replies on agent comment threads
   list       print open sessions grouped by story
+  due        open todos that are late or due soon, with their card and project
   stories    open stories similar to a topic (pick one before tracking)
   convert    turn a page into a session card whose specs are that page
   archive    fold a page or user story away (--restore brings it back)
   move       reparent a page under another page (or --top)
   open       show a page or card in the desktop app (or its trame:// link)
   setup      install the agent skills embedded in this binary
-  deployments  per-repo rules matching waiting releases to cards
+  plugins    build Trame with native plugins from their GitHub repos
+  <plugin>   a plugin's own commands (`tramecli k8s` lists them); needs the app
   db         write database rows (`db rows <db>`); bare, the database contract
   query      print the board's session-filter syntax
   mcp        serve the Trame MCP server on stdio

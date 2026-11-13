@@ -1,4 +1,4 @@
-// Out-of-process plugins ship a prebuilt bundle (`just plugins-install`) served at
+// Composed plugins ship a prebuilt frontend bundle (`just plugins-install`) served at
 // /api/plugins/web/plugins.{js,css}. It registers itself on window.__trameRuntimePlugins and
 // takes React and @trame/web-api from window.__trame instead of bundling its own copies.
 // A classic <script> on purpose: dynamic import() fails in WebKitGTK (see ./index).

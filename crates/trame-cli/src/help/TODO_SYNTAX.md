@@ -13,7 +13,7 @@ Keys, all plain `YYYY-MM-DD`:
 `due` is the one date Trame never stamps: write it when an open item waits on a date
 (an expiry, a cooldown) or on someone else (a release, a review) — then it is the day to
 check again. Open todos late or due within 7 days show in the sidebar's DUE section,
-in a 9:00 desktop digest and in the Claude Code band.
+in a 9:00 desktop digest and in the Claude Code band; `tramecli due` lists them.
 
 `updated_at` is the one list: days are deduped and sorted, only the 5 most recent are
 kept, and a day equal to created_at is dropped. The editor appends to it when the text

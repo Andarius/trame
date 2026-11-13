@@ -1,6 +1,6 @@
 ---
 name: trame-track
-description: Log, update, pause, block, complete, list, or read coding-agent work sessions in Trame. Use when the user invokes $trame-track, asks to track the current Claude Code or Codex session, save a next step, update its Trame status, list open Trame sessions, or pastes a Trame card link to read.
+description: Log, update, pause, block, complete, list, or read coding-agent work sessions in Trame. Use when the user invokes $trame-track, asks to track the current Claude Code or Codex session, save a next step, update its Trame status, list open Trame sessions or due todos, or pastes a Trame card link to read.
 allowed-tools: Bash(tramecli:*), Bash(pwd), Bash(git branch:*), Bash(git remote:*)
 ---
 
@@ -22,6 +22,7 @@ Interpret an optional first argument as the action:
 - Empty or `log`: status `active`.
 - `todo`, `paused`, `blocked`, or `done`: use that status; treat the remaining text as a note.
 - `list`: run `tramecli list` (filter with `-q`, syntax in `tramecli query`). Do not write.
+- `due`: run `tramecli due` (`--late`, `--within N`, `-q` on the todo's card) for todos past or near their due date. Do not write.
 - `show <id or Trame URL>`: run `tramecli show` to read one card (fields, specs, worklog) or page. Do not write.
 
 For tracking actions:

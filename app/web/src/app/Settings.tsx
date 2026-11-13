@@ -1,0 +1,741 @@
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import {
+  type AgentPresenceSettings,
+  completePath,
+  getPlugins,
+  getSettings,
+  restartApp,
+  openInBrowser,
+  patchSettings,
+  type PluginManifest,
+  syncNow,
+  testHub,
+  type UpdateInfo,
+  updateLabel,
+} from "../api";
+import { PresencePreview } from "../agents/PresencePreview";
+import { applyScale, getScale, SCALES } from "../ui/scale";
+import { getPreviewSize, PREVIEW_SIZES, type PreviewSize, setPreviewSize } from "../term/preview-size";
+import { applyTheme, getTheme, type Theme } from "../ui/theme";
+import { CheckRow, Footer, label, pill, seg, segTrack } from "../modals/modal-ui";
+import { IconButton, SECTION_LABEL } from "../ui/ui";
+import { dataUriToIcon } from "../udb/cells";
+import { DemoLauncher, useDemoAvailable } from "./Demo";
+import { PluginList, PluginPage } from "../plugins/PluginsPage";
+import { RebuildProgress } from "./UpdateBanner";
+
+// One folder input with directory autocomplete: typing fetches sub-dir suggestions
+// (debounced), ↑/↓ to move, Enter/Tab to accept, Esc to dismiss, click to pick.
+function PathRow(
+  { value, placeholder, autoFocus, onChange, onRemove }: {
+    value: string;
+    placeholder: string;
+    autoFocus: boolean;
+    onChange: (v: string) => void;
+    onRemove: () => void;
+  },
+) {
+  const [sugg, setSugg] = useState<string[]>([]);
+  const [open, setOpen] = useState(false);
+  const [hi, setHi] = useState(0);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const blurTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => {
+    clearTimeout(timer.current);
+    clearTimeout(blurTimer.current);
+  }, []);
+
+  const fetchSugg = (v: string) => {
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      completePath(v).then((dirs) => {
+        const d = dirs.filter((x) => x !== v); // hide a lone suggestion equal to the input
+        setSugg(d);
+        setHi(0);
+        setOpen(d.length > 0);
+      });
+    }, 120);
+  };
+  const accept = (d: string) => {
+    onChange(d);
+    setOpen(false);
+    fetchSugg(`${d}/`); // offer the chosen folder's children next
+  };
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className="relative w-full">
+        <input
+          className={`${pill} w-full`}
+          value={value}
+          autoFocus={autoFocus}
+          placeholder={placeholder}
+          onChange={(e) => {
+            onChange(e.target.value);
+            fetchSugg(e.target.value);
+          }}
+          onFocus={() => value && fetchSugg(value)}
+          onBlur={() => {
+            blurTimer.current = setTimeout(() => setOpen(false), 120);
+          }}
+          onKeyDown={(e) => {
+            if (!open || sugg.length === 0) return;
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              setHi((h) => (h + 1) % sugg.length);
+            } else if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setHi((h) => (h - 1 + sugg.length) % sugg.length);
+            } else if (e.key === "Enter" || e.key === "Tab") {
+              if (sugg[hi]) {
+                e.preventDefault();
+                accept(sugg[hi]);
+              }
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              setOpen(false);
+            }
+          }}
+        />
+        {open && sugg.length > 0 && (
+          <div className="absolute left-0 top-full z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-md border border-chipline bg-panel shadow-lg">
+            {sugg.map((d, k) => (
+              <button type="button"
+                key={d}
+                className={`block w-full truncate px-2 py-1 text-left font-mono text-[11px] ${
+                  k === hi ? "bg-sidebar text-ink" : "text-ink-soft"
+                }`}
+                // mousedown (not click) fires before the input's blur closes the list
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  accept(d);
+                }}
+                onMouseEnter={() => setHi(k)}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <IconButton tone="danger" className="px-1"
+        title="remove"
+        onClick={onRemove}
+      >
+        ✕
+      </IconButton>
+    </div>
+  );
+}
+
+function PathList(
+  { items, onChange, placeholder, addLabel }: {
+    items: string[];
+    onChange: (items: string[]) => void;
+    placeholder: string;
+    addLabel: string;
+  },
+) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      {items.map((p, i) => (
+        <PathRow
+          key={i}
+          value={p}
+          placeholder={placeholder}
+          autoFocus={i === items.length - 1 && p === ""}
+          onChange={(v) => onChange(items.map((x, j) => j === i ? v : x))}
+          onRemove={() => onChange(items.filter((_, j) => j !== i))}
+        />
+      ))}
+      <button type="button"
+        className="w-fit rounded-md px-1 py-0.5 text-[11.5px] text-ink-muted hover:text-ink-soft"
+        onClick={() => onChange([...items, ""])}
+      >
+        {addLabel}
+      </button>
+    </div>
+  );
+}
+
+// Settings' pages; a plugin's own page is `plugin:<id>`, listed under Plugins
+const SECTIONS = [
+  ["general", "General"],
+  ["presence", "Agent presence"],
+  ["hub", "Sync hub"],
+  ["plugins", "Plugins"],
+  ["embeds", "Embeds"],
+  ["explore", "Explore folders"],
+] as const;
+// the pages saved by the footer; plugin pages save themselves
+const FORM_SECTIONS = new Set<string>(["general", "presence", "hub", "embeds", "explore"]);
+export const settingsSection = (s: string | null) =>
+  s && (SECTIONS.some(([id]) => id === s) || s.startsWith("plugin:")) ? s : "general";
+
+// the Settings view's sidebar column: its pages, with each plugin under Plugins
+export function SettingsNav({ section, onSection }: { section: string; onSection: (s: string) => void }) {
+  const [plugins, setPlugins] = useState<PluginManifest[]>([]);
+  // refetched per page, so an enable toggled on a plugin page shows in its dot
+  useEffect(() => {
+    getPlugins().then(setPlugins).catch(() => {});
+  }, [section]);
+  const row = (id: string, text: ReactNode, indent = false) => (
+    <button
+      type="button"
+      key={id}
+      aria-current={section === id ? "page" : undefined}
+      onClick={() => onSection(id)}
+      className={`flex items-center gap-2 rounded-md py-[6px] pr-2 text-left text-[13px] ${indent ? "pl-6" : "pl-2"} ${
+        section === id ? "bg-active-row font-medium text-ink" : "text-ink-muted hover:text-ink-soft"
+      }`}
+    >
+      {text}
+    </button>
+  );
+  return (
+    <nav aria-label="Settings sections" className="flex flex-col gap-0.5">
+      <div className={`px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>SETTINGS</div>
+      {SECTIONS.flatMap(([id, text]) =>
+        id === "plugins"
+          ? [
+            row(id, text),
+            ...plugins.map((pl) =>
+              row(
+                `plugin:${pl.id}`,
+                <>
+                  <span className="text-[12px] text-copper">{pl.glyph}</span>
+                  <span className="min-w-0 flex-1 truncate">{pl.label}</span>
+                  <span
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${pl.enabled ? "bg-[--color-active]" : "bg-chipline"}`}
+                    title={pl.enabled ? "enabled" : "disabled"}
+                  />
+                </>,
+                true,
+              )
+            ),
+          ]
+          : [row(id, text)]
+      )}
+    </nav>
+  );
+}
+
+export function Settings(
+  { section, onSection, onClose, onSaved, onOpenDiagnostics, update, updState, updError, onUpdate, onCheckUpdate }: {
+    section: string;
+    onSection: (s: string) => void;
+    onClose: () => void;
+    onSaved: () => void;
+    onOpenDiagnostics: () => void;
+    // the app's update state, shared with the update toast
+    update: UpdateInfo | null;
+    updState: "idle" | "busy" | "done";
+    updError?: string;
+    onUpdate: () => void;
+    onCheckUpdate: () => void;
+  },
+) {
+  const [paths, setPaths] = useState<string[]>([]);
+  const [ignore, setIgnore] = useState<string[]>([]);
+  const [embedHosts, setEmbedHosts] = useState<string[]>([]);
+  const [source, setSource] = useState<"settings" | "env">("settings");
+  const [hubUrl, setHubUrl] = useState("");
+  const [hubToken, setHubToken] = useState("");
+  const [hubHasToken, setHubHasToken] = useState(false);
+  const [hubSource, setHubSource] = useState<"settings" | "env" | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [scale, setScale] = useState(getScale);
+  const [previewSize, setPreviewSizeState] = useState(getPreviewSize);
+  const [theme, setTheme] = useState(getTheme);
+  const [authorName, setAuthorName] = useState("");
+  const [authorAvatar, setAuthorAvatar] = useState("");
+  const demoAvailable = useDemoAvailable();
+  const [presence, setPresence] = useState<AgentPresenceSettings | null>(null);
+  const setP = (patch: Partial<AgentPresenceSettings>) => setPresence((p) => p && { ...p, ...patch });
+
+  useEffect(() => {
+    getSettings().then((s) => {
+      setPresence(s.agentPresence);
+      setPaths(s.paths.length ? s.paths : [""]);
+      setIgnore(s.ignore ?? []);
+      setEmbedHosts(s.embedHosts?.length ? s.embedHosts : [""]);
+      setAuthorName(s.authorName ?? "");
+      setAuthorAvatar(s.authorAvatar ?? "");
+      setSource(s.source);
+      // only prefill when saved here — an env-provided URL stays in the env
+      // unless the user types one (mirrors the report-paths takeover behavior);
+      // never clobber what the user already typed while this request was in flight
+      setHubUrl((cur) => cur || (s.hubSource === "settings" ? s.hubApi : ""));
+      setHubHasToken(s.hubSource === "settings" && s.hubHasToken);
+      setHubSource(s.hubSource);
+      setLoaded(true);
+    }).catch(() => setLoaded(true));
+  }, []);
+  // re-check on open; a ref, as the app's callback changes every render
+  const checkUpdate = useRef(onCheckUpdate);
+  useEffect(() => checkUpdate.current(), []);
+
+  const restartBtn = (
+    <button
+      type="button"
+      className="rounded-md bg-copper px-2.5 py-1 text-[11.5px] font-medium text-copper-ink hover:brightness-110"
+      onClick={() => restartApp().catch(() => {})}
+    >
+      ✓ {update && updateLabel(update)} ready — restart
+    </button>
+  );
+
+  const [hubTest, setHubTest] = useState<{ state: "idle" | "busy" | "ok" | "fail"; tls?: boolean; error?: string }>(
+    { state: "idle" },
+  );
+  const runHubTest = () => {
+    if (hubTest.state === "busy") return;
+    setHubTest({ state: "busy" });
+    testHub(hubUrl.trim(), hubToken.trim())
+      .then((r) => setHubTest(r.ok ? { state: "ok", tls: r.tls } : { state: "fail", error: r.error }))
+      .catch((e) => setHubTest({ state: "fail", error: String(e) }));
+  };
+
+  const submit = () =>
+    patchSettings({
+      reportPaths: paths.map((p) => p.trim()).filter(Boolean),
+      ignorePaths: ignore.map((p) => p.trim()).filter(Boolean),
+      embedHosts: embedHosts.map((h) => h.trim().toLowerCase()).filter(Boolean),
+      hubApi: hubUrl.trim(),
+      hubApiToken: hubToken.trim(), // blank = keep the stored one
+      authorName: authorName.trim(),
+      authorAvatar: authorAvatar.trim(),
+      agentPresence: presence ?? undefined,
+    }).then(() => {
+      if (hubUrl.trim()) syncNow().catch(() => {}); // first sync right away
+      onSaved();
+      onClose();
+    });
+  const submitRef = useRef(submit);
+  submitRef.current = submit;
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submitRef.current();
+    };
+    addEventListener("keydown", h);
+    return () => removeEventListener("keydown", h);
+  }, []);
+
+  return (
+    <div className="flex-1 overflow-y-auto">
+      <div className="mx-auto flex max-w-[860px] flex-col gap-3 px-6 py-8">
+      {section === "general" && (
+        <>
+        <div className={HEADING}>Updates</div>
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-ink-soft">Trame v{update?.current ?? "…"}</span>
+          {update?.available
+            ? (
+              <>
+                <span className="rounded bg-copper/15 px-1.5 py-0.5 text-[10.5px] font-medium text-copper">
+                  {updateLabel(update)} available
+                </span>
+                <button
+                  type="button"
+                  className="text-[10.5px] text-ink-muted underline decoration-chipline underline-offset-2 hover:text-ink-soft"
+                  onClick={() => update && openInBrowser(update.releaseUrl)}
+                >
+                  release notes
+                </button>
+                <span className="flex-1" />
+                {updState === "done"
+                  ? restartBtn
+                  : (
+                    <button
+                      type="button"
+                      className="rounded-md bg-copper px-2.5 py-1 text-[11.5px] font-medium text-copper-ink hover:brightness-110 disabled:opacity-60"
+                      disabled={updState === "busy" || !!update.building}
+                      onClick={onUpdate}
+                    >
+                      {updState === "busy" || update.building ? update.rebuild ? "Rebuilding…" : "Updating…" : update.canSelfUpdate ? "Update now" : "Open release"}
+                    </button>
+                  )}
+              </>
+            )
+            : update?.applied
+            ? restartBtn
+            : update && (
+              <span className="text-[11px] text-ink-muted/70">
+                {update.off
+                  ? `· update checks off: ${update.off}`
+                  : update.checked === false
+                  ? `· couldn't check: ${update.error ?? "GitHub unreachable"}`
+                  : "· up to date"}
+              </span>
+            )}
+        </div>
+        {update?.building && <RebuildProgress building={update.building} />}
+        {updError && <p className="m-0 text-[11.5px] text-blocked">{updError}</p>}
+
+        <div className="h-px bg-line" />
+        <div className="flex items-center gap-2">
+          <div>
+            <div className={HEADING}>Diagnostics</div>
+            <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
+              Memory, CPU, traffic and database figures for the app and the processes it runs.
+            </p>
+          </div>
+          <span className="flex-1" />
+          <button
+            type="button"
+            className="rounded-md border border-chipline px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft"
+            onClick={onOpenDiagnostics}
+          >
+            Open diagnostics →
+          </button>
+        </div>
+
+        <div className="h-px bg-line" />
+        <div className={HEADING}>Interface scale</div>
+        <div className="flex items-center gap-2">
+          <div className={segTrack}>
+            {SCALES.map((s) => (
+              <button
+                key={s}
+                type="button"
+                aria-pressed={s === scale} className={seg(s === scale)}
+                onClick={() => {
+                  setScale(s);
+                  applyScale(s);
+                }}
+              >
+                {Math.round(s * 100)}%
+              </button>
+            ))}
+          </div>
+          <span className="text-[12px] text-ink-muted/70">applies instantly</span>
+        </div>
+
+        <div className="h-px bg-line" />
+        <div className={HEADING}>Terminal image preview</div>
+        <div className="flex items-center gap-2">
+          <div className={segTrack}>
+            {(Object.keys(PREVIEW_SIZES) as PreviewSize[]).map((s) => (
+              <button
+                key={s}
+                type="button"
+                aria-pressed={s === previewSize} className={seg(s === previewSize)}
+                title={`up to ${PREVIEW_SIZES[s].w}×${PREVIEW_SIZES[s].h}`}
+                onClick={() => {
+                  setPreviewSizeState(s);
+                  setPreviewSize(s);
+                }}
+              >
+                {PREVIEW_SIZES[s].label}
+              </button>
+            ))}
+          </div>
+          <span className="text-[12px] text-ink-muted/70">hover an image path in a terminal; click for full size</span>
+        </div>
+
+        <div className="h-px bg-line" />
+        <div className={HEADING}>Theme</div>
+        <div className={segTrack}>
+          {(["system", "light", "dark"] as Theme[]).map((t) => (
+            <button
+              key={t}
+              type="button"
+              aria-pressed={t === theme} className={`${seg(t === theme)} capitalize`}
+              onClick={() => {
+                setTheme(t);
+                applyTheme(t);
+              }}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        <div className="h-px bg-line" />
+        <div className={HEADING}>Your name</div>
+        <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
+          Shown as the author on comments you write (so teammates see who said what). Empty falls back to this machine's node id.
+        </p>
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            title={authorAvatar ? "change avatar" : "choose an avatar image"}
+            className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-panel text-ink-muted transition-colors hover:border-chipline"
+            onClick={async () => {
+              const res = await fetch("/api/pick-image", { method: "POST" }).then((r) => r.json()).catch(() => null);
+              if (res?.dataUri) setAuthorAvatar(await dataUriToIcon(res.dataUri));
+            }}
+          >
+            {authorAvatar
+              ? <img src={authorAvatar} alt="" className="h-full w-full object-cover" />
+              : <span className="text-[15px]">＋</span>}
+          </button>
+          <input
+            className={`${pill} w-64`}
+            placeholder="e.g. Julien"
+            value={authorName}
+            onChange={(e) => setAuthorName(e.target.value)}
+            maxLength={40}
+          />
+          {authorAvatar && (
+            <button
+              type="button"
+              className="text-[11px] text-ink-muted transition-colors hover:text-blocked"
+              onClick={() => setAuthorAvatar("")}
+            >
+              Remove avatar
+            </button>
+          )}
+        </div>
+
+        </>
+      )}
+      {section === "general" && demoAvailable && (
+        <>
+        <div className="h-px bg-line" />
+            <div className={HEADING}>Demo workspace</div>
+            <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
+              Sample projects, pages and databases in a separate workspace. Your data stays untouched; exit from
+              the demo banner to come back.
+            </p>
+            <DemoLauncher className="self-start" />
+        </>
+      )}
+      {section === "presence" && (
+        <>
+        {presence
+          ? <AgentPresenceSection p={presence} set={setP} />
+          : loaded && (
+            <>
+              <div className={HEADING}>Agent presence</div>
+              <p className="m-0 text-[12.5px] text-blocked">Couldn't load these settings — reopen Settings to retry.</p>
+            </>
+          )}
+
+        </>
+      )}
+      {section === "hub" && (
+        <>
+        <div className={HEADING}>Sync hub</div>
+        <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
+          Hub API URL and its device token (minted on the hub).{" "}
+          {hubSource === "env"
+            ? "Currently from TRACKER_HUB_API — saving here takes over."
+            : hubSource === null
+            ? "Not configured — local-only until set."
+            : "Saved in settings.json."}
+        </p>
+        <div className="flex gap-1.5">
+          <input
+            className={`${pill} min-w-0 flex-1 font-mono text-[11px]`}
+            placeholder="https://192.168.1.x:8443"
+            value={hubUrl}
+            onChange={(e) => {
+              setHubUrl(e.target.value);
+              setHubTest({ state: "idle" });
+            }}
+            spellCheck={false}
+          />
+          <input
+            type="password"
+            className={`${pill} w-44 font-mono text-[11px]`}
+            placeholder={hubHasToken ? "•••••• (saved)" : "device token"}
+            title={hubHasToken ? "a token is saved — type to replace it" : "the device token minted on the hub"}
+            value={hubToken}
+            onChange={(e) => {
+              setHubToken(e.target.value);
+              setHubTest({ state: "idle" });
+            }}
+          />
+        </div>
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            className="rounded-md border border-chipline px-2 py-1 text-[11px] text-ink-muted hover:text-ink-soft disabled:opacity-40"
+            disabled={hubTest.state === "busy" || (!hubUrl.trim() && hubSource === null)}
+            onClick={runHubTest}
+          >
+            {hubTest.state === "busy" ? "Testing…" : "Test connection"}
+          </button>
+          {hubTest.state === "ok" && (
+            <span className="text-[11px]" style={{ color: "var(--color-active)" }}>
+              ✓ connected{hubTest.tls ? " · TLS" : " · no TLS!"}
+            </span>
+          )}
+          {hubTest.state === "fail" && (
+            <span className="min-w-0 truncate text-[11px] text-blocked" title={hubTest.error}>
+              ✕ {hubTest.error}
+            </span>
+          )}
+        </div>
+
+        </>
+      )}
+      {section === "embeds" && (
+        <>
+        <div className={HEADING}>Embeds</div>
+        <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
+          Hostnames whose <code>https</code> URLs an <code>embed</code> page block may show in an iframe (e.g.{" "}
+          <code>grafana.example.com</code>). Empty = embeds are off.
+        </p>
+        {loaded && (
+          <PathList
+            items={embedHosts}
+            onChange={setEmbedHosts}
+            placeholder="grafana.example.com"
+            addLabel="＋ Add host"
+          />
+        )}
+
+        </>
+      )}
+      {section === "explore" && (
+        <>
+        <div className={HEADING}>Explore — report folders</div>
+          <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
+            Folders scanned (4 levels deep) for <code>.html</code> exploration reports. Searchable in
+            the Explore view alongside published reports.
+            {source === "env" && " Currently coming from TRACKER_REPORT_PATHS — saving here takes over."}
+          </p>
+          {loaded && (
+            <PathList
+              items={paths}
+              onChange={setPaths}
+              placeholder="~/Projects or /absolute/path"
+              addLabel="＋ Add folder"
+            />
+          )}
+          <div className="pt-1 text-[14px] font-semibold">Ignore</div>
+          <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
+            A folder <em>name</em> (<code>htmlcov</code> ≡ <code>**/htmlcov</code>) ignores it anywhere;
+            a <em>path</em> (<code>~/Projects/x/devops</code>) ignores that subtree; <em>globs</em> work
+            too (<code>~/Projects/**/coverage</code>, <code>**/*.min.html</code>).{" "}
+            <code>node_modules</code>, <code>.git</code>, <code>dist</code>… are always ignored.
+          </p>
+          {loaded && (
+            <PathList
+              items={ignore}
+              onChange={setIgnore}
+              placeholder="externals — or ~/path/to/skip"
+              addLabel="＋ Add ignore"
+            />
+          )}
+        </>
+      )}
+      {FORM_SECTIONS.has(section) && (
+        <>
+          <div className="h-px bg-line" />
+          <Footer
+            hint="stored per-machine in settings.json (not synced)"
+            action="Save settings"
+            onClose={onClose}
+            onSubmit={submit}
+            disabled={!loaded}
+          />
+        </>
+      )}
+      {section === "plugins" && <PluginList onOpen={(id) => onSection(`plugin:${id}`)} />}
+      {section.startsWith("plugin:") && <PluginPage id={section.slice("plugin:".length)} />}
+      </div>
+    </div>
+  );
+}
+
+const HEADING = "text-[14px] font-semibold";
+
+// mirrors normalizeAgentPresence in app/files.ts
+const clampMinutes = (p: AgentPresenceSettings) => {
+  const clamp = (v: number, def: number, lo: number, hi: number) =>
+    Number.isFinite(v) && v > 0 ? Math.min(hi, Math.max(lo, Math.round(v))) : def;
+  const liveMinutes = clamp(p.liveMinutes, 2, 1, 30);
+  return { liveMinutes, staleMinutes: clamp(p.staleMinutes, 30, Math.max(5, liveMinutes), 240) };
+};
+
+function AgentPresenceSection(
+  { p, set }: { p: AgentPresenceSettings; set: (patch: Partial<AgentPresenceSettings>) => void },
+) {
+  const fields: [keyof AgentPresenceSettings["fields"], string][] = [
+    ["harness", "Harness"],
+    ["provider", "Provider"],
+    ["model", "Model"],
+    ["tokens", "Tokens so far"],
+    ["step", "Last step"],
+  ];
+  const row: [keyof Pick<AgentPresenceSettings, "chip" | "tint" | "timer" | "motion">, string][] = [
+    ["chip", "Pulsing chip + verb"],
+    ["tint", "Tint row"],
+    ["timer", "Elapsed timer"],
+    ["motion", "Animations"],
+  ];
+  return (
+    <>
+      <div className="h-px bg-line" />
+      <div className={HEADING}>Agent presence</div>
+      <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
+        How a todo shows that an agent is working on it. The preview below follows your choices.
+      </p>
+      <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <span className={label}>STATUS MARKER</span>
+          <div className={segTrack}>
+            <button type="button" aria-pressed={p.marker === "ring"} className={seg(p.marker === "ring")} onClick={() => set({ marker: "ring" })}>
+              Spinning checkbox
+            </button>
+            <button type="button" aria-pressed={p.marker === "rail"} className={seg(p.marker === "rail")} onClick={() => set({ marker: "rail" })}>
+              Gutter rail
+            </button>
+          </div>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <span className={label}>ACTIVITY LINE</span>
+          <div className={segTrack}>
+            {([["always", "Always"], ["hover", "On hover"], ["off", "Off"]] as const).map(([a, l]) => (
+              <button key={a} type="button" aria-pressed={p.activity === a} className={seg(p.activity === a)} onClick={() => set({ activity: a })}>
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <span className={label}>ACTIVITY LINE FIELDS</span>
+          {fields.map(([k, l]) => (
+            <CheckRow key={k} on={p.fields[k]} label={l} onChange={(v) => set({ fields: { ...p.fields, [k]: v } })} />
+          ))}
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <span className={label}>ROW</span>
+          {row.map(([k, l]) => <CheckRow key={k} on={p[k]} label={l} onChange={(v) => set({ [k]: v })} />)}
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[13px] text-ink-soft">
+        <label className="flex items-center gap-2">
+          Agent counts as live if seen within
+          <input
+            type="number"
+            min={1}
+            max={30}
+            className={`${pill} w-14`}
+            value={p.liveMinutes}
+            onChange={(e) => set({ liveMinutes: Number(e.target.value) })}
+            onBlur={() => set(clampMinutes(p))}
+          />
+          min
+        </label>
+        <label className="flex items-center gap-2">
+          Mark as stale after
+          <input
+            type="number"
+            min={5}
+            max={240}
+            className={`${pill} w-16`}
+            value={p.staleMinutes}
+            onChange={(e) => set({ staleMinutes: Number(e.target.value) })}
+            onBlur={() => set(clampMinutes(p))}
+          />
+          min of silence
+        </label>
+      </div>
+      <PresencePreview p={p} />
+    </>
+  );
+}

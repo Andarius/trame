@@ -13,9 +13,8 @@
     "allowImportingTsExtensions": true,
     "types": ["bun"],
     "paths": {
-      "@trame/plugin-api": ["./app/plugins/api.ts"],
       "@trame/plugin-test": ["./app/test_tmp.ts"]
     }
   },
-  "include": ["app/*.ts", "app/plugins", "core", "protocol", "scripts", "app/web/src/**/*_test.ts", "types.d.ts"]
+  "include": ["app/*.ts", "core", "protocol", "scripts", "app/web/src/**/*_test.ts", "types.d.ts"]
 }

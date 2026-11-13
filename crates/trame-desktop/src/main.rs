@@ -21,6 +21,7 @@ use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
     reason = "tauri::generate_context! expands to process::exit"
 )]
 fn main() -> anyhow::Result<()> {
+    trame_local::tune_allocator();
     if let Some(result) = trame_local::pg::supervisor_args() {
         return result;
     }
@@ -108,7 +109,8 @@ fn main() -> anyhow::Result<()> {
         let ready_pending = pending.clone();
         let window = window
             .on_navigation(move |url| {
-                url.scheme() == "tauri" || url.host_str() == Some("tauri.localhost") ||
+                // about:srcdoc / about:blank: sandboxed output iframes, which WebKitGTK routes through here
+                url.scheme() == "about" || url.scheme() == "tauri" || url.host_str() == Some("tauri.localhost") ||
                     (url.scheme() == "http" && url.host_str() == Some("127.0.0.1") && url.port() == Some(nav_port.load(Ordering::SeqCst)))
             })
             .on_page_load(move |window, payload| {

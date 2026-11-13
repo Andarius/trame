@@ -22,12 +22,14 @@ test("published report renders in the viewer", async ({ page, request }) => {
   await expect(page.frameLocator("iframe").getByText("hello from e2e")).toBeVisible();
 });
 
-test("settings modal opens from the gear", async ({ page }) => {
+test("settings open as a view from the gear, Cancel goes back", async ({ page }) => {
   await page.goto("/?view=explore");
   await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page).toHaveURL(/view=settings/);
+  await page.getByRole("navigation", { name: "Settings sections" }).getByRole("button", { name: "Explore folders" }).click();
   await expect(page.getByText("Explore — report folders")).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.getByText("Explore — report folders")).not.toBeVisible();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page).toHaveURL(/view=explore/);
 });
 
 const publish = async (request: APIRequestContext, title: string) => {

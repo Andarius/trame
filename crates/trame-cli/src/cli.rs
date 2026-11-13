@@ -1,5 +1,6 @@
 use crate::{
-    board, claude_hook, comment, db, deployments, help, mcp, open, page, presence, setup,
+    board, claude_hook, comment, db, due, help, mcp, open, page, plugin_cmd, plugins, presence,
+    setup,
     target::{self, resolve_target},
     track, watch,
 };
@@ -113,13 +114,14 @@ pub async fn run(args: &[String]) -> Result<i32> {
         "presence" => Some("PRESENCE_HELP"),
         "show" => Some("SHOW_HELP"),
         "list" => Some("LIST_HELP"),
+        "due" => Some("DUE_HELP"),
         "stories" => Some("STORIES_HELP"),
         "convert" => Some("CONVERT_HELP"),
         "archive" => Some("ARCHIVE_HELP"),
         "move" => Some("MOVE_HELP"),
         "open" => Some("OPEN_HELP"),
         "setup" => Some("SETUP_HELP"),
-        "deployments" => Some("DEPLOYMENTS_HELP"),
+        "plugins" => Some("PLUGINS_HELP"),
         "db" => Some("UDB_CONTRACT"),
         "query" => Some("QUERY_SYNTAX"),
         _ => None,
@@ -135,10 +137,10 @@ pub async fn run(args: &[String]) -> Result<i32> {
                 | "watch"
                 | "answer"
                 | "list"
+                | "due"
                 | "convert"
                 | "mcp"
                 | "db"
-                | "deployments"
         )
     {
         warn_if_stale().await;
@@ -155,13 +157,14 @@ pub async fn run(args: &[String]) -> Result<i32> {
             "presence" => Some("PRESENCE_HELP"),
             "show" => Some("SHOW_HELP"),
             "list" => Some("LIST_HELP"),
+            "due" => Some("DUE_HELP"),
             "stories" => Some("STORIES_HELP"),
             "convert" => Some("CONVERT_HELP"),
             "archive" => Some("ARCHIVE_HELP"),
             "move" => Some("MOVE_HELP"),
             "open" => Some("OPEN_HELP"),
             "setup" => Some("SETUP_HELP"),
-            "deployments" => Some("DEPLOYMENTS_HELP"),
+            "plugins" => Some("PLUGINS_HELP"),
             "db" => Some("UDB_CONTRACT"),
             "query" => Some("QUERY_SYNTAX"),
             _ => None,
@@ -188,10 +191,7 @@ pub async fn run(args: &[String]) -> Result<i32> {
         return Ok(0);
     }
     if let Some(topic) = topic {
-        if wants_help
-            || command == "db" && rest.is_empty()
-            || command == "deployments" && rest.is_empty()
-        {
+        if wants_help || command == "db" && rest.is_empty() {
             println!("{}", help::topic(topic));
             return Ok(0);
         }
@@ -213,16 +213,20 @@ pub async fn run(args: &[String]) -> Result<i32> {
         "watch" => watch::watch_main(&rest).await?,
         "answer" => watch::answer_main(&rest).await?,
         "list" => board::list(&rest, json_out, &resolve_target().await?).await?,
+        "due" => due::main(&rest, json_out, &resolve_target().await?).await?,
         "stories" => board::stories(&rest, json_out, &resolve_target().await?).await?,
         "convert" => board::convert(&rest, json_out, &resolve_target().await?).await?,
         "archive" => board::archive(&rest, json_out, &resolve_target().await?).await?,
         "move" => board::move_page(&rest, json_out, &resolve_target().await?).await?,
         "db" => db::main(&rest, json_out, &resolve_target().await?).await?,
-        "deployments" => deployments::main(&rest, json_out, &resolve_target().await?).await?,
         "open" => return open::main(&rest).await,
         "setup" => return setup::run(&rest),
+        "plugins" => return plugins::main(&rest),
         "mcp" => mcp::serve().await?,
         other => {
+            if let Some(code) = plugin_cmd::run(other, &rest, json_out).await? {
+                return Ok(code);
+            }
             eprintln!("unknown command: {other}\n\n{}", help::topic("OVERVIEW"));
             return Ok(2);
         }

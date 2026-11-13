@@ -11,7 +11,7 @@ import { TYPE_GLYPH } from "./PropertyEditor";
 function ExpandIcon({ open }: { open: boolean }) {
   return (
     <svg
-      width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor"
       strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
     >
       <path d={open ? "M2 6h4V2M14 6h-4V2M2 10h4v4M14 10h-4v4" : "M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4"} />

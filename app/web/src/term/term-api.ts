@@ -2,6 +2,9 @@
 // holds the per-launch token in memory and the dock's tab list.
 import { useSyncExternalStore } from "react";
 import { readStore, writeStore } from "../ui/storage";
+import { nextUnseen, type TermSession } from "./attention";
+
+export type { TermSession };
 
 // `card`: the card the shell was opened for (Open in agent, the Terminals view), else null
 // `project`: the project a shell without a card was opened for
@@ -75,6 +78,18 @@ export class TermError extends Error {
   constructor(readonly info: Record<string, string>, message: string) {
     super(message);
   }
+}
+
+// an image file a shell printed the path of, as an object URL the caller revokes
+export async function termImage(path: string) {
+  const r = await fetch(`/api/term/file?path=${encodeURIComponent(path)}`, {
+    headers: { [TOKEN_HEADER]: await termToken() },
+  });
+  if (!r.ok) {
+    const info = (await r.json().catch(() => ({}))) as Record<string, string>;
+    throw new TermError(info, info.error ?? `image: ${r.status}`);
+  }
+  return URL.createObjectURL(await r.blob());
 }
 
 // pick a local folder for a card path that doesn't exist here; remembered by the backend
@@ -210,12 +225,20 @@ export async function openTerminalAt(opts: TermOpts, at?: { tab: string; term: s
 }
 
 // a new shell next to the focused one, in the same folder
+// the folder a shell is in now (it may have cd'd since it started), else the one it started in
+export type TermNow = { cwd: string | null; process: string | null };
+// the folder a shell is in now and what runs in its foreground (the shell itself when idle)
+export const termNow = async (id: string) =>
+  (await call(`/api/term/${id}/now`).catch(() => null)) as TermNow | null;
+export const liveCwd = async (id: string) => (await termNow(id))?.cwd ?? state.terms[id]?.cwd ?? null;
+
+// a new shell beside the focused pane, in the folder that pane's shell is in now
 export async function splitTerminal(dir: SplitDir) {
   const current = activeTab();
   if (!current) return openTerminal({ cwd: null });
   if (leaves(current.root).length >= MAX_PANES) return;
   const lead = state.terms[current.focus];
-  const info = await create({ cwd: lead?.cwd ?? null, card: lead?.card ?? null });
+  const info = await create({ cwd: await liveCwd(current.focus), card: lead?.card ?? null });
   const next = { ...current, root: splitAt(current.root, current.focus, dir, info.id), focus: info.id };
   set({ tabs: state.tabs.map((t) => (t.id === current.id ? next : t)), open: true });
 }
@@ -251,6 +274,59 @@ export async function closeTab(tabId: string) {
 }
 
 export const selectTab = (id: string) => set({ active: id, open: true });
+
+// `{transcript id: term id}` for the Claude/Codex sessions running in a live shell
+export const runningAgents = () => call("/api/term/running") as Promise<Record<string, string>>;
+
+const SESSIONS_POLL_MS = 3000;
+let sessions: TermSession[] = [];
+// shells whose agent finished while you looked elsewhere
+let unseen: ReadonlySet<string> = new Set();
+const sessionListeners = new Set<() => void>();
+let sessionTimer: ReturnType<typeof setInterval> | undefined;
+const pollSessions = () =>
+  void (call("/api/term/sessions") as Promise<TermSession[]>).then((next) => {
+    if (JSON.stringify(next) === JSON.stringify(sessions)) return;
+    unseen = nextUnseen(sessions, next, unseen);
+    sessions = next;
+    sessionListeners.forEach((l) => l());
+  }, () => {});
+// the shell is in front of you: it no longer needs you for having finished
+export const seeTerm = (term: string) => {
+  if (!unseen.has(term)) return;
+  unseen = new Set([...unseen].filter((t) => t !== term));
+  sessionListeners.forEach((l) => l());
+};
+// polled while something shows them
+const subscribeSessions = (l: () => void) => {
+  sessionListeners.add(l);
+  if (sessionListeners.size === 1) {
+    pollSessions();
+    sessionTimer = setInterval(pollSessions, SESSIONS_POLL_MS);
+  }
+  return () => {
+    sessionListeners.delete(l);
+    if (sessionListeners.size === 0) clearInterval(sessionTimer);
+  };
+};
+export const useTermSessions = () => useSyncExternalStore(subscribeSessions, () => sessions);
+export const useUnseenTerms = () => useSyncExternalStore(subscribeSessions, () => unseen);
+// what a session is called: its /rename name, else the agent's own
+export const sessionLabel = (s: TermSession) => s.name ?? s.agent;
+
+// opens the dock on the tab holding `term`, focused on it; a shell no tab holds yet (opened elsewhere) gets one
+export async function revealTerminal(term: string) {
+  const t = state.tabs.find((x) => leaves(x.root).includes(term));
+  if (t) {
+    set({ tabs: state.tabs.map((x) => (x === t ? { ...x, focus: term } : x)), active: t.id, open: true });
+    return true;
+  }
+  const info = ((await call("/api/term")) as TermInfo[]).find((x) => x.id === term && !x.exited);
+  if (!info) return false;
+  const own = tab({ term });
+  set({ terms: { ...state.terms, [term]: info }, tabs: [...state.tabs, own], active: own.id, open: true });
+  return true;
+}
 export type DropSide = "left" | "right" | "top" | "bottom";
 // `sub` beside the `at` shell: left/top put it first, right/bottom after
 const insertAt = (n: PaneNode, at: string, side: DropSide, sub: PaneNode): PaneNode => {
@@ -293,3 +369,9 @@ export const focusPane = (tabId: string, pane: string) =>
   set({ tabs: state.tabs.map((t) => (t.id === tabId && t.focus !== pane ? { ...t, focus: pane } : t)) });
 export const setDockOpen = (open: boolean) => set({ open });
 export const setDockMax = (max: boolean) => set({ max, open: true });
+
+// links a running shell to a card (null unlinks): the card then lists and shows it
+export async function linkTermCard(id: string, card: string | null) {
+  const info = (await call(`/api/term/${id}`, { method: "PATCH", body: JSON.stringify({ card }) })) as TermInfo;
+  set({ terms: { ...state.terms, [id]: info } });
+}

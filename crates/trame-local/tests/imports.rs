@@ -291,3 +291,147 @@ fn scan_preserves_utf16_titles_equal_time_order_and_common_date_formats() {
         now.format("%Y-%m-%dT%H:%M:%S.000Z").to_string()
     );
 }
+
+#[test]
+fn conversation_tail_keeps_each_turns_ask_and_final_reply() {
+    let claude = jsonl(&[
+        json!({"type":"user","message":{"content":"<command-name>/rename</command-name>"}}),
+        json!({"type":"user","message":{"content":"run the tests"}}),
+        json!({"type":"assistant","message":{"content":[{"type":"text","text":"All green."}]}}),
+        json!({"type":"user","message":{"content":"push the branch"}}),
+        json!({"type":"assistant","message":{"content":[{"type":"text","text":"Pushing now."}]}}),
+        json!({"type":"assistant","message":{"content":[{"type":"thinking","thinking":"…"},{"type":"tool_use","name":"Bash"}]}}),
+        json!({"type":"user","message":{"content":[{"type":"tool_result","content":"ok"}]}}),
+        json!({"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit"}]}}),
+        json!({"type":"assistant","message":{"content":[{"type":"text","text":"Opened #125."}]}}),
+        json!({"type":"last-prompt"}),
+    ]);
+    let codex = jsonl(&[
+        context(),
+        prompt_new(),
+        json!({"type":"response_item","payload":{"type":"function_call","name":"shell"}}),
+        json!({"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Done."}]}}),
+    ]);
+    let long = format!("{}. {}", "a".repeat(500), "b".repeat(200));
+    let harness = jsonl(&[
+        json!({"type":"user","message":{"content":"Another Claude session sent a message:\n<agent-message>done</agent-message>"}}),
+        json!({"type":"assistant","message":{"content":[
+            {"type":"tool_use","name":"Bash","input":{"command":"gh pr merge 12 --squash\necho ok"}},
+            {"type":"tool_use","name":"Edit","input":{"file_path":"/repo/src/pty.rs"}},
+        ]}}),
+        json!({"type":"assistant","message":{"content":[{"type":"text","text":long}]}}),
+        json!({"type":"user","message":{"content":"This session is being continued from a previous conversation."}}),
+    ]);
+    let codex_args = jsonl(&[
+        json!({"type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"cargo\",\"test\"]}"}}),
+    ]);
+    for (tail, is_codex, limit, expected) in [
+        (
+            &harness,
+            false,
+            10,
+            json!({"more":false,"steps":[
+                {"role":"note","text":"message from another session"},
+                {"role":"tools","tools":["Bash(gh pr merge 12 --squash)","Edit(pty.rs)"]},
+                {"role":"agent","text":format!("{}. …", "a".repeat(500))},
+                {"role":"note","text":"continued from a previous conversation"},
+            ]}),
+        ),
+        (
+            &codex_args,
+            true,
+            10,
+            json!({"more":false,"steps":[{"role":"tools","tools":["shell(cargo test)"]}]}),
+        ),
+        (
+            &claude,
+            false,
+            10,
+            json!({"more":false,"steps":[
+                {"role":"user","text":"run the tests"},
+                {"role":"agent","text":"All green."},
+                {"role":"user","text":"push the branch"},
+                {"role":"tools","tools":["Bash","Edit"]},
+                {"role":"agent","text":"Opened #125."},
+            ]}),
+        ),
+        (
+            &claude,
+            false,
+            1,
+            json!({"more":true,"steps":[
+                {"role":"user","text":"push the branch"},
+                {"role":"tools","tools":["Bash","Edit"]},
+                {"role":"agent","text":"Opened #125."},
+            ]}),
+        ),
+        (
+            &codex,
+            true,
+            10,
+            json!({"more":false,"steps":[
+                {"role":"user","text":"can i host this in dedicated scaleway\nmore details"},
+                {"role":"tools","tools":["shell"]},
+                {"role":"agent","text":"Done."},
+            ]}),
+        ),
+    ] {
+        assert_eq!(
+            transcript::conversation_tail(tail, is_codex, limit),
+            expected
+        );
+    }
+}
+
+#[test]
+fn session_ending_says_asked_done_or_stopped() {
+    let said = |text: &str| json!({"type":"assistant","message":{"content":[{"type":"text","text":text}]}});
+    let ask = json!({"type":"user","message":{"content":"ship it"}});
+    let tool = json!({"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}});
+    let interrupt = json!({"type":"user","message":{"content":[{"type":"text","text":"[Request interrupted by user]"}]}});
+    let codex_said = |text: &str| json!({"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":text}]}});
+    let aborted = json!({"type":"event_msg","payload":{"type":"turn_aborted"}});
+    for (events, codex, expected) in [
+        (
+            vec![ask.clone(), said("Merged.\nStaging or a dev host?")],
+            false,
+            json!({"kind":"asked","text":"Staging or a dev host?"}),
+        ),
+        (
+            vec![ask.clone(), said("Is it ok?\nDone, merged.")],
+            false,
+            json!({"kind":"done","text":null}),
+        ),
+        (
+            vec![ask.clone(), tool.clone()],
+            false,
+            json!({"kind":"stopped","text":null}),
+        ),
+        (
+            vec![said("Done."), ask.clone()],
+            false,
+            json!({"kind":"stopped","text":null}),
+        ),
+        (
+            vec![ask.clone(), tool, interrupt],
+            false,
+            json!({"kind":"stopped","text":"interrupted"}),
+        ),
+        (
+            vec![codex_said("Which region?")],
+            true,
+            json!({"kind":"asked","text":"Which region?"}),
+        ),
+        (
+            vec![codex_said("Done."), aborted],
+            true,
+            json!({"kind":"stopped","text":"interrupted"}),
+        ),
+    ] {
+        assert_eq!(
+            transcript::ending(&jsonl(&events), codex),
+            expected,
+            "{events:?}"
+        );
+    }
+}

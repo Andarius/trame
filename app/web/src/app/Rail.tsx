@@ -1,21 +1,22 @@
-import type { AppStatus, PluginManifest, UpdateInfo } from "../api";
+import type { ReactNode } from "react";
+import type { AppStatus, PluginManifest, Session, UpdateInfo } from "../api";
 import { useAgents } from "../agents/agents";
 import { FRONTEND_PLUGINS } from "../plugins";
-import { useTermDock } from "../term/term-api";
-import { GearIcon, LogoMark } from "../ui/icons";
+import { useTermDock, useTermSessions } from "../term/term-api";
+import { CalendarIcon, ChartIcon, GearIcon, LogoMark, SidebarIcon } from "../ui/icons";
 import type { View } from "./view";
+import { WorkspaceBar } from "./WorkspaceBar";
 
-export const NAV: { key: "sessions" | "agents" | "terminals" | "explore" | "insights"; glyph: string; label: string; view: View }[] = [
+export const NAV: { key: "sessions" | "agents" | "terminals" | "explore" | "insights"; glyph: ReactNode; label: string; view: View }[] = [
   { key: "sessions", glyph: "▦", label: "Sessions", view: "board" },
-  { key: "agents", glyph: "↻", label: "AI Sessions", view: "agents" },
-  { key: "terminals", glyph: "›_", label: "Terminals", view: "terminals" },
+  { key: "terminals", glyph: "›_", label: "Agents", view: "terminals" },
   { key: "explore", glyph: "✦", label: "Explore", view: "explore" },
-  { key: "insights", glyph: "▥", label: "Insights", view: "insights" },
+  { key: "insights", glyph: <ChartIcon />, label: "Insights", view: "insights" },
 ];
 
 // the rail's tab for the current view: plugins are their own, page/db/card views belong to Sessions
 export const railKey = (view: View, pluginId: string | null) =>
-  view === "plugin" ? `plugin:${pluginId}` : view === "diagnostics" ? "diagnostics" : NAV.find((n) => n.view === view)?.key ?? "sessions";
+  view === "plugin" ? `plugin:${pluginId}` : view === "diagnostics" || view === "settings" ? view : NAV.find((n) => n.view === view)?.key ?? "sessions";
 
 // shown beside the icon after a short hover (native titles wait ~1s and can't be styled)
 export function RailTip({ label, hint }: { label: string; hint?: string }) {
@@ -31,10 +32,11 @@ export function RailTip({ label, hint }: { label: string; hint?: string }) {
 }
 
 function RailButton(
-  { label, hint, active, onClick, children, badge }: {
+  { label, hint, active, disabled, onClick, children, badge }: {
     label: string;
     hint?: string;
     active: boolean;
+    disabled?: boolean;
     onClick: () => void;
     children: React.ReactNode;
     badge?: React.ReactNode;
@@ -45,9 +47,14 @@ function RailButton(
       type="button"
       aria-label={hint ? `${label}, ${hint}` : label}
       aria-current={active ? "page" : undefined}
+      disabled={disabled}
       onClick={onClick}
       className={`group/rail relative grid h-9 w-9 place-items-center rounded-lg text-[14px] ${
-        active ? "bg-active-row text-copper" : "text-ink-muted hover:bg-active-row/60 hover:text-ink-soft"
+        active
+          ? "bg-active-row text-copper"
+          : disabled
+          ? "text-ink-muted opacity-30"
+          : "text-ink-muted hover:bg-active-row/60 hover:text-ink-soft"
       }`}
     >
       {children}
@@ -68,8 +75,11 @@ const count = (n: number, tone = "bg-chipline text-ink-soft") => (
 
 // Codex-style icon rail: every view one click away, with what needs you as badges; the column beside it follows the view
 export function Rail(
-  { view, pluginId, plugins, onNav, onOpenPlugin, status, onSettings, update, updateState, onUpdate }: {
+  { view, pluginId, plugins, onNav, onOpenPlugin, status, onSettings, update, updateState, onUpdate, sidebar, onToggleSidebar, cards, due, onToggleDue }: {
     view: View;
+    due: { count: number; late: boolean; open: boolean }; // dated todos: the badge, and whether their column is shown
+    onToggleDue: () => void;
+    cards?: readonly Session[]; // to name the card workspaces
     pluginId: string | null;
     plugins: PluginManifest[];
     onNav: (v: View) => void;
@@ -79,24 +89,35 @@ export function Rail(
     update: UpdateInfo | null;
     updateState: "idle" | "busy" | "done";
     onUpdate: () => void;
+    sidebar: boolean | null; // the column beside the rail: shown, hidden, or none for this view
+    onToggleSidebar: () => void;
   },
 ) {
   const { live } = useAgents();
   const shells = Object.values(useTermDock().terms).filter((t) => !t.exited).length;
-  const waiting = live.some((l) => l.state === "waiting");
-  const active = railKey(view, pluginId);
+  // asking you something: card agents reporting it, and agents in Trame shells (counted once per card)
+  const asking = new Set([
+    ...live.filter((l) => l.state === "waiting").map((l) => l.a.session_id),
+    ...useTermSessions().filter((x) => x.waiting).map((x) => x.term),
+  ]).size;
+  const active = due.open ? "due" : railKey(view, pluginId);
   const synced = status?.remote && status.lastSync;
-  const nWaiting = live.filter((l) => l.state === "waiting").length;
   const hintOf = (key: string) =>
-    key === "agents" && live.length > 0
-      ? nWaiting ? `${nWaiting} need${nWaiting > 1 ? "" : "s"} you` : `${live.length} live`
-      : key === "terminals" && shells > 0
-      ? `${shells} shell${shells > 1 ? "s" : ""}`
-      : undefined;
+    key !== "terminals"
+      ? undefined
+      : asking
+      ? `${asking} need${asking > 1 ? "" : "s"} you`
+      : [live.length && `${live.length} live`, shells && `${shells} shell${shells > 1 ? "s" : ""}`].filter(Boolean).join(" · ") ||
+        undefined;
+  // amber count when agents need you, else a green dot while any works, else the shell count
   const badgeOf = (key: string) =>
-    key === "agents" && live.length > 0
-      ? dot(waiting ? "var(--color-wait)" : "var(--color-live)")
-      : key === "terminals" && shells > 0
+    key !== "terminals"
+      ? undefined
+      : asking
+      ? count(asking, "bg-wait text-black")
+      : live.length > 0
+      ? dot("var(--color-live)")
+      : shells > 0
       ? count(shells)
       : undefined;
   return (
@@ -104,6 +125,18 @@ export function Rail(
       <div className="mb-3">
         <LogoMark debug={status?.debug} />
       </div>
+      <WorkspaceBar cards={cards} />
+      <div className="my-1.5 h-px w-6 bg-line" />
+      {/* always rendered, so the icons below never shift between views */}
+      <RailButton
+        label={sidebar === null ? "No sidebar in this view" : sidebar ? "Hide sidebar" : "Show sidebar"}
+        hint={sidebar === null ? undefined : `${navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl+"}\\`}
+        active={false}
+        disabled={sidebar === null}
+        onClick={onToggleSidebar}
+      >
+        <SidebarIcon />
+      </RailButton>
       {NAV.map((n) => (
         <RailButton
           key={n.key}
@@ -116,6 +149,15 @@ export function Rail(
           {n.glyph}
         </RailButton>
       ))}
+      <RailButton
+        label="Due"
+        hint={due.count ? `${due.count} this week${due.late ? ", some late" : ""}` : undefined}
+        active={due.open}
+        onClick={onToggleDue}
+        badge={due.count ? count(due.count, due.late ? "bg-blocked/25 text-blocked" : undefined) : undefined}
+      >
+        <CalendarIcon />
+      </RailButton>
       <div className="my-1.5 h-px w-6 bg-line" />
       {plugins.filter((p) => p.enabled && FRONTEND_PLUGINS.some((f) => f.id === p.id && f.Panel)).map((p) => (
         <RailButton
@@ -146,7 +188,7 @@ export function Rail(
           hint={status?.nodeId}
         />
       </span>
-      <RailButton label="Settings" active={false} onClick={onSettings}>
+      <RailButton label="Settings" active={view === "settings"} onClick={onSettings}>
         <GearIcon />
       </RailButton>
     </nav>

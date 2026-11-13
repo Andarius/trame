@@ -102,7 +102,7 @@ async fn fixture(
             json!({"sessions":[],"stories":[],"statuses":[],"pages":[],"projects":[]})
         }
         ("GET", "/api/plugins") => json!([
-            {"id":"deployments","enabled":true},
+            {"id":"k8s","enabled":true},
             {"id":"cockpit","enabled":state.card_faces,"cardFaces":"/assigners"},
             {"id":"off","enabled":false,"cardFaces":"/faces"}
         ]),
@@ -1099,15 +1099,39 @@ async fn setup_relinks_embeds_skills_and_respects_git_hooks_path() {
         std::fs::canonicalize(&linked).unwrap(),
         std::fs::canonicalize(bin).unwrap()
     );
+    // run from an AppImage mount (APPDIR holds the binary): a copy, since the mount goes away
+    let appdir = std::fs::canonicalize(bin)
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let output = scratch
+        .command(None)
+        .env("PATH", &path)
+        .env("APPDIR", &appdir)
+        .args(["setup", "--claude"])
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success() && !String::from_utf8_lossy(&output.stderr).contains("PATH"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(std::fs::symlink_metadata(&linked).unwrap().is_file());
+    assert_eq!(std::fs::read(&linked).unwrap(), std::fs::read(bin).unwrap());
     for relative in [
         ".claude/skills/trame-track/SKILL.md",
         ".claude/skills/trame-page/SKILL.md",
         ".claude/skills/trame-watch/SKILL.md",
         ".claude/skills/trame/SKILL.md",
+        ".claude/skills/trame-plugin/SKILL.md",
+        ".claude/skills/trame-plugin/references/templates.md",
         ".agents/skills/trame-track/SKILL.md",
         ".agents/skills/trame-track/agents/openai.yaml",
         ".agents/skills/trame-page/SKILL.md",
         ".agents/skills/trame-watch/SKILL.md",
+        ".agents/skills/trame-plugin/SKILL.md",
     ] {
         assert!(scratch.0.join(relative).exists(), "{relative}");
     }
@@ -1607,6 +1631,7 @@ async fn mcp_initialize_lists_and_calls_real_tools() {
     for name in [
         "trame_capabilities",
         "trame_board",
+        "trame_due",
         "trame_session",
         "trame_track",
         "trame_set_status",

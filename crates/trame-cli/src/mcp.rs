@@ -72,6 +72,15 @@ fn tools() -> Vec<Tool> {
         tool("trame_capabilities", &[]),
         tool("trame_board", &[]),
         tool(
+            "trame_due",
+            &[
+                ("late", "boolean", false),
+                ("within", "number", false),
+                ("all", "boolean", false),
+                ("query", "string", false),
+            ],
+        ),
+        tool(
             "trame_session",
             &[("session", "string", true), ("events", "number", false)],
         ),
@@ -261,6 +270,23 @@ pub async fn execute(name: &str, args: &Value) -> Result<Value> {
     let target = resolve_target().await?;
     match name {
         "trame_board" => target.get("/api/board").await,
+        "trame_due" => {
+            let mut flags = Vec::new();
+            if args["late"] == true {
+                flags.push("--late".to_owned());
+            }
+            if args["all"] == true {
+                flags.push("--all".to_owned());
+            }
+            if let Some(n) = args["within"].as_number() {
+                flags.extend(["--within".to_owned(), n.to_string()]);
+            }
+            if let Some(q) = args["query"].as_str().filter(|q| !q.is_empty()) {
+                flags.extend(["--query".to_owned(), q.to_owned()]);
+            }
+            let options = crate::due::Options::parse(&flags)?;
+            Ok(json!(crate::due::load(&options, &target).await?))
+        }
         "trame_session" => {
             let input = required(args, "session")?;
             let Some(reference) = parse_session_ref(input) else {
@@ -432,12 +458,12 @@ impl ServerHandler for TrameMcp {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("trame", "0.1.0"))
     }
-    async fn list_tools(
+    fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
-    ) -> Result<ListToolsResult, ErrorData> {
-        Ok(ListToolsResult::with_all_items(tools()))
+    ) -> impl Future<Output = Result<ListToolsResult, ErrorData>> {
+        std::future::ready(Ok(ListToolsResult::with_all_items(tools())))
     }
     async fn call_tool(
         &self,

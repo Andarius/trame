@@ -6,10 +6,12 @@ export type View =
   | "terminals"
   | "explore"
   | "insights"
+  | "timeline"
   | "database"
   | "page"
   | "card"
   | "client"
   | "plugin"
-  | "diagnostics";
+  | "diagnostics"
+  | "settings";
 
