@@ -136,6 +136,7 @@ fn stats(state: &Native) -> Result<Value> {
     )?;
     let claude = transcript_dir(&db, "TRACKER_CLAUDE_DIR", "claude-projects")?;
     let codex = transcript_dir(&db, "TRACKER_CODEX_DIR", "codex-sessions")?;
+    let vibe = transcript_dir(&db, "TRACKER_VIBE_DIR", "vibe-sessions")?;
     let from = Local::now().date_naive() - chrono::Days::new(DAYS as u64);
     let mut rows: BTreeMap<Key, Counts> = BTreeMap::new();
     let owners = db_rows(&mut db, from, &mut rows)?;
@@ -146,8 +147,13 @@ fn stats(state: &Native) -> Result<Value> {
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut cache = load_cache(&cache_path);
     let mut mine: BTreeMap<Key, Counts> = BTreeMap::new();
-    let (files, parsed, changed) =
-        transcript_rows(&mut cache, &claude, &codex, from, &owners.repos, &mut mine);
+    let (files, parsed, changed) = transcript_rows(
+        &mut cache,
+        [&claude, &codex, &vibe],
+        from,
+        &owners.repos,
+        &mut mine,
+    );
     share_usage(state, &cache, &cache_path, from, &mine);
     for (key, c) in mine {
         let row = rows.entry(key).or_default();
@@ -519,8 +525,7 @@ fn jsonl_files(dir: &Path, depth: u8, out: &mut Vec<PathBuf>) {
 /// Prompts and tokens from the transcripts, parsing only new or changed files; (files, parsed, cache changed).
 fn transcript_rows(
     cache: &mut Cache,
-    claude: &Path,
-    codex: &Path,
+    [claude, codex, vibe]: [&Path; 3],
     from: NaiveDate,
     repos: &[(String, String)],
     rows: &mut BTreeMap<Key, Counts>,
@@ -535,6 +540,7 @@ fn transcript_rows(
         jsonl_files(dir, 0, &mut found);
         files.extend(found.into_iter().map(|p| (p, source)));
     }
+    files.extend(vibe_files(vibe).into_iter().map(|p| (p, "vibe")));
     let mut todo = Vec::new();
     let mut keep = HashMap::new();
     for (path, source) in files {
@@ -569,10 +575,10 @@ fn transcript_rows(
                     let Ok(file) = File::open(path) else {
                         continue;
                     };
-                    let stats = if *source == "codex" {
-                        codex_stats(BufReader::new(file))
-                    } else {
-                        claude_stats(BufReader::new(file))
+                    let stats = match *source {
+                        "codex" => codex_stats(BufReader::new(file)),
+                        "vibe" => vibe_stats(BufReader::new(file), path),
+                        _ => claude_stats(BufReader::new(file)),
                     };
                     let cached = Cached {
                         len: *len,
@@ -757,6 +763,71 @@ fn codex_stats(reader: impl BufRead) -> FileStats {
     stats
 }
 
+/// Mistral Vibe keeps one folder per session: its `meta.json` (totals, model, folder) beside `messages.jsonl`.
+fn vibe_files(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with("session_"))
+        .map(|e| e.path().join("meta.json"))
+        .filter(|p| p.is_file())
+        .collect()
+}
+
+/// A Vibe session's prompts and tokens, all on the day it started (its messages carry no time).
+fn vibe_stats(reader: impl BufRead, meta_path: &Path) -> FileStats {
+    let mut stats = FileStats {
+        source: "vibe".into(),
+        ..FileStats::default()
+    };
+    let Ok(meta) = serde_json::from_reader::<_, Value>(reader) else {
+        return stats;
+    };
+    let Some(day) = meta["start_time"]
+        .as_str()
+        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+        .map(|t| t.with_timezone(&Local).date_naive())
+    else {
+        return stats;
+    };
+    stats.cwd = meta["environment"]["working_directory"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    let model = meta["config"]["active_model"].as_str().unwrap_or("vibe");
+    let s = &meta["stats"];
+    let t = Tokens {
+        // prompt tokens include the cached part
+        input: count(&s["session_prompt_tokens"])
+            .saturating_sub(count(&s["session_cached_tokens"])),
+        output: count(&s["session_completion_tokens"]),
+    };
+    if t.input + t.output > 0 {
+        stats
+            .tokens
+            .entry(day)
+            .or_default()
+            .insert(model.to_owned(), t);
+    }
+    // a child session's prompts come from its parent, as with Codex subagents
+    if meta["parent_session_id"].is_null()
+        && let Ok(file) = File::open(meta_path.with_file_name("messages.jsonl"))
+    {
+        let prompts = BufReader::new(file)
+            .lines()
+            .map_while(Result::ok)
+            .filter_map(|l| serde_json::from_str::<Value>(&l).ok())
+            .filter(|m| m["role"] == "user" && m["injected"] != true)
+            .count() as u64;
+        if prompts > 0 {
+            stats.prompts.insert(day, prompts);
+        }
+    }
+    stats
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -793,6 +864,51 @@ mod tests {
             },
         )]);
         assert_eq!(stats.tokens, BTreeMap::from([(day(ts), tokens)]));
+    }
+
+    #[test]
+    fn vibe_counts_session_tokens_without_cache_and_skips_child_prompts() {
+        let dir = std::env::temp_dir().join(format!("trame-vibe-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let messages = [
+            json!({"role":"user","content":"review this"}),
+            json!({"role":"user","content":"ctx","injected":true}),
+            json!({"role":"assistant","content":"ok"}),
+            json!({"role":"user","content":"and that"}),
+        ];
+        std::fs::write(
+            dir.join("messages.jsonl"),
+            messages
+                .iter()
+                .map(Value::to_string)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+        .unwrap();
+        let meta = |parent: Value| {
+            json!({
+                "start_time":"2026-11-12T16:54:29+00:00",
+                "parent_session_id":parent,
+                "environment":{"working_directory":"/w/globex"},
+                "config":{"active_model":"mistral-large-4"},
+                "stats":{"session_prompt_tokens":1000,"session_cached_tokens":800,"session_completion_tokens":50},
+            })
+        };
+        let d = day("2026-11-12T16:54:29+00:00");
+        for (parent, prompts) in [(Value::Null, Some(2)), (json!("p-1"), None)] {
+            let s = vibe_stats(meta(parent).to_string().as_bytes(), &dir.join("meta.json"));
+            assert_eq!(s.source, "vibe");
+            assert_eq!(s.cwd.as_deref(), Some("/w/globex"));
+            assert_eq!(
+                s.tokens[&d]["mistral-large-4"],
+                Tokens {
+                    input: 200,
+                    output: 50
+                }
+            );
+            assert_eq!(s.prompts.get(&d).copied(), prompts);
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

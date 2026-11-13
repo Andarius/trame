@@ -22,10 +22,10 @@ pub(crate) fn transcript_dir(db: &Db, key: &str, fallback: &str) -> Result<PathB
             .join(fallback)
     } else {
         let home = PathBuf::from(std::env::var_os("HOME").context("HOME unavailable")?);
-        home.join(if key == "TRACKER_CLAUDE_DIR" {
-            ".claude/projects"
-        } else {
-            ".codex/sessions"
+        home.join(match key {
+            "TRACKER_CLAUDE_DIR" => ".claude/projects",
+            "TRACKER_VIBE_DIR" => ".vibe/logs/session",
+            _ => ".codex/sessions",
         })
     };
     let path = if demo {
