@@ -1,8 +1,6 @@
 name: Release
 
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
@@ -36,16 +34,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${GITHUB_EVENT_NAME}" != workflow_dispatch || "${ALLOW_NATIVE_CUTOVER}" != true ]]; then
-            echo "Native runtime cutover requires a manual release with allow_native_cutover; tag pushes cannot publish it." >&2
+          if [[ "${ALLOW_NATIVE_CUTOVER}" != true ]]; then
+            echo "Native runtime cutover requires allow_native_cutover." >&2
             exit 1
           fi
-          if [[ "${GITHUB_EVENT_NAME}" == workflow_dispatch ]]; then
-            tag="${REQUESTED_TAG#refs/tags/}"
-            [[ "${tag}" == v* ]] || tag="v${tag}"
-          else
-            tag="${GITHUB_REF_NAME}"
-          fi
+          tag="${REQUESTED_TAG#refs/tags/}"
+          [[ "${tag}" == v* ]] || tag="v${tag}"
           git fetch --tags --force
           commit="$(git rev-parse "${tag}^{commit}")"
           echo "commit=${commit}" >> "${GITHUB_OUTPUT}"
