@@ -1,0 +1,89 @@
+// The contract of a WebAssembly Trame plugin: loaded at runtime from
+// <data>/plugins/wasm/<id>/plugin.wasm, no app rebuild. JSON travels as strings.
+package trame:plugin@0.1.0;
+
+interface types {
+    record header {
+        name: string,
+        value: string,
+    }
+
+    record http-request {
+        method: string,
+        /// For `route`: the sub path after /api/plugins/<id>, with its query. For `fetch`: an absolute URL.
+        url: string,
+        headers: list<header>,
+        body: list<u8>,
+    }
+
+    record http-response {
+        status: u16,
+        headers: list<header>,
+        body: list<u8>,
+    }
+
+    /// A `tramecli <plugin id> <name> …` subcommand.
+    record command {
+        name: string,
+        /// Arguments after the name, e.g. `<context> [--all]`.
+        usage: string,
+        summary: string,
+    }
+
+    record manifest {
+        /// URL slug and settings key (`plugins.<id>`); must match the package folder.
+        id: string,
+        label: string,
+        glyph: string,
+        description: string,
+        /// Semver of this build.
+        version: option<string>,
+        /// GitHub `owner/name`, for the update check.
+        repo: option<string>,
+        commands: list<command>,
+        /// Hosts `fetch` may reach (`api.example.com`); nothing else is reachable.
+        hosts: list<string>,
+        /// Calls `tick` this often while enabled.
+        tick-secs: option<u32>,
+    }
+
+    /// What a command prints: `text` on stdout (stderr when `code` is not 0), `json` under `--json`.
+    record cli-reply {
+        code: s32,
+        text: string,
+        json: string,
+    }
+}
+
+/// What Trame lends a plugin. Every call is scoped to the calling plugin.
+interface host {
+    use types.{http-request, http-response};
+
+    /// This plugin's settings slice, as JSON.
+    settings: func() -> string;
+    /// An HTTP request to one of the manifest's `hosts`.
+    fetch: func(req: http-request) -> result<http-response, string>;
+    /// A JSON array of writes (`{"op": "create_page", …}`, see the plugin docs) applied in one
+    /// transaction; returns a JSON array with one value per write.
+    apply: func(plan: string) -> result<string, string>;
+    /// A page with its blocks, as JSON.
+    get-page: func(id: string) -> result<string, string>;
+    /// A user database `{properties, rows, …}`, as JSON.
+    read-database: func(id: string) -> result<string, string>;
+    log: func(message: string);
+}
+
+world plugin {
+    import host;
+    use types.{http-request, http-response, manifest, cli-reply};
+
+    export manifest: func() -> manifest;
+    /// Allowlist and coerce a settings patch; what it returns is merged into the slice.
+    export sanitize: func(raw: string, current: string) -> string;
+    /// The slice as the UI may see it: never a token.
+    export settings-view: func(slice: string) -> string;
+    /// `/api/plugins/<id><sub>`, once Trame checked the plugin is enabled.
+    export route: func(req: http-request) -> http-response;
+    export command: func(name: string, args: list<string>) -> cli-reply;
+    export tick: func();
+}

@@ -66,6 +66,27 @@ plugins-install: plugins
     rm -f "$dest/plugin-host"  # the retired Bun host, if an older install left one
     echo "installed into $dest; reload Trame's page to load them"
 
+# Install a WebAssembly plugin package (a folder holding plugin.wasm, optional plugin.js/css) for the installed app
+[group('setup')]
+wasm-plugin-install dir:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [[ -f "{{ dir }}/plugin.wasm" ]] || { echo "{{ dir }}/plugin.wasm not found" >&2; exit 1; }
+    id="$(basename "$(realpath "{{ dir }}")")"
+    dest="${XDG_DATA_HOME:-$HOME/.local/share}/trame/plugins/wasm/$id"
+    mkdir -p "$dest"
+    for f in plugin.wasm plugin.js plugin.css; do
+        if [[ -f "{{ dir }}/$f" ]]; then cp "{{ dir }}/$f" "$dest/"; else rm -f "$dest/$f"; fi
+    done
+    echo "installed $id into $dest; restart Trame to load it"
+
+# Rebuild the WebAssembly test fixture from its source
+[group('dev')]
+wasm-fixture:
+    rustup target add wasm32-wasip2
+    cd crates/trame-local/tests/fixtures/wasm-hello && CARGO_TARGET_DIR="$PWD/../../../../../.scratch/wasm-target" cargo build --target wasm32-wasip2 --release
+    cp .scratch/wasm-target/wasm32-wasip2/release/trame_wasm_hello.wasm crates/trame-local/tests/fixtures/wasm-hello/plugin.wasm
+
 # Run the native desktop app
 [group('dev')]
 dev: web-build

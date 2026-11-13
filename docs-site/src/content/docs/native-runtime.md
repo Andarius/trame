@@ -46,6 +46,24 @@ hierarchy rules, and `just plugins-install` builds their frontend into the live 
 first render. A backend change is a rebuild of the app; settings stay device-local, so a plugin runs
 only where it is enabled.
 
+## WebAssembly plugins
+
+A plugin can instead ship as a WebAssembly component, loaded at startup with no rebuild of the app.
+It implements `crates/trame-local/wit/plugin.wit`, is built with
+`cargo build --target wasm32-wasip2 --release`, and installs as a folder named after its id:
+`plugins/wasm/<id>/plugin.wasm` in the data root, with an optional `plugin.js` / `plugin.css`
+frontend appended to the plugin bundle. `just wasm-plugin-install <dir>` copies one in; restart Trame
+to load it.
+
+Its backend runs sandboxed: no files, no sockets, no processes, 256 MB of memory and 30 s per call,
+a fresh instance per call. It reaches Trame only through the host imports: its own settings slice, HTTP to the
+hosts its manifest lists, page and database reads, and write plans applied in one transaction. A
+plugin that needs more (subprocesses, WebSockets, a long-lived connection) stays native.
+Its `plugin.js` is not sandboxed: once the plugin is enabled it runs in the
+app page with the app's privileges, like a native plugin's frontend, so install only packages you
+trust. `crates/trame-local/tests/fixtures/wasm-hello` is a minimal one to copy. Builds without the default
+`wasm-plugins` feature skip the runtime.
+
 ## Isolated development
 
 `just dev` and `just serve` use `.scratch/dev`, offline mode and a random loopback port.

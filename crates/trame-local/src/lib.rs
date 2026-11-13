@@ -311,6 +311,7 @@ pub async fn run(
     if config.desktop && !isolated_mode() && !config.demo {
         drop(tokio::task::spawn_blocking(startup::install_agent_hooks));
     }
+    plugins::load_wasm(&native.root).await;
     let plugin_tasks = plugins::start_all(&native);
     // the shells open when Trame last stopped, their agents resumed, before the UI asks for them
     if !config.demo {

@@ -20,6 +20,15 @@ same-origin proxy with WebSockets and a full-pane panel.
 Read `crates/trame-local/src/plugins/api.rs` and `app/web/src/plugins/index.ts` in the Trame
 checkout before coding: they are the contract, and this skill paraphrases them.
 
+**Or WebAssembly.** A plugin that only needs HTTP to known hosts, its settings, page and database
+reads and write plans can ship as a component on `crates/trame-local/wit/plugin.wit` instead:
+built alone (`cargo build --target wasm32-wasip2 --release`), installed with
+`just wasm-plugin-install <dir>` into `<data>/plugins/wasm/<id>/`, loaded at startup, no Trame
+rebuild. Start from `crates/trame-local/tests/fixtures/wasm-hello`. Write plans are JSON
+`[{"op": "create_page", "args": {…}}]`, one op per `api::Write` variant in snake_case. Pick native
+when it needs subprocesses, WebSockets, streaming or in-memory state across calls (a WASM plugin
+gets a fresh instance per call). The rest of this skill covers native plugins.
+
 ## Layout
 
 ```
