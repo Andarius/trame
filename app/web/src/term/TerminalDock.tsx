@@ -196,7 +196,13 @@ export default function TerminalDock(
       )}
       <div className="flex h-8 shrink-0 items-center gap-1 px-2 text-xs">
         <span className="pr-1 text-[11px] font-medium text-ink-muted">{scope ? "Agents" : "Terminal"}</span>
-        <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto">
+        {/* scrollbar hidden: it overlays the tab labels; the wheel scrolls the strip sideways */}
+        <div
+          className="flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          onWheel={(e) => {
+            if (e.deltaX === 0) e.currentTarget.scrollLeft += e.deltaY;
+          }}
+        >
           {tabs.map((t) => {
             const panes = leaves(t.root);
             const lead = terms[t.focus];
