@@ -64,12 +64,14 @@ export type DockScope = { all?: boolean; term?: string | null; card: string | nu
 // With a `scope` it is the Terminals view's center instead: always open, full size, one card's tabs.
 // Both are the same mounted component, so moving between them never remounts (and replays) a shell.
 export default function TerminalDock(
-  { board, scope, onScope, details = null, onToggleDetails }: {
+  { board, scope, onScope, details = null, onToggleDetails, cover, onUncover }: {
     board?: BoardData | null;
     scope?: DockScope | null;
     onScope?: (card: string | null, project: string | null) => void; // show another card's or project's shells
     details?: boolean | null; // the docked card details are shown; null = no card in scope
     onToggleDetails?: () => void;
+    cover?: React.ReactNode; // shown over the panes (a past session, All sessions); the tabs stay above it
+    onUncover?: (term: string) => void; // a tab clicked while covered: show that shell's group
   },
 ) {
   const dock = useTermDock();
@@ -193,7 +195,7 @@ export default function TerminalDock(
         />
       )}
       <div className="flex h-8 shrink-0 items-center gap-1 px-2 text-xs">
-        <span className="pr-1 text-[11px] font-medium text-ink-muted">Terminal</span>
+        <span className="pr-1 text-[11px] font-medium text-ink-muted">{scope ? "Agents" : "Terminal"}</span>
         <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto">
           {tabs.map((t) => {
             const panes = leaves(t.root);
@@ -228,7 +230,7 @@ export default function TerminalDock(
                 className={`group flex shrink-0 cursor-grab items-center gap-1 rounded-md px-2 py-0.5 ${
                   why
                     ? "bg-wait/15 text-wait"
-                    : t.id === active && open
+                    : t.id === active && open && !cover
                     ? "bg-tab-active text-ink"
                     : "text-ink-muted hover:text-ink-soft"
                 } ${drag?.kind === "tab" && drag.id === t.id ? "opacity-50" : ""}`}
@@ -237,7 +239,11 @@ export default function TerminalDock(
                   type="button"
                   title={project ? `${project.name} · ${lead?.cwd}` : lead?.cwd}
                   className="flex items-center gap-1.5"
-                  onClick={() => (t.id === active && open && !scope ? setDockOpen(false) : selectTab(t.id))}
+                  onClick={() => {
+                    if (cover) onUncover?.(t.focus);
+                    if (t.id === active && open && !scope) setDockOpen(false);
+                    else selectTab(t.id);
+                  }}
                 >
                   {/* one mark: the project's, else the agent's */}
                   {project?.icon || project?.color || !agent
@@ -321,7 +327,8 @@ export default function TerminalDock(
         )}
       </div>
       <div className={`relative min-h-0 flex-1 bg-block ${open ? "" : "hidden"}`}>
-        {scope && tabs.length === 0 && (
+        {cover && <div className="absolute inset-0 z-20 flex min-h-0 flex-col overflow-auto bg-panel">{cover}</div>}
+        {scope && !cover && tabs.length === 0 && (
           <div
             className={`absolute inset-0 flex flex-col items-center justify-center gap-3 text-xs text-ink-muted ${
               drag?.kind === "card" ? "outline-2 -outline-offset-8 outline-dashed outline-copper/60" : ""

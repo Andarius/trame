@@ -291,3 +291,64 @@ fn scan_preserves_utf16_titles_equal_time_order_and_common_date_formats() {
         now.format("%Y-%m-%dT%H:%M:%S.000Z").to_string()
     );
 }
+
+#[test]
+fn conversation_tail_keeps_each_turns_ask_and_final_reply() {
+    let claude = jsonl(&[
+        json!({"type":"user","message":{"content":"<command-name>/rename</command-name>"}}),
+        json!({"type":"user","message":{"content":"run the tests"}}),
+        json!({"type":"assistant","message":{"content":[{"type":"text","text":"All green."}]}}),
+        json!({"type":"user","message":{"content":"push the branch"}}),
+        json!({"type":"assistant","message":{"content":[{"type":"text","text":"Pushing now."}]}}),
+        json!({"type":"assistant","message":{"content":[{"type":"thinking","thinking":"…"},{"type":"tool_use","name":"Bash"}]}}),
+        json!({"type":"user","message":{"content":[{"type":"tool_result","content":"ok"}]}}),
+        json!({"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit"}]}}),
+        json!({"type":"assistant","message":{"content":[{"type":"text","text":"Opened #125."}]}}),
+        json!({"type":"last-prompt"}),
+    ]);
+    let codex = jsonl(&[
+        context(),
+        prompt_new(),
+        json!({"type":"response_item","payload":{"type":"function_call","name":"shell"}}),
+        json!({"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Done."}]}}),
+    ]);
+    for (tail, is_codex, limit, expected) in [
+        (
+            &claude,
+            false,
+            10,
+            json!({"more":false,"steps":[
+                {"role":"user","text":"run the tests"},
+                {"role":"agent","text":"All green."},
+                {"role":"user","text":"push the branch"},
+                {"role":"tools","tools":["Bash","Edit"]},
+                {"role":"agent","text":"Opened #125."},
+            ]}),
+        ),
+        (
+            &claude,
+            false,
+            1,
+            json!({"more":true,"steps":[
+                {"role":"user","text":"push the branch"},
+                {"role":"tools","tools":["Bash","Edit"]},
+                {"role":"agent","text":"Opened #125."},
+            ]}),
+        ),
+        (
+            &codex,
+            true,
+            10,
+            json!({"more":false,"steps":[
+                {"role":"user","text":"can i host this in dedicated scaleway\nmore details"},
+                {"role":"tools","tools":["shell"]},
+                {"role":"agent","text":"Done."},
+            ]}),
+        ),
+    ] {
+        assert_eq!(
+            transcript::conversation_tail(tail, is_codex, limit),
+            expected
+        );
+    }
+}
