@@ -46,6 +46,29 @@ hierarchy rules, and `just plugins-install` builds their frontend into the live 
 first render. A backend change is a rebuild of the app; settings stay device-local, so a plugin runs
 only where it is enabled.
 
+## WebAssembly plugins
+
+A plugin can instead ship as a WebAssembly component, loaded at startup with no rebuild of the app.
+It implements `crates/trame-local/wit/plugin.wit`, is built with
+`cargo build --target wasm32-wasip2 --release`, and installs as a folder named after its id:
+`plugins/wasm/<id>/plugin.wasm` in the data root, with an optional `plugin.js` / `plugin.css`
+frontend. `just wasm-plugin-install <dir>` copies one in; restart Trame to load it. A package that
+fails to load shows on the Plugins page with the reason. Packages live in the data root, so
+reinstalling or updating Trame keeps them; compiled components are cached in `plugins/wasm-cache`.
+
+Its backend runs sandboxed: no files, no sockets, no processes, 256 MB of memory and 30 s per call,
+a fresh instance per call and at most four at once. It reaches Trame only through the host imports:
+its own settings slice, page and database reads, write plans applied in one transaction, and HTTP to
+the hosts its manifest lists (`name` for the default port, `name:port` otherwise; the Plugins page
+shows them). Loopback, private and link-local addresses are refused even when listed, including
+names that resolve to them, and the app's cookies and credentials never reach the guest. A plugin
+that needs more (subprocesses, WebSockets, a long-lived connection) stays native.
+
+Its `plugin.js` is not sandboxed: it runs in the app page with the app's privileges, like a native
+plugin's frontend, so install only packages you trust. `crates/trame-local/tests/fixtures/wasm-hello`
+is a minimal one to copy. Builds without the default `wasm-plugins` feature
+(`--no-default-features` on `trame-local` or `trame-desktop`) leave the runtime out.
+
 ## Isolated development
 
 `just dev` and `just serve` use `.scratch/dev`, offline mode and a random loopback port.

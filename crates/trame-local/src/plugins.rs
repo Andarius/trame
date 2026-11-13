@@ -10,15 +10,73 @@ pub mod api;
 #[path = "plugins/local.gen.rs"]
 mod local_gen;
 pub mod notebook;
+#[cfg(feature = "wasm-plugins")]
+pub mod wasm;
 
 use api::{Owned, Plugin, classify};
 
-/// Every compiled-in plugin: first-party ones, then the ones composed from plugins.local.json.
-pub fn registry() -> impl Iterator<Item = &'static dyn Plugin> {
+/// The WebAssembly packages of the running backend, and `(folder, error)` for those that failed.
+#[cfg(feature = "wasm-plugins")]
+#[derive(Default)]
+struct WasmLoaded {
+    plugins: Vec<&'static wasm::WasmPlugin>,
+    failed: Vec<(String, String)>,
+}
+
+#[cfg(feature = "wasm-plugins")]
+static WASM: std::sync::RwLock<WasmLoaded> = std::sync::RwLock::new(WasmLoaded {
+    plugins: Vec::new(),
+    failed: Vec::new(),
+});
+
+#[cfg(feature = "wasm-plugins")]
+fn wasm_loaded() -> Vec<&'static wasm::WasmPlugin> {
+    WASM.read().map(|w| w.plugins.clone()).unwrap_or_default()
+}
+
+#[cfg(feature = "wasm-plugins")]
+fn wasm_plugins() -> impl Iterator<Item = &'static dyn Plugin> {
+    wasm_loaded().into_iter().map(|p| p as &'static dyn Plugin)
+}
+#[cfg(not(feature = "wasm-plugins"))]
+fn wasm_plugins() -> impl Iterator<Item = &'static dyn Plugin> {
+    std::iter::empty()
+}
+
+fn compiled() -> impl Iterator<Item = &'static dyn Plugin> {
     let first_party: [&'static dyn Plugin; 1] = [&notebook::PLUGIN];
     first_party
         .into_iter()
         .chain(local_gen::LOCAL.iter().copied())
+}
+
+/// Every plugin: first-party ones, the ones composed from plugins.local.json, then the
+/// WebAssembly packages installed under `<root>/plugins/wasm`.
+pub fn registry() -> impl Iterator<Item = &'static dyn Plugin> {
+    compiled().chain(wasm_plugins())
+}
+
+/// Compiles the installed WebAssembly packages at each backend start (the desktop restarts the
+/// backend on a workspace switch; the previous run's packages are left leaked).
+#[cfg_attr(
+    not(feature = "wasm-plugins"),
+    allow(clippy::unused_async, reason = "nothing to load without the runtime")
+)]
+pub async fn load_wasm(root: &std::path::Path) {
+    #[cfg(feature = "wasm-plugins")]
+    {
+        let taken: Vec<_> = compiled().map(api::Plugin::id).collect();
+        let (loaded, failed) = wasm::load_all(root, &taken).await;
+        let plugins = loaded
+            .into_iter()
+            .map(|p| &*Box::leak(Box::new(p)))
+            .collect();
+        if let Ok(mut w) = WASM.write() {
+            *w = WasmLoaded { plugins, failed };
+        }
+    }
+    #[cfg(not(feature = "wasm-plugins"))]
+    let _ = root;
 }
 
 fn find(id: &str) -> Option<&'static dyn Plugin> {
@@ -59,14 +117,31 @@ pub fn stop_all() {
     }
 }
 
-// the out-of-process plugins' frontend bundle, installed by `just plugins-install`
-async fn web_file(root: &std::path::Path, name: &str) -> Response {
-    let content_type = match name {
-        "plugins.js" => "text/javascript",
-        "plugins.css" => "text/css",
-        _ => return json_response(404, json!({"error":"not found"})),
-    };
-    match tokio::fs::read(web_dir(root).join(name)).await {
+/// A WebAssembly package's own `plugin.<ext>` (`<id>.js` / `<id>.css`), served apart from the
+/// composed bundle so one broken package cannot take the others down.
+fn wasm_web_file(name: &str) -> Option<(std::path::PathBuf, &'static str)> {
+    #[cfg(feature = "wasm-plugins")]
+    {
+        let (id, ext) = name.rsplit_once('.')?;
+        let content_type = match ext {
+            "js" => "text/javascript",
+            "css" => "text/css",
+            _ => return None,
+        };
+        let plugin = wasm_loaded()
+            .into_iter()
+            .find(|p| api::Plugin::id(*p) == id)?;
+        Some((plugin.web_file(ext)?, content_type))
+    }
+    #[cfg(not(feature = "wasm-plugins"))]
+    {
+        let _ = name;
+        None
+    }
+}
+
+async fn send_file(path: &std::path::Path, content_type: &'static str) -> Response {
+    match tokio::fs::read(path).await {
         Ok(bytes) => (
             StatusCode::OK,
             [
@@ -79,13 +154,42 @@ async fn web_file(root: &std::path::Path, name: &str) -> Response {
         Err(_) => json_response(404, json!({"error":"not installed"})),
     }
 }
+
+// the composed plugins' frontend bundle, installed by `just plugins-install`
+async fn web_file(root: &std::path::Path, name: &str) -> Response {
+    let content_type = match name {
+        "plugins.js" => "text/javascript",
+        "plugins.css" => "text/css",
+        _ => return json_response(404, json!({"error":"not found"})),
+    };
+    send_file(&web_dir(root).join(name), content_type).await
+}
+
 pub fn owns(_method: &str, path: &str) -> bool {
     path == "/api/plugins" || path.starts_with("/api/plugins/")
 }
 
-/// `GET /api/plugins` entries for every compiled-in plugin.
+/// `GET /api/plugins` entries: every plugin, then the WebAssembly packages that failed to load
+/// (with their `error`, so the plugins page can say why one is missing).
 pub fn manifest_list(settings: &std::path::Path) -> Vec<Value> {
-    registry().map(|p| api::manifest(p, settings)).collect()
+    #[cfg_attr(not(feature = "wasm-plugins"), allow(unused_mut))]
+    let mut list: Vec<Value> = compiled().map(|p| api::manifest(p, settings)).collect();
+    #[cfg(feature = "wasm-plugins")]
+    {
+        for p in wasm_loaded() {
+            let mut m = api::manifest(p, settings);
+            if let (Some(m), Value::Object(extra)) = (m.as_object_mut(), p.extra_manifest()) {
+                m.extend(extra);
+            }
+            list.push(m);
+        }
+        let failed = WASM.read().map(|w| w.failed.clone()).unwrap_or_default();
+        list.extend(failed.into_iter().map(|(id, error)| {
+            json!({"id": id, "label": id, "glyph": "!", "description": "", "enabled": false,
+                   "badge": null, "error": error})
+        }));
+    }
+    list
 }
 
 fn manifests(state: &Native) -> Response {
@@ -99,6 +203,12 @@ async fn json_body(req: Request<Body>) -> Option<Value> {
 
 pub async fn serve(state: Native, req: Request<Body>) -> Response {
     let path = req.uri().path().to_owned();
+    if let Some(name) = path.strip_prefix("/api/plugins/web/wasm/") {
+        return match wasm_web_file(name) {
+            Some((file, content_type)) => send_file(&file, content_type).await,
+            None => json_response(404, json!({"error":"not found"})),
+        };
+    }
     if let Some(name) = path.strip_prefix("/api/plugins/web/") {
         return web_file(&state.root, name).await;
     }

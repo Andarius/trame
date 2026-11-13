@@ -66,6 +66,25 @@ plugins-install: plugins
     rm -f "$dest/plugin-host"  # the retired Bun host, if an older install left one
     echo "installed into $dest; reload Trame's page to load them"
 
+# Install a WebAssembly plugin package (a folder holding plugin.wasm, optional plugin.js/css) for the installed app
+[group('setup')]
+wasm-plugin-install dir:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [[ -f "{{ dir }}/plugin.wasm" ]] || { echo "{{ dir }}/plugin.wasm not found" >&2; exit 1; }
+    id="$(basename "$(realpath "{{ dir }}")")"
+    dest="${XDG_DATA_HOME:-$HOME/.local/share}/trame/plugins/wasm/$id"
+    mkdir -p "$dest"
+    for f in plugin.wasm plugin.js plugin.css; do
+        if [[ -f "{{ dir }}/$f" ]]; then cp "{{ dir }}/$f" "$dest/"; else rm -f "$dest/$f"; fi
+    done
+    echo "installed $id into $dest; restart Trame to load it"
+
+# Rebuild the WebAssembly test fixture from its source
+[group('dev')]
+wasm-fixture:
+    bash scripts/wasm-fixture.sh
+
 # Run the native desktop app
 [group('dev')]
 dev: web-build

@@ -965,6 +965,10 @@ export type PluginManifest = {
   badge: number | null;
   version?: string;
   repo?: string;
+  /** a WebAssembly package: the hosts it may fetch */
+  hosts?: string[];
+  /** a WebAssembly package that failed to load, and why */
+  error?: string;
 };
 export const getPlugins = () =>
   fetch("/api/plugins").then((r) => r.json() as Promise<PluginManifest[]>);

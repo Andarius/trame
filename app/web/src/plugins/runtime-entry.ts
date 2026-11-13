@@ -2,4 +2,6 @@
 import "./runtime-entry.css";
 import { LOCAL_PLUGINS } from "./local.gen";
 
-(globalThis as { __trameRuntimePlugins?: unknown }).__trameRuntimePlugins = LOCAL_PLUGINS;
+// appended, not assigned: WebAssembly packages' own bundles share the global (plugins.rs web_file)
+const win = globalThis as { __trameRuntimePlugins?: unknown[] };
+(win.__trameRuntimePlugins ??= []).push(...LOCAL_PLUGINS);

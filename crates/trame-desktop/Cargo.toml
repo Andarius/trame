@@ -12,10 +12,15 @@ anyhow = "1.0.104"
 serde_json = "1.0.154"
 tauri = { version = "2.12.5", features = [] }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "signal", "sync", "time"] }
-trame-local = { path = "../trame-local" }
+trame-local = { path = "../trame-local", default-features = false }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2.191"
+
+[features]
+default = ["wasm-plugins"]
+# `--no-default-features` builds the app without the WebAssembly plugin runtime
+wasm-plugins = ["trame-local/wasm-plugins"]
 
 [lints]
 workspace = true

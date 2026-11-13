@@ -40,6 +40,12 @@ jobs:
           TRAME_PG_BIN: ${{ github.workspace }}/.scratch/package/pg/usr/lib/postgresql/18/bin
         run: cargo fmt --all -- --check && cargo clippy --workspace --all-targets --locked -- -D warnings && cargo test --workspace --locked
 
+      - name: Builds without the WebAssembly plugin runtime
+        run: cargo clippy -p trame-local -p trame-desktop --no-default-features --all-targets --locked -- -D warnings
+
+      - name: WebAssembly fixture matches its source
+        run: bash scripts/wasm-fixture.sh --check
+
       - name: Shared protocol and frontend unit tests
         run: |
           bun scripts/rust-protocol.ts --check

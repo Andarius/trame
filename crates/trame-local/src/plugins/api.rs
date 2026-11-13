@@ -81,8 +81,9 @@ impl CliReply {
     }
 }
 
-/// One write in a plan for [`apply`].
-#[derive(Debug, Clone, PartialEq)]
+/// One write in a plan for [`apply`]; a WebAssembly plugin sends it as `{"op": "create_page", "args": …}`.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[serde(tag = "op", content = "args", rename_all = "snake_case")]
 pub enum Write {
     /// `create_page`'s fields; yields the new page id.
     CreatePage(Value),

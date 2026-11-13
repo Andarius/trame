@@ -18,11 +18,20 @@ impl TestDb {
     }
     /// Start the server with extra environment, e.g. a predictable `SHELL`.
     pub(crate) fn with_env(env: &[(&str, &str)]) -> Self {
+        Self::with_files(env, &[])
+    }
+    /// Start the server over a data dir already holding `files` (paths relative to it).
+    pub(crate) fn with_files(env: &[(&str, &str)], files: &[(&str, &[u8])]) -> Self {
         let root = trame_local::workspace().join(format!(
             ".scratch/t2-{}",
             &uuid::Uuid::new_v4().simple().to_string()[..8]
         ));
         std::fs::create_dir(&root).unwrap();
+        for (path, bytes) in files {
+            let path = root.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, bytes).unwrap();
+        }
         let log = std::fs::File::create(root.join("runtime.log")).unwrap();
         let mut child = Command::new(env!("CARGO_BIN_EXE_trame-local"))
             .env("TRAME_LOCAL_DIR", &root)
