@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # DESCRIPTION: Build the native desktop packages (Linux x86_64, macOS arm64) with pinned PostgreSQL 18 resources.
 # USAGE: scripts/rust-package.sh [prepare|cli|deb|appimage|dmg]
+# Locally it builds without LTO (fast rebuilds); CI, or TRAME_FULL_RELEASE=1, uses the shipped release profile.
 # EXAMPLES: scripts/rust-package.sh deb
 #           scripts/rust-package.sh dmg   # on macOS arm64
 set -euo pipefail
@@ -17,6 +18,10 @@ esac
 sha="$(git rev-parse --short HEAD 2>/dev/null || printf src)"
 dirty="$(git status --porcelain --untracked-files=normal 2>/dev/null || true)"
 export TRAME_BUILD="$sha${dirty:+-dirty}"
+# local packages skip LTO and keep incremental: ~6s instead of ~75s per rebuild; CI ships the full profile
+if [[ -z "${CI:-}" && -z "${TRAME_FULL_RELEASE:-}" ]]; then
+    export CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 CARGO_PROFILE_RELEASE_INCREMENTAL=true
+fi
 if [[ "$mode" == cli ]]; then
     cargo build -p trame-cli --release --locked
     mkdir -p dist
