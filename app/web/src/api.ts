@@ -649,12 +649,18 @@ export type UpdateInfo = {
   // a local plugin build: updating rebuilds it, and plugin releases count too
   rebuild?: boolean;
   plugins?: { id: string; current: string; latest: string }[];
+  // plugins.json repos this build lacks (a stock release installed over a plugin build)
+  missing?: string[];
   // a rebuild in progress: the phase its log reached and its last line
   building?: { phase: string; line: string; elapsedSecs: number };
 };
 /** What an update brings: a Trame release, or only plugin releases for a local plugin build. */
 export const updateLabel = (u: UpdateInfo) =>
-  u.latest && u.latest !== u.current ? `Trame v${u.latest}` : `${u.plugins?.map((p) => `${p.id} v${p.latest}`).join(", ")}`;
+  u.latest && u.latest !== u.current
+    ? `Trame v${u.latest}`
+    : u.missing?.length && !u.plugins?.length
+    ? `your plugins (${u.missing.map((r) => r.split("/").pop()).join(", ")})`
+    : `${u.plugins?.map((p) => `${p.id} v${p.latest}`).join(", ")}`;
 export const getUpdate = () =>
   fetch("/api/update").then((r) => r.json() as Promise<UpdateInfo>);
 export const applyUpdate = () =>
