@@ -9,7 +9,8 @@
 // shared page looks exactly like it does in the app, {{tab}} sections included.
 import { type Context, Hono } from "hono";
 import { LINK_ASSETS, LINK_ENTRY } from "./link-embed.ts";
-import type { Q } from "./db.ts";
+import type { DB, Q } from "./db.ts";
+import { mountCommentLinkRoutes } from "./comment-links.ts";
 
 type Row = Record<string, unknown>;
 type Json = Record<string, unknown>;
@@ -212,7 +213,7 @@ ${css}
 </body></html>`;
 }
 
-export function createLinkApp(db: Q): Hono {
+export function createLinkApp(db: DB): Hono {
   const app = new Hono();
   const notFound = (c: Context) =>
     c.html(
@@ -229,6 +230,7 @@ export function createLinkApp(db: Q): Hono {
       "cache-control": "public, max-age=31536000, immutable",
     });
   });
+  mountCommentLinkRoutes(app, db);
   app.get("/l/:token", async (c) => {
     const token = c.req.param("token");
     const root = await linkedRoot(db, token);
