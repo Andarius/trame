@@ -369,3 +369,9 @@ export const focusPane = (tabId: string, pane: string) =>
   set({ tabs: state.tabs.map((t) => (t.id === tabId && t.focus !== pane ? { ...t, focus: pane } : t)) });
 export const setDockOpen = (open: boolean) => set({ open });
 export const setDockMax = (max: boolean) => set({ max, open: true });
+
+// links a running shell to a card (null unlinks): the card then lists and shows it
+export async function linkTermCard(id: string, card: string | null) {
+  const info = (await call(`/api/term/${id}`, { method: "PATCH", body: JSON.stringify({ card }) })) as TermInfo;
+  set({ terms: { ...state.terms, [id]: info } });
+}

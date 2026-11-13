@@ -3,6 +3,7 @@ import type { BoardData, Session } from "../api";
 import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
 import { EntityIcon, enumCodec, SECTION_LABEL, StatusDot, useLocalStorage } from "../ui/ui";
+import { LinkCardDialog } from "./LinkCardDialog";
 import { NewTerminalDialog } from "./NewTerminalDialog";
 import { revealTerminal, sessionLabel, setTermDrag, tabCards, type TermDrag, type TermSession, useTermDock, useTermSessions } from "./term-api";
 
@@ -28,6 +29,7 @@ export function TermCards(
   const { terms, tabs, active } = useTermDock();
   const [grouping, setGrouping] = useLocalStorage<Grouping>("trame:termGrouping", "project", enumCodec(GROUPINGS));
   const [menuFor, setMenuFor] = useState<string | null>(null); // the project right-clicked for a new terminal
+  const [linkFor, setLinkFor] = useState<string | null>(null); // the shell right-clicked to link to a card
   const { live } = useAgents();
   const agentOf = new Map<string, Live>(live.map((l) => [l.a.session_id, l]));
   type Count = { count: number; running: number };
@@ -87,14 +89,31 @@ export function TermCards(
   };
   const plain = plainShells.count;
   const everyShell = Object.values(terms);
-  const projectRow = (p: string, label: string) =>
-    row(`project:${p}`, selectedProject === p, () => onSelectProject(p), (
-      <span className="flex w-full items-center gap-2">
-        <span className="w-[7px] text-center text-ink-faint">·</span>
-        <span className="min-w-0 flex-1 truncate">{label}</span>
-        {count(projectShells.get(p))}
-      </span>
-    ));
+  // right-clicking a group of shells links the focused one when it is in the group, else its only one
+  const focused = tabs.find((t) => t.id === active)?.focus;
+  const linkable = (inGroup: (t: (typeof everyShell)[number]) => boolean) => {
+    const group = everyShell.filter(inGroup);
+    const target = group.find((t) => t.id === focused) ?? (group.length === 1 ? group[0] : undefined);
+    return target
+      ? (e: React.MouseEvent) => {
+        e.preventDefault();
+        setLinkFor(target.id);
+      }
+      : undefined;
+  };
+  const plainShell = (t: (typeof everyShell)[number]) =>
+    !(t.card && known.has(t.card)) && !(t.project && knownProjects.has(t.project));
+  const projectRow = (p: string, label: string) => (
+    <div key={`project:${p}`} onContextMenu={linkable((t) => !(t.card && known.has(t.card)) && t.project === p)}>
+      {row(`project:${p}`, selectedProject === p, () => onSelectProject(p), (
+        <span className="flex w-full items-center gap-2">
+          <span className="w-[7px] text-center text-ink-faint">·</span>
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+          {count(projectShells.get(p))}
+        </span>
+      ))}
+    </div>
+  );
 
   const row = (key: string, active: boolean, onClick: () => void, children: React.ReactNode, drag?: TermDrag) => (
     <button
@@ -119,8 +138,16 @@ export function TermCards(
     </button>
   );
   // laid out like a card row: what it is, then the agent line
-  const sessionRow = (x: TermSession) =>
-    row(`term:${x.term}:${x.id}`, selectedTerm === x.term, () => {
+  const sessionRow = (x: TermSession) => (
+    <div
+      key={`term:${x.term}:${x.id}`}
+      title="right-click: link to a card"
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setLinkFor(x.term);
+      }}
+    >
+      {row(`term:${x.term}:${x.id}`, selectedTerm === x.term, () => {
       onSelectTerm(x.term);
       void revealTerminal(x.term);
     }, (
@@ -139,7 +166,9 @@ export function TermCards(
           {x.started_at && <span className="shrink-0 font-mono text-[10px] tabular-nums">{age(x.started_at)}</span>}
         </span>
       </>
-    ));
+    ))}
+    </div>
+  );
   const count = (n?: { count: number; running: number }) =>
     n && (
       <span
@@ -195,18 +224,22 @@ export function TermCards(
           )}
           {grouping === "project" && key && projectShells.has(key) && projectRow(key, "Project shells")}
           {key && loose.filter((x) => looseProject(x) === key).map(sessionRow)}
-          {groups.get(key)!.map((s) =>
-            row(s.id, s.id === selected, () => onSelect(s.id), (
-              <>
-                <span className="flex w-full items-center gap-2">
-                  <StatusDot status={s.status} size={7} />
-                  <span className="min-w-0 flex-1 truncate" title={s.title}>{s.title}</span>
-                  {count(shells.get(s.id))}
-                </span>
-                <AgentLine l={agentOf.get(s.id)} />
-              </>
-            ), { kind: "card", id: s.id, tab: tabOf(s.id) ?? null, cwd: s.repo_path ?? null })
-          )}
+          {groups.get(key)!.map((s) => {
+            return (
+              <div key={s.id} onContextMenu={linkable((t) => t.card === s.id)}>
+                {row(s.id, s.id === selected, () => onSelect(s.id), (
+                  <>
+                    <span className="flex w-full items-center gap-2">
+                      <StatusDot status={s.status} size={7} />
+                      <span className="min-w-0 flex-1 truncate" title={s.title}>{s.title}</span>
+                      {count(shells.get(s.id))}
+                    </span>
+                    <AgentLine l={agentOf.get(s.id)} />
+                  </>
+                ), { kind: "card", id: s.id, tab: tabOf(s.id) ?? null, cwd: s.repo_path ?? null })}
+              </div>
+            );
+          })}
         </section>
       ))}
       {(plain > 0 || other.length > 0 || (grouping !== "project" && projectShells.size > 0)) && (
@@ -214,14 +247,27 @@ export function TermCards(
           <div className={`px-2 pb-1 ${SECTION_LABEL}`}>OTHER</div>
           {grouping !== "project" && [...projectShells.keys()].map((p) => projectRow(p, `${projectName(board, p)} shells`))}
           {other.map(sessionRow)}
-          {plain > 0 && row("plain", selected === null && !selectedProject && !all && !selectedTerm, () => onSelect(null), (
-            <span className="flex w-full items-center gap-2">
-              <span className="w-[7px] text-center text-ink-faint">·</span>
-              <span className="flex-1">Shells without a card</span>
-              {count(plainShells)}
-            </span>
-          ))}
+          {plain > 0 && (
+            <div onContextMenu={linkable(plainShell)}>
+              {row("plain", selected === null && !selectedProject && !all && !selectedTerm, () => onSelect(null), (
+                <span className="flex w-full items-center gap-2">
+                  <span className="w-[7px] text-center text-ink-faint">·</span>
+                  <span className="flex-1">Shells without a card</span>
+                  {count(plainShells)}
+                </span>
+              ))}
+            </div>
+          )}
         </section>
+      )}
+      {linkFor && (
+        <LinkCardDialog
+          board={board}
+          term={linkFor}
+          card={terms[linkFor]?.card ?? null}
+          onClose={() => setLinkFor(null)}
+          onLinked={(c) => c && onSelect(c)}
+        />
       )}
     </nav>
   );
