@@ -62,8 +62,8 @@ pub struct Term {
     id: String,
     title: String,
     cwd: String,
-    /// The card this shell works for, so the card can list and show its terminals.
-    card: Option<String>,
+    /// The card this shell works for, so the card can list and show its terminals; relinkable.
+    card: Mutex<Option<String>>,
     /// The project a shell without a card was opened for.
     project: Option<String>,
     pid: Option<i32>,
@@ -174,7 +174,7 @@ impl Term {
     }
 
     fn summary(&self) -> Value {
-        json!({"id":self.id,"title":self.title,"cwd":self.cwd,"card":self.card,"project":self.project,"exited":self.exited()})
+        json!({"id":self.id,"title":self.title,"cwd":self.cwd,"card":*self.card.lock().unwrap(),"project":self.project,"exited":self.exited()})
     }
 }
 
@@ -247,7 +247,7 @@ pub fn spawn(
         id: id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
         title: title.to_owned(),
         cwd: cwd.to_owned(),
-        card,
+        card: Mutex::new(card),
         project,
         pid: child.process_id().and_then(|p| i32::try_from(p).ok()),
         master: Mutex::new(pair.master),
@@ -554,6 +554,21 @@ pub async fn serve(root: &Path, req: Request<Body>) -> Response {
             .unwrap_or_else(|_| json!({"cwd":null,"process":null}));
             json_response(200, now)
         }
+        // link a running shell to a card, or unlink it with `{"card":null}`
+        (Method::PATCH, ["", "api", "term", id]) => {
+            let Ok(bytes) = axum::body::to_bytes(req.into_body(), 64 * 1024).await else {
+                return json_response(400, json!({"error":"body unavailable"}));
+            };
+            let body = serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null);
+            let Ok(card) = card_id(&body["card"]) else {
+                return json_response(400, json!({"error":"card must be a card id"}));
+            };
+            let Some(term) = registry().terms.lock().unwrap().get(*id).cloned() else {
+                return json_response(404, json!({"error":"not found"}));
+            };
+            *term.card.lock().unwrap() = card;
+            json_response(200, term.summary())
+        }
         (Method::DELETE, ["", "api", "term", id]) => {
             let id = (*id).to_owned();
             let found = crate::blocking::spawn(move || kill(&id))
@@ -562,6 +577,18 @@ pub async fn serve(root: &Path, req: Request<Body>) -> Response {
             json_response(if found { 200 } else { 404 }, json!({"ok":found}))
         }
         _ => json_response(404, json!({"error":"not found"})),
+    }
+}
+
+/// A request's `card`: absent or null for none, else a card id.
+fn card_id(value: &Value) -> Result<Option<String>, ()> {
+    match value {
+        Value::Null => Ok(None),
+        card => card
+            .as_str()
+            .filter(|c| crate::routes::valid_uuid(c))
+            .map(|c| Some(c.to_owned()))
+            .ok_or(()),
     }
 }
 
@@ -580,6 +607,7 @@ struct AgentSession {
     named: bool, // the name was set by the user, not derived from the folder
     busy: bool,
     waiting: Option<String>, // what it waits on you for ("input needed", a permission), when it does
+    started_at: Option<u64>, // epoch ms, Claude only
 }
 
 #[derive(Debug, PartialEq, serde::Serialize)]
@@ -590,6 +618,28 @@ struct Running {
     agent: &'static str,
     #[serde(flatten)]
     session: AgentSession,
+}
+
+/// Claude sessions alive now anywhere on this machine (a terminal, the background daemon), by transcript id:
+/// `{"kind": "bg" | "interactive" | …, "job": <jobId for `claude attach`>}`.
+pub(crate) fn live_claude_sessions() -> HashMap<String, Value> {
+    let Some(Ok(entries)) = claude_dir().map(|d| std::fs::read_dir(d.join("sessions"))) else {
+        return HashMap::new();
+    };
+    entries
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+        .filter_map(|e| serde_json::from_slice::<Value>(&std::fs::read(e.path()).ok()?).ok())
+        .filter(|f| {
+            let pid = f["pid"].as_i64().and_then(|p| i32::try_from(p).ok());
+            // signal 0 only checks the process exists
+            pid.is_some_and(|p| p > 0 && unsafe { libc::kill(p, 0) } == 0)
+        })
+        .filter_map(|f| {
+            let id = f["sessionId"].as_str()?.to_owned();
+            Some((id, json!({"kind": f["kind"], "job": f["jobId"]})))
+        })
+        .collect()
 }
 
 fn claude_session(dir: &Path, pid: u32) -> Option<AgentSession> {
@@ -614,6 +664,7 @@ fn parse_claude_session(file: &Value) -> Option<AgentSession> {
         named: file["nameSource"] == "user",
         busy: file["status"] == "busy",
         waiting,
+        started_at: file["startedAt"].as_u64(),
     })
 }
 
@@ -656,6 +707,7 @@ fn running_agents(
                     named: false,
                     busy: false,
                     waiting: None,
+                    started_at: None,
                 })
             };
             let found = session_of(p.pid)
@@ -735,7 +787,7 @@ fn snapshot() -> Vec<Saved> {
                 id: t.id.clone(),
                 title: t.title.clone(),
                 cwd,
-                card: t.card.clone(),
+                card: t.card.lock().unwrap().clone(),
                 project: t.project.clone(),
                 agent: agent.map(|r| SavedAgent {
                     kind: r.agent.to_owned(),
@@ -927,12 +979,8 @@ async fn create(root: &Path, body: &Value) -> Response {
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| cwd.clone())
         });
-    let card = match &body["card"] {
-        Value::Null => None,
-        card => match card.as_str().filter(|c| crate::routes::valid_uuid(c)) {
-            Some(card) => Some(card.to_owned()),
-            None => return json_response(400, json!({"error":"card must be a card id"})),
-        },
+    let Ok(card) = card_id(&body["card"]) else {
+        return json_response(400, json!({"error":"card must be a card id"}));
     };
     let project = match &body["project"] {
         Value::Null => None,
@@ -1247,8 +1295,9 @@ fn parse_ghostty(config: &str) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::{
-        AgentSession, Saved, SavedAgent, parse_claude_session, parse_ghostty, preview_image,
-        process_cwd, process_name, reopen_plan, repo_root, resolve_cwd, running_agents,
+        AgentSession, Saved, SavedAgent, card_id, parse_claude_session, parse_ghostty,
+        preview_image, process_cwd, process_name, reopen_plan, repo_root, resolve_cwd,
+        running_agents,
     };
     use crate::diagnostics::Process;
     use serde_json::{Value, json};
@@ -1292,6 +1341,7 @@ mod tests {
             named: true,
             busy: true,
             waiting: None,
+            started_at: Some(1),
         };
         let session = |pid| match pid {
             11 => Some(claude("c-1")),
@@ -1301,10 +1351,24 @@ mod tests {
         assert_eq!(
             json!(running_agents(&all, &shells, session)),
             json!([
-                {"term":"t1","agent":"claude","id":"c-1","name":"test","named":true,"busy":true,"waiting":null},
-                {"term":"t2","agent":"codex","id":"x-2","name":null,"named":false,"busy":false,"waiting":null},
+                {"term":"t1","agent":"claude","id":"c-1","name":"test","named":true,"busy":true,"waiting":null,"started_at":1},
+                {"term":"t2","agent":"codex","id":"x-2","name":null,"named":false,"busy":false,"waiting":null,"started_at":null},
             ])
         );
+    }
+
+    #[test]
+    fn card_id_accepts_only_null_or_a_uuid() {
+        let id = "0b9c7c43-5d5f-4a51-9d0e-5c1b2a3d4e5f";
+        for (value, expected) in [
+            (Value::Null, Ok(None)),
+            (json!(id), Ok(Some(id.to_owned()))),
+            (json!(""), Err(())),
+            (json!("../etc"), Err(())),
+            (json!(42), Err(())),
+        ] {
+            assert_eq!(card_id(&value), expected, "{value}");
+        }
     }
 
     #[test]

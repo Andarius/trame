@@ -1,9 +1,15 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 const day = (offset: number) => {
   const d = new Date();
   d.setDate(d.getDate() + offset);
   return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0")].join("-");
+};
+
+// the Due list is a sidebar column, opened from the rail (and kept open across reloads)
+const openDue = async (page: Page) => {
+  await page.getByRole("navigation", { name: "Views" }).getByRole("button", { name: "Due" }).click();
+  return page.getByRole("navigation", { name: "Due todos" });
 };
 
 test("a due todo shows its pill and the DUE section; the picker moves and clears the date", async ({ page, request }) => {
@@ -18,7 +24,7 @@ test("a due todo shows its pill and the DUE section; the picker moves and clears
   await page.goto(`/?view=page&page=${p.id}`);
   const row = page.locator("div.group", { hasText: title }).last();
   await expect(row.getByText("⚑ 2 days late")).toBeVisible();
-  const due = page.getByRole("navigation", { name: "Due todos" });
+  const due = await openDue(page);
   await expect(due.getByText(title)).toBeVisible();
   // the sidebar row opens the todo's page
   await page.goto("/?view=list");
@@ -61,7 +67,7 @@ test("a due todo on a card's spec page opens the card from the sidebar", async (
   });
 
   await page.goto("/?view=list");
-  const due = page.getByRole("navigation", { name: "Due todos" });
+  const due = await openDue(page);
   await due.getByText(title).click();
   await expect(page).toHaveURL(new RegExp(`view=card&card=${id}`));
   // the card is already open: the second row still answers, by ringing its todo

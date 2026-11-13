@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { AgentIcon } from "../agents/agents";
 import type { BoardData } from "../api";
 import { TerminalIcon } from "../ui/icons";
-import { EntityIcon, Modal, SECTION_LABEL, useLocalStorage } from "../ui/ui";
-import { openTerminal, pickTermFolder, type TermAgent, termAgents } from "./term-api";
+import { EntityIcon, Modal, SECTION_LABEL, timeAgo, useLocalStorage } from "../ui/ui";
+import { agentCmd } from "../agents/AgentSessions";
+import { useScan } from "../agents/scan";
+import { openTerminal, pickTermFolder, type TermAgent, termAgents, useTermSessions } from "./term-api";
 
 // the project's folders: its cards' repos, most recently touched first
 export function projectFolders(board: BoardData | null, project: string): string[] {
@@ -85,6 +87,29 @@ export function NewTerminalDialog(
   };
 
   const folders = project ? projectFolders(board, project) : [];
+  // past sessions of the chosen agent in these folders, not running now: picked up with --resume
+  const scan = useScan(7);
+  const running = new Set(useTermSessions().map((x) => x.id));
+  const source = chosen?.command.split(/\s/)[0].split("/").at(-1);
+  const where = new Set([...folders, ...(project === null && here?.cwd ? [here.cwd] : [])].map((f) => f.replace(/\/+$/, "")));
+  const resumable = source === "claude" || source === "codex"
+    ? (scan?.groups ?? []).flatMap((g) => g.sessions)
+      .filter((x) => x.source === source && !x.ignored && !running.has(x.claudeId))
+      .filter((x) => x.repoPath && where.has(x.repoPath.replace(/\/+$/, "")))
+      .sort((a, b) => b.lastActive.localeCompare(a.lastActive))
+      .slice(0, 5)
+    : [];
+  const resume = async (x: (typeof resumable)[number]) => {
+    const card = board?.sessions.find((s) => s.id === x.claudeId || s.claude_id === x.claudeId)?.id ?? null;
+    try {
+      await openTerminal({ cwd: x.repoPath, card, project: card ? null : project, command: agentCmd(x), title: `${chosen!.label} · ${x.title}` });
+      setLast(chosen!.command);
+      onOpened(card, card ? null : project);
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
   // here is offered when it belongs to the chosen project (or no project is chosen)
   const showHere = !!here && (project === null || project === hereProject);
   const choice = "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] text-ink-soft outline-none hover:bg-active-row hover:text-ink focus-visible:bg-active-row focus-visible:text-ink";
@@ -172,6 +197,21 @@ export function NewTerminalDialog(
             </button>
           </div>
         </div>
+        {resumable.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            <div className={SECTION_LABEL}>RESUME</div>
+            <div className="flex flex-col">
+              {resumable.map((x) => (
+                <button key={x.claudeId} type="button" className={choice} title={x.repoPath ?? undefined} onClick={() => void resume(x)}>
+                  <span className="w-3.5 text-center text-ink-muted">↻</span>
+                  <span className="min-w-0 flex-1 truncate">{x.title}</span>
+                  {x.branch && <span className="max-w-[30%] truncate text-[11px] text-ink-faint">{x.branch}</span>}
+                  <span className="shrink-0 text-[11px] text-ink-faint">{timeAgo(x.lastActive)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {error && <p className="text-[11.5px] text-blocked">{error}</p>}
       </div>
     </Modal>
