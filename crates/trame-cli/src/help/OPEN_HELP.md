@@ -16,5 +16,6 @@ A bare id with no app running is taken as a card. `trame://` links work from any
 link, browser or terminal once the app is installed (.deb, snap, quickstart
 AppImage, macOS bundle).
 
-Agents: report the page or card URL; run `tramecli open` only when the user asks
-to see it.
+Agents: report the `trame://page/<id>` or `trame://card/<id>` link (it opens the
+desktop app, an app URL opens a browser); run `tramecli open` only when the user
+asks to see it.
