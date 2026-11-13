@@ -26,11 +26,12 @@ init)
     # DNS:tracker-hub is what clients verify against (stable across IP changes).
     san="IP:$ip,DNS:tracker-hub"
     for d in "$@"; do san="$san,DNS:$d"; done
+    # macOS rejects server certs over 825 days or without serverAuth ("not standards compliant").
     openssl req -newkey rsa:2048 -nodes -keyout certs/server.key \
       -out certs/server.csr -subj "/CN=tracker-hub"
     openssl x509 -req -in certs/server.csr -CA ca/ca.crt -CAkey ca/ca.key \
-      -CAcreateserial -days 1825 -out certs/server.crt \
-      -extfile <(printf "subjectAltName=%s" "$san")
+      -CAcreateserial -days 825 -out certs/server.crt \
+      -extfile <(printf "subjectAltName=%s\nextendedKeyUsage=serverAuth" "$san")
     rm certs/server.csr
     # Postgres wants the key owned by postgres (<=600) or root (<=640); bind mounts
     # keep the host uid, so chown to the image's postgres uid from inside a container.
