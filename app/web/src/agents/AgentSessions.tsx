@@ -17,8 +17,13 @@ import { cachedScan, loadScan, subscribeScans } from "./scan";
 import { agentLabel, notLaunched, RESUME_DONE, RESUME_MODES, useResumeMode } from "./resume-modes";
 
 const shq = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`; // POSIX single-quote
+// a background session can't be resumed while it runs: attach to it instead
 export const agentCmd = (s: ClaudeSession) =>
-  s.source === "codex" ? `codex resume ${s.claudeId}` : `claude --resume ${s.claudeId}`;
+  s.source === "codex"
+    ? `codex resume ${s.claudeId}`
+    : s.live?.kind === "bg" && s.live.job
+    ? `claude attach ${s.live.job}`
+    : `claude --resume ${s.claudeId}`;
 export const resumeCmd = (s: ClaudeSession) => s.repoPath ? `cd ${shq(s.repoPath)} && ${agentCmd(s)}` : agentCmd(s);
 const COPIED_MS = 60_000; // how long a copied row stays highlighted
 const RUNNING_POLL_MS = 10_000;

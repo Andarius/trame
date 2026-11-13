@@ -30,6 +30,8 @@ const END: Record<string, { mark: string; tone: string; label: string }> = {
   done: { mark: "✓", tone: "text-live", label: "done" },
   stopped: { mark: "!", tone: "text-blocked", label: "stopped mid-work" },
 };
+// still held by a Claude process: the background daemon or another terminal
+const LIVE = { mark: "●", tone: "text-live", label: "running elsewhere" };
 const ago = (iso: string) => {
   const m = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
   return m < 60 ? `${m}m` : m < 1440 ? `${Math.floor(m / 60)}h` : `${Math.floor(m / 1440)}d`;
@@ -78,7 +80,7 @@ export function RecentList(
   };
   const item = (s: ClaudeSession) => {
     const card = cardOf.get(s.claudeId);
-    const end = s.ended && END[s.ended.kind];
+    const end = s.live ? LIVE : s.ended && END[s.ended.kind];
     // second line: the question it ended on, else where it ran (and its card, when grouped otherwise)
     const second = s.ended?.kind === "asked" && s.ended.text
       ? <span className="truncate text-wait">asked: {s.ended.text}</span>
