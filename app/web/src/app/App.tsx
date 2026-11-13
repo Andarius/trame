@@ -28,7 +28,7 @@ import {
   type UpdateInfo,
 } from "../api";
 import { AgentsContext } from "../agents/agents";
-import { activate, cardOfLocation, closeWorkspaces, onWorkspaceNavigate, save, setWorkspaces, workspaceKeys } from "./workspaces";
+import { closeWorkspaces, onWorkspaceNavigate, openWorkspace, save, setWorkspaces, workspaceKeys } from "./workspaces";
 import { AgentSessions } from "../agents/AgentSessions";
 import { RecentSession } from "../agents/RecentSession";
 import { cachedScan } from "../agents/scan";
@@ -179,8 +179,15 @@ export function App() {
     if (!globalThis.open?.(u, "_blank")) openInBrowser(u.href);
     return true;
   };
+  // ctrl/⌘ on a card: a new workspace, not a browser tab
+  const inWorkspace = (card: string, search: string) => {
+    if (!modClick.current) return false;
+    modClick.current = false;
+    openWorkspace(card, search);
+    return true;
+  };
   const openSession = (id: string, full = false) => {
-    if (inNewTab({ view: "card", card: id })) return;
+    if (inWorkspace(id, `?view=card&card=${encodeURIComponent(id)}`)) return;
     setDrawerFull(false);
     if (full) {
       // a session opens as its own view, inside the app chrome like a page
@@ -347,9 +354,6 @@ export function App() {
     [v, v === "page" ? ids.page : "", v === "database" ? ids.db : "", v === "client" ? ids.client : "",
       v === "plugin" ? ids.plugin : "", v === "card" ? ids.card : "", v === "terminals" ? ids.term : ""].join("|");
   const lastLoc = useRef(locKey(view, { page: pageId, db: dbId, client: clientId, plugin: pluginId, card: cardId, term: termSel }));
-  // spec page → its card, so a card's spec page belongs to the card's workspace
-  const specPages = useRef(new Map<string, string>());
-  specPages.current = new Map((board?.sessions ?? []).flatMap((s) => (s.specs_page_id ? [[s.specs_page_id, s.id] as const] : [])));
   // mirror the navigational state into the URL so a refresh/reload restores it
   useEffect(() => {
     const u = new URL(location.href);
@@ -378,9 +382,7 @@ export function App() {
       lastLoc.current = k;
       history.pushState(null, "", u);
     } else history.replaceState(null, "", u);
-    // opening a card moves to its workspace (made on first visit); every place is saved into the active one
-    const owner = cardOfLocation(p, specPages.current);
-    setWorkspaces((s) => save(owner && owner !== s.active ? activate(s, owner) : s, u.search));
+    setWorkspaces((s) => save(s, u.search)); // the active workspace keeps where it is
   }, [view, pageId, dbId, clientId, pluginId, cardId, termSel, settingsPage, openId, drawerFull, group, sessionQuery, zen]);
   // Browser Back from the full-screen ticket returns to the view behind it (the
   // board for a direct link) instead of leaving the app: the underlying view is
@@ -751,7 +753,9 @@ export function App() {
               selectedTerm={termShell}
               onSelectAll={() => setTermSel("all")}
               onSelectTerm={(id) => setTermSel(`term:${id}`)}
-              onSelect={(card) => setTermSel(card ?? "plain")}
+              onSelect={(card) => {
+                if (!card || !inWorkspace(card, `?view=terminals&term=${encodeURIComponent(card)}`)) setTermSel(card ?? "plain");
+              }}
               onSelectProject={(p) => setTermSel(`project:${p}`)}
               recent={termRecentId}
               history={termHistory}

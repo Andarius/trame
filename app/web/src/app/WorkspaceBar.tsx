@@ -15,7 +15,7 @@ const initials = (s: string) => {
 export const workspaceName = (w: Workspace, cards: readonly Session[] | undefined) =>
   w.id === HOME ? "Home" : w.name ?? cards?.find((c) => c.id === w.id)?.title ?? "Card";
 
-// The rail's top: ⌂ Home, then one square per card workspace (Ctrl+1…9), its agent's state as a dot
+// The rail's top: ⌂ Home, then one square per card opened as a tab (Ctrl+1…9), its agent's state as a dot
 export function WorkspaceBar({ cards }: { cards: readonly Session[] | undefined }) {
   const ws = useWorkspaces();
   const { live } = useAgents();
@@ -49,7 +49,10 @@ export function WorkspaceBar({ cards }: { cards: readonly Session[] | undefined 
             >
               {w.id === HOME ? <span className="text-[15px]">⌂</span> : initials(name)}
               {dot && <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full ring-2 ring-panel" style={{ background: dot }} />}
-              <RailTip label={name} hint={i < 9 ? `Ctrl+${i + 1}` : undefined} />
+              <RailTip
+                label={w.id === HOME && ws.list.length === 1 ? "Home · Ctrl+click a card to open it in a tab" : name}
+                hint={i < 9 ? `Ctrl+${i + 1}` : undefined}
+              />
             </button>
             {menu === w.id && (
               <Popover portal onClose={() => setMenu(null)} className="w-44">
@@ -80,6 +83,15 @@ export function WorkspaceBar({ cards }: { cards: readonly Session[] | undefined 
                         }}
                       >
                         Close
+                      </MenuRow>
+                      <MenuRow
+                        disabled={ws.list.length < 3}
+                        onClick={() => {
+                          setMenu(null);
+                          closeWorkspaces(ws.list.filter((x) => x.id !== w.id).map((x) => x.id));
+                        }}
+                      >
+                        Close others
                       </MenuRow>
                     </>
                   )}

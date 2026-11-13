@@ -1,25 +1,13 @@
 import { useSyncExternalStore } from "react";
 
-// A workspace is a card's last place in the app (its URL query), so you can get back to what you were doing.
-// "home" holds the work that belongs to no card; it is always first and never closes.
+// A workspace is a tab: a card opened on purpose (Ctrl/⌘-click) and its last place in the app (URL query).
+// "home" is where everything else happens; it is always first and never closes.
 export const HOME = "home";
 export type Workspace = { id: string; name: string | null; search: string };
 export type Workspaces = { list: Workspace[]; active: string; mru: string[] };
 
 const KEY = "trame:workspaces";
 const EMPTY: Workspaces = { list: [{ id: HOME, name: null, search: "" }], active: HOME, mru: [HOME] };
-
-// the card a location belongs to: the card view, a card's shells, its spec page or its open drawer
-export function cardOfLocation(q: URLSearchParams, specPages: ReadonlyMap<string, string>): string | null {
-  const view = q.get("view") ?? (q.get("card") ? "card" : q.get("page") ? "page" : "board");
-  if (view === "card") return q.get("card");
-  if (view === "terminals") {
-    const term = q.get("term");
-    return term && !["all", "plain", "history"].includes(term) && !/^(project|term|recent):/.test(term) ? term : null;
-  }
-  if (view === "page") return specPages.get(q.get("page") ?? "") ?? null;
-  return null;
-}
 
 const touch = (mru: string[], id: string) => [id, ...mru.filter((x) => x !== id)];
 
@@ -126,6 +114,12 @@ const goActive = () => {
 export function switchWorkspace(id: string) {
   if (id === state.active || !state.list.some((w) => w.id === id)) return;
   setWorkspaces((s) => activate(save(s, location.search), id));
+  goActive();
+}
+
+// open `id` in its own workspace (Ctrl/⌘-click), at `search` when new; an open one just comes forward
+export function openWorkspace(id: string, search: string) {
+  setWorkspaces((s) => activate(save(s, location.search), id, search));
   goActive();
 }
 

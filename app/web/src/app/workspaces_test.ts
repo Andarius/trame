@@ -1,25 +1,5 @@
 import { expect, test } from "bun:test";
-import { activate, cardOfLocation, close, HOME, move, parse, previous, save, type Workspaces } from "./workspaces";
-
-const specs = new Map([["page-1", "card-1"]]);
-
-test.each([
-  ["view=card&card=card-1", "card-1"],
-  ["card=card-1", "card-1"],
-  ["view=terminals&term=card-2", "card-2"],
-  ["view=terminals&term=all", null],
-  ["view=terminals&term=plain", null],
-  ["view=terminals&term=project:p1", null],
-  ["view=terminals&term=term:t1", null],
-  ["view=terminals&term=recent:x", null],
-  ["view=terminals", null],
-  ["view=page&page=page-1", "card-1"],
-  ["view=page&page=page-2", null],
-  ["", null],
-  ["view=insights", null],
-])("cardOfLocation(%p) = %p", (query, expected) => {
-  expect(cardOfLocation(new URLSearchParams(query), specs)).toBe(expected);
-});
+import { activate, close, HOME, move, parse, previous, save, type Workspaces } from "./workspaces";
 
 const base = (): Workspaces => ({
   list: [{ id: HOME, name: null, search: "" }, { id: "a", name: null, search: "?card=a" }, { id: "b", name: null, search: "?card=b" }],
