@@ -59,7 +59,7 @@ export function PluginList({ onOpen }: { onOpen: (id: string) => void }) {
         <span className="text-[14px] font-semibold">Plugins</span>
         {plugins && (
           <span className="text-[10.5px] text-ink-muted/70">
-            {plugins.filter((p) => p.enabled).length} of {plugins.length} enabled
+            {plugins.filter((p) => p.enabled).length} of {plugins.filter((p) => !p.error).length} enabled
           </span>
         )}
       </div>
@@ -81,9 +81,15 @@ export function PluginList({ onOpen }: { onOpen: (id: string) => void }) {
               {update(p.id) && (
                 <span className="text-[10.5px] font-semibold text-copper" title="update available">↑</span>
               )}
-              <span className="min-w-0 flex-1 truncate text-[11.5px] text-ink-muted">{p.description}</span>
+              {p.error
+                ? (
+                  <span className="min-w-0 flex-1 truncate text-[11.5px] text-blocked" title={p.error}>
+                    failed to load: {p.error}
+                  </span>
+                )
+                : <span className="min-w-0 flex-1 truncate text-[11.5px] text-ink-muted">{p.description}</span>}
             </button>
-            <Toggle on={p.enabled} onChange={(v) => toggle(p.id, v)} />
+            {!p.error && <Toggle on={p.enabled} onChange={(v) => toggle(p.id, v)} />}
           </div>
         ))}
       </div>
@@ -99,6 +105,17 @@ export function PluginPage({ id }: { id: string }) {
   const update = updateOf(id);
   if (!plugins) return null;
   if (!cur) return <p className="m-0 text-[12px] text-ink-muted">No plugin “{id}”.</p>;
+  if (cur.error) {
+    return (
+      <>
+        <span className="text-[14px] font-semibold">{cur.label}</span>
+        <p className="m-0 whitespace-pre-wrap text-[12px] text-blocked">Failed to load: {cur.error}</p>
+        <p className="m-0 text-[11.5px] text-ink-muted">
+          Fix or remove the package folder under <code>plugins/wasm/</code>, then restart Trame.
+        </p>
+      </>
+    );
+  }
   return (
     <>
       <div className="flex items-center gap-2.5">
@@ -131,6 +148,11 @@ export function PluginPage({ id }: { id: string }) {
             <code>just plugins-install</code> in Trame's, then restart Trame.
           </span>
         </div>
+      )}
+      {cur.hosts && (
+        <p className="m-0 text-[11.5px] text-ink-muted">
+          WebAssembly plugin · reaches {cur.hosts.length ? cur.hosts.join(", ") : "no network"}
+        </p>
       )}
       <div className="h-px bg-line" />
       {Settings ? <Settings /> : <p className="m-0 text-[12px] text-ink-muted">Nothing to configure.</p>}

@@ -92,30 +92,56 @@ fn call(t: &TestDb, method: &str, path: &str, body: &Value) -> (u16, Value) {
 fn a_wasm_package_loads_at_boot_and_serves_routes_writes_and_commands() {
     let wasm = include_bytes!("fixtures/wasm-hello/plugin.wasm");
     let mut t = TestDb::with_files(
-        &[],
+        &[("TRAME_WASM_CALL_TIMEOUT_MS", "1500")],
         &[
             ("plugins/wasm/hello/plugin.wasm", wasm),
-            // a package whose folder is not its manifest id is skipped, not fatal
+            ("plugins/wasm/hello/plugin.js", b"/* frontend */"),
+            // a package whose folder is not its manifest id, or that is not wasm, is listed as failed
             ("plugins/wasm/renamed/plugin.wasm", wasm),
             ("plugins/wasm/broken/plugin.wasm", b"not wasm"),
+            ("plugins/wasm/notebook/plugin.wasm", wasm),
         ],
     );
     let (_, list) = call(&t, "GET", "/api/plugins", &Value::Null);
-    let ids: Vec<_> = list
-        .as_array()
+    let by_id = |id: &str| {
+        list.as_array()
+            .unwrap()
+            .iter()
+            .filter(|p| p["id"] == id)
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let cached: Vec<_> = std::fs::read_dir(t.root.join("plugins/wasm-cache"))
         .unwrap()
-        .iter()
-        .map(|p| p["id"].clone())
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
-    assert_eq!(
-        ids.iter().filter(|id| **id == "hello").count(),
-        1,
-        "{ids:?}"
-    );
     assert!(
-        !ids.contains(&json!("renamed")) && !ids.contains(&json!("broken")),
-        "{ids:?}"
+        cached.iter().any(|f| f.starts_with("hello-")
+            && std::path::Path::new(f)
+                .extension()
+                .is_some_and(|e| e == "cwasm")),
+        "{cached:?}"
     );
+    let hello = by_id("hello");
+    assert_eq!(hello.len(), 1, "{list}");
+    assert_eq!(
+        (&hello[0]["web"], &hello[0]["hosts"]),
+        (&json!(true), &json!(["127.0.0.1"]))
+    );
+    for (id, error) in [
+        ("renamed", "is not the folder name"),
+        ("broken", "cannot compile"),
+        ("notebook", "already taken"),
+    ] {
+        let failed = by_id(id);
+        assert!(
+            failed
+                .iter()
+                .any(|p| p["error"].as_str().is_some_and(|e| e.contains(error))),
+            "{id}: {failed:?}"
+        );
+    }
 
     assert_eq!(
         call(&t, "GET", "/api/plugins/hello/greet?name=Ada", &Value::Null).0,
@@ -141,31 +167,59 @@ fn a_wasm_package_loads_at_boot_and_serves_routes_writes_and_commands() {
         json!({"enabled": true, "greeting": "Salut"})
     );
 
-    for (method, path, body, want) in [
+    for (method, path, body, status, want) in [
         (
             "GET",
             "/api/plugins/hello/greet?name=Ada",
             Value::Null,
-            (200, json!({"text": "Salut, Ada!"})),
+            200,
+            json!({"text": "Salut, Ada!"}),
         ),
         (
             "POST",
             "/api/plugins/hello/cli",
             json!({"name": "greet", "args": ["Ada"]}),
-            (
-                200,
-                json!({"code": 0, "text": "Salut, Ada!", "json": {"text": "Salut, Ada!"}}),
-            ),
+            200,
+            json!({"code": 0, "text": "Salut, Ada!", "json": {"text": "Salut, Ada!"}}),
         ),
         (
             "GET",
             "/api/plugins/hello/nope",
             Value::Null,
-            (404, json!({"error": "not found"})),
+            404,
+            json!({"error": "not found"}),
+        ),
+        // listed, but loopback: refused before any connection
+        (
+            "GET",
+            "/api/plugins/hello/fetch?url=http://127.0.0.1:9/",
+            Value::Null,
+            502,
+            json!({"error": "http://127.0.0.1:9/ is not in the plugin's hosts"}),
+        ),
+        // a guest that never returns is dropped at the call timeout
+        (
+            "GET",
+            "/api/plugins/hello/spin",
+            Value::Null,
+            500,
+            json!({"error": "plugin hello timed out after 1500ms"}),
         ),
     ] {
-        assert_eq!(call(&t, method, path, &body), want, "{method} {path}");
+        assert_eq!(
+            call(&t, method, path, &body),
+            (status, want),
+            "{method} {path}"
+        );
     }
+    assert_eq!(
+        call(&t, "GET", "/api/plugins/web/wasm/hello.js", &Value::Null).0,
+        200
+    );
+    assert_eq!(
+        call(&t, "GET", "/api/plugins/web/wasm/hello.css", &Value::Null).0,
+        404
+    );
 
     let (status, note) = call(
         &t,

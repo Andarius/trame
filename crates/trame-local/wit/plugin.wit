@@ -1,5 +1,7 @@
 // The contract of a WebAssembly Trame plugin: loaded at runtime from
 // <data>/plugins/wasm/<id>/plugin.wasm, no app rebuild. JSON travels as strings.
+// Compatibility: within 0.1.x Trame may add host imports but never changes or removes one, and the
+// exports stay as they are; a breaking change is a new version that plugins rebuild against.
 package trame:plugin@0.1.0;
 
 interface types {

@@ -1,4 +1,5 @@
-// A WebAssembly Trame plugin: `GET /greet?name=…`, `POST /note` (writes a page) and `tramecli hello greet <name>`.
+// A WebAssembly Trame plugin: `GET /greet?name=…`, `POST /note` (writes a page) and `tramecli hello greet <name>`;
+// `/spin` and `/fetch?url=…` exist for the sandbox tests.
 wit_bindgen::generate!({ path: "../../../wit", world: "plugin" });
 
 use serde_json::{Value, json};
@@ -38,7 +39,8 @@ impl Guest for Hello {
                 usage: "<name>".into(),
                 summary: "print a greeting".into(),
             }],
-            hosts: vec![],
+            // loopback is refused whatever the manifest lists
+            hosts: vec!["127.0.0.1".into()],
             tick_secs: None,
         }
     }
@@ -71,6 +73,22 @@ impl Guest for Hello {
                         json_response(200, &json!({"id": out[0]}))
                     }
                     Err(error) => json_response(400, &json!({"error": error})),
+                }
+            }
+            ("GET", "/spin") => loop {
+                std::hint::black_box(0);
+            },
+            ("GET", "/fetch") => {
+                let url = query.strip_prefix("url=").unwrap_or("");
+                let req = HttpRequest {
+                    method: "GET".into(),
+                    url: url.into(),
+                    headers: vec![],
+                    body: vec![],
+                };
+                match host::fetch(&req) {
+                    Ok(res) => json_response(200, &json!({"status": res.status})),
+                    Err(error) => json_response(502, &json!({"error": error})),
                 }
             }
             _ => json_response(404, &json!({"error": "not found"})),
