@@ -42,5 +42,6 @@ For tracking actions:
 4. Write the spec page when the writer contract (Specs, in that `--help`) says so,
    with the session id from the writer output (`tramecli page`, see its `--help`).
 5. Report one line from the writer output: tracked/queued, title, status, the
-   `next_step` you wrote, and the card URL. When the user asks to see the card, open it
-   in the desktop app with `tramecli open <card id or URL>` (see its `--help`).
+   `next_step` you wrote, and the card's desktop link `trame://card/<id>` (not the
+   `http://127.0.0.1` URL, which opens a browser). When the user asks to see the card,
+   open it in the desktop app with `tramecli open <card id or URL>` (see its `--help`).
