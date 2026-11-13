@@ -119,6 +119,8 @@ export function TermCards(
     return (own.find((t) => t.id === active) ?? own[0])?.id;
   };
   const plain = plainShells.count;
+  // the + starts in the selected card's repo, or the selected project
+  const selectedCard = selected ? board?.sessions.find((s) => s.id === selected) : undefined;
   const everyShell = Object.values(terms);
   // right-clicking a group of shells links the focused one when it is in the group, else its only one
   const focused = tabs.find((t) => t.id === active)?.focus;
@@ -255,6 +257,8 @@ export function TermCards(
         {newOpen && (
           <NewTerminalDialog
             board={board}
+            here={selectedCard ? { cwd: selectedCard.repo_path ?? null, card: selectedCard.id } : null}
+            project={selectedProject ?? undefined}
             onClose={() => setNewOpen(false)}
             onOpened={(card, project) => (card ? onSelect(card) : project ? onSelectProject(project) : onSelect(null))}
           />
