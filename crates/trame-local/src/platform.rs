@@ -77,6 +77,22 @@ pub async fn serve(state: Native, req: Request<Body>) -> Response {
     }
 }
 
+/// What `/api/open` hands to the OS: an app path, a web URL, or a `file://` URL of a local file that exists.
+fn open_target(target: &str, port: u16) -> Option<String> {
+    if target.starts_with('/') {
+        return Some(format!("http://127.0.0.1:{port}{target}"));
+    }
+    if target.starts_with("http://") || target.starts_with("https://") {
+        return Some(target.to_owned());
+    }
+    let path = reqwest::Url::parse(target)
+        .ok()
+        .filter(|u| u.scheme() == "file")?
+        .to_file_path()
+        .ok()?;
+    path.exists().then(|| target.to_owned())
+}
+
 fn open(target: &str) -> Result<()> {
     let mut child = Command::new(if cfg!(target_os = "macos") {
         "open"
@@ -100,18 +116,10 @@ fn open(target: &str) -> Result<()> {
 pub fn handle(db: &mut Db, port: u16, path: &str, body: &Value) -> Result<(u16, Value)> {
     let result = match path {
         "/api/open" => {
-            let target = body["target"].as_str().unwrap_or("");
-            if !(target.starts_with('/')
-                || target.starts_with("http://")
-                || target.starts_with("https://"))
-            {
+            let Some(target) = open_target(body["target"].as_str().unwrap_or(""), port) else {
                 return Ok((400, json!({"error":"invalid target"})));
-            }
-            open(&if target.starts_with('/') {
-                format!("http://127.0.0.1:{port}{target}")
-            } else {
-                target.to_owned()
-            })?;
+            };
+            open(&target)?;
             json!({"ok":true})
         }
         "/api/pick-image" => pick_image(),
@@ -685,4 +693,27 @@ fn watcher(db: &mut Db, body: &Value) -> Result<(u16, Value)> {
         });
     }
     Ok((200, result))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::open_target;
+
+    #[test]
+    fn open_target_accepts_app_web_and_existing_file_urls() {
+        let here = std::env::current_dir().unwrap();
+        let file = format!("file://{}", here.join("Cargo.toml").display());
+        for (target, expected) in [
+            ("/?card=1", Some("http://127.0.0.1:7/?card=1".to_owned())),
+            ("https://github.com", Some("https://github.com".to_owned())),
+            (file.as_str(), Some(file.clone())),
+            ("file:///no/such/file", None),
+            ("file://remote-host/etc/passwd", None),
+            ("javascript:alert(1)", None),
+            ("ftp://example.com", None),
+            ("", None),
+        ] {
+            assert_eq!(open_target(target, 7), expected, "{target}");
+        }
+    }
 }

@@ -30,6 +30,9 @@ const scrollbar = (): ITheme => ({
   scrollbarSliderActiveBackground: `${css("--color-ink-faint")}cc`,
 });
 
+// web-links' own URL pattern, plus file:// like a desktop terminal
+const URL_RE = /(https?|HTTPS?|file):[/]{2}[^\s"'!*(){}|\\^<>`]*[^\s"':,.!?{}|\\^~[\]`()<>]/;
+
 type Notice = "superseded" | "gone" | null;
 // an image path under the mouse (a thumbnail by it) or clicked (full size)
 type Preview = { path: string; x: number; y: number; full: boolean };
@@ -160,7 +163,7 @@ export function TerminalView(
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon((_e, uri) => openLink(uri)));
+    term.loadAddon(new WebLinksAddon((_e, uri) => openLink(uri), { urlRegex: URL_RE }));
     // image paths: hover shows a thumbnail, click the full image
     const links = term.registerLinkProvider({
       provideLinks(y, cb) {
