@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -8,10 +8,12 @@ import "@fontsource/jetbrains-mono/latin-700.css";
 import { termTheme } from "./term-api";
 import { openLink } from "./TerminalView";
 import { FONT_STACK, scrollbar, theme, URL_RE } from "./xterm-look";
+import { PR_HREF, PrPreview } from "../md/chips";
 
 // A read-only terminal showing `text` (ANSI), with the same look as the shells
 export function ReplayTerminal({ text, className }: { text: string; className?: string }) {
   const host = useRef<HTMLDivElement>(null);
+  const [pr, setPr] = useState<{ url: string; x: number; y: number } | null>(null); // a PR link hovered
   useEffect(() => {
     const el = host.current!;
     const term = new Terminal({
@@ -25,7 +27,11 @@ export function ReplayTerminal({ text, className }: { text: string; className?: 
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon((_e, uri) => openLink(uri), { urlRegex: URL_RE }));
+    term.loadAddon(new WebLinksAddon((_e, uri) => openLink(uri), {
+      urlRegex: URL_RE,
+      hover: (e, uri) => PR_HREF.test(uri) && setPr({ url: uri, x: e.clientX, y: e.clientY }),
+      leave: () => setPr(null),
+    }));
     term.open(el);
     let alive = true;
     const draw = () => {
@@ -59,5 +65,10 @@ export function ReplayTerminal({ text, className }: { text: string; className?: 
       term.dispose();
     };
   }, [text]);
-  return <div ref={host} className={`rounded-lg px-3 py-2 ${className ?? ""}`} />;
+  return (
+    <>
+      <div ref={host} className={`rounded-lg px-3 py-2 ${className ?? ""}`} />
+      {pr && <PrPreview {...pr} />}
+    </>
+  );
 }

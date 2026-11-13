@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { openInBrowser, type PrInfo, prInfo, setStatus } from "../api";
 
 // GitHub PR / GitLab MR URLs — bare or as [text](url) links — render as compact
@@ -104,6 +105,35 @@ function MergeMark() {
       <circle cx="12.5" cy="12.5" r="1.8" />
       <path d="M3.5 5.3v5.4M12.5 10.7V7.5c0-1.7-1.3-3-3-3H7.8M9.6 2.7 7.8 4.5l1.8 1.8" />
     </svg>
+  );
+}
+
+// a PR link hovered in a terminal: a small card beside the pointer with its state, title and base
+export function PrPreview({ url, x, y }: { url: string; x: number; y: number }) {
+  const info = usePrInfo(url);
+  const label = prChipLabel(url) ?? url;
+  const state = info?.state ?? "loading";
+  const w = 300;
+  const left = x + w + 20 > innerWidth ? x - w - 12 : x + 12;
+  const top = y + 110 > innerHeight ? y - 110 : y + 16;
+  return createPortal(
+    <div
+      className="pointer-events-none fixed z-50 flex flex-col gap-1 rounded-md border border-chipline bg-panel-modal px-3 py-2 text-[12px] shadow-lg shadow-black/40"
+      style={{ left: Math.max(4, left), top: Math.max(4, top), width: w }}
+    >
+      <span className="flex items-center gap-1.5 text-[11px] text-ink-muted">
+        {url.includes("/merge_requests/") ? <MergeMark /> : <GitHubMark />}
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <span className="rounded-full px-1.5 text-[10.5px] font-medium" style={{ color: PR_STATE_COLOR[state] ?? PR_STATE_COLOR.unknown }}>
+          {state}
+        </span>
+      </span>
+      <span className="line-clamp-2 text-ink">{info ? info.title ?? "no title" : "loading…"}</span>
+      {(info?.base || info?.stack) && (
+        <span className="truncate text-[11px] text-ink-faint">{[info.base && `into ${info.base}`, info.stack].filter(Boolean).join(" · ")}</span>
+      )}
+    </div>,
+    document.body,
   );
 }
 
