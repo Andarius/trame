@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # DESCRIPTION: Build the native desktop packages (Linux x86_64, macOS arm64) with pinned PostgreSQL 18 resources.
 # USAGE: scripts/rust-package.sh [prepare|cli|deb|appimage|dmg]
-# Locally it builds without LTO (fast rebuilds); CI, or TRAME_FULL_RELEASE=1, uses the shipped release profile.
+# Locally it builds without LTO (fast rebuilds); CI, or TRAME_FULL_RELEASE=1 (installed builds), uses the shipped
+# release profile. Switching between the two rebuilds everything once.
 # EXAMPLES: scripts/rust-package.sh deb
 #           scripts/rust-package.sh dmg   # on macOS arm64
 set -euo pipefail

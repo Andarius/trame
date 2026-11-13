@@ -137,7 +137,7 @@ build_source() { # dir
     command -v cargo >/dev/null || { echo "Rust is required for a source build" >&2; return 1; }
     sudo apt-get update
     sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
-    (cd "$1" && bash scripts/rust-package.sh deb)
+    (cd "$1" && TRAME_FULL_RELEASE=1 bash scripts/rust-package.sh deb)
     sudo apt install -y "$1/dist/linux/trame.deb"
     RUN_HINT="trame"
 }
@@ -189,7 +189,7 @@ main() {
         if command -v tramecli >/dev/null; then cli=tramecli
         elif command -v trame.tramecli >/dev/null; then cli=trame.tramecli
         else
-            (cd "$dir" && bash scripts/rust-package.sh cli)
+            (cd "$dir" && TRAME_FULL_RELEASE=1 bash scripts/rust-package.sh cli)
             cli="$dir/dist/tramecli"
         fi
         "$cli" setup "${setup_args[@]}"
