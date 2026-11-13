@@ -82,13 +82,19 @@ export default function TerminalDock(
   const unseen = useUnseenTerms();
   const inScope = (t: TermTab) => {
     if (scope!.all) return true;
-    if (scope!.term) return leaves(t.root).includes(scope!.term);
+    if (scope!.term && leaves(t.root).includes(scope!.term)) return true;
+    const onBoard = (c: string) => !!board?.sessions.some((s) => s.id === c);
+    const boardProject = (ids: string[]) =>
+      ids.map((id) => terms[id]?.project).find((p) => p && board?.projects.some((x) => x.id === p)) ?? null;
+    // one agent session's shell: the tabs of the sidebar group it sits in, like TermCards lists them
+    const lead = scope!.term ? terms[scope!.term] : undefined;
+    const card = lead ? (lead.card && onBoard(lead.card) ? lead.card : null) : scope!.card;
+    const scopeProject = lead ? (card ? null : boardProject([scope!.term!])) : scope!.project;
     const cards = tabCards(t, terms);
-    if (scope!.card !== null) return cards.includes(scope!.card);
+    if (card !== null) return cards.includes(card);
     // no card: shells whose card isn't on this board, by project like TermCards lists them
-    if (cards.some((c) => board?.sessions.some((s) => s.id === c))) return false;
-    const project = leaves(t.root).map((id) => terms[id]?.project).find((p) => p && board?.projects.some((x) => x.id === p));
-    return (project ?? null) === scope!.project;
+    if (cards.some(onBoard)) return false;
+    return boardProject(leaves(t.root)) === scopeProject;
   };
   const tabs = scope ? allTabs.filter(inScope) : allTabs;
   const active = tabs.some((t) => t.id === dock.active) ? dock.active : tabs[0]?.id ?? null;
@@ -146,7 +152,7 @@ export default function TerminalDock(
     <section
       className={`relative flex flex-col bg-panel ${full ? "min-h-0 flex-1" : "shrink-0 border-t border-line"}`}
       style={open && !full ? { height } : undefined}
-      // ⌘D / ⌘⇧D split like iTerm and Ghostty, Ctrl+( / Ctrl+), Ctrl+Shift+E and Ctrl+Shift+←/→ (tabs) like Konsole, before the shell sees the key
+      // ⌘T / Ctrl+T new tab (Ctrl+T no longer reaches the shell), ⌘D / ⌘⇧D split like iTerm and Ghostty, Ctrl+( / Ctrl+), Ctrl+Shift+E and Ctrl+Shift+←/→ (tabs) like Konsole, before the shell sees the key
       onKeyDownCapture={(e) => {
         const ctrl = e.ctrlKey && !e.metaKey && !e.altKey;
         const run = (f: () => void) => {
@@ -154,7 +160,7 @@ export default function TerminalDock(
           e.stopPropagation();
           f();
         };
-        if (e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "t") run(() => void openNew());
+        if ((e.metaKey || e.ctrlKey) && !(e.metaKey && e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "t") run(() => void openNew());
         else if (e.metaKey && !e.altKey && !e.ctrlKey && e.key.toLowerCase() === "d") run(() => split(e.shiftKey ? "col" : "row"));
         else if (ctrl && e.key === "(") run(() => split("row"));
         else if (ctrl && e.key === ")") run(() => split("col"));
@@ -262,7 +268,7 @@ export default function TerminalDock(
           <IconButton
             tone="close"
             className="grid h-7 w-7 place-items-center rounded-md hover:bg-hover"
-            title="new terminal or agent (⌘T)"
+            title="new terminal or agent (⌘T, Ctrl+T)"
             aria-label="New terminal or agent"
             onClick={() => void openNew()}
           >
@@ -385,7 +391,8 @@ export default function TerminalDock(
         agent={newTerm.agent}
         onClose={() => setNewTerm(null)}
         onOpened={(c, p) => {
-          if (scope && !scope.all && (c !== scope.card || (!c && p !== scope.project))) onScope?.(c, p);
+          // one agent session's view hides any other shell: switch to the new one's card or project
+          if (scope && !scope.all && (scope.term || c !== scope.card || (!c && p !== scope.project))) onScope?.(c, p);
         }}
       />
     )}

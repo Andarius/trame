@@ -8,6 +8,7 @@ export type TermSession = {
   named: boolean;
   busy: boolean;
   waiting: string | null;
+  started_at: number | null; // epoch ms, Claude only
 };
 
 // shells to flag as finished: an agent going from busy to idle joins, one busy again or gone leaves
