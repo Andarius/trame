@@ -12,7 +12,7 @@ import { openInBrowser } from "../api";
 import { CLOSE_AUTH, CLOSE_GONE, CLOSE_SUPERSEDED, closeTerminal, termImage, type TermTheme, termTheme, termToken } from "./term-api";
 import { imageLinks } from "./image-links";
 import { previewBox } from "./preview-size";
-import { FONT_STACK, scrollbar, theme, URL_RE } from "./xterm-look";
+import { FONT_STACK, onTermZoom, scrollbar, termFontSize, termZoomKey, theme, URL_RE } from "./xterm-look";
 import { PR_HREF, PrPreview } from "../md/chips";
 
 type Notice = "superseded" | "gone" | null;
@@ -138,7 +138,7 @@ export function TerminalView(
     const el = host.current!;
     const term = new Terminal({
       fontFamily: FONT_STACK,
-      fontSize: 13,
+      fontSize: termFontSize(13),
       drawBoldTextInBrightColors: false, // Ghostty's default
       cursorBlink: true,
       scrollback: 10_000,
@@ -251,6 +251,12 @@ export function TerminalView(
     });
     observer.observe(el);
     let ghostty: TermTheme | null = null;
+    let baseSize = 13; // Ghostty's size or ours, before Ctrl +/-
+    term.attachCustomKeyEventHandler((e) => !termZoomKey(e));
+    const unzoom = onTermZoom(() => {
+      term.options.fontSize = termFontSize(baseSize);
+      refit();
+    });
     // Ghostty's look when found; otherwise follow the app's light/dark switch
     const restyle = () => {
       const t = { ...(ghostty?.theme ?? theme()), ...scrollbar() };
@@ -261,7 +267,8 @@ export function TerminalView(
       ghostty = t;
       if (t) {
         term.options.fontFamily = t.fontFamily ? `"${t.fontFamily}", ${FONT_STACK}` : FONT_STACK;
-        term.options.fontSize = t.fontSize ?? 13;
+        baseSize = t.fontSize ?? 13;
+        term.options.fontSize = termFontSize(baseSize);
       }
       restyle();
     };
@@ -294,6 +301,7 @@ export function TerminalView(
     };
 
     return () => {
+      unzoom();
       done = true;
       clearTimeout(timer);
       clearTimeout(resizeTimer);
