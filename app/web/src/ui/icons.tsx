@@ -74,6 +74,26 @@ export function ChartIcon({ size = 16 }: { size?: number }) {
   );
 }
 
+export function BoardIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <rect x="2.5" y="2.5" width="11" height="11" rx="2" />
+      <path d="M5.5 5.5v5" />
+      <path d="M8 5.5v2.5" />
+      <path d="M10.5 5.5v3.5" />
+    </svg>
+  );
+}
+
 export function CalendarIcon({ size = 16 }: { size?: number }) {
   return (
     <svg
