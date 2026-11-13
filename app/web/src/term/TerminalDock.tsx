@@ -64,12 +64,14 @@ export type DockScope = { all?: boolean; term?: string | null; card: string | nu
 // With a `scope` it is the Terminals view's center instead: always open, full size, one card's tabs.
 // Both are the same mounted component, so moving between them never remounts (and replays) a shell.
 export default function TerminalDock(
-  { board, scope, onScope, details = null, onToggleDetails }: {
+  { board, scope, onScope, details = null, onToggleDetails, cover, onUncover }: {
     board?: BoardData | null;
     scope?: DockScope | null;
     onScope?: (card: string | null, project: string | null) => void; // show another card's or project's shells
     details?: boolean | null; // the docked card details are shown; null = no card in scope
     onToggleDetails?: () => void;
+    cover?: React.ReactNode; // shown over the panes (a past session, All sessions); the tabs stay above it
+    onUncover?: (term: string) => void; // a tab clicked while covered: show that shell's group
   },
 ) {
   const dock = useTermDock();
@@ -82,13 +84,19 @@ export default function TerminalDock(
   const unseen = useUnseenTerms();
   const inScope = (t: TermTab) => {
     if (scope!.all) return true;
-    if (scope!.term) return leaves(t.root).includes(scope!.term);
+    if (scope!.term && leaves(t.root).includes(scope!.term)) return true;
+    const onBoard = (c: string) => !!board?.sessions.some((s) => s.id === c);
+    const boardProject = (ids: string[]) =>
+      ids.map((id) => terms[id]?.project).find((p) => p && board?.projects.some((x) => x.id === p)) ?? null;
+    // one agent session's shell: the tabs of the sidebar group it sits in, like TermCards lists them
+    const lead = scope!.term ? terms[scope!.term] : undefined;
+    const card = lead ? (lead.card && onBoard(lead.card) ? lead.card : null) : scope!.card;
+    const scopeProject = lead ? (card ? null : boardProject([scope!.term!])) : scope!.project;
     const cards = tabCards(t, terms);
-    if (scope!.card !== null) return cards.includes(scope!.card);
+    if (card !== null) return cards.includes(card);
     // no card: shells whose card isn't on this board, by project like TermCards lists them
-    if (cards.some((c) => board?.sessions.some((s) => s.id === c))) return false;
-    const project = leaves(t.root).map((id) => terms[id]?.project).find((p) => p && board?.projects.some((x) => x.id === p));
-    return (project ?? null) === scope!.project;
+    if (cards.some(onBoard)) return false;
+    return boardProject(leaves(t.root)) === scopeProject;
   };
   const tabs = scope ? allTabs.filter(inScope) : allTabs;
   const active = tabs.some((t) => t.id === dock.active) ? dock.active : tabs[0]?.id ?? null;
@@ -146,7 +154,7 @@ export default function TerminalDock(
     <section
       className={`relative flex flex-col bg-panel ${full ? "min-h-0 flex-1" : "shrink-0 border-t border-line"}`}
       style={open && !full ? { height } : undefined}
-      // ⌘D / ⌘⇧D split like iTerm and Ghostty, Ctrl+( / Ctrl+), Ctrl+Shift+E and Ctrl+Shift+←/→ (tabs) like Konsole, before the shell sees the key
+      // ⌘T / Ctrl+T new tab (Ctrl+T no longer reaches the shell), ⌘D / ⌘⇧D split like iTerm and Ghostty, Ctrl+( / Ctrl+), Ctrl+Shift+E and Ctrl+Shift+←/→ (tabs) like Konsole, before the shell sees the key
       onKeyDownCapture={(e) => {
         const ctrl = e.ctrlKey && !e.metaKey && !e.altKey;
         const run = (f: () => void) => {
@@ -154,7 +162,7 @@ export default function TerminalDock(
           e.stopPropagation();
           f();
         };
-        if (e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "t") run(() => void openNew());
+        if ((e.metaKey || e.ctrlKey) && !(e.metaKey && e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "t") run(() => void openNew());
         else if (e.metaKey && !e.altKey && !e.ctrlKey && e.key.toLowerCase() === "d") run(() => split(e.shiftKey ? "col" : "row"));
         else if (ctrl && e.key === "(") run(() => split("row"));
         else if (ctrl && e.key === ")") run(() => split("col"));
@@ -187,7 +195,7 @@ export default function TerminalDock(
         />
       )}
       <div className="flex h-8 shrink-0 items-center gap-1 px-2 text-xs">
-        <span className="pr-1 text-[11px] font-medium text-ink-muted">Terminal</span>
+        <span className="pr-1 text-[11px] font-medium text-ink-muted">{scope ? "Agents" : "Terminal"}</span>
         <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto">
           {tabs.map((t) => {
             const panes = leaves(t.root);
@@ -222,7 +230,7 @@ export default function TerminalDock(
                 className={`group flex shrink-0 cursor-grab items-center gap-1 rounded-md px-2 py-0.5 ${
                   why
                     ? "bg-wait/15 text-wait"
-                    : t.id === active && open
+                    : t.id === active && open && !cover
                     ? "bg-tab-active text-ink"
                     : "text-ink-muted hover:text-ink-soft"
                 } ${drag?.kind === "tab" && drag.id === t.id ? "opacity-50" : ""}`}
@@ -231,7 +239,11 @@ export default function TerminalDock(
                   type="button"
                   title={project ? `${project.name} · ${lead?.cwd}` : lead?.cwd}
                   className="flex items-center gap-1.5"
-                  onClick={() => (t.id === active && open && !scope ? setDockOpen(false) : selectTab(t.id))}
+                  onClick={() => {
+                    if (cover) onUncover?.(t.focus);
+                    if (t.id === active && open && !scope) setDockOpen(false);
+                    else selectTab(t.id);
+                  }}
                 >
                   {/* one mark: the project's, else the agent's */}
                   {project?.icon || project?.color || !agent
@@ -262,7 +274,7 @@ export default function TerminalDock(
           <IconButton
             tone="close"
             className="grid h-7 w-7 place-items-center rounded-md hover:bg-hover"
-            title="new terminal or agent (⌘T)"
+            title="new terminal or agent (⌘T, Ctrl+T)"
             aria-label="New terminal or agent"
             onClick={() => void openNew()}
           >
@@ -315,7 +327,8 @@ export default function TerminalDock(
         )}
       </div>
       <div className={`relative min-h-0 flex-1 bg-block ${open ? "" : "hidden"}`}>
-        {scope && tabs.length === 0 && (
+        {cover && <div className="absolute inset-0 z-20 flex min-h-0 flex-col overflow-auto bg-panel">{cover}</div>}
+        {scope && !cover && tabs.length === 0 && (
           <div
             className={`absolute inset-0 flex flex-col items-center justify-center gap-3 text-xs text-ink-muted ${
               drag?.kind === "card" ? "outline-2 -outline-offset-8 outline-dashed outline-copper/60" : ""
@@ -385,7 +398,8 @@ export default function TerminalDock(
         agent={newTerm.agent}
         onClose={() => setNewTerm(null)}
         onOpened={(c, p) => {
-          if (scope && !scope.all && (c !== scope.card || (!c && p !== scope.project))) onScope?.(c, p);
+          // one agent session's view hides any other shell: switch to the new one's card or project
+          if (scope && !scope.all && (scope.term || c !== scope.card || (!c && p !== scope.project))) onScope?.(c, p);
         }}
       />
     )}

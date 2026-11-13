@@ -92,7 +92,6 @@ if [[ ! -x "$pg/usr/lib/postgresql/18/bin/postgres" ]]; then
         while read -r name sha; do
             file="$package/download/$name"
             if [[ ! -f "$file" ]] || ! printf '%s  %s\n' "$sha" "$file" | sha256sum -c - --status; then
-                # the archive keeps superseded point releases; the main pool drops them
                 curl -fL --retry 3 "https://apt-archive.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/$name" -o "$file"
             fi
             printf '%s  %s\n' "$sha" "$file" | sha256sum -c - --status

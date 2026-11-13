@@ -5,10 +5,13 @@ import { confirmDeletePage } from "../page/Page";
 import { IconPicker } from "../udb/cells";
 import { FRONTEND_PLUGINS } from "../plugins";
 import type { View } from "./view";
+import { workspaceName } from "./WorkspaceBar";
+import { HOME, useWorkspaces } from "./workspaces";
 
 export function HeaderTitle(
-  { view, title, cardSession, cardCrumbs, crumbs, pages, currentPage, currentDb, starred, onToggleStar, onOpenPage, onRefresh }: {
+  { view, title, cardSession, cardCrumbs, crumbs, pages, currentPage, currentDb, starred, onToggleStar, onOpenPage, onRefresh, cards }: {
     view: View;
+    cards?: readonly Session[]; // to name the active workspace
     title: string;
     cardSession: Session | null;
     cardCrumbs: PageMeta[];
@@ -23,8 +26,21 @@ export function HeaderTitle(
   },
 ) {
   const [dbIconOpen, setDbIconOpen] = useState(false);
+  const ws = useWorkspaces();
+  const active = ws.list.find((w) => w.id === ws.active);
+  const nav = "grid h-6 w-6 place-items-center rounded-md text-[15px] leading-none text-ink-muted hover:bg-hover hover:text-ink";
   return (
     <>
+    <span className="-ml-2 flex shrink-0 items-center">
+      <button type="button" className={nav} title="Back (Alt+←)" aria-label="Back" onClick={() => history.back()}>‹</button>
+      <button type="button" className={nav} title="Forward (Alt+→)" aria-label="Forward" onClick={() => history.forward()}>›</button>
+    </span>
+    {active && active.id !== HOME && (
+      <span className="flex min-w-0 max-w-[180px] shrink-0 items-center gap-1 text-[13px] text-copper" title="workspace (Ctrl+Tab: previous)">
+        <span className="truncate">{workspaceName(active, cards)}</span>
+        <span className="text-ink-muted/50">›</span>
+      </span>
+    )}
     {view === "card" && cardSession
       ? (
         <div className="flex min-w-0 items-center gap-1 text-[13px] text-ink-muted">
