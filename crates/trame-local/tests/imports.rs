@@ -382,3 +382,56 @@ fn conversation_tail_keeps_each_turns_ask_and_final_reply() {
         );
     }
 }
+
+#[test]
+fn session_ending_says_asked_done_or_stopped() {
+    let said = |text: &str| json!({"type":"assistant","message":{"content":[{"type":"text","text":text}]}});
+    let ask = json!({"type":"user","message":{"content":"ship it"}});
+    let tool = json!({"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}});
+    let interrupt = json!({"type":"user","message":{"content":[{"type":"text","text":"[Request interrupted by user]"}]}});
+    let codex_said = |text: &str| json!({"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":text}]}});
+    let aborted = json!({"type":"event_msg","payload":{"type":"turn_aborted"}});
+    for (events, codex, expected) in [
+        (
+            vec![ask.clone(), said("Merged.\nStaging or a dev host?")],
+            false,
+            json!({"kind":"asked","text":"Staging or a dev host?"}),
+        ),
+        (
+            vec![ask.clone(), said("Is it ok?\nDone, merged.")],
+            false,
+            json!({"kind":"done","text":null}),
+        ),
+        (
+            vec![ask.clone(), tool.clone()],
+            false,
+            json!({"kind":"stopped","text":null}),
+        ),
+        (
+            vec![said("Done."), ask.clone()],
+            false,
+            json!({"kind":"stopped","text":null}),
+        ),
+        (
+            vec![ask.clone(), tool, interrupt],
+            false,
+            json!({"kind":"stopped","text":"interrupted"}),
+        ),
+        (
+            vec![codex_said("Which region?")],
+            true,
+            json!({"kind":"asked","text":"Which region?"}),
+        ),
+        (
+            vec![codex_said("Done."), aborted],
+            true,
+            json!({"kind":"stopped","text":"interrupted"}),
+        ),
+    ] {
+        assert_eq!(
+            transcript::ending(&jsonl(&events), codex),
+            expected,
+            "{events:?}"
+        );
+    }
+}

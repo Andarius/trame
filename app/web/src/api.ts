@@ -899,6 +899,8 @@ export type ClaudeSession = {
   suggestedProject: string;
   alreadyImported: boolean;
   ignored: boolean;
+  // how its last turn ended: asked you (`text`: the question), done, or stopped mid-work (`text`: "interrupted")
+  ended?: { kind: "asked" | "done" | "stopped"; text: string | null };
 };
 export type ClaudeGroup = {
   repoPath: string;

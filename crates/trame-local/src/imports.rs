@@ -249,7 +249,7 @@ fn scan(db: &mut Db, days: f64) -> Result<Value> {
         if last < cutoff {
             continue;
         }
-        found.push(make_item(
+        let mut item = make_item(
             "codex",
             id,
             cwd,
@@ -258,7 +258,9 @@ fn scan(db: &mut Db, days: f64) -> Result<Value> {
             last,
             &ignored,
             now,
-        ));
+        );
+        item["ended"] = transcript::ending(&tail, true);
+        found.push(item);
     }
     if let Ok(projects) = fs::read_dir(&claude_dir) {
         for project in projects.flatten() {
@@ -306,7 +308,7 @@ fn scan(db: &mut Db, days: f64) -> Result<Value> {
                     .as_str()
                     .or_else(|| meta["firstPrompt"].as_str())
                     .or_else(|| meta["lastPrompt"].as_str());
-                found.push(make_item(
+                let mut item = make_item(
                     "claude",
                     id,
                     &cwd,
@@ -315,7 +317,9 @@ fn scan(db: &mut Db, days: f64) -> Result<Value> {
                     last,
                     &ignored,
                     now,
-                ));
+                );
+                item["ended"] = transcript::ending(&tail, false);
+                found.push(item);
             }
         }
     }

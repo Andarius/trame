@@ -246,6 +246,65 @@ fn steps(event: &Value, codex: bool) -> Vec<Value> {
     }
 }
 
+/// How a session's last turn ended: `asked` you something, `done`, or `stopped` mid-work (a tool call or your prompt unanswered, an interrupt).
+pub fn ending(tail: &str, codex: bool) -> Value {
+    let mut end = json!({"kind":"stopped","text":null});
+    // a reply whose last line is a question asked you something
+    let replied = |text: &str| match text
+        .lines()
+        .map(str::trim)
+        .rfind(|l| !l.is_empty())
+        .filter(|l| l.ends_with('?'))
+    {
+        Some(q) => json!({"kind":"asked","text":q.chars().take(ENDING_TEXT).collect::<String>()}),
+        None => json!({"kind":"done","text":null}),
+    };
+    let interrupted = json!({"kind":"stopped","text":"interrupted"});
+    for event in lines(tail) {
+        if codex {
+            if event["type"] == "event_msg" && event["payload"]["type"] == "turn_aborted" {
+                end = interrupted.clone();
+            }
+            for step in steps(&event, true) {
+                end = match step["role"].as_str() {
+                    Some("agent") => replied(step["text"].as_str().unwrap_or("")),
+                    _ => json!({"kind":"stopped","text":null}),
+                };
+            }
+            continue;
+        }
+        let content = &event["message"]["content"];
+        let text = content.as_str().map(str::to_owned).or_else(|| {
+            content.as_array().map(|parts| {
+                let texts: Vec<&str> = parts
+                    .iter()
+                    .filter(|p| p["type"] == "text")
+                    .filter_map(|p| p["text"].as_str())
+                    .collect();
+                texts.join("\n")
+            })
+        });
+        if event["type"] == "user"
+            && text
+                .as_deref()
+                .is_some_and(|t| t.starts_with("[Request interrupted"))
+        {
+            end = interrupted.clone();
+            continue;
+        }
+        for step in steps(&event, false) {
+            end = match step["role"].as_str() {
+                Some("agent") => replied(step["text"].as_str().unwrap_or("")),
+                Some("note") => continue,
+                _ => json!({"kind":"stopped","text":null}),
+            };
+        }
+    }
+    end
+}
+
+const ENDING_TEXT: usize = 120;
+
 /// The last `limit` turns of a transcript tail: what you said (or a harness note), its tool calls folded, then the agent's final reply.
 pub fn conversation_tail(tail: &str, codex: bool, limit: usize) -> Value {
     #[derive(Default)]
