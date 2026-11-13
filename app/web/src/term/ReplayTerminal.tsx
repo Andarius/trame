@@ -7,7 +7,7 @@ import "@fontsource/jetbrains-mono/latin-400.css";
 import "@fontsource/jetbrains-mono/latin-700.css";
 import { termTheme } from "./term-api";
 import { openLink } from "./TerminalView";
-import { FONT_STACK, scrollbar, theme, URL_RE } from "./xterm-look";
+import { FONT_STACK, onTermZoom, scrollbar, termFontSize, termZoomKey, theme, URL_RE } from "./xterm-look";
 import { PR_HREF, PrPreview } from "../md/chips";
 
 // A read-only terminal showing `text` (ANSI), with the same look as the shells
@@ -18,7 +18,7 @@ export function ReplayTerminal({ text, className }: { text: string; className?: 
     const el = host.current!;
     const term = new Terminal({
       fontFamily: FONT_STACK,
-      fontSize: 13,
+      fontSize: termFontSize(13),
       drawBoldTextInBrightColors: false,
       disableStdin: true,
       cursorInactiveStyle: "none",
@@ -33,7 +33,9 @@ export function ReplayTerminal({ text, className }: { text: string; className?: 
       leave: () => setPr(null),
     }));
     term.open(el);
+    term.attachCustomKeyEventHandler((e) => !termZoomKey(e));
     let alive = true;
+    let baseSize = 13;
     const draw = () => {
       if (!alive) return;
       fit.fit();
@@ -44,7 +46,8 @@ export function ReplayTerminal({ text, className }: { text: string; className?: 
       if (!alive) return;
       if (t) {
         term.options.fontFamily = t.fontFamily ? `"${t.fontFamily}", ${FONT_STACK}` : FONT_STACK;
-        term.options.fontSize = t.fontSize ?? 13;
+        baseSize = t.fontSize ?? 13;
+        term.options.fontSize = termFontSize(baseSize);
       }
       const look = { ...(t?.theme ?? theme()), ...scrollbar() };
       term.options.theme = look;
@@ -58,7 +61,12 @@ export function ReplayTerminal({ text, className }: { text: string; className?: 
       timer = setTimeout(draw, 50);
     });
     observer.observe(el);
+    const unzoom = onTermZoom(() => {
+      term.options.fontSize = termFontSize(baseSize);
+      draw();
+    });
     return () => {
+      unzoom();
       alive = false;
       clearTimeout(timer);
       observer.disconnect();
