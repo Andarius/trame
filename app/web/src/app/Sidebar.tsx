@@ -281,6 +281,7 @@ export function Sidebar(
         onUpdate={onUpdate}
         sidebar={bare ? null : !hidden}
         onToggleSidebar={onToggleHidden}
+        cards={board?.sessions}
       />
       <div className={`flex-col border-r border-line ${bare || hidden ? "hidden" : "flex"} ${wide ? "w-[320px]" : "w-[240px]"}`}>
       {/* the rail marks the view; the column keeps the app's name, like Codex */}

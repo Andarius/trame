@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
-import type { AppStatus, PluginManifest, UpdateInfo } from "../api";
+import type { AppStatus, PluginManifest, Session, UpdateInfo } from "../api";
 import { useAgents } from "../agents/agents";
 import { FRONTEND_PLUGINS } from "../plugins";
 import { useTermDock, useTermSessions } from "../term/term-api";
 import { ChartIcon, GearIcon, LogoMark, SidebarIcon } from "../ui/icons";
 import type { View } from "./view";
+import { WorkspaceBar } from "./WorkspaceBar";
 
 export const NAV: { key: "sessions" | "agents" | "terminals" | "explore" | "insights"; glyph: ReactNode; label: string; view: View }[] = [
   { key: "sessions", glyph: "▦", label: "Sessions", view: "board" },
@@ -74,8 +75,9 @@ const count = (n: number, tone = "bg-chipline text-ink-soft") => (
 
 // Codex-style icon rail: every view one click away, with what needs you as badges; the column beside it follows the view
 export function Rail(
-  { view, pluginId, plugins, onNav, onOpenPlugin, status, onSettings, update, updateState, onUpdate, sidebar, onToggleSidebar }: {
+  { view, pluginId, plugins, onNav, onOpenPlugin, status, onSettings, update, updateState, onUpdate, sidebar, onToggleSidebar, cards }: {
     view: View;
+    cards?: readonly Session[]; // to name the card workspaces
     pluginId: string | null;
     plugins: PluginManifest[];
     onNav: (v: View) => void;
@@ -121,6 +123,8 @@ export function Rail(
       <div className="mb-3">
         <LogoMark debug={status?.debug} />
       </div>
+      <WorkspaceBar cards={cards} />
+      <div className="my-1.5 h-px w-6 bg-line" />
       {/* always rendered, so the icons below never shift between views */}
       <RailButton
         label={sidebar === null ? "No sidebar in this view" : sidebar ? "Hide sidebar" : "Show sidebar"}

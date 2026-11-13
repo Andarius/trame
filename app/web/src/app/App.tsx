@@ -28,6 +28,7 @@ import {
   type UpdateInfo,
 } from "../api";
 import { AgentsContext } from "../agents/agents";
+import { closeWorkspaces, onWorkspaceNavigate, openWorkspace, save, setWorkspaces, workspaceKeys } from "./workspaces";
 import { AgentSessions } from "../agents/AgentSessions";
 import { RecentSession } from "../agents/RecentSession";
 import { cachedScan } from "../agents/scan";
@@ -178,8 +179,15 @@ export function App() {
     if (!globalThis.open?.(u, "_blank")) openInBrowser(u.href);
     return true;
   };
+  // ctrl/⌘ on a card: a new workspace, not a browser tab
+  const inWorkspace = (card: string, search: string) => {
+    if (!modClick.current) return false;
+    modClick.current = false;
+    openWorkspace(card, search);
+    return true;
+  };
   const openSession = (id: string, full = false) => {
-    if (inNewTab({ view: "card", card: id })) return;
+    if (inWorkspace(id, `?view=card&card=${encodeURIComponent(id)}`)) return;
     setDrawerFull(false);
     if (full) {
       // a session opens as its own view, inside the app chrome like a page
@@ -341,11 +349,11 @@ export function App() {
   // drawer only rewrite the current one
   const locKey = (
     v: View,
-    ids: { page?: string | null; db?: string | null; client?: string | null; plugin?: string | null; card?: string | null },
+    ids: { page?: string | null; db?: string | null; client?: string | null; plugin?: string | null; card?: string | null; term?: string | null },
   ) =>
     [v, v === "page" ? ids.page : "", v === "database" ? ids.db : "", v === "client" ? ids.client : "",
-      v === "plugin" ? ids.plugin : "", v === "card" ? ids.card : ""].join("|");
-  const lastLoc = useRef(locKey(view, { page: pageId, db: dbId, client: clientId, plugin: pluginId, card: cardId }));
+      v === "plugin" ? ids.plugin : "", v === "card" ? ids.card : "", v === "terminals" ? ids.term : ""].join("|");
+  const lastLoc = useRef(locKey(view, { page: pageId, db: dbId, client: clientId, plugin: pluginId, card: cardId, term: termSel }));
   // mirror the navigational state into the URL so a refresh/reload restores it
   useEffect(() => {
     const u = new URL(location.href);
@@ -369,11 +377,12 @@ export function App() {
     put("nospecs", null);
     put("q", sessionQuery.trim() || null);
     put("zen", zen ? "1" : null);
-    const k = locKey(view, { page: pageId, db: dbId, client: clientId, plugin: pluginId, card: cardId });
+    const k = locKey(view, { page: pageId, db: dbId, client: clientId, plugin: pluginId, card: cardId, term: termSel });
     if (k !== lastLoc.current) {
       lastLoc.current = k;
       history.pushState(null, "", u);
     } else history.replaceState(null, "", u);
+    setWorkspaces((s) => save(s, u.search)); // the active workspace keeps where it is
   }, [view, pageId, dbId, clientId, pluginId, cardId, termSel, settingsPage, openId, drawerFull, group, sessionQuery, zen]);
   // Browser Back from the full-screen ticket returns to the view behind it (the
   // board for a direct link) instead of leaving the app: the underlying view is
@@ -383,30 +392,50 @@ export function App() {
     const block = new URLSearchParams(location.search).get("block");
     if (block) focusBlock(block);
   }, []);
+  // show a place written in a URL query: Back/Forward, and switching workspace
+  const applyLocation = (q: URLSearchParams) => {
+    const v = (q.get("view") as View | null) ??
+      (q.get("card") ? "card" : q.get("page") ? "page" : q.get("db") ? "database" : q.get("client") ? "client" : q.get("plugin") ? "plugin" : "board");
+    lastLoc.current = locKey(v, {
+      page: q.get("page"),
+      db: q.get("db"),
+      client: q.get("client"),
+      plugin: q.get("plugin"),
+      card: q.get("card"),
+      term: q.get("term"),
+    });
+    setView(v);
+    if (v === "page") setPageId(q.get("page"));
+    if (v === "database") setDbId(q.get("db"));
+    if (v === "client") setClientId(q.get("client"));
+    if (v === "plugin") setPluginId(q.get("plugin"));
+    if (v === "card") setCardId(q.get("card"));
+    if (v === "terminals") setTermSel(q.get("term"));
+    if (v === "settings") setSettingsPage(settingsSection(q.get("section")));
+    setOpenId(q.get("session"));
+    setDrawerFull(false);
+  };
+  useEffect(() => {
+    const off = onWorkspaceNavigate((search) => {
+      const u = new URL(location.href);
+      u.search = search;
+      history.pushState(null, "", u);
+      applyLocation(u.searchParams);
+    });
+    const keys = workspaceKeys();
+    return () => {
+      off();
+      keys();
+    };
+  }, []);
+  // a card marked done takes its workspace with it
+  const doneCards = (board?.sessions ?? []).filter((x) => x.status === "done").map((x) => x.id).join(",");
+  useEffect(() => {
+    if (doneCards) closeWorkspaces(doneCards.split(","));
+  }, [doneCards]);
   useEffect(() => {
     // Back/Forward: restore the location (and drawer) the entry was written with
-    const onPop = () => {
-      const q = new URLSearchParams(location.search);
-      const v = (q.get("view") as View | null) ??
-        (q.get("card") ? "card" : q.get("page") ? "page" : q.get("db") ? "database" : q.get("client") ? "client" : q.get("plugin") ? "plugin" : "board");
-      lastLoc.current = locKey(v, {
-        page: q.get("page"),
-        db: q.get("db"),
-        client: q.get("client"),
-        plugin: q.get("plugin"),
-        card: q.get("card"),
-      });
-      setView(v);
-      if (v === "page") setPageId(q.get("page"));
-      if (v === "database") setDbId(q.get("db"));
-      if (v === "client") setClientId(q.get("client"));
-      if (v === "plugin") setPluginId(q.get("plugin"));
-      if (v === "card") setCardId(q.get("card"));
-      if (v === "terminals") setTermSel(q.get("term"));
-      if (v === "settings") setSettingsPage(settingsSection(q.get("section")));
-      setOpenId(q.get("session"));
-      setDrawerFull(false);
-    };
+    const onPop = () => applyLocation(new URLSearchParams(location.search));
     addEventListener("popstate", onPop);
     return () => removeEventListener("popstate", onPop);
   }, []);
@@ -724,7 +753,9 @@ export function App() {
               selectedTerm={termShell}
               onSelectAll={() => setTermSel("all")}
               onSelectTerm={(id) => setTermSel(`term:${id}`)}
-              onSelect={(card) => setTermSel(card ?? "plain")}
+              onSelect={(card) => {
+                if (!card || !inWorkspace(card, `?view=terminals&term=${encodeURIComponent(card)}`)) setTermSel(card ?? "plain");
+              }}
               onSelectProject={(p) => setTermSel(`project:${p}`)}
               recent={termRecentId}
               history={termHistory}
@@ -774,6 +805,7 @@ export function App() {
               onToggleStar={toggleStar}
               onOpenPage={openPage}
               onRefresh={refresh}
+              cards={board?.sessions}
             />
             {isSessions && (
               <div className="flex rounded-[7px] bg-panel p-[3px]">
