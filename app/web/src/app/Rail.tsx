@@ -3,12 +3,12 @@ import type { AppStatus, PluginManifest, Session, UpdateInfo } from "../api";
 import { useAgents } from "../agents/agents";
 import { FRONTEND_PLUGINS } from "../plugins";
 import { useTermDock, useTermSessions } from "../term/term-api";
-import { CalendarIcon, ChartIcon, GearIcon, LogoMark, SidebarIcon } from "../ui/icons";
+import { BoardIcon, CalendarIcon, ChartIcon, GearIcon, LogoMark, SidebarIcon } from "../ui/icons";
 import type { View } from "./view";
 import { WorkspaceBar } from "./WorkspaceBar";
 
 export const NAV: { key: "sessions" | "agents" | "terminals" | "explore" | "insights"; glyph: ReactNode; label: string; view: View }[] = [
-  { key: "sessions", glyph: "▦", label: "Sessions", view: "board" },
+  { key: "sessions", glyph: <BoardIcon />, label: "Sessions", view: "board" },
   { key: "terminals", glyph: "›_", label: "Agents", view: "terminals" },
   { key: "explore", glyph: "✦", label: "Explore", view: "explore" },
   { key: "insights", glyph: <ChartIcon />, label: "Insights", view: "insights" },
