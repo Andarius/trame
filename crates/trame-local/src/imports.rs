@@ -22,10 +22,10 @@ pub(crate) fn transcript_dir(db: &Db, key: &str, fallback: &str) -> Result<PathB
             .join(fallback)
     } else {
         let home = PathBuf::from(std::env::var_os("HOME").context("HOME unavailable")?);
-        home.join(if key == "TRACKER_CLAUDE_DIR" {
-            ".claude/projects"
-        } else {
-            ".codex/sessions"
+        home.join(match key {
+            "TRACKER_CLAUDE_DIR" => ".claude/projects",
+            "TRACKER_VIBE_DIR" => ".vibe/logs/session",
+            _ => ".codex/sessions",
         })
     };
     let path = if demo {
@@ -161,15 +161,16 @@ fn codex_files(dir: &Path, depth: u8, out: &mut Vec<PathBuf>) {
         }
     }
 }
-pub fn transcript_is_local(db: &Db, source: &str, id: &str) -> Result<bool> {
+/// The transcript file of a Claude or Codex session on this machine.
+fn transcript_path(db: &Db, source: &str, id: &str) -> Result<Option<PathBuf>> {
     if !valid_uuid(id) {
-        return Ok(false);
+        return Ok(None);
     }
     if source == "codex" {
         let dir = transcript_dir(db, "TRACKER_CODEX_DIR", "codex-sessions")?;
         let mut files = Vec::new();
         codex_files(&dir, 0, &mut files);
-        return Ok(files.iter().any(|path| {
+        return Ok(files.into_iter().find(|path| {
             path.file_name()
                 .and_then(|v| v.to_str())
                 .is_some_and(|name| name.ends_with(&format!("{id}.jsonl")))
@@ -178,13 +179,31 @@ pub fn transcript_is_local(db: &Db, source: &str, id: &str) -> Result<bool> {
     if source == "claude" {
         let dir = transcript_dir(db, "TRACKER_CLAUDE_DIR", "claude-projects")?;
         let Ok(projects) = fs::read_dir(dir) else {
-            return Ok(false);
+            return Ok(None);
         };
-        return Ok(projects.flatten().any(|project| {
-            project.path().is_dir() && project.path().join(format!("{id}.jsonl")).is_file()
-        }));
+        return Ok(projects
+            .flatten()
+            .map(|project| project.path().join(format!("{id}.jsonl")))
+            .find(|path| path.is_file()));
     }
-    Ok(false)
+    Ok(None)
+}
+pub fn transcript_is_local(db: &Db, source: &str, id: &str) -> Result<bool> {
+    Ok(transcript_path(db, source, id)?.is_some())
+}
+const TAIL_TURNS: usize = 4;
+/// Where a session left off: the last steps of its conversation, or None when its transcript is not here.
+fn tail(db: &Db, source: &str, id: &str) -> Result<Option<Value>> {
+    let Some(path) = transcript_path(db, source, id)? else {
+        return Ok(None);
+    };
+    // big tool outputs crowd a session's end: read far enough back to find what was said
+    let tail = transcript::read_tail(&path, 4 << 20)?;
+    Ok(Some(transcript::conversation_tail(
+        &tail,
+        source == "codex",
+        TAIL_TURNS,
+    )))
 }
 #[allow(
     clippy::cast_possible_truncation,
@@ -230,7 +249,7 @@ fn scan(db: &mut Db, days: f64) -> Result<Value> {
         if last < cutoff {
             continue;
         }
-        found.push(make_item(
+        let mut item = make_item(
             "codex",
             id,
             cwd,
@@ -239,8 +258,12 @@ fn scan(db: &mut Db, days: f64) -> Result<Value> {
             last,
             &ignored,
             now,
-        ));
+        );
+        item["ended"] = transcript::ending(&tail, true);
+        found.push(item);
     }
+    // a session still running elsewhere is attached to (background) rather than resumed
+    let live = crate::pty::live_claude_sessions();
     if let Ok(projects) = fs::read_dir(&claude_dir) {
         for project in projects.flatten() {
             let name = project.file_name().to_string_lossy().into_owned();
@@ -287,7 +310,7 @@ fn scan(db: &mut Db, days: f64) -> Result<Value> {
                     .as_str()
                     .or_else(|| meta["firstPrompt"].as_str())
                     .or_else(|| meta["lastPrompt"].as_str());
-                found.push(make_item(
+                let mut item = make_item(
                     "claude",
                     id,
                     &cwd,
@@ -296,7 +319,12 @@ fn scan(db: &mut Db, days: f64) -> Result<Value> {
                     last,
                     &ignored,
                     now,
-                ));
+                );
+                item["ended"] = transcript::ending(&tail, false);
+                if let Some(live) = live.get(id) {
+                    item["live"] = live.clone();
+                }
+                found.push(item);
             }
         }
     }
@@ -422,7 +450,10 @@ fn import(db: &mut Db, body: &Value) -> Result<Value> {
 }
 
 pub fn owns(_method: &str, path: &str) -> bool {
-    matches!(path, "/api/import/claude" | "/api/import/claude/ignore")
+    matches!(
+        path,
+        "/api/import/claude" | "/api/import/claude/ignore" | "/api/import/claude/tail"
+    )
 }
 pub fn handle(
     db: &mut Db,
@@ -438,6 +469,20 @@ pub fn handle(
         let result = match (method, path) {
             ("POST", "/api/import/claude/ignore") => set_ignored(db, body)?,
             ("POST", "/api/import/claude") => import(db, body)?,
+            (_, "/api/import/claude/tail") => {
+                let params = reqwest::Url::parse(&format!("http://localhost/?{query}"))?;
+                let get = |key: &str| {
+                    params
+                        .query_pairs()
+                        .find(|(k, _)| k == key)
+                        .map(|(_, v)| v.into_owned())
+                        .unwrap_or_default()
+                };
+                match tail(db, &get("source"), &get("id"))? {
+                    Some(tail) => tail,
+                    None => return Ok((404, json!({"error":"transcript not found"}))),
+                }
+            }
             (_, "/api/import/claude") => {
                 let params = reqwest::Url::parse(&format!("http://localhost/?{query}"))?;
                 let days = params

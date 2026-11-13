@@ -951,11 +951,16 @@ export function useLocalStorage<T>(key: string, init: T, codec: Codec<T>) {
   useEffect(() => {
     persist(cur.key, cur.value);
   }, [cur.key, cur.value]);
-  const setValue = useCallback(
-    (v: T | ((prev: T) => T)) =>
-      setEntry((p) => ({ key: p.key, value: typeof v === "function" ? (v as (prev: T) => T)(p.value) : v })),
-    [],
-  );
+  // written right away: a component that sets then unmounts (a dialog closing) never runs the effect above
+  const latest = useRef({ entry: cur, codec });
+  latest.current = { entry: cur, codec };
+  const setValue = useCallback((v: T | ((prev: T) => T)) => {
+    const { entry: p, codec: c } = latest.current;
+    const next = { key: p.key, value: typeof v === "function" ? (v as (prev: T) => T)(p.value) : v };
+    writeStore(next.key, c.stringify(next.value));
+    latest.current = { entry: next, codec: c };
+    setEntry(next);
+  }, []);
   return [cur.value, setValue] as const;
 }
 
