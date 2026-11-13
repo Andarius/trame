@@ -4,13 +4,13 @@ import { DndContext, DragOverlay, type DragEndEvent, type DragStartEvent, Pointe
 import { type AppStatus, type BoardData, getIdentity, type PageMeta, type PluginManifest, type UdbMeta, type UpdateInfo } from "../api";
 import { useAgents } from "../agents/agents";
 import { WorkingNow } from "./WorkingNow";
-import { useDue } from "../ui/due";
+import { dueTone, useDue } from "../ui/due";
 import { DueList } from "./DueList";
 import { recentRows } from "./recents";
 import type { View } from "./view";
 import { Rail } from "./Rail";
 import { ArchivedFold, isSharedIn, type LiveCount, LiveCounts, LiveMarker, PageNode, RECENTS_KEY, RECENTS_LONG, RECENTS_SHORT, splitArchived, UnfiledZone } from "./sidebar-tree";
-import { SET_CODEC, useLocalStorage, EntityIcon, FoldLabel, pageGlyph, SECTION_LABEL, timeAgo, PresenceDot, useFold } from "../ui/ui";
+import { BOOL_CODEC, SET_CODEC, useLocalStorage, EntityIcon, FoldLabel, pageGlyph, SECTION_LABEL, timeAgo, PresenceDot, useFold } from "../ui/ui";
 
 
 // "New …" affordance under a sidebar section — a subtle dashed chip. `indent` is
@@ -165,6 +165,16 @@ export function Sidebar(
     return m;
   }, [live, byId]);
   const runningRef = useRef<HTMLDivElement>(null);
+  // Due from the rail: its list takes the column over whatever view is open, until the rail moves on
+  const [dueOpen, setDueOpen] = useLocalStorage("trame:dueColumn", false, BOOL_CODEC);
+  const late = due.some((d) => dueTone(d.due) === "late");
+  const dueColumn = (
+    <>
+      {due.length > 0
+        ? <DueList due={due} board={board} onOpenPage={onOpenPage} onOpenTerminals={onOpenTerminals} />
+        : <div className="px-2 pt-4 text-[12.5px] text-ink-faint">Nothing due this week.</div>}
+    </>
+  );
 
   // the whole tree by mtime — sliced short/long at render
   const recentsOpen = expanded.has(RECENTS_KEY);
@@ -272,18 +282,29 @@ export function Sidebar(
         view={view}
         pluginId={pluginId}
         plugins={plugins}
-        onNav={onNav}
-        onOpenPlugin={onOpenPlugin}
+        onNav={(v) => {
+          setDueOpen(false);
+          onNav(v);
+        }}
+        onOpenPlugin={(id) => {
+          setDueOpen(false);
+          onOpenPlugin(id);
+        }}
+        due={{ count: due.length, late, open: dueOpen }}
+        onToggleDue={() => {
+          if (!dueOpen && hidden) onToggleHidden();
+          setDueOpen(!dueOpen);
+        }}
         status={status}
         onSettings={onSettings}
         update={update}
         updateState={updateState}
         onUpdate={onUpdate}
-        sidebar={bare ? null : !hidden}
+        sidebar={bare && !dueOpen ? null : !hidden}
         onToggleSidebar={onToggleHidden}
         cards={board?.sessions}
       />
-      <div className={`flex-col border-r border-line ${bare || hidden ? "hidden" : "flex"} ${wide ? "w-[320px]" : "w-[240px]"}`}>
+      <div className={`flex-col border-r border-line ${(bare && !dueOpen) || hidden ? "hidden" : "flex"} ${wide ? "w-[320px]" : "w-[240px]"}`}>
       {/* the rail marks the view; the column keeps the app's name, like Codex */}
       <div className="flex h-12 shrink-0 items-center gap-2.5 px-5">
         <span className="text-[15px] font-semibold">Trame</span>
@@ -294,12 +315,11 @@ export function Sidebar(
         )}
       </div>
       <div className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 pb-3">
-      {column ?? (
+      {dueOpen ? dueColumn : column ?? (
       <>
       <div ref={runningRef}>
         <WorkingNow board={board} onOpenSession={onOpenSession} onOpenTerminals={onOpenTerminals} onOpenPage={onOpenPage} />
       </div>
-      {due.length > 0 && <DueList due={due} board={board} onOpenPage={onOpenPage} onOpenTerminals={onOpenTerminals} />}
       {recents.length > 0 && (
         <>
           <div className={`flex px-2 pb-1.5 pt-4 ${SECTION_LABEL}`}>

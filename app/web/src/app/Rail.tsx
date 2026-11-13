@@ -3,7 +3,7 @@ import type { AppStatus, PluginManifest, Session, UpdateInfo } from "../api";
 import { useAgents } from "../agents/agents";
 import { FRONTEND_PLUGINS } from "../plugins";
 import { useTermDock, useTermSessions } from "../term/term-api";
-import { ChartIcon, GearIcon, LogoMark, SidebarIcon } from "../ui/icons";
+import { CalendarIcon, ChartIcon, GearIcon, LogoMark, SidebarIcon } from "../ui/icons";
 import type { View } from "./view";
 import { WorkspaceBar } from "./WorkspaceBar";
 
@@ -75,8 +75,10 @@ const count = (n: number, tone = "bg-chipline text-ink-soft") => (
 
 // Codex-style icon rail: every view one click away, with what needs you as badges; the column beside it follows the view
 export function Rail(
-  { view, pluginId, plugins, onNav, onOpenPlugin, status, onSettings, update, updateState, onUpdate, sidebar, onToggleSidebar, cards }: {
+  { view, pluginId, plugins, onNav, onOpenPlugin, status, onSettings, update, updateState, onUpdate, sidebar, onToggleSidebar, cards, due, onToggleDue }: {
     view: View;
+    due: { count: number; late: boolean; open: boolean }; // dated todos: the badge, and whether their column is shown
+    onToggleDue: () => void;
     cards?: readonly Session[]; // to name the card workspaces
     pluginId: string | null;
     plugins: PluginManifest[];
@@ -98,7 +100,7 @@ export function Rail(
     ...live.filter((l) => l.state === "waiting").map((l) => l.a.session_id),
     ...useTermSessions().filter((x) => x.waiting).map((x) => x.term),
   ]).size;
-  const active = railKey(view, pluginId);
+  const active = due.open ? "due" : railKey(view, pluginId);
   const synced = status?.remote && status.lastSync;
   const hintOf = (key: string) =>
     key !== "terminals"
@@ -147,6 +149,15 @@ export function Rail(
           {n.glyph}
         </RailButton>
       ))}
+      <RailButton
+        label="Due"
+        hint={due.count ? `${due.count} this week${due.late ? ", some late" : ""}` : undefined}
+        active={due.open}
+        onClick={onToggleDue}
+        badge={due.count ? count(due.count, due.late ? "bg-blocked/25 text-blocked" : undefined) : undefined}
+      >
+        <CalendarIcon />
+      </RailButton>
       <div className="my-1.5 h-px w-6 bg-line" />
       {plugins.filter((p) => p.enabled && FRONTEND_PLUGINS.some((f) => f.id === p.id && f.Panel)).map((p) => (
         <RailButton
