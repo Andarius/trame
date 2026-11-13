@@ -37,13 +37,17 @@ export function UpdateBanner(
   },
 ) {
   if (!update || !(update.available || update.applied) || dismissed) return null;
+  // only missing plugins, no release to take: the banner is about getting them back
+  const missing = update.missing?.length && !update.plugins?.length && !(update.latest && update.latest !== update.current)
+    ? update.missing.map((r) => r.split("/").pop()).join(", ")
+    : "";
   return (
     <div className="fixed bottom-4 right-4 z-[60] flex w-[320px] flex-col gap-2.5 rounded-xl border border-overlay-border bg-panel-modal p-3.5 shadow-2xl shadow-black/50">
       {updateState === "done"
         ? (
           <>
             <p className="m-0 text-[12.5px] font-medium text-ink">
-              ✓ Updated to {updateLabel(update)}
+              ✓ {missing ? "Rebuilt with your plugins" : `Updated to ${updateLabel(update)}`}
             </p>
             <p className="m-0 text-[11.5px] leading-relaxed text-ink-muted">
               {update.rebuild ? "Rebuilt with your plugins" : "Downloaded in the background"} — restart Trame to run it.
@@ -69,7 +73,8 @@ export function UpdateBanner(
         : (
           <>
             <p className="m-0 text-[12.5px] font-medium text-ink">
-              <span className="text-copper">↑</span> {updateLabel(update)} available
+              <span className="text-copper">↑</span>{" "}
+              {missing ? `Plugins missing: ${missing}` : `${updateLabel(update)} available`}
             </p>
             <p className="m-0 text-[11.5px] text-ink-muted">
               You're on v{update.current}.{" "}
@@ -80,7 +85,9 @@ export function UpdateBanner(
               >
                 Release notes
               </button>
-              {update.rebuild && " Updating rebuilds Trame with your plugins (a few minutes)."}
+              {missing
+                ? " This install lacks the plugins you added; rebuilding brings them back (a few minutes)."
+                : update.rebuild && " Updating rebuilds Trame with your plugins (a few minutes)."}
             </p>
             {update.building && <RebuildProgress building={update.building} />}
             {updateError && <p className="m-0 text-[11.5px] text-blocked">{updateError}</p>}
@@ -100,6 +107,8 @@ export function UpdateBanner(
               >
                 {updateState === "busy" || update.building
                   ? update.rebuild ? "Rebuilding…" : "Updating…"
+                  : missing
+                  ? "Rebuild now"
                   : update.canSelfUpdate
                   ? "Update now"
                   : "Open release"}

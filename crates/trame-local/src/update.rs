@@ -436,14 +436,35 @@ pub fn restart(desktop: bool) -> Value {
 }
 
 /// Plugins of this build with a newer release that a rebuild would pick up (not pinned in plugins.json).
-async fn pending_plugins(root: &Path, settings: &Path) -> Vec<Value> {
+/// The `owner/name[@tag]` specs `tramecli plugins add` listed in plugins.json.
+fn listed_plugins(root: &Path) -> Vec<String> {
     let list = std::env::var_os("TRAME_PLUGINS_FILE")
         .map_or_else(|| root.join("plugins.json"), PathBuf::from);
-    let specs: Vec<String> = std::fs::read_to_string(list)
+    std::fs::read_to_string(list)
         .ok()
         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
         .and_then(|v| serde_json::from_value(v["plugins"].clone()).ok())
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+/// Listed plugins this build does not contain: a stock release installed over a plugin build.
+fn missing_plugins(specs: &[String], manifests: &[Value]) -> Vec<String> {
+    specs
+        .iter()
+        .map(|s| s.split_once('@').map_or(s.as_str(), |(repo, _)| repo))
+        .filter(|repo| {
+            !manifests.iter().any(|m| {
+                m["repo"]
+                    .as_str()
+                    .is_some_and(|r| r.eq_ignore_ascii_case(repo))
+            })
+        })
+        .map(str::to_owned)
+        .collect()
+}
+
+async fn pending_plugins(root: &Path, settings: &Path) -> Vec<Value> {
+    let specs = listed_plugins(root);
     let pinned = |repo: &str| {
         specs.iter().any(|s| {
             s.split_once('@')
@@ -606,7 +627,16 @@ pub async fn serve(
     }
     let target = target();
     let endpoint = endpoint(repo);
-    if rebuilds() {
+    // a stock AppImage over a plugin build: offer the rebuild that brings the plugins back
+    let missing = if rebuilds() || !matches!(target, Some(Target::AppImage(_))) {
+        Vec::new()
+    } else {
+        missing_plugins(
+            &listed_plugins(root),
+            &crate::plugins::manifest_list(settings),
+        )
+    };
+    if rebuilds() || !missing.is_empty() {
         let image = match &target {
             Some(Target::AppImage(path)) => Some(path.clone()),
             _ => None,
@@ -618,10 +648,13 @@ pub async fn serve(
             .await;
         let plugins = pending_plugins(root, settings).await;
         let trame_newer = info["available"] == true;
-        if !plugins.is_empty() && info["applied"] != true {
+        if !(plugins.is_empty() && missing.is_empty()) && info["applied"] != true {
             info["available"] = json!(true);
         }
         info["plugins"] = json!(plugins);
+        if !missing.is_empty() {
+            info["missing"] = json!(missing);
+        }
         info["rebuild"] = json!(true);
         if let Some(since) = *building_since() {
             info["building"] = build_progress(&root.join("plugins-build.log"), since);
@@ -656,6 +689,25 @@ pub async fn serve(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn listed_plugins_this_build_lacks_are_missing() {
+        let manifests = [
+            json!({"id": "k8s", "repo": "Acme/trame-k8s"}),
+            json!({"id": "notebook"}),
+        ];
+        for (specs, missing) in [
+            (vec![], vec![]),
+            (vec!["acme/trame-k8s@v1.2.0"], vec![]),
+            (
+                vec!["Acme/trame-k8s", "Globex/trame-cockpit@v0.3.0"],
+                vec!["Globex/trame-cockpit"],
+            ),
+        ] {
+            let specs: Vec<String> = specs.into_iter().map(str::to_owned).collect();
+            assert_eq!(missing_plugins(&specs, &manifests), missing, "{specs:?}");
+        }
+    }
+
     #[test]
     fn rebuild_progress_reads_the_last_phase_and_line() {
         for (log, phase, line) in [
