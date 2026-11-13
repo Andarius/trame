@@ -312,7 +312,37 @@ fn conversation_tail_keeps_each_turns_ask_and_final_reply() {
         json!({"type":"response_item","payload":{"type":"function_call","name":"shell"}}),
         json!({"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Done."}]}}),
     ]);
+    let long = format!("{}. {}", "a".repeat(500), "b".repeat(200));
+    let harness = jsonl(&[
+        json!({"type":"user","message":{"content":"Another Claude session sent a message:\n<agent-message>done</agent-message>"}}),
+        json!({"type":"assistant","message":{"content":[
+            {"type":"tool_use","name":"Bash","input":{"command":"gh pr merge 12 --squash\necho ok"}},
+            {"type":"tool_use","name":"Edit","input":{"file_path":"/repo/src/pty.rs"}},
+        ]}}),
+        json!({"type":"assistant","message":{"content":[{"type":"text","text":long}]}}),
+        json!({"type":"user","message":{"content":"This session is being continued from a previous conversation."}}),
+    ]);
+    let codex_args = jsonl(&[
+        json!({"type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"cargo\",\"test\"]}"}}),
+    ]);
     for (tail, is_codex, limit, expected) in [
+        (
+            &harness,
+            false,
+            10,
+            json!({"more":false,"steps":[
+                {"role":"note","text":"message from another session"},
+                {"role":"tools","tools":["Bash(gh pr merge 12 --squash)","Edit(pty.rs)"]},
+                {"role":"agent","text":format!("{}. …", "a".repeat(500))},
+                {"role":"note","text":"continued from a previous conversation"},
+            ]}),
+        ),
+        (
+            &codex_args,
+            true,
+            10,
+            json!({"more":false,"steps":[{"role":"tools","tools":["shell(cargo test)"]}]}),
+        ),
         (
             &claude,
             false,
