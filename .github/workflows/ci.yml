@@ -44,11 +44,7 @@ jobs:
         run: cargo clippy -p trame-local -p trame-desktop --no-default-features --all-targets --locked -- -D warnings
 
       - name: WebAssembly fixture matches its source
-        run: |
-          rustup target add wasm32-wasip2
-          cd crates/trame-local/tests/fixtures/wasm-hello
-          CARGO_TARGET_DIR="$GITHUB_WORKSPACE/.scratch/wasm-target" cargo build --target wasm32-wasip2 --release --locked
-          cmp "$GITHUB_WORKSPACE/.scratch/wasm-target/wasm32-wasip2/release/trame_wasm_hello.wasm" plugin.wasm
+        run: bash scripts/wasm-fixture.sh --check
 
       - name: Shared protocol and frontend unit tests
         run: |

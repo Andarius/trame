@@ -83,9 +83,7 @@ wasm-plugin-install dir:
 # Rebuild the WebAssembly test fixture from its source
 [group('dev')]
 wasm-fixture:
-    rustup target add wasm32-wasip2
-    cd crates/trame-local/tests/fixtures/wasm-hello && CARGO_TARGET_DIR="$PWD/../../../../../.scratch/wasm-target" cargo build --target wasm32-wasip2 --release
-    cp .scratch/wasm-target/wasm32-wasip2/release/trame_wasm_hello.wasm crates/trame-local/tests/fixtures/wasm-hello/plugin.wasm
+    bash scripts/wasm-fixture.sh
 
 # Run the native desktop app
 [group('dev')]

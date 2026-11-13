@@ -1,5 +1,5 @@
 # A minimal WebAssembly plugin: the integration tests' fixture and a template to copy.
-# Build: `just wasm-fixture` (cargo build --target wasm32-wasip2 --release).
+# Build: `just wasm-fixture` (scripts/wasm-fixture.sh).
 [package]
 name = "trame-wasm-hello"
 version = "0.1.0"
