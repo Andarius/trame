@@ -608,6 +608,7 @@ struct AgentSession {
     busy: bool,
     waiting: Option<String>, // what it waits on you for ("input needed", a permission), when it does
     started_at: Option<u64>, // epoch ms, Claude only
+    updated_at: Option<u64>, // epoch ms of its last status change, Claude only
 }
 
 #[derive(Debug, PartialEq, serde::Serialize)]
@@ -665,6 +666,7 @@ fn parse_claude_session(file: &Value) -> Option<AgentSession> {
         busy: file["status"] == "busy",
         waiting,
         started_at: file["startedAt"].as_u64(),
+        updated_at: file["updatedAt"].as_u64(),
     })
 }
 
@@ -708,6 +710,7 @@ fn running_agents(
                     busy: false,
                     waiting: None,
                     started_at: None,
+                    updated_at: None,
                 })
             };
             let found = session_of(p.pid)
@@ -1342,6 +1345,7 @@ mod tests {
             busy: true,
             waiting: None,
             started_at: Some(1),
+            updated_at: Some(2),
         };
         let session = |pid| match pid {
             11 => Some(claude("c-1")),
@@ -1351,8 +1355,8 @@ mod tests {
         assert_eq!(
             json!(running_agents(&all, &shells, session)),
             json!([
-                {"term":"t1","agent":"claude","id":"c-1","name":"test","named":true,"busy":true,"waiting":null,"started_at":1},
-                {"term":"t2","agent":"codex","id":"x-2","name":null,"named":false,"busy":false,"waiting":null,"started_at":null},
+                {"term":"t1","agent":"claude","id":"c-1","name":"test","named":true,"busy":true,"waiting":null,"started_at":1,"updated_at":2},
+                {"term":"t2","agent":"codex","id":"x-2","name":null,"named":false,"busy":false,"waiting":null,"started_at":null,"updated_at":null},
             ])
         );
     }

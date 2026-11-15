@@ -3,7 +3,7 @@ import type { BoardData, ClaudeSession, Session } from "../api";
 import { RecentList } from "../agents/RecentList";
 import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
-import { appConfirm, EntityIcon, enumCodec, SECTION_LABEL, StatusDot, useLocalStorage } from "../ui/ui";
+import { appConfirm, EntityIcon, enumCodec, MenuRow, Popover, SECTION_LABEL, StatusDot, useLocalStorage } from "../ui/ui";
 import { LinkCardDialog } from "./LinkCardDialog";
 import { NewTerminalDialog } from "./NewTerminalDialog";
 import { closeTerminal, revealTerminal, sessionLabel, setTermDrag, tabCards, type TermDrag, type TermSession, useTermDock, useTermSessions } from "./term-api";
@@ -49,7 +49,9 @@ export function TermCards(
   const [grouping, setGrouping] = useLocalStorage<Grouping>("trame:termGrouping", "project", enumCodec(GROUPINGS));
   const [menuFor, setMenuFor] = useState<string | null>(null); // the project right-clicked for a new terminal
   const [newOpen, setNewOpen] = useState(false);
-  const [linkFor, setLinkFor] = useState<string | null>(null); // the shell right-clicked to link to a card
+  const [linkFor, setLinkFor] = useState<string | null>(null); // the shell to link to a card
+  // the row right-clicked: the shell it can link to a card, the shells it can close
+  const [menu, setMenu] = useState<{ key: string; link?: string; close: string[]; what: string } | null>(null);
   const [marked, setMarked] = useState<string[]>([]); // cards Ctrl/⌘/Shift-clicked, to close their shells at once
   const [anchor, setAnchor] = useState<string | null>(null); // where a Shift-click range starts
   const { live } = useAgents();
@@ -78,7 +80,8 @@ export function TermCards(
     const card = terms[x.term]?.card;
     return !(card && known.has(card));
   });
-  const loose = cardless.filter((x) => !x.waiting);
+  const seen = (x: TermSession) => x.updated_at ?? x.started_at ?? 0;
+  const loose = cardless.filter((x) => !x.waiting).sort((a, b) => seen(b) - seen(a));
   // a shell running one of those sessions is listed by its session row, not counted again as a project or plain shell
   const sessionShells = new Set(cardless.map((x) => x.term));
   for (const t of Object.values(terms)) {
@@ -98,7 +101,7 @@ export function TermCards(
   const other = loose.filter((x) => !looseProject(x));
   const cards = (board?.sessions ?? []).filter((s) =>
     (shells.has(s.id) || agentOf.has(s.id) || s.id === selected) && !askingCard.has(s.id)
-  );
+  ).sort((a, b) => b.last_touched.localeCompare(a.last_touched));
   const keyOf = (s: Session) => grouping === "project" ? s.client_id : grouping === "status" ? s.status : "all";
   const groups = new Map<string | null, Session[]>();
   for (const s of cards) groups.set(keyOf(s), [...(groups.get(keyOf(s)) ?? []), s]);
@@ -126,20 +129,51 @@ export function TermCards(
   const everyShell = Object.values(terms);
   // right-clicking a group of shells links the focused one when it is in the group, else its only one
   const focused = tabs.find((t) => t.id === active)?.focus;
-  const linkable = (inGroup: (t: (typeof everyShell)[number]) => boolean) => {
-    const group = everyShell.filter(inGroup);
-    const target = group.find((t) => t.id === focused) ?? (group.length === 1 ? group[0] : undefined);
-    return target
-      ? (e: React.MouseEvent) => {
-        e.preventDefault();
-        setLinkFor(target.id);
-      }
-      : undefined;
+  const shellsOf = (inGroup: (t: (typeof everyShell)[number]) => boolean) => everyShell.filter(inGroup);
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  // right-click: link the group's focused shell (else its only one) to a card, or close the group's shells
+  const menuOn = (key: string, group: (typeof everyShell)[number][], what?: string) => {
+    const link = what ? undefined : group.find((t) => t.id === focused) ?? (group.length === 1 ? group[0] : undefined);
+    if (group.length === 0) return undefined;
+    return (e: React.MouseEvent) => {
+      e.preventDefault();
+      setMenu({ key, link: link?.id, close: group.map((t) => t.id), what: what ?? plural(group.length, "shell") });
+    };
   };
+  const menuAt = (key: string) =>
+    menu?.key === key && (
+      <Popover portal onClose={() => setMenu(null)} className="w-44">
+        {menu.link && (
+          <MenuRow
+            onClick={() => {
+              setLinkFor(menu.link!);
+              setMenu(null);
+            }}
+          >
+            Link to card…
+          </MenuRow>
+        )}
+        <MenuRow
+          className="hover:text-blocked"
+          onClick={() => {
+            const { close, what } = menu;
+            setMenu(null);
+            void closeShells(close, what);
+          }}
+        >
+          Close {menu.close.length === 1 ? "shell" : "shells"}
+        </MenuRow>
+      </Popover>
+    );
   const plainShell = (t: (typeof everyShell)[number]) =>
     !(t.card && known.has(t.card)) && !(t.project && knownProjects.has(t.project));
   const projectRow = (p: string, label: string) => (
-    <div key={`project:${p}`} onContextMenu={linkable((t) => !(t.card && known.has(t.card)) && t.project === p)}>
+    <div
+      key={`project:${p}`}
+      className="relative"
+      onContextMenu={menuOn(`project:${p}`, shellsOf((t) => !(t.card && known.has(t.card)) && t.project === p))}
+    >
+      {menuAt(`project:${p}`)}
       {row(`project:${p}`, selectedProject === p, () => onSelectProject(p), (
         <span className="flex w-full items-center gap-2">
           <span className="w-[7px] text-center text-ink-faint">·</span>
@@ -169,12 +203,15 @@ export function TermCards(
       onSelect(id);
     }
   };
-  const closeMarked = async () => {
-    const ids = everyShell.filter((t) => t.card && picked.includes(t.card)).map((t) => t.id);
-    const what = `${ids.length} shell${ids.length === 1 ? "" : "s"} of ${picked.length} card${picked.length === 1 ? "" : "s"}`;
+  const closeShells = async (ids: string[], what: string) => {
     if (!(await appConfirm(`Close ${what}? Agents running in them stop.`, "Close"))) return;
     setMarked([]);
     for (const id of ids) await closeTerminal(id);
+  };
+  const markedShells = () => shellsOf((t) => !!t.card && picked.includes(t.card));
+  const closeMarked = () => {
+    const ids = markedShells().map((t) => t.id);
+    return closeShells(ids, `${plural(ids.length, "shell")} of ${plural(picked.length, "card")}`);
   };
 
   const row = (
@@ -210,12 +247,11 @@ export function TermCards(
   const sessionRow = (x: TermSession) => (
     <div
       key={`term:${x.term}:${x.id}`}
-      title="right-click: link to a card"
-      onContextMenu={(e) => {
-        e.preventDefault();
-        setLinkFor(x.term);
-      }}
+      className="relative"
+      title="right-click: link to a card, close"
+      onContextMenu={menuOn(`term:${x.term}:${x.id}`, shellsOf((t) => t.id === x.term))}
     >
+      {menuAt(`term:${x.term}:${x.id}`)}
       {row(`term:${x.term}:${x.id}`, selectedTerm === x.term, () => {
       onSelectTerm(x.term);
       void revealTerminal(x.term);
@@ -232,7 +268,7 @@ export function TermCards(
           <span className="min-w-0 flex-1 truncate">
             {x.waiting ? `needs you: ${x.waiting}` : x.busy ? "working" : "idle"}
           </span>
-          {x.started_at && <span className="shrink-0 font-mono text-[10px] tabular-nums">{age(x.started_at)}</span>}
+          {seen(x) > 0 && <span className="shrink-0 font-mono text-[10px] tabular-nums" title="last update">{age(seen(x))}</span>}
         </span>
       </>
     ))}
@@ -359,7 +395,14 @@ export function TermCards(
           {key && loose.filter((x) => looseProject(x) === key).map(sessionRow)}
           {groups.get(key)!.map((s) => {
             return (
-              <div key={s.id} onContextMenu={linkable((t) => t.card === s.id)}>
+              <div
+                key={s.id}
+                className="relative"
+                onContextMenu={picked.length > 1 && picked.includes(s.id)
+                  ? menuOn(s.id, markedShells(), `${plural(markedShells().length, "shell")} of ${plural(picked.length, "card")}`)
+                  : menuOn(s.id, shellsOf((t) => t.card === s.id))}
+              >
+                {menuAt(s.id)}
                 {row(s.id, s.id === selected, (e) => clickCard(e, s.id), (
                   <>
                     <span className="flex w-full items-center gap-2">
@@ -381,7 +424,8 @@ export function TermCards(
           {grouping !== "project" && [...projectShells.keys()].map((p) => projectRow(p, `${projectName(board, p)} shells`))}
           {other.map(sessionRow)}
           {plain > 0 && (
-            <div onContextMenu={linkable(plainShell)}>
+            <div className="relative" onContextMenu={menuOn("plain", shellsOf(plainShell))}>
+              {menuAt("plain")}
               {row("plain", selected === null && !selectedProject && !all && !selectedTerm, () => onSelect(null), (
                 <span className="flex w-full items-center gap-2">
                   <span className="w-[7px] text-center text-ink-faint">·</span>
