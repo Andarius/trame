@@ -75,7 +75,7 @@ jobs:
           ref: ${{ needs.prepare.outputs.commit }}
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: "22.23.4"
+          node-version: "22.23.5"
       - name: Install Rust and native build libraries
         run: |
           rustup toolchain install  # reads rust-toolchain.toml
@@ -111,7 +111,7 @@ jobs:
           ref: ${{ needs.prepare.outputs.commit }}
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: "22.23.4"
+          node-version: "22.23.5"
       - name: Build dmg (ad-hoc signed)
         run: |
           rustup toolchain install  # reads rust-toolchain.toml
