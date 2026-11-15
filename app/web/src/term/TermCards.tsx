@@ -36,7 +36,7 @@ export function TermCards(
     all: boolean; // every shell is shown (selected and selectedProject are then null)
     selectedTerm: string | null; // the shell of an agent session (the others are then null)
     onSelectAll: () => void;
-    onSelectTerm: (term: string) => void;
+    onSelectTerm: (term: string, name: string) => void; // Ctrl/⌘ held: opens it as a side tab
     onSelect: (card: string | null) => void;
     onSelectProject: (project: string) => void;
     recent: string | null; // the past session shown
@@ -52,7 +52,7 @@ export function TermCards(
   const [linkFor, setLinkFor] = useState<string | null>(null); // the shell to link to a card
   // the row right-clicked: the shell it can link to a card, the shells it can close
   const [menu, setMenu] = useState<{ key: string; link?: string; close: string[]; what: string } | null>(null);
-  const [marked, setMarked] = useState<string[]>([]); // cards Ctrl/⌘/Shift-clicked, to close their shells at once
+  const [marked, setMarked] = useState<string[]>([]); // cards Shift-clicked, to close their shells at once
   const [anchor, setAnchor] = useState<string | null>(null); // where a Shift-click range starts
   const { live } = useAgents();
   const agentOf = new Map<string, Live>(live.map((l) => [l.a.session_id, l]));
@@ -187,16 +187,17 @@ export function TermCards(
   // listed card rows, top to bottom, for Shift-click ranges
   const order = keys.flatMap((k) => groups.get(k)!.map((s) => s.id));
   const picked = marked.filter((id) => order.includes(id));
+  // Shift: a range from the last clicked card; Ctrl/⌘+Shift: one more or less; Ctrl/⌘ alone: a side tab (App)
   const clickCard = (e: React.MouseEvent, id: string) => {
-    if (e.shiftKey) {
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
+      const base = picked.length === 0 && selected && order.includes(selected) ? [selected] : picked;
+      setMarked(base.includes(id) ? base.filter((x) => x !== id) : [...base, id]);
+      setAnchor(id);
+    } else if (e.shiftKey) {
       const from = order.indexOf(anchor ?? selected ?? id);
       const to = order.indexOf(id);
       const [a, b] = from < 0 ? [to, to] : [Math.min(from, to), Math.max(from, to)];
       setMarked([...new Set([...picked, ...order.slice(a, b + 1)])]);
-    } else if (e.ctrlKey || e.metaKey) {
-      const base = picked.length === 0 && selected && order.includes(selected) ? [selected] : picked;
-      setMarked(base.includes(id) ? base.filter((x) => x !== id) : [...base, id]);
-      setAnchor(id);
     } else {
       setMarked([]);
       setAnchor(id);
@@ -253,7 +254,7 @@ export function TermCards(
     >
       {menuAt(`term:${x.term}:${x.id}`)}
       {row(`term:${x.term}:${x.id}`, selectedTerm === x.term, () => {
-      onSelectTerm(x.term);
+      onSelectTerm(x.term, sessionLabel(x));
       void revealTerminal(x.term);
     }, (
       <>

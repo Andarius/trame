@@ -180,10 +180,10 @@ export function App() {
     return true;
   };
   // ctrl/⌘ on a card: a new workspace, not a browser tab
-  const inWorkspace = (card: string, search: string) => {
+  const inWorkspace = (card: string, search: string, name?: string) => {
     if (!modClick.current) return false;
     modClick.current = false;
-    openWorkspace(card, search);
+    openWorkspace(card, search, name);
     return true;
   };
   const openSession = (id: string, full = false) => {
@@ -752,7 +752,10 @@ export function App() {
               all={termAll}
               selectedTerm={termShell}
               onSelectAll={() => setTermSel("all")}
-              onSelectTerm={(id) => setTermSel(`term:${id}`)}
+              onSelectTerm={(id, name) => {
+                const sel = `term:${id}`;
+                if (!inWorkspace(sel, `?view=terminals&term=${encodeURIComponent(sel)}`, name)) setTermSel(sel);
+              }}
               onSelect={(card) => {
                 if (!card || !inWorkspace(card, `?view=terminals&term=${encodeURIComponent(card)}`)) setTermSel(card ?? "plain");
               }}
