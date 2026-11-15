@@ -259,6 +259,9 @@ export const getAgentPresence = async (): Promise<LiveAgent[]> => {
   return data as LiveAgent[];
 };
 export type { DueTodo } from "../../../core/due.ts";
+// due todos may have changed: every useDue reloads
+export const DUE_CHANGED = "trame:due-changed";
+export const refreshDue = () => dispatchEvent(new Event(DUE_CHANGED));
 export const getDue = async (): Promise<import("../../../core/due.ts").DueTodo[]> => {
   const r = await fetch("/api/due");
   if (!r.ok) throw new Error(`due: ${r.status}`);
@@ -830,7 +833,11 @@ export const updatePage = (
     color?: string | null;
     tags?: string[];
   },
-) => post(`/api/pages/${id}`, patch).then(jsonOrThrow);
+) =>
+  post(`/api/pages/${id}`, patch).then(jsonOrThrow).then((v) => {
+    if (patch.content) refreshDue();
+    return v;
+  });
 
 export type Tag = {
   id: string;
@@ -856,7 +863,7 @@ export const ensureTag = (label: string, color?: string) =>
 export const updateTag = (id: string, patch: { label?: string; color?: string }) =>
   post(`/api/tags/${id}`, patch).then(jsonOrThrow).then(tagsChanged);
 export const deleteTag = (id: string) => post(`/api/tags/${id}/delete`, {}).then(tagsChanged);
-export const deletePage = (id: string) => post(`/api/pages/${id}/delete`, {});
+export const deletePage = (id: string) => post(`/api/pages/${id}/delete`, {}).then((r) => (refreshDue(), r));
 export const movePage = (
   id: string,
   to: { parent_id?: string | null; before_id?: string; after_id?: string },

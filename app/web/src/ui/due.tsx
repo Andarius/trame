@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { daysUntil, isShownDue } from "../../../../core/due.ts";
-import { type Block, type DueTodo, getDue } from "../api";
+import { type Block, DUE_CHANGED, type DueTodo, getDue } from "../api";
 import { todayMark } from "../../../../core/todo-marks.ts";
 import { MenuRow, Popover } from "./ui";
 
@@ -157,20 +157,20 @@ export function DueMenu(
   );
 }
 
-const DUE_CHANGED = "trame:due-changed";
-// reload every useDue now, after a write that changed due todos
-export const refreshDue = () => dispatchEvent(new Event(DUE_CHANGED));
+export { refreshDue } from "../api";
 
-// late or due within a week, refreshed every 30 s and when the window regains focus
+// late or due within a week, refreshed every 30 s, on focus and on DUE_CHANGED; a new day re-renders the labels
 export function useDue(): DueTodo[] {
-  const [due, setDue] = useState<DueTodo[]>([]);
+  const [{ due }, setDue] = useState<{ today: string; due: DueTodo[] }>({ today: todayMark(), due: [] });
   useEffect(() => {
     const load = () =>
       getDue()
         .then((all) => {
           const today = todayMark();
           const next = all.filter((d) => isShownDue(d.due, today));
-          setDue((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+          setDue((prev) =>
+            prev.today === today && JSON.stringify(prev.due) === JSON.stringify(next) ? prev : { today, due: next }
+          );
         })
         .catch(() => {});
     load();
