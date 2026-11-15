@@ -194,7 +194,7 @@ export default function TerminalDock(
           onPointerUp={() => (resize.current = null)}
         />
       )}
-      <div className="flex h-8 shrink-0 items-center gap-1 px-2 text-xs">
+      <div className="flex h-9 shrink-0 items-center gap-1 px-2 text-xs">
         <span className="pr-1 text-[11px] font-medium text-ink-muted">{scope ? "Agents" : "Terminal"}</span>
         {/* scrollbar hidden: it overlays the tab labels; the wheel scrolls the strip sideways */}
         <div
@@ -233,7 +233,7 @@ export default function TerminalDock(
                   }
                 }}
                 onDragLeave={() => clearTimeout(hoverTimer.current)}
-                className={`group flex shrink-0 cursor-grab items-center gap-1 rounded-md px-2 py-0.5 ${
+                className={`group flex shrink-0 cursor-grab items-center gap-1 rounded-md px-2.5 py-1 text-[13px] ${
                   why
                     ? "bg-wait/15 text-wait"
                     : t.id === active && open && !cover
