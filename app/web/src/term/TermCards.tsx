@@ -258,15 +258,19 @@ export function TermCards(
     }, (
       <>
         <span className="flex w-full items-center gap-2" title={`${x.agent} · ${x.id}`}>
-          <span
-            className={`h-[7px] w-[7px] shrink-0 rounded-full ${x.waiting ? "bg-wait" : x.busy ? "bg-live" : "bg-ink-faint"}`}
-          />
+          {x.done && !x.busy && !x.waiting
+            ? <span className="w-[7px] shrink-0 text-center text-[10px] leading-none text-live" title="done: no follow-ups">✓</span>
+            : (
+              <span
+                className={`h-[7px] w-[7px] shrink-0 rounded-full ${x.waiting ? "bg-wait" : x.busy ? "bg-live" : "bg-ink-faint"}`}
+              />
+            )}
           <span className="min-w-0 flex-1 truncate">{sessionLabel(x)}</span>
         </span>
-        <span className={`flex w-full items-center gap-1.5 pl-[15px] pt-0.5 text-[11px] ${x.waiting ? "text-wait" : "text-ink-faint"}`}>
+        <span className={`flex w-full items-center gap-1.5 pl-[15px] pt-0.5 text-[11px] ${x.waiting ? "text-wait" : x.done && !x.busy ? "text-live/80" : "text-ink-faint"}`}>
           <AgentIcon a={{ harness: x.agent, icon: null }} />
           <span className="min-w-0 flex-1 truncate">
-            {x.waiting ? `needs you: ${x.waiting}` : x.busy ? "working" : "idle"}
+            {x.waiting ? `needs you: ${x.waiting}` : x.busy ? "working" : x.done ? "done" : "idle"}
           </span>
           {seen(x) > 0 && <span className="shrink-0 font-mono text-[10px] tabular-nums" title="last update">{age(seen(x))}</span>}
         </span>

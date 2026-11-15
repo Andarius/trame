@@ -609,6 +609,7 @@ struct AgentSession {
     waiting: Option<String>, // what it waits on you for ("input needed", a permission), when it does
     started_at: Option<u64>, // epoch ms, Claude only
     updated_at: Option<u64>, // epoch ms of its last status change, Claude only
+    done: bool,              // idle, and its last reply ended with "Follow-ups: none"
 }
 
 #[derive(Debug, PartialEq, serde::Serialize)]
@@ -649,7 +650,57 @@ fn claude_session(dir: &Path, pid: u32) -> Option<AgentSession> {
     if file["pid"].as_u64() != Some(u64::from(pid)) {
         return None;
     }
-    parse_claude_session(&file)
+    let mut session = parse_claude_session(&file)?;
+    if !session.busy && session.waiting.is_none() {
+        session.done = last_reply(dir, &session.id).is_some_and(|text| no_follow_ups(&text));
+    }
+    Some(session)
+}
+
+/// The text of the last assistant message in a Claude transcript, read from its tail.
+fn last_reply(dir: &Path, id: &str) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let name = format!("{id}.jsonl");
+    let path = std::fs::read_dir(dir.join("projects"))
+        .ok()?
+        .flatten()
+        .map(|p| p.path().join(&name))
+        .find(|p| p.is_file())?;
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    file.seek(SeekFrom::Start(len.saturating_sub(256 * 1024)))
+        .ok()?;
+    let mut tail = Vec::new();
+    file.read_to_end(&mut tail).ok()?;
+    String::from_utf8_lossy(&tail)
+        .lines()
+        .rev()
+        .find_map(|line| {
+            let entry: Value = serde_json::from_str(line).ok()?;
+            if entry["type"] != "assistant" {
+                return None;
+            }
+            entry["message"]["content"]
+                .as_array()?
+                .iter()
+                .rev()
+                .find_map(|c| {
+                    (c["type"] == "text").then(|| c["text"].as_str().map(str::to_owned))?
+                })
+        })
+}
+
+/// The reply's last "Follow-ups…:" list is "none".
+fn no_follow_ups(text: &str) -> bool {
+    static HEADING: OnceLock<regex::Regex> = OnceLock::new();
+    let heading =
+        HEADING.get_or_init(|| regex::Regex::new(r"(?i)follow[- ]?ups?[^:\n]{0,40}:").unwrap());
+    heading.find_iter(text).last().is_some_and(|m| {
+        text[m.end()..]
+            .trim_start_matches(|c: char| c.is_whitespace() || matches!(c, '-' | '*' | '_'))
+            .to_lowercase()
+            .starts_with("none")
+    })
 }
 
 fn parse_claude_session(file: &Value) -> Option<AgentSession> {
@@ -667,6 +718,7 @@ fn parse_claude_session(file: &Value) -> Option<AgentSession> {
         waiting,
         started_at: file["startedAt"].as_u64(),
         updated_at: file["updatedAt"].as_u64(),
+        done: false,
     })
 }
 
@@ -711,6 +763,7 @@ fn running_agents(
                     waiting: None,
                     started_at: None,
                     updated_at: None,
+                    done: false,
                 })
             };
             let found = session_of(p.pid)
@@ -1298,9 +1351,9 @@ fn parse_ghostty(config: &str) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::{
-        AgentSession, Saved, SavedAgent, card_id, parse_claude_session, parse_ghostty,
-        preview_image, process_cwd, process_name, reopen_plan, repo_root, resolve_cwd,
-        running_agents,
+        AgentSession, Saved, SavedAgent, card_id, no_follow_ups, parse_claude_session,
+        parse_ghostty, preview_image, process_cwd, process_name, reopen_plan, repo_root,
+        resolve_cwd, running_agents,
     };
     use crate::diagnostics::Process;
     use serde_json::{Value, json};
@@ -1346,6 +1399,7 @@ mod tests {
             waiting: None,
             started_at: Some(1),
             updated_at: Some(2),
+            done: false,
         };
         let session = |pid| match pid {
             11 => Some(claude("c-1")),
@@ -1355,8 +1409,8 @@ mod tests {
         assert_eq!(
             json!(running_agents(&all, &shells, session)),
             json!([
-                {"term":"t1","agent":"claude","id":"c-1","name":"test","named":true,"busy":true,"waiting":null,"started_at":1,"updated_at":2},
-                {"term":"t2","agent":"codex","id":"x-2","name":null,"named":false,"busy":false,"waiting":null,"started_at":null,"updated_at":null},
+                {"term":"t1","agent":"claude","id":"c-1","name":"test","named":true,"busy":true,"waiting":null,"started_at":1,"updated_at":2,"done":false},
+                {"term":"t2","agent":"codex","id":"x-2","name":null,"named":false,"busy":false,"waiting":null,"started_at":null,"updated_at":null,"done":false},
             ])
         );
     }
@@ -1372,6 +1426,23 @@ mod tests {
             (json!(42), Err(())),
         ] {
             assert_eq!(card_id(&value), expected, "{value}");
+        }
+    }
+
+    #[test]
+    fn no_follow_ups_reads_the_last_list() {
+        for (text, done) in [
+            ("Done.\n\nFollow-ups: none.", true),
+            ("Follow-ups (on the card): none", true),
+            ("Follow-ups:\n- none", true),
+            ("Follow-ups:\n- check #356 in the desktop app", false),
+            (
+                "Follow-ups: none\n\nNext topic.\n\nFollow-ups:\n- push",
+                false,
+            ),
+            ("All set, nothing left.", false),
+        ] {
+            assert_eq!(no_follow_ups(text), done, "{text}");
         }
     }
 
