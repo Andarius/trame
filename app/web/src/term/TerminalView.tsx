@@ -12,6 +12,7 @@ import { openInBrowser } from "../api";
 import { CLOSE_AUTH, CLOSE_GONE, CLOSE_SUPERSEDED, closeTerminal, termImage, type TermTheme, termTheme, termToken } from "./term-api";
 import { imageLinks } from "./image-links";
 import { previewBox } from "./preview-size";
+import { termBindingKey } from "./key-bindings";
 import { FONT_STACK, onTermZoom, scrollbar, termFontSize, termZoomKey, theme, URL_RE } from "./xterm-look";
 import { PR_HREF, PrPreview } from "../md/chips";
 
@@ -252,7 +253,7 @@ export function TerminalView(
     observer.observe(el);
     let ghostty: TermTheme | null = null;
     let baseSize = 13; // Ghostty's size or ours, before Ctrl +/-
-    term.attachCustomKeyEventHandler((e) => !termZoomKey(e));
+    term.attachCustomKeyEventHandler((e) => !termZoomKey(e) && !termBindingKey(e, (d) => term.input(d)));
     const unzoom = onTermZoom(() => {
       term.options.fontSize = termFontSize(baseSize);
       refit();
