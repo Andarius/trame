@@ -381,6 +381,44 @@ pub async fn run(
     result
 }
 
+/// Binds the port the webview had last launch when it's free: same origin, so its localStorage carries over.
+fn bind_webview_port(main: &Config) -> Result<std::net::TcpListener> {
+    let bind = |port: u16| std::net::TcpListener::bind(("127.0.0.1", port));
+    if main.port != 0 {
+        return Ok(bind(main.port)?);
+    }
+    let saved = main.root.join("webview-port");
+    let listener = last_webview_port(&main.root)
+        .and_then(|port| bind(port).ok())
+        .map_or_else(|| bind(0), Ok)?;
+    let _ = fs::write(&saved, listener.local_addr()?.port().to_string());
+    Ok(listener)
+}
+
+/// The saved port, else the one of the webview's newest `localStorage` file (installs from before it was saved).
+fn last_webview_port(root: &Path) -> Option<u16> {
+    if let Some(port) = fs::read_to_string(root.join("webview-port"))
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+    {
+        return Some(port);
+    }
+    fs::read_dir(root.join("webview/localstorage"))
+        .ok()?
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            let port = name
+                .strip_prefix("http_127.0.0.1_")?
+                .strip_suffix(".localstorage")?
+                .parse::<u16>()
+                .ok()?;
+            Some((entry.metadata().ok()?.modified().ok()?, port))
+        })
+        .max()
+        .map(|(_, port)| port)
+}
+
 /// Runs the backend on `main` and restarts it on the demo root (or back) when a demo route
 /// asks, always on the first bound port so the webview origin never changes.
 pub async fn supervise(
@@ -390,7 +428,7 @@ pub async fn supervise(
 ) -> Result<()> {
     let (switch_tx, mut switches) = tokio::sync::mpsc::unbounded_channel();
     main.switch = Some(switch_tx);
-    let listener = std::net::TcpListener::bind(("127.0.0.1", main.port))?;
+    let listener = bind_webview_port(&main)?;
     listener.set_nonblocking(true)?;
     main.listener = Some(std::sync::Arc::new(listener));
     let mut current = main.clone();
@@ -515,6 +553,25 @@ mod tests {
         )
         .unwrap();
         assert!(refuse_live_port(&port).is_ok());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn webview_port_is_the_saved_one_else_the_newest_storage() {
+        let root = scratch_root(
+            &workspace().join(format!(".scratch/webview-port-{}", uuid::Uuid::new_v4())),
+        )
+        .unwrap();
+        assert_eq!(last_webview_port(&root), None);
+        let store = root.join("webview/localstorage");
+        fs::create_dir_all(&store).unwrap();
+        fs::write(store.join("http_127.0.0.1_41000.localstorage"), "").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        fs::write(store.join("http_127.0.0.1_42000.localstorage"), "").unwrap();
+        fs::write(store.join("tauri_localhost_0.localstorage"), "").unwrap();
+        assert_eq!(last_webview_port(&root), Some(42000));
+        fs::write(root.join("webview-port"), "41000\n").unwrap();
+        assert_eq!(last_webview_port(&root), Some(41000));
         fs::remove_dir_all(root).unwrap();
     }
 }
