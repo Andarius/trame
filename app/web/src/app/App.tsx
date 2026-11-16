@@ -20,6 +20,7 @@ import {
   type PluginManifest,
   pollBoard,
   pollPages,
+  refreshDue,
   type SearchHit,
   setStatus as apiSetStatus,
   type Session,
@@ -329,7 +330,8 @@ export function App() {
     listUdbs().then((d) => Array.isArray(d) && setUdbs(keepSame(d))).catch(
       () => {},
     );
-    pollPages().then((d) => Array.isArray(d) && setPages(keepSame(d))).catch(
+    // a page changed (here or by an agent): its todos may be due
+    pollPages().then((d) => Array.isArray(d) && (setPages(keepSame(d)), refreshDue())).catch(
       () => {},
     );
     getPlugins().then((p) => {
