@@ -10,6 +10,8 @@ const s = (term: string, busy: boolean, waiting: string | null = null): TermSess
   busy,
   waiting,
   started_at: null,
+  updated_at: null,
+  done: false,
 });
 
 test.each([

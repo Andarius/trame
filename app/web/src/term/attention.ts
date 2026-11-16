@@ -9,6 +9,8 @@ export type TermSession = {
   busy: boolean;
   waiting: string | null;
   started_at: number | null; // epoch ms, Claude only
+  updated_at: number | null; // epoch ms of its last status change, Claude only
+  done: boolean; // idle, and its last reply ended with "Follow-ups: none"
 };
 
 // shells to flag as finished: an agent going from busy to idle joins, one busy again or gone leaves

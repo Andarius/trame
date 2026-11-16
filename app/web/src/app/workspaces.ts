@@ -12,9 +12,9 @@ const EMPTY: Workspaces = { list: [{ id: HOME, name: null, search: "" }], active
 const touch = (mru: string[], id: string) => [id, ...mru.filter((x) => x !== id)];
 
 // make `id` the active workspace, creating it at the end when new
-export function activate(s: Workspaces, id: string, search?: string): Workspaces {
+export function activate(s: Workspaces, id: string, search?: string, name?: string): Workspaces {
   const known = s.list.some((w) => w.id === id);
-  const list = known ? s.list : [...s.list, { id, name: null, search: search ?? "" }];
+  const list = known ? s.list : [...s.list, { id, name: name ?? null, search: search ?? "" }];
   return { list, active: id, mru: touch(s.mru, id) };
 }
 
@@ -117,9 +117,9 @@ export function switchWorkspace(id: string) {
   goActive();
 }
 
-// open `id` in its own workspace (Ctrl/⌘-click), at `search` when new; an open one just comes forward
-export function openWorkspace(id: string, search: string) {
-  setWorkspaces((s) => activate(save(s, location.search), id, search));
+// open `id` in its own workspace (Ctrl/⌘-click), at `search` and named `name` when new; an open one just comes forward
+export function openWorkspace(id: string, search: string, name?: string) {
+  setWorkspaces((s) => activate(save(s, location.search), id, search, name));
   goActive();
 }
 
