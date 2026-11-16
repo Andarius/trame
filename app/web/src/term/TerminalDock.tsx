@@ -120,6 +120,13 @@ export default function TerminalDock(
   // a tab or a shell being dragged onto the panes (Konsole-style layout)
   const drag = dock.drag;
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // the tab shown before the current one: dragging the current tab drops it beside that one
+  const [last, setLast] = useState<string | null>(null);
+  const shownTab = useRef(active);
+  useEffect(() => {
+    if (active && active !== shownTab.current) setLast(shownTab.current);
+    shownTab.current = active;
+  }, [active]);
   const [agents, setAgents] = useState<TermAgent[] | null>(null);
   // fetched with the dock: finding them runs the user's shell profile (~2s)
   useEffect(() => {
@@ -194,9 +201,15 @@ export default function TerminalDock(
           onPointerUp={() => (resize.current = null)}
         />
       )}
-      <div className="flex h-8 shrink-0 items-center gap-1 px-2 text-xs">
+      <div className="flex h-9 shrink-0 items-center gap-1 px-2 text-xs">
         <span className="pr-1 text-[11px] font-medium text-ink-muted">{scope ? "Agents" : "Terminal"}</span>
-        <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto">
+        {/* scrollbar hidden: it overlays the tab labels; the wheel scrolls the strip sideways */}
+        <div
+          className="flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          onWheel={(e) => {
+            if (e.deltaX === 0) e.currentTarget.scrollLeft += e.deltaY;
+          }}
+        >
           {tabs.map((t) => {
             const panes = leaves(t.root);
             const lead = terms[t.focus];
@@ -214,6 +227,11 @@ export default function TerminalDock(
                   e.dataTransfer.setData("application/x-trame-tab", t.id);
                   e.dataTransfer.effectAllowed = "move";
                   setTermDrag({ kind: "tab", id: t.id });
+                  // a tab can't split with itself: show another one to drop onto, after the drag image is taken
+                  if (t.id === active) {
+                    const other = tabs.find((x) => x.id === last && x.id !== t.id) ?? tabs.find((x) => x.id !== t.id);
+                    if (other) setTimeout(() => selectTab(other.id), 0);
+                  }
                 }}
                 onDragEnd={() => {
                   clearTimeout(hoverTimer.current);
@@ -227,7 +245,7 @@ export default function TerminalDock(
                   }
                 }}
                 onDragLeave={() => clearTimeout(hoverTimer.current)}
-                className={`group flex shrink-0 cursor-grab items-center gap-1 rounded-md px-2 py-0.5 ${
+                className={`group flex shrink-0 cursor-grab items-center gap-1 rounded-md px-2.5 py-1 text-[13px] ${
                   why
                     ? "bg-wait/15 text-wait"
                     : t.id === active && open && !cover
@@ -365,10 +383,10 @@ export default function TerminalDock(
             </div>
           </div>
         )}
-        {drag?.kind === "tab" && drag.id === active && (
+        {drag?.kind === "tab" && (
           <div className="pointer-events-none absolute inset-x-0 top-4 z-30 mx-auto w-fit rounded-md border border-line bg-panel px-3 py-1.5 text-xs text-ink-muted shadow">
             {tabs.length > 1
-              ? "Hover another tab to open it, then drop onto one of its panes"
+              ? "Drop onto a pane to split it with this tab"
               : "Open a second tab to split it with this one"}
           </div>
         )}
