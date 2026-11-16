@@ -15,6 +15,7 @@ import {
 } from "../api";
 import { PresencePreview } from "../agents/PresencePreview";
 import { applyScale, getScale, SCALES } from "../ui/scale";
+import { KeyBindingsSettings } from "../term/KeyBindingsSettings";
 import { getPreviewSize, PREVIEW_SIZES, type PreviewSize, setPreviewSize } from "../term/preview-size";
 import { applyTheme, getTheme, type Theme } from "../ui/theme";
 import { CheckRow, Footer, label, pill, seg, segTrack } from "../modals/modal-ui";
@@ -432,6 +433,13 @@ export function Settings(
           </div>
           <span className="text-[12px] text-ink-muted/70">hover an image path in a terminal; click for full size</span>
         </div>
+
+        <div className="h-px bg-line" />
+        <div className={HEADING}>Terminal keys</div>
+        <p className="-mt-1 text-[12px] text-ink-muted/70">
+          Keys a shell gets as other input, like Konsole: <code>^U</code> is Ctrl+U, <code>\e</code> Escape. Applies instantly.
+        </p>
+        <KeyBindingsSettings />
 
         <div className="h-px bg-line" />
         <div className={HEADING}>Theme</div>
