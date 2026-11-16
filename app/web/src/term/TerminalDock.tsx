@@ -120,6 +120,13 @@ export default function TerminalDock(
   // a tab or a shell being dragged onto the panes (Konsole-style layout)
   const drag = dock.drag;
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // the tab shown before the current one: dragging the current tab drops it beside that one
+  const [last, setLast] = useState<string | null>(null);
+  const shownTab = useRef(active);
+  useEffect(() => {
+    if (active && active !== shownTab.current) setLast(shownTab.current);
+    shownTab.current = active;
+  }, [active]);
   const [agents, setAgents] = useState<TermAgent[] | null>(null);
   // fetched with the dock: finding them runs the user's shell profile (~2s)
   useEffect(() => {
@@ -220,6 +227,11 @@ export default function TerminalDock(
                   e.dataTransfer.setData("application/x-trame-tab", t.id);
                   e.dataTransfer.effectAllowed = "move";
                   setTermDrag({ kind: "tab", id: t.id });
+                  // a tab can't split with itself: show another one to drop onto, after the drag image is taken
+                  if (t.id === active) {
+                    const other = tabs.find((x) => x.id === last && x.id !== t.id) ?? tabs.find((x) => x.id !== t.id);
+                    if (other) setTimeout(() => selectTab(other.id), 0);
+                  }
                 }}
                 onDragEnd={() => {
                   clearTimeout(hoverTimer.current);
@@ -371,10 +383,10 @@ export default function TerminalDock(
             </div>
           </div>
         )}
-        {drag?.kind === "tab" && drag.id === active && (
+        {drag?.kind === "tab" && (
           <div className="pointer-events-none absolute inset-x-0 top-4 z-30 mx-auto w-fit rounded-md border border-line bg-panel px-3 py-1.5 text-xs text-ink-muted shadow">
             {tabs.length > 1
-              ? "Hover another tab to open it, then drop onto one of its panes"
+              ? "Drop onto a pane to split it with this tab"
               : "Open a second tab to split it with this one"}
           </div>
         )}
