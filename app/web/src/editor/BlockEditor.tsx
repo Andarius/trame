@@ -223,14 +223,14 @@ export function BlockEditor(
     if (inTodo && !stripMarks(cur.text).trim()) {
       return setBlock(
         i,
-        cur.indent ? { indent: cur.indent - 1 } : { type: "text" },
+        cur.indent ? { indent: cur.indent - 1 } : { type: "text", numbered: undefined },
       );
     }
     const indent = (isText(cur) && cur.indent) ? { indent: cur.indent } : {};
     const next = [
       ...blocks.slice(0, i + 1),
       (inTodo
-        ? { type: "todo", text: "", done: false, ...indent, id: genId() }
+        ? { type: "todo", text: "", done: false, ...indent, ...(cur.numbered ? { numbered: true } : {}), id: genId() }
         : { type: "text", text: "", ...indent, id: genId() }) as Block,
       ...blocks.slice(i + 1),
     ];
@@ -280,6 +280,8 @@ export function BlockEditor(
     const moved = groups[gi].map((x, j) =>
       j === 0 ? { ...x, done, text: stamp((x as TextBlock).text) } : x
     );
+    // an ordered list keeps its order: a numbered item is ticked in place
+    if (cur.numbered) return setBlock(i, moved[0]);
     const rest = groups.filter((_, j) => j !== gi);
     const firstDone = rest.findIndex((g) => (g[0] as TextBlock).done);
     const at = done || firstDone === -1 ? rest.length : firstDone;
@@ -620,7 +622,7 @@ export function BlockEditor(
       blocks.map((b, j) =>
         j === i
           ? {
-            type: key as TextBlock["type"],
+            ...(key === "ntodo" ? { type: "todo", numbered: true } : { type: key as TextBlock["type"] }),
             text: "",
             id: (isText(b) && b.id) || genId(),
           }

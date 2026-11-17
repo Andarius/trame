@@ -565,3 +565,34 @@ fn database_line_assertions() {
     assert_eq!(out.len(), 3);
     assert_eq!(out[1], database("db-1", "b2"));
 }
+
+#[test]
+fn numbered_todos_round_trip_with_their_place_as_number() {
+    let blocks = markdown(
+        "1. [ ] a {{trame:created_at=2026-11-17}}\n3) [x] b\n  1. [ ] b.1\n  - [ ] b.note\n7. [ ] c\n- [ ] loose\n1. [ ] fresh",
+        "",
+    );
+    assert_eq!(
+        without_ids(&blocks),
+        json!([
+            {"type":"todo","text":"a {{trame:created_at=2026-11-17}}","done":false,"numbered":true},
+            {"type":"todo","text":"b","done":true,"numbered":true},
+            {"type":"todo","text":"b.1","done":false,"indent":1,"numbered":true},
+            {"type":"todo","text":"b.note","done":false,"indent":1},
+            {"type":"todo","text":"c","done":false,"numbered":true},
+            {"type":"todo","text":"loose","done":false},
+            {"type":"todo","text":"fresh","done":false,"numbered":true}
+        ])
+    );
+    let md = page_markdown::page_blocks_to_markdown(&blocks).unwrap();
+    assert_eq!(
+        md,
+        "1. [ ] a {{trame:created_at=2026-11-17}}\n2. [x] b\n  1. [ ] b.1\n  - [ ] b.note\n3. [ ] c\n- [ ] loose\n1. [ ] fresh\n"
+    );
+    assert_eq!(without_ids(&markdown(&md, "")), without_ids(&blocks));
+    // a plain numbered line without a checkbox stays text
+    assert_eq!(
+        without_ids(&markdown("1. plain", "")),
+        json!([{"type":"text","text":"1. plain"}])
+    );
+}

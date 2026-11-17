@@ -684,6 +684,7 @@ export type Block =
     text: string;
     done?: boolean;
     indent?: number;
+    numbered?: boolean; // an ordered todo: shows its place in its list
     id?: string;
   }
   | { type: "database"; db_id: string; id?: string }

@@ -27,7 +27,7 @@ static HEADING: LazyLock<Regex> = LazyLock::new(|| {
 });
 static TODO: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(
-        r"^({JS_SPACE}*)[-*+]{JS_SPACE}+\[([ xX])\]{JS_SPACE}+([^\r\n\u{{2028}}\u{{2029}}]*)$"
+        r"^({JS_SPACE}*)([-*+]|[0-9]{{1,9}}[.)]){JS_SPACE}+\[([ xX])\]{JS_SPACE}+([^\r\n\u{{2028}}\u{{2029}}]*)$"
     ))
     .unwrap()
 });
@@ -227,10 +227,14 @@ pub fn markdown_to_page_blocks(
             let indent = (m[1].replace('\t', "  ").encode_utf16().count() / 2).min(4);
             let mut block = Map::new();
             block.insert("type".into(), Value::String("todo".into()));
-            block.insert("text".into(), Value::String(m[3].to_owned()));
-            block.insert("done".into(), Value::Bool(m[2].eq_ignore_ascii_case("x")));
+            block.insert("text".into(), Value::String(m[4].to_owned()));
+            block.insert("done".into(), Value::Bool(m[3].eq_ignore_ascii_case("x")));
             if indent != 0 {
                 block.insert("indent".into(), Value::from(indent));
+            }
+            // `1. [ ]`: an ordered todo; its number comes from its place, not the source
+            if m[2].as_bytes()[0].is_ascii_digit() {
+                block.insert("numbered".into(), Value::Bool(true));
             }
             out.push(Value::Object(block));
             first_content = false;
@@ -257,10 +261,45 @@ pub fn markdown_to_page_blocks(
     Ok(out)
 }
 
+fn block_indent(b: &Value) -> u64 {
+    b.get("indent").and_then(Value::as_u64).unwrap_or(0)
+}
+
+/// Each numbered todo's 1-based place among the numbered todos of its list (same indent); `None` for other blocks.
+pub fn todo_numbers(blocks: &[Value]) -> Vec<Option<usize>> {
+    let mut counts: Vec<usize> = Vec::new();
+    blocks
+        .iter()
+        .map(|b| {
+            let is_todo = b.get("type").and_then(Value::as_str) == Some("todo");
+            let text_like = is_todo
+                || matches!(
+                    b.get("type").and_then(Value::as_str),
+                    Some("text" | "heading")
+                );
+            #[allow(clippy::cast_possible_truncation, reason = "indent is at most 4")]
+            let lvl = if text_like {
+                block_indent(b) as usize
+            } else {
+                0
+            };
+            if is_todo && b.get("numbered").is_some_and(truthy) {
+                counts.resize(lvl + 1, 0);
+                counts[lvl] += 1;
+                Some(counts[lvl])
+            } else {
+                counts.truncate(lvl);
+                None
+            }
+        })
+        .collect()
+}
+
 pub fn page_blocks_to_markdown(blocks: &[Value]) -> Result<String, String> {
     let mut parts: Vec<String> = Vec::new();
     let mut prev_todo = false;
-    for b in blocks {
+    let numbers = todo_numbers(blocks);
+    for (i, b) in blocks.iter().enumerate() {
         if b.is_null() {
             return Err("cannot read properties of null".into());
         }
@@ -311,8 +350,9 @@ pub fn page_blocks_to_markdown(blocks: &[Value]) -> Result<String, String> {
             )]
             let indent_count = indent as usize;
             let line = format!(
-                "{}- [{}] {}",
+                "{}{} [{}] {}",
                 "  ".repeat(indent_count),
+                numbers[i].map_or_else(|| "-".to_owned(), |n| format!("{n}.")),
                 if b.get("done").is_some_and(truthy) {
                     "x"
                 } else {

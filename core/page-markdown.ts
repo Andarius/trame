@@ -3,6 +3,7 @@ export type PageTextBlock = {
   text: string;
   done?: boolean;
   indent?: number;
+  numbered?: boolean; // an ordered todo, numbered by its place in its list
   id: string;
 };
 
@@ -131,10 +132,28 @@ const block = (
 // Inverse of markdownToPageBlocks, for agent reads of a page (e.g. a session's spec
 // page). Folder, embed and database blocks round-trip as their one line; the other
 // structural blocks (subpage/html) have no text form and are skipped.
+// each numbered todo's 1-based place among the numbered todos of its list (same indent)
+export function todoNumbers(blocks: readonly unknown[]): (number | null)[] {
+  const counts: number[] = [];
+  return blocks.map((raw) => {
+    const b = raw as { type?: string; indent?: number; numbered?: boolean };
+    const textLike = b.type === "todo" || b.type === "text" || b.type === "heading";
+    const lvl = textLike ? b.indent ?? 0 : 0;
+    if (b.type === "todo" && b.numbered) {
+      counts.length = lvl + 1;
+      counts[lvl] = (counts[lvl] ?? 0) + 1;
+      return counts[lvl];
+    }
+    counts.length = Math.min(counts.length, lvl);
+    return null;
+  });
+}
+
 export function pageBlocksToMarkdown(blocks: unknown[]): string {
   const parts: string[] = [];
   let prevTodo = false;
-  for (const raw of blocks) {
+  const numbers = todoNumbers(blocks);
+  for (const [i, raw] of blocks.entries()) {
     const b = raw as Partial<PageTextBlock> & { type?: string };
     if (isFolderBlock(raw)) {
       prevTodo = false;
@@ -152,7 +171,7 @@ export function pageBlocksToMarkdown(blocks: unknown[]): string {
       continue;
     }
     if (b.type === "todo") {
-      const line = `${"  ".repeat(b.indent ?? 0)}- [${b.done ? "x" : " "}] ${b.text ?? ""}`;
+      const line = `${"  ".repeat(b.indent ?? 0)}${numbers[i] ? `${numbers[i]}.` : "-"} [${b.done ? "x" : " "}] ${b.text ?? ""}`;
       // consecutive todos stay one list; blank lines only between other blocks
       if (prevTodo) parts[parts.length - 1] += `\n${line}`;
       else parts.push(line);
@@ -242,7 +261,7 @@ export function markdownToPageBlocks(
       continue;
     }
 
-    const todo = line.match(/^(\s*)[-*+]\s+\[([ xX])\]\s+(.*)$/);
+    const todo = line.match(/^(\s*)([-*+]|\d{1,9}[.)])\s+\[([ xX])\]\s+(.*)$/);
     if (todo) {
       flush();
       // two spaces (or one tab) of leading whitespace per nesting level
@@ -250,7 +269,8 @@ export function markdownToPageBlocks(
         4,
         Math.floor(todo[1].replace(/\t/g, "  ").length / 2),
       );
-      out.push(block("todo", todo[3], todo[2].toLowerCase() === "x", indent));
+      const b = block("todo", todo[4], todo[3].toLowerCase() === "x", indent);
+      out.push(/\d/.test(todo[2]) ? { ...b, numbered: true } : b);
       firstContent = false;
       continue;
     }
