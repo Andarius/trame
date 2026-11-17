@@ -1,6 +1,7 @@
 GFM plus: `## Title {{tab}}` headings group the blocks below into a tab strip
 (consecutive markers = one strip) and `## Title {{fold}}` into a collapsible section;
-`- [ ]`/`- [x]` become checkable todos (2 spaces per nesting level, max 4);
+`- [ ]`/`- [x]` become checkable todos (2 spaces per nesting level, max 4), and
+`1. [ ]`/`1. [x]` numbered ones that keep their order when ticked;
 bullets under a Completed/Done/Shipped heading render as checks, under
 Open/Todo/Next/Pending/Remaining/In progress/Blocked as open rings, with a one-click
 toggle between the two; `{{text}}` is a pill (`{{green:…}}` tints it:

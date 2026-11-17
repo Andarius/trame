@@ -4,6 +4,7 @@
 // hub (window.__TRAME_LINK__); the only requests this page makes are its assets.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Markdown } from "../md/md";
+import { todoNumbers } from "../../../../core/page-markdown.ts";
 import { ExpandIcon } from "../ui/ui";
 import { BRIDGE } from "../editor/HtmlBlock";
 import { ColumnRanges, NumberViz, OptionChip } from "../udb/cells";
@@ -15,6 +16,7 @@ export type LinkBlock = {
   text?: string;
   done?: boolean;
   indent?: number;
+  numbered?: boolean;
   id?: string;
   db_id?: string;
   page_id?: string;
@@ -291,7 +293,7 @@ export function LinkPage({ data }: { data: LinkData }) {
         <p className="mb-4 text-[12.5px] text-ink-muted">{page.brief}</p>
       )}
 
-      {blocks.map((b, i) => {
+      {blocks.map((b, i, all) => {
         const bid = b.id ?? String(i);
         const tm = meta.of.get(i);
         if (tm) {
@@ -399,6 +401,11 @@ export function LinkPage({ data }: { data: LinkData }) {
             className="flex items-start gap-2"
             style={b.indent ? { paddingLeft: b.indent * 20 } : undefined}
           >
+            {b.type === "todo" && b.numbered && (
+              <span className="mt-[3px] min-w-[1.25rem] shrink-0 text-right text-[13px] tabular-nums text-ink-muted">
+                {todoNumbers(all)[i]}.
+              </span>
+            )}
             {b.type === "todo" && (
               <span className="mt-[7px] flex h-3.5 w-3.5 shrink-0 items-center justify-center">
                 {b.done

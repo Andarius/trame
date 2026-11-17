@@ -184,3 +184,18 @@ test("a lone {{trame:db=...}} line becomes a database block and round-trips", ()
   ]);
   expect(pageBlocksToMarkdown(blocks.slice(0, 3))).toStrictEqual(markdown);
 });
+
+test("numbered todos round-trip, numbered by their place in their list", () => {
+  const blocks = markdownToPageBlocks("1. [ ] a\n3) [x] b\n  1. [ ] b.1\n7. [ ] c\n- [ ] loose\n1. [ ] fresh");
+  expect(withoutIds(blocks)).toEqual([
+    { type: "todo", text: "a", done: false, numbered: true },
+    { type: "todo", text: "b", done: true, numbered: true },
+    { type: "todo", text: "b.1", done: false, indent: 1, numbered: true },
+    { type: "todo", text: "c", done: false, numbered: true },
+    { type: "todo", text: "loose", done: false },
+    { type: "todo", text: "fresh", done: false, numbered: true },
+  ]);
+  const md = pageBlocksToMarkdown(blocks);
+  expect(md).toBe("1. [ ] a\n2. [x] b\n  1. [ ] b.1\n3. [ ] c\n- [ ] loose\n1. [ ] fresh\n");
+  expect(withoutIds(markdownToPageBlocks(md))).toEqual(withoutIds(blocks));
+});

@@ -2,6 +2,7 @@ import { type ReactNode, useState } from "react";
 import type { AgentPresenceSettings, PageComment } from "../api";
 import { isMetadataMark } from "../plugins";
 import { readMarks, removeMark, stripMarks, writeMark } from "../../../../core/todo-marks.ts";
+import { todoNumbers } from "../../../../core/page-markdown.ts";
 import { type Live, LiveLine, LiveRail, liveRingCls, liveRowCls, LiveTrail, worksOn } from "../agents/agents";
 import { CommentGutter, type CommentMode, type CommentOps } from "../page/comments";
 import type { TextBlock } from "./editor-text";
@@ -146,6 +147,11 @@ export function TextBlockRow({ ctx, row, b, i }: { ctx: TextCtx; row: RowCtx; b:
       >
         {dragHandle(i)}
         {lv && liveCfg && <LiveRail state={lv.state} cfg={liveCfg} />}
+        {b.type === "todo" && b.numbered && (
+          <span className="mt-[3px] min-w-[1.25rem] shrink-0 text-right text-[13px] tabular-nums text-ink-muted">
+            {todoNumbers(blocks)[i]}.
+          </span>
+        )}
         {b.type === "todo" && (
           <TodoCheck
             done={!!b.done}
