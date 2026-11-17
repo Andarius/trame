@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AgentIcon } from "../agents/agents";
 import type { BoardData, Project } from "../api";
 import { projectFor } from "./project-for";
-import { EntityIcon, IconButton, PresenceDot, useLocalStorage } from "../ui/ui";
+import { appConfirm, EntityIcon, IconButton, MenuRow, Popover, PresenceDot, useLocalStorage } from "../ui/ui";
 import { needsYou } from "./attention";
 import { ChevronIcon, MaximizeIcon, PlusIcon, SidebarIcon, SplitDownIcon, SplitRightIcon } from "../ui/icons";
 import { NewTerminalDialog } from "./NewTerminalDialog";
@@ -120,6 +120,13 @@ export default function TerminalDock(
   // a tab or a shell being dragged onto the panes (Konsole-style layout)
   const drag = dock.drag;
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // the tab right-clicked: close the others, or those to its left or right
+  const [tabMenu, setTabMenu] = useState<string | null>(null);
+  const closeTabs = async (ids: string[]) => {
+    const n = ids.length;
+    if (!(await appConfirm(`Close ${n} tab${n === 1 ? "" : "s"}? Agents running in them stop.`, "Close"))) return;
+    for (const id of ids) await closeTab(id);
+  };
   // the tab shown before the current one: dragging the current tab drops it beside that one
   const [last, setLast] = useState<string | null>(null);
   const shownTab = useRef(active);
@@ -210,7 +217,7 @@ export default function TerminalDock(
             if (e.deltaX === 0) e.currentTarget.scrollLeft += e.deltaY;
           }}
         >
-          {tabs.map((t) => {
+          {tabs.map((t, i) => {
             const panes = leaves(t.root);
             const lead = terms[t.focus];
             const name = named.get(t.focus) ?? panes.map((p) => named.get(p)).find(Boolean) ?? lead?.title;
@@ -222,6 +229,10 @@ export default function TerminalDock(
               <div
                 key={t.id}
                 draggable
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setTabMenu(t.id);
+                }}
                 title="drag onto a pane to split it with this tab"
                 onDragStart={(e) => {
                   e.dataTransfer.setData("application/x-trame-tab", t.id);
@@ -284,6 +295,27 @@ export default function TerminalDock(
                 >
                   ×
                 </IconButton>
+                {tabMenu === t.id && (
+                  <Popover portal onClose={() => setTabMenu(null)} className="w-48">
+                    {([
+                      ["Close other tabs", tabs.filter((x) => x.id !== t.id)],
+                      ["Close tabs to the left", tabs.slice(0, i)],
+                      ["Close tabs to the right", tabs.slice(i + 1)],
+                    ] as const).map(([label, group]) => (
+                      <MenuRow
+                        key={label}
+                        disabled={group.length === 0}
+                        className="hover:text-blocked disabled:opacity-40"
+                        onClick={() => {
+                          setTabMenu(null);
+                          void closeTabs(group.map((x) => x.id));
+                        }}
+                      >
+                        {label}
+                      </MenuRow>
+                    ))}
+                  </Popover>
+                )}
               </div>
             );
           })}
