@@ -3,7 +3,7 @@ import type { BoardData, ClaudeSession, Session } from "../api";
 import { RecentList } from "../agents/RecentList";
 import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
-import { appConfirm, EntityIcon, enumCodec, MenuRow, Popover, SECTION_LABEL, StatusDot, useLocalStorage } from "../ui/ui";
+import { appConfirm, EntityIcon, enumCodec, MenuRow, Popover, SECTION_LABEL, SET_CODEC, StatusDot, useLocalStorage } from "../ui/ui";
 import { LinkCardDialog } from "./LinkCardDialog";
 import { NewTerminalDialog } from "./NewTerminalDialog";
 import { closeTerminal, revealTerminal, sessionLabel, setTermDrag, tabCards, type TermDrag, type TermSession, useTermDock, useTermSessions } from "./term-api";
@@ -47,6 +47,14 @@ export function TermCards(
 ) {
   const { terms, tabs, active } = useTermDock();
   const [grouping, setGrouping] = useLocalStorage<Grouping>("trame:termGrouping", "project", enumCodec(GROUPINGS));
+  // group headers folded, and groups showing their idle cards (keyed by grouping:key)
+  const [folded, setFolded] = useLocalStorage("trame:termFolded", new Set<string>(), SET_CODEC);
+  const [idleOpen, setIdleOpen] = useLocalStorage("trame:termIdleOpen", new Set<string>(), SET_CODEC);
+  const flip = (set: Set<string>, save: (v: Set<string>) => void, k: string) => {
+    const next = new Set(set);
+    if (!next.delete(k)) next.add(k);
+    save(next);
+  };
   const [menuFor, setMenuFor] = useState<string | null>(null); // the project right-clicked for a new terminal
   const [newOpen, setNewOpen] = useState(false);
   const [linkFor, setLinkFor] = useState<string | null>(null); // the shell to link to a card
@@ -187,8 +195,16 @@ export function TermCards(
     </div>
   );
 
+  // a group's cards without a live agent fold into one row, unless shown or one is selected or marked
+  const gkey = (key: string | null) => `${grouping}:${key ?? ""}`;
+  const isIdle = (s: Session) => !agentOf.has(s.id) && s.id !== selected && !marked.includes(s.id);
+  const shownOf = (key: string | null) => {
+    if (folded.has(gkey(key))) return [];
+    const all = groups.get(key)!;
+    return idleOpen.has(gkey(key)) ? all : all.filter((s) => !isIdle(s));
+  };
   // listed card rows, top to bottom, for Shift-click ranges
-  const order = [...keys.flatMap((k) => groups.get(k)!.map((s) => s.id)), ...outside.map((s) => s.id)];
+  const order = [...keys.flatMap((k) => shownOf(k).map((s) => s.id)), ...outside.map((s) => s.id)];
   const picked = marked.filter((id) => order.includes(id));
   // Shift: a range from the last clicked card; Ctrl/⌘+Shift: one more or less; Ctrl/⌘ alone: a side tab (App)
   const clickCard = (e: React.MouseEvent, id: string) => {
@@ -409,8 +425,23 @@ export function TermCards(
                 }
                 : undefined}
             >
-              {grouping === "project" && key && <EntityIcon icon={board?.projects.find((p) => p.id === key)?.icon} size={14} />}
-              {label(key)}
+              <button
+                type="button"
+                className="group/fold flex min-w-0 flex-1 items-center gap-1.5 text-left hover:text-ink-soft"
+                aria-expanded={!folded.has(gkey(key))}
+                title={folded.has(gkey(key)) ? "show this group" : "fold this group"}
+                onClick={() => flip(folded, setFolded, gkey(key))}
+              >
+                {grouping === "project" && key && <EntityIcon icon={board?.projects.find((p) => p.id === key)?.icon} size={14} />}
+                <span className="truncate">{label(key)}</span>
+                <span
+                  aria-hidden="true"
+                  className={`text-[10px] leading-none ${folded.has(gkey(key)) ? "" : "opacity-0 group-hover/fold:opacity-100"}`}
+                >
+                  {folded.has(gkey(key)) ? "▸" : "▾"}
+                </span>
+                <span className="ml-auto pr-1 tracking-normal tabular-nums text-ink-faint">{groups.get(key)!.length || ""}</span>
+              </button>
               {key && menuFor === key && (
                 <NewTerminalDialog
                   board={board}
@@ -421,9 +452,26 @@ export function TermCards(
               )}
             </div>
           )}
-          {grouping === "project" && key && projectShells.has(key) && projectRow(key, "Project shells")}
-          {key && loose.filter((x) => looseProject(x) === key).map(sessionRow)}
-          {groups.get(key)!.map((s) => cardRow(s))}
+          {!folded.has(gkey(key)) && (
+            <>
+              {grouping === "project" && key && projectShells.has(key) && projectRow(key, "Project shells")}
+              {key && loose.filter((x) => looseProject(x) === key).map(sessionRow)}
+              {shownOf(key).map((s) => cardRow(s))}
+              {groups.get(key)!.some(isIdle) && (
+                <button
+                  type="button"
+                  className="mx-2 flex items-center gap-1.5 rounded-md border border-line px-2 py-0.5 text-left text-[11px] text-ink-faint hover:text-ink-soft"
+                  title="cards with shells but no live agent"
+                  onClick={() => flip(idleOpen, setIdleOpen, gkey(key))}
+                >
+                  <span className="flex-1">
+                    {idleOpen.has(gkey(key)) ? "Hide idle cards" : `${groups.get(key)!.filter(isIdle).length} idle`}
+                  </span>
+                  <span>{idleOpen.has(gkey(key)) ? "▴" : "›"}</span>
+                </button>
+              )}
+            </>
+          )}
         </section>
       ))}
       {(plain > 0 || other.length > 0 || (grouping !== "project" && projectShells.size > 0)) && (
