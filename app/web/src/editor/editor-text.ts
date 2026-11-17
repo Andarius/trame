@@ -8,7 +8,7 @@ export const SLASH: { key: string; label: string; hint: string }[] = [
   { key: "text", label: "Text", hint: "plain paragraph" },
   { key: "heading", label: "Heading", hint: "section title" },
   { key: "todo", label: "To-do", hint: "checkbox item" },
-  { key: "ntodo", label: "Numbered to-do", hint: "checkbox item in an ordered list" },
+  { key: "ntodo", label: "Numbered to-do", hint: "ordered checklist" },
   { key: "tab", label: "Tab section", hint: "heading that becomes a tab" },
   { key: "fold", label: "Folded section", hint: "collapsible heading" },
   { key: "subpage", label: "Sub-page", hint: "nest a page here" },
