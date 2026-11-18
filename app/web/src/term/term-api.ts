@@ -239,8 +239,16 @@ export async function splitTerminal(dir: SplitDir) {
   if (leaves(current.root).length >= MAX_PANES) return;
   const lead = state.terms[current.focus];
   const info = await create({ cwd: await liveCwd(current.focus), card: lead?.card ?? null });
-  const next = { ...current, root: splitAt(current.root, current.focus, dir, info.id), focus: info.id };
-  set({ tabs: state.tabs.map((t) => (t.id === current.id ? next : t)), open: true });
+  // re-read after the awaits: the tab may have changed, filled up or closed meanwhile
+  const now = state.tabs.find((t) => t.id === current.id);
+  const at = now && leaves(now.root).includes(current.focus) ? current.focus : now?.focus;
+  if (!now || !at || leaves(now.root).length >= MAX_PANES) {
+    const own = tab({ term: info.id });
+    set({ tabs: [...state.tabs, own], active: own.id, open: true });
+    return;
+  }
+  const next = { ...now, root: splitAt(now.root, at, dir, info.id), focus: info.id };
+  set({ tabs: state.tabs.map((t) => (t.id === now.id ? next : t)), open: true });
 }
 
 const kill = (id: string) => call(`/api/term/${id}`, { method: "DELETE" }).catch(() => {});
