@@ -107,7 +107,8 @@ export const pickTermFolder = (start?: string | null) =>
 export const MAX_PANES = 6;
 export type SplitDir = "row" | "col";
 // a split tree: leaves are shells; `row` puts `a` left of `b`, `col` above it
-export type PaneNode = { term: string } | { dir: SplitDir; a: PaneNode; b: PaneNode };
+// `ratio`: the share of `a`, 0.5 when unset
+export type PaneNode = { term: string } | { dir: SplitDir; a: PaneNode; b: PaneNode; ratio?: number };
 // a dock tab: a split tree of shells; `focus` gets the keyboard
 export type TermTab = { id: string; root: PaneNode; focus: string };
 // what is being dragged onto the panes: a whole tab, one shell (from a tab or the sidebar), or a card from the
@@ -153,7 +154,8 @@ const prune = (n: PaneNode, keep: (term: string) => boolean): PaneNode | null =>
   if (!n.a || !n.b || (n.dir !== "row" && n.dir !== "col")) return null;
   const a = prune(n.a, keep);
   const b = prune(n.b, keep);
-  return a && b ? { ...n, a, b } : a ?? b;
+  const ratio = typeof n.ratio === "number" && n.ratio > 0 && n.ratio < 1 ? n.ratio : undefined;
+  return a && b ? { dir: n.dir, a, b, ...(ratio ? { ratio } : {}) } : a ?? b;
 };
 const splitAt = (n: PaneNode, at: string, dir: SplitDir, term: string): PaneNode =>
   "term" in n
@@ -370,6 +372,16 @@ export function moveTerm(term: string, target: string, at: string, side: DropSid
   });
   set({ tabs, active: target });
   return true;
+}
+
+// a split's divider moved: `path` walks from the tab's root ("a"/"b" per level)
+export function resizeSplit(tabId: string, path: string, ratio: number) {
+  const walk = (n: PaneNode, rest: string): PaneNode => {
+    if ("term" in n) return n;
+    if (!rest) return { ...n, ratio };
+    return rest[0] === "a" ? { ...n, a: walk(n.a, rest.slice(1)) } : { ...n, b: walk(n.b, rest.slice(1)) };
+  };
+  set({ tabs: state.tabs.map((t) => (t.id === tabId ? { ...t, root: walk(t.root, path) } : t)) });
 }
 
 export const setTermDrag = (drag: TermDrag | null) => set({ drag });
