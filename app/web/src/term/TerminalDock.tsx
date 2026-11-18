@@ -21,6 +21,8 @@ import {
   mergeTab,
   MAX_PANES,
   moveTerm,
+  groups,
+  isGroup,
   type PaneNode,
   resizeSplit,
   type SplitDir,
@@ -107,7 +109,7 @@ export default function TerminalDock(
   const [height, setHeight] = useLocalStorage<number>("trame:termHeight", 300, HEIGHT_CODEC);
   const resize = useRef<{ y: number; h: number } | null>(null);
   const current = tabs.find((t) => t.id === active);
-  const canSplit = !!current && leaves(current.root).length < MAX_PANES;
+  const canSplit = !!current && groups(current.root).length < MAX_PANES;
   // the New terminal dialog (+, ⌘T, the empty view), optionally with an agent preselected
   const [newTerm, setNewTerm] = useState<{ agent?: string; cwd?: string | null } | null>(null);
   // its "Here" is the folder the focused shell is in now
@@ -184,7 +186,7 @@ export default function TerminalDock(
         else if (ctrl && e.key === ")") run(() => split("col"));
         else if (ctrl && e.shiftKey && e.code === "KeyE" && current) {
           run(() =>
-            leaves(current.root).length > 1
+            groups(current.root).length > 1
               ? setZoomed(zoomed === current.focus ? null : current.focus)
               : !scope && setDockMax(!full)
           );
@@ -457,9 +459,10 @@ type Rect = { x: number; y: number; w: number; h: number }; // percent of the ta
 // a split's divider: where it sits, the split's own rect, and the path to that split from the tab root
 type Divider = { dir: SplitDir; split: Rect; ratio: number; path: string };
 // each split gives `ratio` of its space to `a`
-function layout(n: PaneNode, r: Rect, panes: [string, Rect][], lines: Divider[], path = "") {
-  if ("term" in n) {
-    panes.push([n.term, r]);
+// a pane's shells all take its rect; only its active one is shown
+function layout(n: PaneNode, r: Rect, panes: [string, Rect, boolean][], lines: Divider[], path = "") {
+  if (isGroup(n)) {
+    for (const term of n.terms) panes.push([term, r, term === n.active]);
     return;
   }
   const ratio = n.ratio ?? 0.5;
@@ -502,22 +505,23 @@ function Panes(
   },
 ) {
   const [hover, setHover] = useState<{ id: string; side: DropSide } | null>(null);
-  const panes: { id: string; r: Rect; tab: TermTab; n: number; zoom: string | null }[] = [];
+  const panes: { id: string; r: Rect; up: boolean; tab: TermTab; n: number; zoom: string | null }[] = [];
   let lines: Divider[] = [];
   for (const tab of tabs) {
-    const mine: [string, Rect][] = [];
+    const mine: [string, Rect, boolean][] = [];
     const tabLines: Divider[] = [];
     layout(tab.root, { x: 0, y: 0, w: 100, h: 100 }, mine, tabLines);
     const zoom = mine.some(([id]) => id === zoomed) ? zoomed : null;
-    for (const [id, r] of mine) panes.push({ id, r, tab, n: mine.length, zoom });
+    const n = groups(tab.root).length;
+    for (const [id, r, up] of mine) panes.push({ id, r, up, tab, n, zoom });
     if (tab.id === shown && !zoom) lines = tabLines;
   }
   // stable order by id: React moves nothing when a tree changes shape or a shell changes tab
   panes.sort((a, b) => a.id.localeCompare(b.id));
   return (
     <>
-      {panes.map(({ id, r, tab, n, zoom }) => {
-        const visible = tab.id === shown;
+      {panes.map(({ id, r, up, tab, n, zoom }) => {
+        const visible = tab.id === shown && (up || zoom === id);
         // a tab dragged onto itself, or a card's own tab, takes no drop
         const dropping = drag && visible && !(drag.kind === "term" && drag.id === id) &&
           !(drag.kind === "tab" && drag.id === tab.id) && !(drag.kind === "card" && drag.tab === tab.id);

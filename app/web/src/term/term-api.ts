@@ -3,6 +3,8 @@
 import { useSyncExternalStore } from "react";
 import { readStore, writeStore } from "../ui/storage";
 import { nextUnseen, type TermSession } from "./attention";
+import { activate, type DropSide, group, groups, insertAt, isGroup, leaves, type PaneNode, prune, type SplitDir, splitAt } from "./pane-tree";
+export { type DropSide, groups, isGroup, leaves, type PaneGroup, type PaneNode, type SplitDir } from "./pane-tree";
 
 export type { TermSession };
 
@@ -105,11 +107,7 @@ export const pickTermFolder = (start?: string | null) =>
   >;
 
 export const MAX_PANES = 6;
-export type SplitDir = "row" | "col";
-// a split tree: leaves are shells; `row` puts `a` left of `b`, `col` above it
-// `ratio`: the share of `a`, 0.5 when unset
-export type PaneNode = { term: string } | { dir: SplitDir; a: PaneNode; b: PaneNode; ratio?: number };
-// a dock tab: a split tree of shells; `focus` gets the keyboard
+// a dock tab: a split tree of panes; `focus` gets the keyboard and is always its pane's active shell
 export type TermTab = { id: string; root: PaneNode; focus: string };
 // what is being dragged onto the panes: a whole tab, one shell (from a tab or the sidebar), or a card from the
 // Terminals column (its tab when it has one, else a new shell in its folder)
@@ -129,6 +127,7 @@ let state: DockState = { terms: {}, tabs: [], active: null, open: false, max: fa
 const listeners = new Set<() => void>();
 const LAYOUT_KEY = "trame:termLayout";
 const set = (next: Partial<DockState>) => {
+  if (next.tabs) next = { ...next, tabs: next.tabs.map((t) => ({ ...t, root: activate(t.root, t.focus) })) };
   state = { ...state, ...next };
   if (next.tabs) writeStore(LAYOUT_KEY, JSON.stringify(state.tabs.map((t) => t.root)));
   listeners.forEach((l) => l());
@@ -139,7 +138,6 @@ const subscribe = (l: () => void) => {
 };
 export const useTermDock = () => useSyncExternalStore(subscribe, () => state);
 
-export const leaves = (n: PaneNode): string[] => ("term" in n ? [n.term] : [...leaves(n.a), ...leaves(n.b)]);
 // the cards a tab works for (a merged tab can hold several); empty for plain shells
 export const tabCards = (t: TermTab, terms: Record<string, TermInfo>) => [
   ...new Set(leaves(t.root).map((id) => terms[id]?.card).filter((c): c is string => !!c)),
@@ -147,21 +145,6 @@ export const tabCards = (t: TermTab, terms: Record<string, TermInfo>) => [
 // cards with a shell still running, for the board's live-shell marker
 export const liveCards = (terms: Record<string, TermInfo>) =>
   new Set(Object.values(terms).filter((t) => t.card && !t.exited).map((t) => t.card!));
-// the tree without `term`, or null when nothing is left; keeps only shells `keep` accepts
-const prune = (n: PaneNode, keep: (term: string) => boolean): PaneNode | null => {
-  if (typeof n !== "object" || n === null) return null; // saved layouts are untrusted input
-  if ("term" in n) return typeof n.term === "string" && keep(n.term) ? n : null;
-  if (!n.a || !n.b || (n.dir !== "row" && n.dir !== "col")) return null;
-  const a = prune(n.a, keep);
-  const b = prune(n.b, keep);
-  const ratio = typeof n.ratio === "number" && n.ratio > 0 && n.ratio < 1 ? n.ratio : undefined;
-  return a && b ? { dir: n.dir, a, b, ...(ratio ? { ratio } : {}) } : a ?? b;
-};
-const splitAt = (n: PaneNode, at: string, dir: SplitDir, term: string): PaneNode =>
-  "term" in n
-    ? (n.term === at ? { dir, a: n, b: { term } } : n)
-    : { ...n, a: splitAt(n.a, at, dir, term), b: splitAt(n.b, at, dir, term) };
-
 const tab = (root: PaneNode, focus?: string): TermTab => ({
   id: crypto.randomUUID(),
   root,
@@ -192,7 +175,7 @@ export async function restoreTerminals() {
     const kept = prune(root, (id) => !!terms[id] && !placed.has(id) && !!placed.add(id));
     if (kept) tabs.push(tab(kept));
   }
-  for (const t of list) if (!placed.has(t.id)) tabs.push(tab({ term: t.id }));
+  for (const t of list) if (!placed.has(t.id)) tabs.push(tab(group([t.id])));
   set({ terms, tabs, active: tabs[0].id });
 }
 
@@ -205,23 +188,23 @@ const create = async (opts: TermOpts) => {
 // no cwd starts in the home directory; `command` runs first, then the shell stays
 export async function openTerminal(opts: TermOpts) {
   const info = await create(opts);
-  const t = tab({ term: info.id });
+  const t = tab(group([info.id]));
   set({ tabs: [...state.tabs, t], active: t.id, open: true });
   return info;
 }
 
 // a new shell beside the `at` shell of a tab, or in a tab of its own without one (or when that tab is full)
 export async function openTerminalAt(opts: TermOpts, at?: { tab: string; term: string; side: DropSide }) {
-  const fits = (t?: TermTab) => !!t && leaves(t.root).includes(at!.term) && leaves(t.root).length < MAX_PANES;
+  const fits = (t?: TermTab) => !!t && leaves(t.root).includes(at!.term) && groups(t.root).length < MAX_PANES;
   if (!at || !fits(state.tabs.find((t) => t.id === at.tab))) return openTerminal(opts);
   const info = await create(opts);
   const dst = state.tabs.find((t) => t.id === at.tab);
   if (!fits(dst)) {
-    const own = tab({ term: info.id });
+    const own = tab(group([info.id]));
     set({ tabs: [...state.tabs, own], active: own.id, open: true });
     return info;
   }
-  const next = { ...dst!, root: insertAt(dst!.root, at.term, at.side, { term: info.id }), focus: info.id };
+  const next = { ...dst!, root: insertAt(dst!.root, at.term, at.side, group([info.id])), focus: info.id };
   set({ tabs: state.tabs.map((t) => (t.id === dst!.id ? next : t)), active: dst!.id, open: true });
   return info;
 }
@@ -238,14 +221,14 @@ export const liveCwd = async (id: string) => (await termNow(id))?.cwd ?? state.t
 export async function splitTerminal(dir: SplitDir) {
   const current = activeTab();
   if (!current) return openTerminal({ cwd: null });
-  if (leaves(current.root).length >= MAX_PANES) return;
+  if (groups(current.root).length >= MAX_PANES) return;
   const lead = state.terms[current.focus];
   const info = await create({ cwd: await liveCwd(current.focus), card: lead?.card ?? null });
   // re-read after the awaits: the tab may have changed, filled up or closed meanwhile
   const now = state.tabs.find((t) => t.id === current.id);
   const at = now && leaves(now.root).includes(current.focus) ? current.focus : now?.focus;
-  if (!now || !at || leaves(now.root).length >= MAX_PANES) {
-    const own = tab({ term: info.id });
+  if (!now || !at || groups(now.root).length >= MAX_PANES) {
+    const own = tab(group([info.id]));
     set({ tabs: [...state.tabs, own], active: own.id, open: true });
     return;
   }
@@ -333,25 +316,16 @@ export async function revealTerminal(term: string) {
   }
   const info = ((await call("/api/term")) as TermInfo[]).find((x) => x.id === term && !x.exited);
   if (!info) return false;
-  const own = tab({ term });
+  const own = tab(group([term]));
   set({ terms: { ...state.terms, [term]: info }, tabs: [...state.tabs, own], active: own.id, open: true });
   return true;
 }
-export type DropSide = "left" | "right" | "top" | "bottom";
-// `sub` beside the `at` shell: left/top put it first, right/bottom after
-const insertAt = (n: PaneNode, at: string, side: DropSide, sub: PaneNode): PaneNode => {
-  if (!("term" in n)) return { ...n, a: insertAt(n.a, at, side, sub), b: insertAt(n.b, at, side, sub) };
-  if (n.term !== at) return n;
-  const dir: SplitDir = side === "left" || side === "right" ? "row" : "col";
-  return side === "left" || side === "top" ? { dir, a: sub, b: n } : { dir, a: n, b: sub };
-};
-
 // a whole tab dropped onto a shell of another tab: its splits join that layout (Konsole-style)
 export function mergeTab(source: string, target: string, at: string, side: DropSide) {
   const src = state.tabs.find((t) => t.id === source);
   const dst = state.tabs.find((t) => t.id === target);
   if (!src || !dst || src === dst) return false;
-  if (leaves(src.root).length + leaves(dst.root).length > MAX_PANES) return false;
+  if (groups(src.root).length + groups(dst.root).length > MAX_PANES) return false;
   const merged = { ...dst, root: insertAt(dst.root, at, side, src.root), focus: src.focus };
   set({ tabs: state.tabs.filter((t) => t.id !== source).map((t) => (t.id === target ? merged : t)), active: target });
   return true;
@@ -363,11 +337,11 @@ export function moveTerm(term: string, target: string, at: string, side: DropSid
   const dst = state.tabs.find((t) => t.id === target);
   if (!src || !dst || term === at) return false;
   if (src !== dst && leaves(src.root).length === 1) return mergeTab(src.id, target, at, side);
-  if (src !== dst && leaves(dst.root).length >= MAX_PANES) return false;
+  if (src !== dst && groups(dst.root).length >= MAX_PANES) return false;
   const rest = prune(src.root, (id) => id !== term)!;
   const tabs = state.tabs.map((t) => {
     const root = t === src ? rest : t.root;
-    if (t === dst) return { ...t, root: insertAt(root, at, side, { term }), focus: term };
+    if (t === dst) return { ...t, root: insertAt(root, at, side, group([term])), focus: term };
     return t === src ? { ...t, root, focus: t.focus === term ? leaves(root)[0] : t.focus } : t;
   });
   set({ tabs, active: target });
@@ -377,7 +351,7 @@ export function moveTerm(term: string, target: string, at: string, side: DropSid
 // a split's divider moved: `path` walks from the tab's root ("a"/"b" per level)
 export function resizeSplit(tabId: string, path: string, ratio: number) {
   const walk = (n: PaneNode, rest: string): PaneNode => {
-    if ("term" in n) return n;
+    if (isGroup(n)) return n;
     if (!rest) return { ...n, ratio };
     return rest[0] === "a" ? { ...n, a: walk(n.a, rest.slice(1)) } : { ...n, b: walk(n.b, rest.slice(1)) };
   };
