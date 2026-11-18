@@ -23,6 +23,8 @@ import {
   moveTerm,
   groups,
   isGroup,
+  joinPane,
+  type PaneGroup,
   type PaneNode,
   resizeSplit,
   type SplitDir,
@@ -111,10 +113,11 @@ export default function TerminalDock(
   const current = tabs.find((t) => t.id === active);
   const canSplit = !!current && groups(current.root).length < MAX_PANES;
   // the New terminal dialog (+, ⌘T, the empty view), optionally with an agent preselected
-  const [newTerm, setNewTerm] = useState<{ agent?: string; cwd?: string | null } | null>(null);
+  // `into`: ⌘T opens it as a tab of the focused pane, + as a new dock tab
+  const [newTerm, setNewTerm] = useState<{ agent?: string; cwd?: string | null; into?: boolean } | null>(null);
   // its "Here" is the folder the focused shell is in now
-  const openNew = async (agent?: string) =>
-    setNewTerm({ agent, cwd: current ? await liveCwd(current.focus) : null });
+  const openNew = async (agent?: string, into = false) =>
+    setNewTerm({ agent, cwd: current ? await liveCwd(current.focus) : null, into });
   // the pane filling its tab (Konsole's Ctrl+Shift+E), the others kept mounted behind it
   const [zoomed, setZoomed] = useState<string | null>(null);
   const split = (dir: "row" | "col") => {
@@ -180,7 +183,7 @@ export default function TerminalDock(
           e.stopPropagation();
           f();
         };
-        if ((e.metaKey || e.ctrlKey) && !(e.metaKey && e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "t") run(() => void openNew());
+        if ((e.metaKey || e.ctrlKey) && !(e.metaKey && e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "t") run(() => void openNew(undefined, true));
         else if (e.metaKey && !e.altKey && !e.ctrlKey && e.key.toLowerCase() === "d") run(() => split(e.shiftKey ? "col" : "row"));
         else if (ctrl && e.key === "(") run(() => split("row"));
         else if (ctrl && e.key === ")") run(() => split("col"));
@@ -328,7 +331,7 @@ export default function TerminalDock(
           <IconButton
             tone="close"
             className="grid h-7 w-7 place-items-center rounded-md hover:bg-hover"
-            title="new terminal or agent (⌘T, Ctrl+T)"
+            title="new tab: terminal or agent"
             aria-label="New terminal or agent"
             onClick={() => void openNew()}
           >
@@ -444,6 +447,7 @@ export default function TerminalDock(
         board={board ?? null}
         here={{ cwd: newTerm.cwd ?? cwd, card, project: scope?.project ?? lead?.project ?? null }}
         agent={newTerm.agent}
+        into={newTerm.into && current ? { tab: current.id, term: current.focus } : null}
         onClose={() => setNewTerm(null)}
         onOpened={(c, p) => {
           // one agent session's view hides any other shell: switch to the new one's card or project
@@ -456,13 +460,13 @@ export default function TerminalDock(
 }
 
 type Rect = { x: number; y: number; w: number; h: number }; // percent of the tab body
+const FULL: Rect = { x: 0, y: 0, w: 100, h: 100 };
 // a split's divider: where it sits, the split's own rect, and the path to that split from the tab root
 type Divider = { dir: SplitDir; split: Rect; ratio: number; path: string };
 // each split gives `ratio` of its space to `a`
-// a pane's shells all take its rect; only its active one is shown
-function layout(n: PaneNode, r: Rect, panes: [string, Rect, boolean][], lines: Divider[], path = "") {
+function layout(n: PaneNode, r: Rect, panes: [PaneGroup, Rect][], lines: Divider[], path = "") {
   if (isGroup(n)) {
-    for (const term of n.terms) panes.push([term, r, term === n.active]);
+    panes.push([n, r]);
     return;
   }
   const ratio = n.ratio ?? 0.5;
@@ -477,71 +481,91 @@ function layout(n: PaneNode, r: Rect, panes: [string, Rect, boolean][], lines: D
     layout(n.b, { ...r, y: r.y + h, h: r.h - h }, panes, lines, path + "b");
   }
 }
-const at = (r: Rect) => ({ left: `${r.x}%`, top: `${r.y}%`, width: `${r.w}%`, height: `${r.h}%` });
+const STRIP_PX = 28;
+// a rect in the tab body, optionally below its pane's tab strip
+const at = (r: Rect, strip = false) => ({
+  left: `${r.x}%`,
+  top: strip ? `calc(${r.y}% + ${STRIP_PX}px)` : `${r.y}%`,
+  width: `${r.w}%`,
+  height: strip ? `calc(${r.h}% - ${STRIP_PX}px)` : `${r.h}%`,
+});
 
-// a tab's shells, absolutely placed so splitting never remounts (and replays) an existing one
-const SIDE_ZONE: Record<DropSide, React.CSSProperties> = {
+// where a drop lands: an edge splits the pane, the middle adds tabs to it
+type DropZone = DropSide | "center";
+const ZONE: Record<DropZone, React.CSSProperties> = {
   left: { left: 0, top: 0, width: "50%", height: "100%" },
   right: { right: 0, top: 0, width: "50%", height: "100%" },
   top: { left: 0, top: 0, width: "100%", height: "50%" },
   bottom: { left: 0, bottom: 0, width: "100%", height: "50%" },
+  center: { left: "25%", top: "25%", width: "50%", height: "50%" },
 };
-// the edge of the pane nearest the pointer
-const sideAt = (e: React.DragEvent): DropSide => {
+const zoneAt = (e: React.DragEvent): DropZone => {
   const r = e.currentTarget.getBoundingClientRect();
   const x = (e.clientX - r.left) / r.width;
   const y = (e.clientY - r.top) / r.height;
+  if (Math.abs(x - 0.5) < 0.25 && Math.abs(y - 0.5) < 0.25) return "center";
   const near: [DropSide, number][] = [["left", x], ["right", 1 - x], ["top", y], ["bottom", 1 - y]];
   return near.reduce((a, b) => (b[1] < a[1] ? b : a))[0];
 };
 
+// every tab's shells, absolutely placed so splitting or moving never remounts (and replays) one
 function Panes(
   { tabs, shown, zoomed, onZoom, drag }: {
     tabs: TermTab[];
     shown: string | null; // the tab on screen, null when the dock is closed
-    zoomed: string | null;
+    zoomed: string | null; // a shell whose pane fills its tab
     onZoom: (tab: string, term: string) => void;
     drag: TermDrag | null;
   },
 ) {
-  const [hover, setHover] = useState<{ id: string; side: DropSide } | null>(null);
-  const panes: { id: string; r: Rect; up: boolean; tab: TermTab; n: number; zoom: string | null }[] = [];
+  const [hover, setHover] = useState<{ id: string; zone: DropZone } | null>(null);
+  const shells: { id: string; r: Rect; strip: boolean; up: boolean; tab: TermTab }[] = [];
+  const strips: { g: PaneGroup; r: Rect; tab: TermTab; zoomed: boolean }[] = [];
   let lines: Divider[] = [];
   for (const tab of tabs) {
-    const mine: [string, Rect, boolean][] = [];
+    const mine: [PaneGroup, Rect][] = [];
     const tabLines: Divider[] = [];
-    layout(tab.root, { x: 0, y: 0, w: 100, h: 100 }, mine, tabLines);
-    const zoom = mine.some(([id]) => id === zoomed) ? zoomed : null;
-    const n = groups(tab.root).length;
-    for (const [id, r, up] of mine) panes.push({ id, r, up, tab, n, zoom });
-    if (tab.id === shown && !zoom) lines = tabLines;
+    layout(tab.root, FULL, mine, tabLines);
+    const zg = zoomed ? mine.find(([g]) => g.terms.includes(zoomed))?.[0] : undefined;
+    // a lone shell stays bare; 2+ panes or tabs get strips
+    const strip = mine.length > 1 || mine[0][0].terms.length > 1;
+    for (const [g, r] of mine) {
+      const rect = zg === g ? FULL : r;
+      const hidden = !!zg && zg !== g;
+      for (const id of g.terms) shells.push({ id, r: rect, strip, up: id === g.active && !hidden, tab });
+      if (strip && tab.id === shown && !hidden) strips.push({ g, r: rect, tab, zoomed: zg === g });
+    }
+    if (tab.id === shown && !zg) lines = tabLines;
   }
-  // stable order by id: React moves nothing when a tree changes shape or a shell changes tab
-  panes.sort((a, b) => a.id.localeCompare(b.id));
+  // stable order by id: React moves nothing when a tree changes shape or a shell changes tab or pane
+  shells.sort((a, b) => a.id.localeCompare(b.id));
+  const shellsOf = (tabId: string) => {
+    const t = tabs.find((x) => x.id === tabId);
+    return t ? leaves(t.root) : [];
+  };
+  const drop = (zone: DropZone, tab: TermTab, id: string) => {
+    if (!drag) return;
+    if (drag.kind === "card" && !drag.tab) {
+      const at = { tab: tab.id, term: id };
+      if (zone === "center") void openTerminal({ cwd: drag.cwd, card: drag.id }, at);
+      else void openTerminalAt({ cwd: drag.cwd, card: drag.id }, { ...at, side: zone });
+      return;
+    }
+    // a whole tab: the dragged one, or the card's
+    const src = drag.kind === "card" ? drag.tab : drag.kind === "tab" ? drag.id : null;
+    if (zone === "center") joinPane(src ? shellsOf(src) : [drag.id], tab.id, id);
+    else if (src) mergeTab(src, tab.id, id, zone);
+    else moveTerm(drag.id, tab.id, id, zone);
+  };
   return (
     <>
-      {panes.map(({ id, r, up, tab, n, zoom }) => {
-        const visible = tab.id === shown && (up || zoom === id);
+      {shells.map(({ id, r, strip, up, tab }) => {
+        const visible = tab.id === shown && up;
         // a tab dragged onto itself, or a card's own tab, takes no drop
         const dropping = drag && visible && !(drag.kind === "term" && drag.id === id) &&
           !(drag.kind === "tab" && drag.id === tab.id) && !(drag.kind === "card" && drag.tab === tab.id);
         return (
-          <div
-            key={id}
-            className={`absolute flex flex-col ${n > 1 && !zoom && tab.focus !== id ? "opacity-80" : ""} ${
-              !visible || (zoom && zoom !== id) ? "invisible" : ""
-            }`}
-            style={at(zoom === id ? { x: 0, y: 0, w: 100, h: 100 } : r)}
-          >
-            {n > 1 && (
-              <PaneHeader
-                id={id}
-                live={visible && (!zoom || zoom === id)}
-                focused={tab.focus === id}
-                zoomed={zoom === id}
-                onZoom={() => onZoom(tab.id, id)}
-              />
-            )}
+          <div key={id} className={`absolute flex flex-col ${visible ? "" : "invisible"}`} style={at(r, strip)}>
             <div className="min-h-0 flex-1">
               <TerminalView id={id} visible={visible} focused={tab.focus === id} onFocus={() => focusPane(tab.id, id)} />
             </div>
@@ -551,30 +575,28 @@ function Panes(
                 onDragOver={(e) => {
                   e.preventDefault();
                   e.dataTransfer.dropEffect = "move";
-                  const side = sideAt(e);
-                  if (hover?.id !== id || hover.side !== side) setHover({ id, side });
+                  const zone = zoneAt(e);
+                  if (hover?.id !== id || hover.zone !== zone) setHover({ id, zone });
                 }}
                 onDragLeave={() => setHover(null)}
                 onDrop={(e) => {
                   e.preventDefault();
-                  const side = sideAt(e);
-                  if (drag.kind === "card") {
-                    if (drag.tab) mergeTab(drag.tab, tab.id, id, side);
-                    else void openTerminalAt({ cwd: drag.cwd, card: drag.id }, { tab: tab.id, term: id, side });
-                  } else if (drag.kind === "tab") mergeTab(drag.id, tab.id, id, side);
-                  else moveTerm(drag.id, tab.id, id, side);
+                  drop(zoneAt(e), tab, id);
                   setHover(null);
                   setTermDrag(null);
                 }}
               >
                 {hover?.id === id && (
-                  <div className="pointer-events-none absolute border-2 border-copper bg-copper/15" style={SIDE_ZONE[hover.side]} />
+                  <div className="pointer-events-none absolute border-2 border-copper bg-copper/15" style={ZONE[hover.zone]} />
                 )}
               </div>
             )}
           </div>
         );
       })}
+      {strips.map(({ g, r, tab, zoomed }) => (
+        <PaneStrip key={g.group} g={g} tab={tab} zoomed={zoomed} onZoom={() => onZoom(tab.id, g.active)} style={at(r)} />
+      ))}
       {shown && lines.map((d) => <SplitDivider key={`${shown}:${d.path}`} tab={shown} d={d} />)}
     </>
   );
@@ -626,14 +648,62 @@ function SplitDivider({ tab, d }: { tab: string; d: Divider }) {
   );
 }
 
-// a split pane's title bar, like Konsole's: "folder : process", maximize and close; drag it onto a pane to move it
-function PaneHeader(
-  { id, live, focused, zoomed, onZoom }: { id: string; live: boolean; focused: boolean; zoomed: boolean; onZoom: () => void },
+// a pane's tab strip, like Orca's: its shells, then new tab, splits and maximize
+function PaneStrip(
+  { g, tab, zoomed, onZoom, style }: { g: PaneGroup; tab: TermTab; zoomed: boolean; onZoom: () => void; style: React.CSSProperties },
 ) {
+  const { terms } = useTermDock();
+  const focused = g.terms.includes(tab.focus);
+  const split = (dir: SplitDir) => {
+    focusPane(tab.id, g.active);
+    void splitTerminal(dir);
+  };
+  const icon = "grid h-6 w-6 place-items-center rounded-md hover:bg-hover";
+  return (
+    <div className="absolute z-10 flex items-center border-b border-line bg-panel pr-1" style={{ ...style, height: STRIP_PX }}>
+      <div className="flex h-full min-w-0 flex-1 items-stretch overflow-x-auto [scrollbar-width:none]">
+        {g.terms.map((id) => (
+          <ShellTab key={id} id={id} tab={tab.id} shown={id === g.active} focused={focused && id === g.active} />
+        ))}
+      </div>
+      <IconButton
+        tone="close"
+        className={icon}
+        title="new terminal in this pane"
+        aria-label="New terminal in this pane"
+        onClick={() =>
+          void liveCwd(g.active).then((cwd) =>
+            openTerminal({ cwd, card: terms[g.active]?.card ?? null }, { tab: tab.id, term: g.active })
+          )}
+      >
+        <PlusIcon />
+      </IconButton>
+      <IconButton tone="close" className={icon} title="split right" aria-label="Split right" onClick={() => split("row")}>
+        <SplitRightIcon />
+      </IconButton>
+      <IconButton tone="close" className={icon} title="split down" aria-label="Split down" onClick={() => split("col")}>
+        <SplitDownIcon />
+      </IconButton>
+      <IconButton
+        tone="close"
+        className={icon}
+        title={zoomed ? "restore the split (Ctrl+Shift+E)" : "maximize this pane (Ctrl+Shift+E)"}
+        aria-label={zoomed ? "Restore split" : "Maximize pane"}
+        onClick={onZoom}
+      >
+        <MaximizeIcon size={12} restore={zoomed} />
+      </IconButton>
+    </div>
+  );
+}
+
+// one shell in a pane's strip: "folder : process" (live while shown), its agent and whether it waits on you;
+// drag it onto a pane to move it there
+function ShellTab({ id, tab, shown, focused }: { id: string; tab: string; shown: boolean; focused: boolean }) {
   const { terms } = useTermDock();
   const [now, setNow] = useState<TermNow | null>(null);
   useEffect(() => {
-    if (!live) return;
+    if (!shown) return;
     let done = false;
     const load = () => void termNow(id).then((n) => !done && setNow(n));
     load();
@@ -642,13 +712,12 @@ function PaneHeader(
       done = true;
       clearInterval(t);
     };
-  }, [id, live]);
+  }, [id, shown]);
   const cwd = now?.cwd ?? terms[id]?.cwd ?? null;
   const folder = cwd ? cwd.replace(/\/+$/, "").split("/").pop() || "/" : terms[id]?.title;
-  const session = useTermSessions().find((x) => x.term === id && x.named);
-  const title = [session?.name ?? folder, now?.process].filter(Boolean).join(" : ");
-  const running = useTermSessions().find((x) => x.term === id);
-  const agent = running?.agent;
+  const sessions = useTermSessions();
+  const running = sessions.find((x) => x.term === id);
+  const title = [(running?.named && running.name) || folder, shown && now?.process].filter(Boolean).join(" : ");
   const why = needsYou([running], useUnseenTerms());
   return (
     <div
@@ -660,34 +729,27 @@ function PaneHeader(
         setTermDrag({ kind: "term", id });
       }}
       onDragEnd={() => setTermDrag(null)}
-      className={`flex h-6 shrink-0 cursor-grab items-center gap-0.5 border-b border-line pl-14 pr-1 text-[11px] ${
-        why ? "bg-wait/15 text-wait" : focused ? "text-ink" : "text-ink-faint"
-      }`}
+      onClick={() => focusPane(tab, id)}
+      className={`group flex max-w-56 shrink-0 cursor-pointer items-center gap-1.5 pl-2.5 pr-1 text-[12px] ${
+        why ? "text-wait" : shown ? "text-ink" : "text-ink-faint hover:text-ink-soft"
+      } ${focused ? "shadow-[inset_0_-2px_0_var(--color-copper)]" : ""}`}
     >
-      <span className="flex min-w-0 flex-1 items-center justify-center gap-1.5">
-        {agent && <AgentIcon a={{ harness: agent, icon: null }} />}
-        <span className="truncate">{title}</span>
-        {why && (
-          <span title={why} className="flex">
-            <PresenceDot state="waiting" />
-          </span>
-        )}
-      </span>
+      {running?.agent && <AgentIcon a={{ harness: running.agent, icon: null }} />}
+      <span className="truncate">{title}</span>
+      {why && (
+        <span title={why} className="flex">
+          <PresenceDot state="waiting" />
+        </span>
+      )}
       <IconButton
         tone="close"
-        className="px-1"
-        title={zoomed ? "restore the split (Ctrl+Shift+E)" : "maximize this pane (Ctrl+Shift+E)"}
-        aria-label={zoomed ? "Restore split" : "Maximize pane"}
-        onClick={onZoom}
-      >
-        <MaximizeIcon size={12} restore={zoomed} />
-      </IconButton>
-      <IconButton
-        tone="close"
-        className="px-1"
-        title="close this pane (ends its process)"
+        className={`px-1 ${shown ? "" : "invisible group-hover:visible"}`}
+        title="close (ends the process)"
         aria-label={`Close ${title}`}
-        onClick={() => void closeTerminal(id)}
+        onClick={(e) => {
+          e.stopPropagation();
+          void closeTerminal(id);
+        }}
       >
         ×
       </IconButton>

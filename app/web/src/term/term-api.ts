@@ -3,7 +3,7 @@
 import { useSyncExternalStore } from "react";
 import { readStore, writeStore } from "../ui/storage";
 import { nextUnseen, type TermSession } from "./attention";
-import { activate, type DropSide, group, groups, insertAt, isGroup, leaves, type PaneNode, prune, type SplitDir, splitAt } from "./pane-tree";
+import { activate, addTerms, type DropSide, group, groupOf, groups, insertAt, isGroup, leaves, type PaneNode, prune, type SplitDir, splitAt } from "./pane-tree";
 export { type DropSide, groups, isGroup, leaves, type PaneGroup, type PaneNode, type SplitDir } from "./pane-tree";
 
 export type { TermSession };
@@ -185,9 +185,16 @@ const create = async (opts: TermOpts) => {
   return info;
 };
 
-// no cwd starts in the home directory; `command` runs first, then the shell stays
-export async function openTerminal(opts: TermOpts) {
+// no cwd starts in the home directory; `command` runs first, then the shell stays;
+// `into` adds it as a tab of the pane holding that shell, when that pane is still there
+export async function openTerminal(opts: TermOpts, into?: { tab: string; term: string } | null) {
   const info = await create(opts);
+  const dst = into && state.tabs.find((t) => t.id === into.tab && leaves(t.root).includes(into.term));
+  if (dst) {
+    const next = { ...dst, root: addTerms(dst.root, into!.term, [info.id]), focus: info.id };
+    set({ tabs: state.tabs.map((t) => (t === dst ? next : t)), active: dst.id, open: true });
+    return info;
+  }
   const t = tab(group([info.id]));
   set({ tabs: [...state.tabs, t], active: t.id, open: true });
   return info;
@@ -356,6 +363,24 @@ export function resizeSplit(tabId: string, path: string, ratio: number) {
     return rest[0] === "a" ? { ...n, a: walk(n.a, rest.slice(1)) } : { ...n, b: walk(n.b, rest.slice(1)) };
   };
   set({ tabs: state.tabs.map((t) => (t.id === tabId ? { ...t, root: walk(t.root, path) } : t)) });
+}
+
+// shells dropped onto the middle of a pane: they leave their tabs (closing emptied ones) and join it as tabs
+export function joinPane(terms: string[], target: string, at: string) {
+  const dst = state.tabs.find((t) => t.id === target);
+  const into = dst && groupOf(dst.root, at);
+  const moving = into ? terms.filter((t) => !into.terms.includes(t)) : [];
+  if (!moving.length) return false;
+  const tabs: TermTab[] = [];
+  for (const t of state.tabs) {
+    let root = prune(t.root, (id) => !moving.includes(id));
+    if (!root) continue;
+    if (t.id === target) root = addTerms(root, at, moving);
+    const focus = t.id === target ? moving.at(-1)! : leaves(root).includes(t.focus) ? t.focus : leaves(root)[0];
+    tabs.push({ ...t, root, focus });
+  }
+  set({ tabs, active: target });
+  return true;
 }
 
 export const setTermDrag = (drag: TermDrag | null) => set({ drag });

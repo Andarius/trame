@@ -34,13 +34,14 @@ const STRING_CODEC = { parse: (r: string) => r, stringify: (v: string) => v };
 // any folder). Run and project start on the last picks; `project` (or here's) overrides the project.
 // `onOpened` gets the new shell's card and project.
 export function NewTerminalDialog(
-  { board, here, project: presetProject, agent: preset, onClose, onOpened }: {
+  { board, here, project: presetProject, agent: preset, into = null, onClose, onOpened }: {
     board: BoardData | null;
     here?: { cwd: string | null; card: string | null; project?: string | null } | null;
     project?: string;
     agent?: string; // preselect this agent's command instead of the last pick
     onClose: () => void;
     onOpened: (card: string | null, project: string | null) => void;
+    into?: { tab: string; term: string } | null; // open as a tab of the pane holding this shell
   },
 ) {
   const [agents, setAgents] = useState<TermAgent[] | null>(null);
@@ -69,7 +70,7 @@ export function NewTerminalDialog(
   const open = async (cwd: string | null, card: string | null = null) => {
     const owner = { cwd, card, project: card ? null : project };
     try {
-      await openTerminal(chosen ? { ...owner, command: chosen.command, title: chosen.label } : owner);
+      await openTerminal(chosen ? { ...owner, command: chosen.command, title: chosen.label } : owner, into);
       setLast(chosen ? chosen.command : SHELL);
       setLastProject(project ?? "");
       if (cwd) setLastFolders({ ...lastFolders, [project ?? ""]: cwd });
@@ -102,7 +103,7 @@ export function NewTerminalDialog(
   const resume = async (x: (typeof resumable)[number]) => {
     const card = board?.sessions.find((s) => s.id === x.claudeId || s.claude_id === x.claudeId)?.id ?? null;
     try {
-      await openTerminal({ cwd: x.repoPath, card, project: card ? null : project, command: agentCmd(x), title: `${chosen!.label} · ${x.title}` });
+      await openTerminal({ cwd: x.repoPath, card, project: card ? null : project, command: agentCmd(x), title: `${chosen!.label} · ${x.title}` }, into);
       setLast(chosen!.command);
       onOpened(card, card ? null : project);
       onClose();

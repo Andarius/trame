@@ -57,3 +57,13 @@ export const splitAt = (n: PaneNode, at: string, dir: SplitDir, term: string): P
   isGroup(n)
     ? (n.terms.includes(at) ? { dir, a: n, b: group([term]) } : n)
     : { ...n, a: splitAt(n.a, at, dir, term), b: splitAt(n.b, at, dir, term) };
+// `terms` join the pane holding `at` as its last tabs, the last one shown
+export const addTerms = (n: PaneNode, at: string, terms: string[]): PaneNode => {
+  if (!isGroup(n)) return { ...n, a: addTerms(n.a, at, terms), b: addTerms(n.b, at, terms) };
+  if (!n.terms.includes(at)) return n;
+  const added = terms.filter((t) => !n.terms.includes(t));
+  return added.length ? { ...n, terms: [...n.terms, ...added], active: added.at(-1)! } : n;
+};
+// the pane holding `term`
+export const groupOf = (n: PaneNode, term: string): PaneGroup | undefined =>
+  isGroup(n) ? (n.terms.includes(term) ? n : undefined) : groupOf(n.a, term) ?? groupOf(n.b, term);
