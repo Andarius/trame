@@ -5,12 +5,12 @@ edition.workspace = true
 publish.workspace = true
 
 [build-dependencies]
-tauri-build = { version = "2.7.4", features = [] }
+tauri-build = { version = "2.7.5", features = [] }
 
 [dependencies]
 anyhow = "1.0.104"
 serde_json = "1.0.154"
-tauri = { version = "2.12.5", features = [] }
+tauri = { version = "2.12.6", features = [] }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "signal", "sync", "time"] }
 trame-local = { path = "../trame-local", default-features = false }
 
