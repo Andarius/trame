@@ -18,6 +18,12 @@ export function activate(s: Workspaces, id: string, search?: string, name?: stri
   return { list, active: id, mru: touch(s.mru, id) };
 }
 
+// make `id` active at `search` (a followed link): created when new, moved there when open
+export function arrive(s: Workspaces, id: string, search: string, name?: string): Workspaces {
+  const a = activate(s, id, search, name);
+  return { ...a, list: a.list.map((w) => (w.id === id ? { ...w, search } : w)) };
+}
+
 // remember where the active workspace is now
 export function save(s: Workspaces, search: string): Workspaces {
   return { ...s, list: s.list.map((w) => (w.id === s.active ? { ...w, search } : w)) };
@@ -120,6 +126,12 @@ export function switchWorkspace(id: string) {
 // open `id` in its own workspace (Ctrl/⌘-click), at `search` and named `name` when new; an open one just comes forward
 export function openWorkspace(id: string, search: string, name?: string) {
   setWorkspaces((s) => activate(save(s, location.search), id, search, name));
+  goActive();
+}
+
+// a Trame link followed from a terminal: its own workspace, at the place it points to
+export function openWorkspaceAt(id: string, search: string, name?: string) {
+  setWorkspaces((s) => arrive(save(s, location.search), id, search, name));
   goActive();
 }
 

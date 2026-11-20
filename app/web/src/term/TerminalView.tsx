@@ -8,7 +8,8 @@ import "@xterm/xterm/css/xterm.css";
 import "@fontsource/jetbrains-mono/latin-400.css";
 import "@fontsource/jetbrains-mono/latin-700.css";
 import "@fontsource/jetbrains-mono/latin-400-italic.css";
-import { openInBrowser } from "../api";
+import { getPage, getUdb, openInBrowser } from "../api";
+import { openWorkspaceAt } from "../app/workspaces";
 import { CLOSE_AUTH, CLOSE_GONE, CLOSE_SUPERSEDED, closeTerminal, termImage, type TermTheme, termTheme, termToken } from "./term-api";
 import { imageLinks } from "./image-links";
 import { previewBox } from "./preview-size";
@@ -103,8 +104,8 @@ export function attachLinks(term: Terminal, setPr: (pr: PrHover) => void) {
   term.options.linkHandler = { activate: (_e, uri) => openLink(uri), hover, leave };
 }
 
-// Trame's own links (what `tramecli` prints, from this app or another port on this machine)
-// open in place through the app's history handling; anything else goes to the browser
+// Trame's own links (what `tramecli` prints, from this app or another port on this machine) open in a
+// workspace of their own, so the terminal stays where it is; anything else goes to the browser
 export function openLink(uri: string) {
   let u: URL;
   try {
@@ -124,7 +125,12 @@ export function openLink(uri: string) {
     q.delete("session");
     q.set("card", legacy);
   }
-  history.pushState(null, "", `/?${q}`);
+  const search = `?${q}`;
+  const [card, page, db] = [q.get("card"), q.get("page"), q.get("db")];
+  if (card) return openWorkspaceAt(card, search);
+  if (page) return void getPage(page).then((p) => p.title, () => undefined).then((t) => openWorkspaceAt(`page:${page}`, search, t));
+  if (db) return void getUdb(db).then((d) => d.db.name, () => undefined).then((n) => openWorkspaceAt(`db:${db}`, search, n));
+  history.pushState(null, "", `/${search}`);
   dispatchEvent(new PopStateEvent("popstate"));
 }
 
