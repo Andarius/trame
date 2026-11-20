@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { activate, close, HOME, move, parse, previous, save, type Workspaces } from "./workspaces";
+import { activate, arrive, close, HOME, move, parse, previous, save, type Workspaces } from "./workspaces";
 
 const base = (): Workspaces => ({
   list: [{ id: HOME, name: null, search: "" }, { id: "a", name: null, search: "?card=a" }, { id: "b", name: null, search: "?card=b" }],
@@ -13,6 +13,17 @@ test("activate creates a new workspace last and puts it first in MRU", () => {
   expect(s.active).toBe("c");
   expect(s.mru).toEqual(["c", "b", "a", HOME]);
   expect(previous(s)).toBe("b");
+});
+
+test("arrive moves an open workspace to the link's place, and creates a missing one there", () => {
+  const open = arrive(base(), "a", "?view=card&card=a&block=x");
+  expect(open.active).toBe("a");
+  expect(open.list.find((w) => w.id === "a")?.search).toBe("?view=card&card=a&block=x");
+  expect(arrive(base(), "page:p", "?view=page&page=p", "Plan").list.at(-1)).toEqual({
+    id: "page:p",
+    name: "Plan",
+    search: "?view=page&page=p",
+  });
 });
 
 test("save writes the active workspace's place only", () => {
