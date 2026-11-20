@@ -341,6 +341,32 @@ alter table sessions add column if not exists tags jsonb not null default '[]';
 alter table sessions add column if not exists branches text default '';
 update sessions set branches = branch
 where coalesce(branches, '') = '' and coalesce(branch, '') <> '';
+alter table sessions add column if not exists done_at timestamptz;
+
+create or replace function trame_session_done_at() returns trigger
+language plpgsql as $fn$
+begin
+  -- a value the writer set itself (a synced row) stands
+  if tg_op = 'UPDATE' and new.done_at is distinct from old.done_at then
+    return new;
+  end if;
+  if not exists (select 1 from statuses where key = new.status and terminal and not deleted) then
+    new.done_at := null;
+  elsif new.done_at is null then
+    new.done_at := clock_timestamp();
+  end if;
+  return new;
+end;
+$fn$;
+
+create or replace trigger sessions_done_at before insert or update on sessions
+for each row execute function trame_session_done_at();
+-- cards done before the column existed: their last activity is the closest known date
+update sessions set done_at = last_touched
+where done_at is null and status in (
+  select key from statuses
+  where terminal and not deleted
+);
 -- « story » désignait à la fois cette colonne et kind='story' — l'énoncé du but, c'est le brief.
 do $$ begin
   if exists (select 1 from information_schema.columns
@@ -455,6 +481,7 @@ comment on column sessions.claude_id is 'Claude Code or Codex transcript UUID (t
 comment on column sessions.agent is 'Transcript provider: claude or codex. Null on manual cards.';
 comment on column sessions.summary is 'Last "what happened" blurb; a changed value is also appended to session_events as the worklog.';
 comment on column sessions.last_touched is 'Activity clock for board ordering (distinct from updated_at, the LWW clock).';
+comment on column sessions.done_at is 'When the card entered a terminal status; null while open. Kept by the sessions_done_at trigger.';
 
 comment on table statuses is 'Kanban board columns — user-editable. sessions.status stores statuses.key (a stable slug), not the id. terminal marks done-like columns. Built-ins (active/paused/blocked/done) are seeded with fixed ids so LWW sync dedupes them.';
 comment on column statuses.key is 'Stable slug written to sessions.status; immutable after creation so existing sessions never orphan.';

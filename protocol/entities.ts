@@ -7,7 +7,8 @@
 // v6: session-owned tags, independent of story and specs-page tags.
 // v7: sessions.branches (a card holds every branch it shipped).
 // v8: session_events.model / tokens / cost_usd / agent_name (who wrote a worklog entry, at what cost).
-export const PROTOCOL_VERSION = 8;
+// v9: sessions.done_at (when a card entered a terminal status).
+export const PROTOCOL_VERSION = 9;
 
 export const ENTITIES = [
   {
@@ -133,6 +134,7 @@ export const ENTITIES = [
       "claude_id",
       "agent",
       "last_touched",
+      "done_at",
       "origin",
       "updated_at",
       "deleted",

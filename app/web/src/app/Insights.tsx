@@ -11,12 +11,17 @@ const RANGES = [
 ];
 const compact = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
 const fmt = (n: number) => (n < 10_000 ? n.toLocaleString() : compact.format(n));
-const DAY_MS = 86_400_000;
+
+// local midnight of a YYYY-MM-DD day
+function localDate(day: string): Date {
+  const [y, m, d] = day.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
 
 // local YYYY-MM-DD, n days before `today` (also YYYY-MM-DD)
 function shift(today: string, n: number): string {
-  const [y, m, d] = today.split("-").map(Number);
-  const t = new Date(y, m - 1, d - n);
+  const t = localDate(today);
+  t.setDate(t.getDate() - n);
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
 }
 
@@ -37,7 +42,7 @@ const sum = (rows: StatsRow[]) =>
 // a day counts as active when you prompted an agent or logged work
 const activity = (r: StatsRow) => r.prompts + r.entries;
 
-// Insights: what you and your agents did, from the worklog, cards and the Claude/Codex transcripts on this machine.
+// Insights: what you and your agents did, from the worklog, cards and the agent transcripts on this machine.
 export function Insights({ board }: { board: BoardData | null }) {
   const [data, setData] = useState<Awaited<ReturnType<typeof getStats>> | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -49,9 +54,10 @@ export function Insights({ board }: { board: BoardData | null }) {
   const pending = data?.prs.pending || data?.devices.pending;
   useEffect(() => {
     if (!pending) return;
-    const t = setTimeout(() => void getStats().then(setData, () => {}), 5000);
-    return () => clearTimeout(t);
-  }, [data, pending]);
+    // an interval, so a failed reload is tried again
+    const t = setInterval(() => void getStats().then(setData, () => {}), 5000);
+    return () => clearInterval(t);
+  }, [pending]);
 
   const days = Number(range);
   const view = useMemo(() => {
@@ -60,17 +66,19 @@ export function Insights({ board }: { board: BoardData | null }) {
     const prevFrom = shift(data.today, 2 * days - 1);
     const cur = data.rows.filter((r) => r.d >= from);
     const prev = data.rows.filter((r) => r.d >= prevFrom && r.d < from);
-    return { cur, totals: sum(cur), prev: sum(prev), hasPrev: data.rows.some((r) => r.d < from) };
+    // no comparison against a previous period the data only partly covers
+    const hasPrev = prevFrom >= data.from && data.rows.some((r) => r.d < from);
+    return { cur, totals: sum(cur), prev: sum(prev), hasPrev };
   }, [data, days]);
 
   if (error) return <EmptyState page>Could not load stats: {error}</EmptyState>;
   if (!data || !view) return <EmptyState page>Reading the worklog and agent transcripts…</EmptyState>;
 
   const headline: { key: keyof Totals; label: string; hint: string }[] = [
-    { key: "prompts", label: "PROMPTS SENT", hint: "messages you typed to Claude Code and Codex" },
+    { key: "prompts", label: "PROMPTS SENT", hint: "messages you typed to Claude Code, Codex and Vibe" },
     { key: "tokens", label: "TOKENS", hint: "agent input + output tokens, cache reads excluded" },
     { key: "entries", label: "WORKLOG ENTRIES", hint: "track and log entries on cards" },
-    { key: "done", label: "CARDS DONE", hint: "cards in a done column, by last activity" },
+    { key: "done", label: "CARDS DONE", hint: "cards in a done column, by the day they were closed" },
     { key: "merged", label: "PRS MERGED", hint: "your GitHub PRs and GitLab MRs merged, by merge date" },
     { key: "prs", label: "CARDS WITH A PR", hint: "cards with a pull request, by last activity" },
   ];
@@ -104,7 +112,7 @@ export function Insights({ board }: { board: BoardData | null }) {
           </div>
         </div>
         <p className="text-[11px] text-ink-faint">
-          Prompts and tokens come from the {fmt(data.scan.files)} Claude Code and Codex transcripts on this machine
+          Prompts and tokens come from the {fmt(data.scan.files)} Claude Code, Codex and Vibe transcripts on this machine
           {data.devices.others > 0
             ? ` and ${data.devices.others} other device${data.devices.others === 1 ? "" : "s"} through the hub`
             : data.devices.hub
@@ -153,8 +161,7 @@ function Streak({ rows, today, weeks: span = 52 }: { rows: StatsRow[]; today: st
   const { weeks, current, longest, months, max } = useMemo(() => {
     const perDay = new Map<string, number>();
     for (const r of rows) perDay.set(r.d, (perDay.get(r.d) ?? 0) + activity(r));
-    const [y, m, d] = today.split("-").map(Number);
-    const end = new Date(y, m - 1, d);
+    const end = localDate(today);
     // start on the Monday 52 weeks back, so the last column holds today
     const back = 52 * 7 + ((end.getDay() + 6) % 7);
     const cells = Array.from({ length: back + 1 }, (_, i) => {
@@ -173,8 +180,8 @@ function Streak({ rows, today, weeks: span = 52 }: { rows: StatsRow[]; today: st
     let current = 0;
     for (let i = cells.length - 1 - (cells.at(-1)!.n > 0 ? 0 : 1); i >= 0 && cells[i].n > 0; i--) current++;
     const months = weeks.map((w, i) => {
-      const first = new Date(new Date(w[0].date).getTime() + DAY_MS / 2);
-      const prev = i > 0 ? new Date(weeks[i - 1][0].date).getMonth() : -1;
+      const first = localDate(w[0].date);
+      const prev = i > 0 ? localDate(weeks[i - 1][0].date).getMonth() : -1;
       return first.getMonth() !== prev ? first.toLocaleString(undefined, { month: "short" }) : "";
     });
     const max = Math.max(1, ...cells.map((c) => c.n));
@@ -238,16 +245,17 @@ function ByProject({ rows, board }: { rows: StatsRow[]; board: BoardData | null 
   const items = useMemo(() => {
     const by = new Map<
       string,
-      { name: string; icon: string | null; glyph: string; color: string; n: number; prompts: number; entries: number }
+      { key: string; name: string; icon: string | null; glyph: string; color: string; n: number; prompts: number; entries: number }
     >();
     for (const r of rows) {
       const n = activity(r);
       if (!n) continue;
       const project = r.p ? board?.projects.find((p) => p.id === r.p) : null;
       const name = project?.name ?? r.r ?? "No project";
-      const key = r.p ?? `repo:${name}`;
+      // a deleted project's rows join "No project"
+      const key = project ? project.id : `repo:${name}`;
       const cur = by.get(key) ??
-        { name, icon: project?.icon ?? null, glyph: project ? "◎" : "◌", color: project ? clientColor(project.name, project.color) : "var(--color-ink-faint)", n: 0, prompts: 0, entries: 0 };
+        { key, name, icon: project?.icon ?? null, glyph: project ? "◎" : "◌", color: project ? clientColor(project.name, project.color) : "var(--color-ink-faint)", n: 0, prompts: 0, entries: 0 };
       by.set(key, { ...cur, n: cur.n + n, prompts: cur.prompts + r.prompts, entries: cur.entries + r.entries });
     }
     return [...by.values()].sort((a, b) => b.n - a.n).slice(0, 10);
@@ -260,7 +268,7 @@ function ByProject({ rows, board }: { rows: StatsRow[]; board: BoardData | null 
       {items.length === 0 && <EmptyState block>No activity in this period.</EmptyState>}
       <div className="flex flex-col gap-2.5">
         {items.map((i) => (
-          <div key={i.name} className="flex items-center gap-3 text-[12.5px]">
+          <div key={i.key} className="flex items-center gap-3 text-[12.5px]">
             <span className="flex w-[34%] min-w-0 items-center gap-2 text-ink-soft" title={i.name}>
               <span className="grid w-4 shrink-0 place-items-center">
                 <EntityIcon icon={i.icon} fallback={i.glyph} size={16} />

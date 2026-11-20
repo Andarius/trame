@@ -92,6 +92,9 @@ struct Cache {
     // merged PRs and MRs by link, and when each forge ("github" or a GitLab host) was last asked
     prs: BTreeMap<String, MergedPr>,
     checked: BTreeMap<String, i64>,
+    // when each forge was last tried, failures included
+    #[serde(default)]
+    attempted: BTreeMap<String, i64>,
     // the other devices' usage from the hub, when it was last asked, and a hash of each day this device pushed
     usage: Vec<DeviceUsage>,
     usage_checked: Option<i64>,
@@ -120,7 +123,7 @@ type Key = (
 /// What the DB says about where work belongs.
 #[derive(Default)]
 struct Owners {
-    // card repo path → project id
+    // card repo path → project id, one per repo
     repos: Vec<(String, String)>,
     // PR repo (as `forge::pr_repo`) → project id
     pr_projects: HashMap<String, String>,
@@ -175,17 +178,21 @@ fn stats(state: &Native) -> Result<Value> {
             .collect();
         let path = cache_path.clone();
         std::thread::spawn(move || {
+            let _fetching = Reset(&FETCHING);
             let found = fetch_merged(since);
             let _scan = SCAN
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             let mut cache = load_cache(&path);
+            let now = Local::now().timestamp_millis();
+            // a failed forge waits for the next window too, rather than retrying on every page load
+            cache.attempted.extend(stale.into_iter().map(|f| (f, now)));
             for (forge, prs) in found {
                 cache.prs.extend(prs);
-                cache.checked.insert(forge, Local::now().timestamp_millis());
+                cache.checked.insert(forge, now);
             }
+            cache.prs.retain(|_, pr| pr.day >= from);
             save_cache(&path, &mut cache);
-            FETCHING.store(false, Ordering::SeqCst);
         });
     }
     merged_rows(&cache, from, &owners.pr_projects, &mut rows);
@@ -200,6 +207,7 @@ fn stats(state: &Native) -> Result<Value> {
         .collect();
     Ok(json!({
         "today": Local::now().date_naive(),
+        "from": from,
         "rows": rows,
         "scan": {"files": files, "parsed": parsed, "ms": started.elapsed().as_millis()},
         "prs": {"pending": FETCHING.load(Ordering::SeqCst), "fetched": !cache.checked.is_empty()},
@@ -209,6 +217,15 @@ fn stats(state: &Native) -> Result<Value> {
             "hub": settings::hub_api(&state.settings).is_some() && !state.sync.offline,
         },
     }))
+}
+
+/// Clears a busy flag when dropped, so a panicking worker does not leave it set.
+struct Reset(&'static AtomicBool);
+
+impl Drop for Reset {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
 }
 
 /// In the background, at most every `PRS_TTL_MS`: push this device's transcript counts to the hub
@@ -340,7 +357,7 @@ fn repo_name(path: &str) -> String {
         .to_owned()
 }
 
-/// Worklog entries and closed cards; returns which project each repo and PR repo belongs to.
+/// Worklog entries, closed cards and cards with a PR; returns which project each repo and PR repo belongs to.
 fn db_rows(db: &mut Db, from: NaiveDate, rows: &mut BTreeMap<Key, Counts>) -> Result<Owners> {
     let since = json!(from.to_string());
     for e in db.query(
@@ -363,30 +380,30 @@ fn db_rows(db: &mut Db, from: NaiveDate, rows: &mut BTreeMap<Key, Counts>) -> Re
     }
     for s in db.query(
         "select extract(epoch from last_touched)::float8 t, client_id::text p, repo_path r,
+                extract(epoch from coalesce(done_at, last_touched))::float8 dt,
                 status in (select key from statuses where terminal and not deleted) done,
                 coalesce(pr_url, '') <> '' pr
-           from sessions where not deleted and last_touched >= $1::date",
+           from sessions where not deleted and (last_touched >= $1::date or done_at >= $1::date)",
         &[since],
     )? {
-        let Some(d) = s["t"].as_f64().and_then(local_date) else {
-            continue;
-        };
-        let (done, pr) = (s["done"] == true, s["pr"] == true);
-        if !done && !pr {
-            continue;
-        }
         let project = s["p"].as_str().map(str::to_owned);
         let repo = project
             .is_none()
             .then(|| s["r"].as_str().map(repo_name))
             .flatten();
-        let row = rows
-            .entry((d, project, repo, "you".into(), None))
-            .or_default();
-        row.done += u64::from(done);
-        row.prs += u64::from(pr);
+        // a card counts as done on the day it was closed, as having a PR on its last activity
+        for (flag, at, done) in [("done", "dt", true), ("pr", "t", false)] {
+            let day = s[at].as_f64().and_then(local_date).filter(|d| *d >= from);
+            if let (true, Some(d)) = (s[flag] == true, day) {
+                let key = (d, project.clone(), repo.clone(), "you".into(), None);
+                let row = rows.entry(key).or_default();
+                row.done += u64::from(done);
+                row.prs += u64::from(!done);
+            }
+        }
     }
     let mut owners = Owners::default();
+    let (mut repos, mut pr_repos) = (Votes::new(), Votes::new());
     for s in db.query(
         "select rtrim(repo_path, '/') r, pr_url u, client_id::text p from sessions
           where not deleted and (coalesce(repo_path, '') <> '' or coalesce(pr_url, '') <> '')",
@@ -394,7 +411,7 @@ fn db_rows(db: &mut Db, from: NaiveDate, rows: &mut BTreeMap<Key, Counts>) -> Re
     )? {
         let project = s["p"].as_str();
         if let (Some(repo), Some(project)) = (s["r"].as_str().filter(|r| !r.is_empty()), project) {
-            owners.repos.push((repo.to_owned(), project.to_owned()));
+            vote(&mut repos, repo, project);
         }
         // pr_url holds one link per line
         for url in s["u"].as_str().unwrap_or("").lines() {
@@ -407,13 +424,32 @@ fn db_rows(db: &mut Db, from: NaiveDate, rows: &mut BTreeMap<Key, Counts>) -> Re
                     .insert(repo.split('/').next().unwrap_or("").to_owned());
             }
             if let Some(project) = project {
-                owners.pr_projects.insert(repo, project.to_owned());
+                vote(&mut pr_repos, &repo, project);
             }
         }
     }
-    owners.repos.sort();
-    owners.repos.dedup();
+    owners.repos = elected(repos).collect();
+    owners.pr_projects = elected(pr_repos).collect();
     Ok(owners)
+}
+
+// repo → project id → cards
+type Votes = HashMap<String, BTreeMap<String, u64>>;
+
+fn vote(votes: &mut Votes, repo: &str, project: &str) {
+    *votes
+        .entry(repo.to_owned())
+        .or_default()
+        .entry(project.to_owned())
+        .or_default() += 1;
+}
+
+/// Each repo's project: the one with the most cards there, the lowest id on a tie.
+fn elected(votes: Votes) -> impl Iterator<Item = (String, String)> {
+    votes.into_iter().filter_map(|(repo, projects)| {
+        let (project, _) = projects.into_iter().rev().max_by_key(|(_, n)| *n)?;
+        Some((repo, project))
+    })
 }
 
 fn load_cache(path: &Path) -> Cache {
@@ -434,12 +470,15 @@ fn save_cache(path: &Path, cache: &mut Cache) {
     }
 }
 
-/// The forges ("github", then GitLab hosts) not asked for merged PRs recently.
+/// The forges ("github", then GitLab hosts) not asked for merged PRs recently, whether or not they answered.
 fn stale_forges(cache: &Cache, gitlab_hosts: &BTreeSet<String>) -> Vec<String> {
     let now = Local::now().timestamp_millis();
     std::iter::once("github".to_owned())
         .chain(gitlab_hosts.iter().cloned())
-        .filter(|f| cache.checked.get(f).is_none_or(|t| now - t >= PRS_TTL_MS))
+        .filter(|f| {
+            let last = cache.checked.get(f).max(cache.attempted.get(f));
+            last.is_none_or(|t| now - t >= PRS_TTL_MS)
+        })
         .collect()
 }
 
@@ -958,6 +997,60 @@ mod tests {
             ("/w/acme-old", None),
         ] {
             assert_eq!(project_of(cwd, &repos).as_deref(), want, "{cwd}");
+        }
+    }
+
+    #[test]
+    fn a_shared_repo_goes_to_the_project_with_most_cards() {
+        let mut votes = Votes::new();
+        for (repo, project) in [
+            ("/w/acme", "p2"),
+            ("/w/acme", "p1"),
+            ("/w/acme", "p2"),
+            ("/w/tie", "p2"),
+            ("/w/tie", "p1"),
+        ] {
+            vote(&mut votes, repo, project);
+        }
+        let owners: BTreeMap<_, _> = elected(votes).collect();
+        let want = [("/w/acme", "p2"), ("/w/tie", "p1")].map(|(r, p)| (r.to_owned(), p.to_owned()));
+        assert_eq!(owners, BTreeMap::from(want));
+    }
+
+    #[test]
+    fn a_failed_forge_waits_for_the_next_window() {
+        let now = Local::now().timestamp_millis();
+        let hosts = BTreeSet::from(["gitlab.example.com".to_owned()]);
+        for (name, checked, attempted, want) in [
+            (
+                "never asked",
+                None,
+                None,
+                vec!["github", "gitlab.example.com"],
+            ),
+            ("just failed", None, Some(now), vec![]),
+            (
+                "failed a window ago",
+                None,
+                Some(now - PRS_TTL_MS),
+                vec!["github", "gitlab.example.com"],
+            ),
+            (
+                "answered, then failed",
+                Some(now - PRS_TTL_MS),
+                Some(now),
+                vec![],
+            ),
+            ("just answered", Some(now), None, vec![]),
+        ] {
+            let mut cache = Cache::default();
+            for forge in ["github", "gitlab.example.com"] {
+                cache.checked.extend(checked.map(|t| (forge.to_owned(), t)));
+                cache
+                    .attempted
+                    .extend(attempted.map(|t| (forge.to_owned(), t)));
+            }
+            assert_eq!(stale_forges(&cache, &hosts), want, "{name}");
         }
     }
 

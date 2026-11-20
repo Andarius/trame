@@ -1007,6 +1007,7 @@ export const getStats = () =>
     if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? r.statusText);
     return r.json() as Promise<{
       today: string;
+      from: string; // first day covered
       rows: StatsRow[];
       scan: { files: number; parsed: number; ms: number };
       prs: { pending: boolean; fetched: boolean }; // merged PRs come from GitHub/GitLab in the background
