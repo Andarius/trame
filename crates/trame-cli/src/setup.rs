@@ -54,15 +54,34 @@ pub fn with_presence_hooks(file: &Value, harness: &str) -> Value {
         file["hooks"] = json!({});
     }
     for (event, matcher) in event_rules(harness) {
-        let hooks = file["hooks"][event].as_array().cloned().unwrap_or_default();
-        let mut hooks = hooks;
-        if !hooks.iter().any(|h| h.to_string().contains(&command)) {
-            let mut entry = json!({"hooks":[{"type":"command","command":command,"timeout":5}]});
+        let mut hooks = file["hooks"][event].as_array().cloned().unwrap_or_default();
+        let mut present = false;
+        let label = "Update Trame presence";
+        for hook in hooks
+            .iter_mut()
+            .filter_map(|group| group.get_mut("hooks")?.as_array_mut())
+            .flatten()
+            .filter(|hook| hook["type"] == "command" && hook["command"] == command)
+        {
+            present = true;
+            if harness == "codex"
+                && hook["statusMessage"]
+                    .as_str()
+                    .is_none_or(|s| s.trim().is_empty())
+            {
+                hook["statusMessage"] = json!(label);
+            }
+        }
+        if !present {
+            let mut hook = json!({"type":"command","command":command,"timeout":5});
+            if harness == "codex" {
+                hook["statusMessage"] = json!(label);
+            } else if harness == "claude" {
+                hook["async"] = json!(true);
+            }
+            let mut entry = json!({"hooks":[hook]});
             if let Some(matcher) = matcher {
                 entry["matcher"] = json!(matcher);
-            }
-            if harness == "claude" {
-                entry["hooks"][0]["async"] = json!(true);
             }
             hooks.push(entry);
         }

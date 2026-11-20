@@ -478,6 +478,31 @@ fn presence_hooks_usage_provider_and_state() {
     }
 }
 #[test]
+fn codex_presence_hooks_name_new_and_existing_handlers() {
+    let command = "tramecli presence --hook codex";
+    let other = json!({"type":"command","command":"unrelated"});
+    let existing = json!({"type":"command","command":command,"timeout":9});
+    let custom = json!({"type":"command","command":command,"statusMessage":"My presence"});
+    let initial = json!({"hooks":{
+        "PreToolUse":[{"hooks":[other, existing]}],
+        "Stop":[{"hooks":[custom]}]
+    }});
+    let result = setup::with_presence_hooks(&initial, "codex");
+    let mut named = existing;
+    named["statusMessage"] = json!("Update Trame presence");
+    assert_eq!(
+        result["hooks"]["PreToolUse"],
+        json!([{"hooks":[other, named]}])
+    );
+    assert_eq!(result["hooks"]["Stop"], initial["hooks"]["Stop"]);
+    assert_eq!(
+        result["hooks"]["UserPromptSubmit"][0]["hooks"][0]["statusMessage"],
+        "Update Trame presence"
+    );
+    assert_eq!(setup::with_presence_hooks(&result, "codex"), result);
+}
+
+#[test]
 fn watcher_prompt_commands_and_output() {
     let item = json!({"agent":"codex","page":{"title":"Release plan"},"block":{"text":"Ship the release"},
         "thread":[{"author":"Codex","author_id":"00000000-0000-4000-8000-0000000000aa","body":"clarify rollback"},
