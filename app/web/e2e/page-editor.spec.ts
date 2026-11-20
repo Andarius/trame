@@ -25,6 +25,7 @@ const TITLES = [
   "Editor file link e2e",
   "Editor html height e2e",
   "Editor html wide e2e",
+  "Editor hidden height e2e",
 ];
 
 // retry-safe: wipe our fixture pages so a re-run starts clean
@@ -335,6 +336,22 @@ test("an html doc sized to its frame keeps a steady height", async ({ page, requ
   const first = await height();
   await page.waitForTimeout(1000);
   expect(await height()).toBe(first);
+});
+
+test("hidden block textareas add no scroll height", async ({ page, request }) => {
+  const long = "a fairly long line of prose that would wrap a great many times at one pixel wide";
+  const id = await newPage(
+    request,
+    "Editor hidden height e2e",
+    Array.from({ length: 6 }, (_, i) => ({ id: `hh-${i}`, type: "text", text: long })),
+  );
+  await page.goto(`/?view=page&page=${id}`);
+  await expect(page.getByText(long).first()).toBeVisible();
+  const hidden = await page.locator("textarea").evaluateAll((ts) =>
+    ts.filter((t) => t.style.opacity === "0").map((t) => t.getBoundingClientRect().height)
+  );
+  expect(hidden).toHaveLength(6);
+  expect(Math.max(...hidden)).toBeLessThan(10);
 });
 
 test("an html block can break out of the text column", async ({ page, request }) => {
