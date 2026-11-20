@@ -913,6 +913,7 @@ export type ClaudeSession = {
   suggestedProject: string;
   alreadyImported: boolean;
   ignored: boolean;
+  starred?: boolean; // kept at the top of the Agents list, and listed past the scan window
   // how its last turn ended: asked you (`text`: the question), done, or stopped mid-work (`text`: "interrupted")
   ended?: { kind: "asked" | "done" | "stopped"; text: string | null };
   // a Claude process holds it right now: the background daemon ("bg", attach with `job`) or a terminal
@@ -956,6 +957,8 @@ export const runClaudeImport = (items: ClaudeImportItem[]) =>
   post("/api/import/claude", { items }).then((r) =>
     r.json() as Promise<{ imported: number; skipped: number }>
   );
+export const setClaudeStarred = (claudeId: string, starred: boolean, source: "claude" | "codex" = "claude") =>
+  post("/api/import/claude/star", { claudeId, starred, source });
 export const setClaudeIgnored = (
   claudeId: string,
   ignored: boolean,

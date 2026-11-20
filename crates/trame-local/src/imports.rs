@@ -122,8 +122,19 @@ fn client_for(path: &str) -> String {
         .unwrap_or(Value::Null);
     sessions::client_for(path, &map)
 }
-fn ignored(db: &Db) -> Result<HashSet<String>> {
-    Ok(settings::read(db.settings_path()?)["sessionIgnored"]
+/// The `source:id` keys of the transcripts hidden from import (`sessionIgnored`) or starred (`sessionStarred`).
+struct Flags {
+    ignored: HashSet<String>,
+    starred: HashSet<String>,
+}
+fn flags(db: &Db) -> Result<Flags> {
+    Ok(Flags {
+        ignored: flagged(db, "sessionIgnored")?,
+        starred: flagged(db, "sessionStarred")?,
+    })
+}
+fn flagged(db: &Db, setting: &str) -> Result<HashSet<String>> {
+    Ok(settings::read(db.settings_path()?)[setting]
         .as_array()
         .map(|a| {
             a.iter()
@@ -140,10 +151,11 @@ fn make_item(
     branch: &Value,
     topic: Option<&str>,
     last: i64,
-    ignored: &HashSet<String>,
+    flags: &Flags,
     now: i64,
 ) -> Value {
-    json!({"source":source,"claudeId":id,"title":format!("{} — {}",repo_name(cwd),topic.map(|s|cut(s,80)).unwrap_or_else(||"untitled session".into())),"repoPath":cwd,"branch":branch,"lastActive":iso(last),"suggestedStatus":if last>now-48*3_600_000{"active"}else{"paused"},"suggestedClient":client_for(cwd),"suggestedProject":repo_name(cwd),"alreadyImported":false,"ignored":ignored.contains(&format!("{source}:{id}"))})
+    let key = format!("{source}:{id}");
+    json!({"source":source,"claudeId":id,"title":format!("{} — {}",repo_name(cwd),topic.map(|s|cut(s,80)).unwrap_or_else(||"untitled session".into())),"repoPath":cwd,"branch":branch,"lastActive":iso(last),"suggestedStatus":if last>now-48*3_600_000{"active"}else{"paused"},"suggestedClient":client_for(cwd),"suggestedProject":repo_name(cwd),"alreadyImported":false,"ignored":flags.ignored.contains(&key),"starred":flags.starred.contains(&key)})
 }
 fn codex_files(dir: &Path, depth: u8, out: &mut Vec<PathBuf>) {
     if depth > 4 {
@@ -214,7 +226,11 @@ fn scan(db: &mut Db, days: f64) -> Result<Value> {
     let codex_dir = transcript_dir(db, "TRACKER_CODEX_DIR", "codex-sessions")?;
     let now = now_ms();
     let cutoff = now - (days * 86_400_000.0) as i64;
-    let ignored = ignored(db)?;
+    let flags = flags(db)?;
+    // a starred session stays listed however long ago it ran
+    let kept = |source: &str, id: Option<&str>, at: i64| {
+        at >= cutoff || id.is_some_and(|id| flags.starred.contains(&format!("{source}:{id}")))
+    };
     let mut found = Vec::new();
     let mut files = Vec::new();
     codex_files(&codex_dir, 0, &mut files);
@@ -222,15 +238,15 @@ fn scan(db: &mut Db, days: f64) -> Result<Value> {
         let Ok(mtime) = modified_ms(&path) else {
             continue;
         };
-        if mtime < cutoff {
-            continue;
-        }
         let Some(filename) = path.file_stem().and_then(|n| n.to_str()) else {
             continue;
         };
         let fallback = filename
             .get(filename.len().saturating_sub(36)..)
             .filter(|s| valid_uuid(s));
+        if !kept("codex", fallback, mtime) {
+            continue;
+        }
         let Ok((head, tail)) = transcript::read_chunks(&path) else {
             continue;
         };
@@ -246,7 +262,7 @@ fn scan(db: &mut Db, days: f64) -> Result<Value> {
             continue;
         }
         let last = timestamp_ms(&meta["lastTs"], mtime);
-        if last < cutoff {
+        if !kept("codex", Some(id), last) {
             continue;
         }
         let mut item = make_item(
@@ -256,7 +272,7 @@ fn scan(db: &mut Db, days: f64) -> Result<Value> {
             &meta["branch"],
             meta["firstPrompt"].as_str(),
             last,
-            &ignored,
+            &flags,
             now,
         );
         item["ended"] = transcript::ending(&tail, true);
@@ -288,7 +304,7 @@ fn scan(db: &mut Db, days: f64) -> Result<Value> {
                 let Ok(mtime) = modified_ms(&path) else {
                     continue;
                 };
-                if mtime < cutoff {
+                if !kept("claude", Some(id), mtime) {
                     continue;
                 }
                 let Ok((head, tail)) = transcript::read_chunks(&path) else {
@@ -299,15 +315,17 @@ fn scan(db: &mut Db, days: f64) -> Result<Value> {
                     continue;
                 }
                 let last = timestamp_ms(&meta["lastTs"], mtime);
-                if last < cutoff {
+                if !kept("claude", Some(id), last) {
                     continue;
                 }
                 let cwd = meta["cwd"]
                     .as_str()
                     .map(str::to_owned)
                     .unwrap_or_else(|| name.replace('-', "/"));
-                let topic = meta["aiTitle"]
+                // a /rename name first, then Claude's own title
+                let topic = meta["name"]
                     .as_str()
+                    .or_else(|| meta["aiTitle"].as_str())
                     .or_else(|| meta["firstPrompt"].as_str())
                     .or_else(|| meta["lastPrompt"].as_str());
                 let mut item = make_item(
@@ -317,7 +335,7 @@ fn scan(db: &mut Db, days: f64) -> Result<Value> {
                     &meta["branch"],
                     topic,
                     last,
-                    &ignored,
+                    &flags,
                     now,
                 );
                 item["ended"] = transcript::ending(&tail, false);
@@ -373,17 +391,18 @@ fn scan(db: &mut Db, days: f64) -> Result<Value> {
         json!({"groups":groups,"total":found.len(),"dir":format!("{} + {}",claude_dir.display(),codex_dir.display()),"node":db.origin}),
     )
 }
-fn set_ignored(db: &mut Db, body: &Value) -> Result<Value> {
+/// Adds or removes the transcript's `source:id` key in a settings list; `field` names the body's boolean.
+fn set_flag(db: &mut Db, body: &Value, setting: &str, field: &str) -> Result<Value> {
     let source = if body["source"] == "codex" {
         "codex"
     } else {
         "claude"
     };
     let id = trame_core::js_string(&body["claudeId"]);
-    let value = trame_core::truthy(&body["ignored"]);
+    let value = trame_core::truthy(&body[field]);
     let key = format!("{source}:{id}");
     settings::update(db.settings_path()?, |settings| {
-        let mut ids: Vec<String> = settings["sessionIgnored"]
+        let mut ids: Vec<String> = settings[setting]
             .as_array()
             .map(|v| v.iter().map(trame_core::js_string).collect())
             .unwrap_or_default();
@@ -391,10 +410,10 @@ fn set_ignored(db: &mut Db, body: &Value) -> Result<Value> {
         if value {
             ids.push(key);
         }
-        settings["sessionIgnored"] = json!(ids);
+        settings[setting] = json!(ids);
         Ok(())
     })?;
-    Ok(json!({"ignored":value}))
+    Ok(json!({ field: value }))
 }
 fn import(db: &mut Db, body: &Value) -> Result<Value> {
     let items = body["items"].as_array().cloned().unwrap_or_default();
@@ -452,7 +471,10 @@ fn import(db: &mut Db, body: &Value) -> Result<Value> {
 pub fn owns(_method: &str, path: &str) -> bool {
     matches!(
         path,
-        "/api/import/claude" | "/api/import/claude/ignore" | "/api/import/claude/tail"
+        "/api/import/claude"
+            | "/api/import/claude/ignore"
+            | "/api/import/claude/star"
+            | "/api/import/claude/tail"
     )
 }
 pub fn handle(
@@ -467,7 +489,10 @@ pub fn handle(
     }
     Some((|| {
         let result = match (method, path) {
-            ("POST", "/api/import/claude/ignore") => set_ignored(db, body)?,
+            ("POST", "/api/import/claude/ignore") => {
+                set_flag(db, body, "sessionIgnored", "ignored")?
+            }
+            ("POST", "/api/import/claude/star") => set_flag(db, body, "sessionStarred", "starred")?,
             ("POST", "/api/import/claude") => import(db, body)?,
             (_, "/api/import/claude/tail") => {
                 let params = reqwest::Url::parse(&format!("http://localhost/?{query}"))?;
