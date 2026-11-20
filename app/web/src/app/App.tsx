@@ -65,7 +65,7 @@ import { DatabaseView } from "../udb/DatabaseTable";
 import { buildClock } from "../build-info";
 import { TermCards } from "../term/TermCards";
 import { projectFolders } from "../term/NewTerminalDialog";
-import { openTerminal, restoreTerminals, setDockMax, setDockOpen, useTermDock } from "../term/term-api";
+import { openTerminal, restoreTerminals, setDockMax, setDockOpen, useTermDock, watchPopouts } from "../term/term-api";
 // d3-force/zoom only load when the graph tab opens
 const Graph = lazy(() => import("../sessions/Graph"));
 const TerminalDock = lazy(() => import("../term/TerminalDock"));
@@ -238,7 +238,10 @@ export function App() {
   const shareFlashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const termDock = useTermDock();
-  useEffect(() => void restoreTerminals(), []);
+  useEffect(() => {
+    void restoreTerminals();
+    return watchPopouts();
+  }, []);
   // Ctrl+` toggles the terminal dock (opening a home shell when there is none), Ctrl+Shift+` maximizes it
   useEffect(() => {
     const h = (e: KeyboardEvent) => {

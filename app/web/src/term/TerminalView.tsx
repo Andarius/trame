@@ -130,7 +130,13 @@ export function openLink(uri: string) {
 
 // One backend shell. Stays mounted while hidden so its screen and scrollback survive tab switches.
 export function TerminalView(
-  { id, visible, focused, onFocus }: { id: string; visible: boolean; focused: boolean; onFocus: () => void },
+  { id, visible, focused, onFocus, onExit = closeTerminal }: {
+    id: string;
+    visible: boolean;
+    focused: boolean;
+    onFocus: () => void;
+    onExit?: (id: string) => void; // the shell ended (`exit`): closes its pane by default
+  },
 ) {
   const host = useRef<HTMLDivElement>(null);
   const api = useRef<
@@ -143,6 +149,8 @@ export function TerminalView(
   const [pr, setPr] = useState<{ url: string; x: number; y: number } | null>(null); // a PR link hovered
   const focusCb = useRef(onFocus);
   focusCb.current = onFocus;
+  const exitCb = useRef(onExit);
+  exitCb.current = onExit;
 
   useEffect(() => {
     const el = host.current!;
@@ -215,7 +223,7 @@ export function TerminalView(
         } else if (msg.type === "exit") {
           // `exit` closes the pane, like Ghostty
           done = true;
-          void closeTerminal(id);
+          void exitCb.current(id);
         }
       };
       sock.onclose = (e) => {
