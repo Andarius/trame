@@ -664,8 +664,9 @@ export const updateLabel = (u: UpdateInfo) =>
     : u.missing?.length && !u.plugins?.length
     ? `your plugins (${u.missing.map((r) => r.split("/").pop()).join(", ")})`
     : `${u.plugins?.map((p) => `${p.id} v${p.latest}`).join(", ")}`;
-export const getUpdate = () =>
-  fetch("/api/update").then((r) => r.json() as Promise<UpdateInfo>);
+// `force` asks GitHub now instead of the backend's answer from the last hour
+export const getUpdate = (force = false) =>
+  fetch(force ? "/api/update?force" : "/api/update").then((r) => r.json() as Promise<UpdateInfo>);
 export const applyUpdate = () =>
   post("/api/update", {}).then((r) =>
     r.json() as Promise<{ ok: boolean; error?: string }>
