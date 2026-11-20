@@ -280,7 +280,8 @@ export function BlockTextarea(
         refs.current[i] = el;
         if (el) {
           keepNativeUndo(el);
-          grow(el);
+          // hidden it is 1px wide: growing it would wrap per character, thousands of px tall
+          if (editing) grow(el);
         }
       }}
       rows={1}
