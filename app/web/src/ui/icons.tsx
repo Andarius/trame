@@ -214,6 +214,20 @@ export const SplitDownIcon = ({ size = 16 }: { size?: number }) => (
     <path d="M1.75 8h12.5" />
   </DockSvg>
 );
+// a window with an arrow leaving it: show this shell in a window of its own
+export const PopOutIcon = ({ size = 16 }: { size?: number }) => (
+  <DockSvg size={size}>
+    <path d="M7 2.75H3.25a1.5 1.5 0 0 0-1.5 1.5v8.5a1.5 1.5 0 0 0 1.5 1.5h8.5a1.5 1.5 0 0 0 1.5-1.5V9" />
+    <path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5" />
+  </DockSvg>
+);
+// a window with its bottom strip filled: back into the dock
+export const DockIcon = ({ size = 16 }: { size?: number }) => (
+  <DockSvg size={size}>
+    <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.5" />
+    <path d="M1.75 9.5h12.5M8 5v3M6.5 6.5 8 8l1.5-1.5" />
+  </DockSvg>
+);
 export const MaximizeIcon = ({ size = 16, restore = false }: { size?: number; restore?: boolean }) => (
   <DockSvg size={size}>
     {restore

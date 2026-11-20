@@ -115,15 +115,18 @@ export type TermDrag =
   | { kind: "tab" | "term"; id: string }
   | { kind: "card"; id: string; tab: string | null; cwd: string | null };
 // `max`: the dock fills the main area instead of sitting under the current view
+// `out`: shells shown in a window of their own (TermPopout), with the pane they left
 type DockState = {
   terms: Record<string, TermInfo>;
+  out: Record<string, Origin>;
   tabs: TermTab[];
   active: string | null;
   open: boolean;
   max: boolean;
   drag: TermDrag | null;
 };
-let state: DockState = { terms: {}, tabs: [], active: null, open: false, max: false, drag: null };
+type Origin = { tab: string; near: string | null };
+let state: DockState = { terms: {}, out: {}, tabs: [], active: null, open: false, max: false, drag: null };
 const listeners = new Set<() => void>();
 const LAYOUT_KEY = "trame:termLayout";
 const set = (next: Partial<DockState>) => {
@@ -165,6 +168,8 @@ export async function restoreTerminals() {
   list = list.filter((t) => !t.exited);
   if (!list.length) return;
   const terms = Object.fromEntries(list.map((t) => [t.id, t]));
+  // shells still open in their own window (this page reloaded) stay out of the dock
+  const out = Object.fromEntries([...await openPopouts()].filter((id) => terms[id]).map((id) => [id, { tab: "", near: null }]));
   let saved: PaneNode[] = [];
   try {
     saved = JSON.parse(readStore(LAYOUT_KEY) ?? "[]");
@@ -172,11 +177,11 @@ export async function restoreTerminals() {
   const placed = new Set<string>();
   const tabs: TermTab[] = [];
   for (const root of Array.isArray(saved) ? saved : []) {
-    const kept = prune(root, (id) => !!terms[id] && !placed.has(id) && !!placed.add(id));
+    const kept = prune(root, (id) => !!terms[id] && !out[id] && !placed.has(id) && !!placed.add(id));
     if (kept) tabs.push(tab(kept));
   }
-  for (const t of list) if (!placed.has(t.id)) tabs.push(tab(group([t.id])));
-  set({ terms, tabs, active: tabs[0].id });
+  for (const t of list) if (!placed.has(t.id) && !out[t.id]) tabs.push(tab(group([t.id])));
+  set({ terms, out, tabs, active: tabs[0]?.id ?? null });
 }
 
 const create = async (opts: TermOpts) => {
@@ -245,8 +250,8 @@ export async function splitTerminal(dir: SplitDir) {
 
 const kill = (id: string) => call(`/api/term/${id}`, { method: "DELETE" }).catch(() => {});
 
-// ends one shell; its tab goes when its last pane does
-export async function closeTerminal(id: string) {
+// the tabs without `id`: its tab goes when its last pane does
+const unplace = (id: string): Pick<DockState, "tabs" | "active" | "open" | "max"> => {
   const i = state.tabs.findIndex((t) => leaves(t.root).includes(id));
   const tabs: TermTab[] = [];
   for (const t of state.tabs) {
@@ -263,8 +268,14 @@ export async function closeTerminal(id: string) {
   }
   const gone = !tabs.some((t) => t.id === state.active);
   const active = gone ? (tabs[Math.min(i, tabs.length - 1)]?.id ?? null) : state.active;
+  return { tabs, active, open: state.open && tabs.length > 0, max: state.max && tabs.length > 0 };
+};
+
+// ends one shell
+export async function closeTerminal(id: string) {
   const { [id]: _, ...terms } = state.terms;
-  set({ terms, tabs, active, open: state.open && tabs.length > 0, max: state.max && tabs.length > 0 });
+  const { [id]: _o, ...out } = state.out;
+  set({ ...unplace(id), terms, out });
   await kill(id);
 }
 
@@ -316,6 +327,10 @@ export const sessionLabel = (s: TermSession) => s.name ?? s.agent;
 
 // opens the dock on the tab holding `term`, focused on it; a shell no tab holds yet (opened elsewhere) gets one
 export async function revealTerminal(term: string) {
+  if (state.out[term]) {
+    showPopout(term);
+    return true;
+  }
   const t = state.tabs.find((x) => leaves(x.root).includes(term));
   if (t) {
     set({ tabs: state.tabs.map((x) => (x === t ? { ...x, focus: term } : x)), active: t.id, open: true });
@@ -393,4 +408,75 @@ export const setDockMax = (max: boolean) => set({ max, open: true });
 export async function linkTermCard(id: string, card: string | null) {
   const info = (await call(`/api/term/${id}`, { method: "PATCH", body: JSON.stringify({ card }) })) as TermInfo;
   set({ terms: { ...state.terms, [id]: info } });
+}
+
+// Popouts: a shell in a window of its own. The windows and the dock talk over a BroadcastChannel; the desktop
+// app (trame-desktop main.rs) opens `/?popout=<id>` as a window and posts `close` when one is shut.
+export type PopoutMsg = { open: string } | { close: string } | { exit: string } | { ping: true };
+export const POPOUT_CHANNEL = "trame:term-popout";
+export const popoutUrl = (id: string) => `/?popout=${encodeURIComponent(id)}`;
+const popoutName = (id: string) => `trame-term-${id}`;
+const windows = new Map<string, Window>();
+
+// the shells some window shows now, from their answers to a ping
+const openPopouts = () =>
+  new Promise<Set<string>>((resolve) => {
+    if (typeof BroadcastChannel === "undefined") return resolve(new Set());
+    const ch = new BroadcastChannel(POPOUT_CHANNEL);
+    const seen = new Set<string>();
+    ch.onmessage = (e: MessageEvent<PopoutMsg>) => "open" in e.data && seen.add(e.data.open);
+    ch.postMessage({ ping: true } satisfies PopoutMsg);
+    setTimeout(() => {
+      ch.close();
+      resolve(seen);
+    }, 250);
+  });
+
+// raises the shell's window, or opens it (the desktop app focuses one it already has)
+const showPopout = (id: string) => {
+  const w = windows.get(id);
+  if (w && !w.closed) return w.focus();
+  const opened = globalThis.open?.(popoutUrl(id), popoutName(id), "popup,width=900,height=560");
+  if (opened) windows.set(id, opened);
+};
+
+// the shell leaves the dock for a window of its own; closing that window brings it back
+export function popOut(id: string) {
+  const t = state.tabs.find((x) => leaves(x.root).includes(id));
+  if (!t) return;
+  const near = groupOf(t.root, id)!.terms.find((x) => x !== id) ?? leaves(t.root).find((x) => x !== id) ?? null;
+  set({ ...unplace(id), out: { ...state.out, [id]: { tab: t.id, near } } });
+  showPopout(id);
+}
+
+// back from its window: into the pane it left when that is still there, else a tab of its own
+export function popIn(id: string) {
+  const from = state.out[id];
+  if (!from) return;
+  const { [id]: _, ...out } = state.out;
+  windows.delete(id);
+  if (!state.terms[id]) return set({ out });
+  const dst = state.tabs.find((t) => t.id === from.tab && from.near && leaves(t.root).includes(from.near));
+  if (dst) {
+    const next = { ...dst, root: addTerms(dst.root, from.near!, [id]), focus: id };
+    return set({ out, tabs: state.tabs.map((t) => (t === dst ? next : t)), active: dst.id, open: true });
+  }
+  const own = tab(group([id]));
+  set({ out, tabs: [...state.tabs, own], active: own.id, open: true });
+}
+
+// the dock's side: a window that opened (after this page reloaded too) holds its shell, one closed gives it back
+export function watchPopouts() {
+  if (typeof BroadcastChannel === "undefined") return () => {};
+  const ch = new BroadcastChannel(POPOUT_CHANNEL);
+  ch.onmessage = (e: MessageEvent<PopoutMsg>) => {
+    const m = e.data;
+    if ("close" in m) popIn(m.close);
+    else if ("exit" in m) void closeTerminal(m.exit);
+    else if ("open" in m && !state.out[m.open] && state.terms[m.open]) {
+      const t = state.tabs.find((x) => leaves(x.root).includes(m.open));
+      set({ ...unplace(m.open), out: { ...state.out, [m.open]: { tab: t?.id ?? "", near: null } } });
+    }
+  };
+  return () => ch.close();
 }

@@ -4,7 +4,7 @@ import type { BoardData, Project } from "../api";
 import { projectFor } from "./project-for";
 import { appConfirm, EntityIcon, IconButton, MenuRow, Popover, PresenceDot, useLocalStorage } from "../ui/ui";
 import { needsYou } from "./attention";
-import { ChevronIcon, MaximizeIcon, PlusIcon, SidebarIcon, SplitDownIcon, SplitRightIcon } from "../ui/icons";
+import { ChevronIcon, MaximizeIcon, PlusIcon, PopOutIcon, SidebarIcon, SplitDownIcon, SplitRightIcon } from "../ui/icons";
 import { NewTerminalDialog } from "./NewTerminalDialog";
 import { TerminalView } from "./TerminalView";
 import {
@@ -21,6 +21,7 @@ import {
   mergeTab,
   MAX_PANES,
   moveTerm,
+  popOut,
   groups,
   isGroup,
   joinPane,
@@ -348,6 +349,17 @@ export default function TerminalDock(
               <SplitDownIcon />
             </IconButton>
           </>
+        )}
+        {current && (
+          <IconButton
+            tone="close"
+            className="grid h-7 w-7 place-items-center rounded-md hover:bg-hover"
+            title="open the focused shell in its own window"
+            aria-label="Pop out the focused shell"
+            onClick={() => popOut(current.focus)}
+          >
+            <PopOutIcon />
+          </IconButton>
         )}
         {scope && details !== null && (
           <IconButton
@@ -683,6 +695,9 @@ function PaneStrip(
       </IconButton>
       <IconButton tone="close" className={icon} title="split down" aria-label="Split down" onClick={() => split("col")}>
         <SplitDownIcon />
+      </IconButton>
+      <IconButton tone="close" className={icon} title="open in its own window" aria-label="Pop out" onClick={() => popOut(g.active)}>
+        <PopOutIcon size={12} />
       </IconButton>
       <IconButton
         tone="close"

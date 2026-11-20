@@ -7,6 +7,7 @@
 #[cfg(target_os = "linux")]
 mod appimage;
 mod geometry;
+mod popout;
 #[cfg(target_os = "linux")]
 mod webkit;
 
@@ -14,7 +15,20 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicI32, AtomicU16, AtomicU64, Ordering},
 };
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{
+    Manager, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent, webview::NewWindowResponse,
+};
+
+/// What a window may navigate to: the splash, the backend, and sandboxed output iframes.
+fn allowed(url: &Url, port: u16) -> bool {
+    // about:srcdoc / about:blank: sandboxed output iframes, which WebKitGTK routes through here
+    url.scheme() == "about"
+        || url.scheme() == "tauri"
+        || url.host_str() == Some("tauri.localhost")
+        || (url.scheme() == "http"
+            && url.host_str() == Some("127.0.0.1")
+            && url.port() == Some(port))
+}
 
 #[allow(
     clippy::exit,
@@ -100,6 +114,7 @@ fn main() -> anyhow::Result<()> {
         let open_runtime = setup_runtime.clone();
         let save_runtime = setup_runtime.clone();
         let saved = geometry::load(&window_file);
+        let (popout_port, popout_app, popout_data) = (port.clone(), handle.clone(), webview_data.clone());
         let mut window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
             .data_directory(webview_data)
             .title("Trame").inner_size(saved.width, saved.height).maximized(saved.maximized);
@@ -108,10 +123,17 @@ fn main() -> anyhow::Result<()> {
         }
         let ready_pending = pending.clone();
         let window = window
-            .on_navigation(move |url| {
-                // about:srcdoc / about:blank: sandboxed output iframes, which WebKitGTK routes through here
-                url.scheme() == "about" || url.scheme() == "tauri" || url.host_str() == Some("tauri.localhost") ||
-                    (url.scheme() == "http" && url.host_str() == Some("127.0.0.1") && url.port() == Some(nav_port.load(Ordering::SeqCst)))
+            .on_navigation(move |url| allowed(url, nav_port.load(Ordering::SeqCst)))
+            // a dock shell popped out (term/TermPopout.tsx); any other window.open stays refused
+            .on_new_window(move |url, _| {
+                let port = popout_port.load(Ordering::SeqCst);
+                if let Some(id) = popout::requested(&url, port) {
+                    let (app, data) = (popout_app.clone(), popout_data.clone());
+                    let _ = popout_app.run_on_main_thread(move || {
+                        popout::open(&app, &id, url, data, move |u| allowed(u, port));
+                    });
+                }
+                NewWindowResponse::Deny
             })
             .on_page_load(move |window, payload| {
                 if !matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) || started.swap(true, Ordering::SeqCst) { return; }
@@ -187,6 +209,10 @@ fn main() -> anyhow::Result<()> {
             #[cfg(target_os = "linux")]
             if matches!(event, WindowEvent::CloseRequested { .. }) {
                 webkit::kill_web_processes();
+            }
+            // the app ends with its main window
+            if matches!(event, WindowEvent::CloseRequested { .. }) {
+                popout::close_all(tracked.app_handle());
             }
             if !matches!(event, WindowEvent::Resized(_) | WindowEvent::Moved(_)) { return; }
             let mine = generation.fetch_add(1, Ordering::SeqCst) + 1;
