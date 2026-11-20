@@ -634,12 +634,11 @@ function SplitDivider({ tab, d }: { tab: string; d: Divider }) {
     : { top: `${pos}%`, left: `${d.split.x}%`, width: `${d.split.w}%` };
   return (
     <>
-      <div className={`pointer-events-none absolute z-10 ${row ? "w-px" : "h-px"} ${ghost === null ? "bg-line" : "bg-copper"}`} style={line} />
       <div
         role="separator"
         aria-orientation={row ? "vertical" : "horizontal"}
         title="drag to resize · double-click to even out"
-        className={`absolute z-10 ${row ? "-ml-[3px] w-[7px] cursor-col-resize" : "-mt-[3px] h-[7px] cursor-row-resize"}`}
+        className={`peer absolute z-20 ${row ? "-ml-[3px] w-[7px] cursor-col-resize" : "-mt-[3px] h-[7px] cursor-row-resize"}`}
         style={line}
         onPointerDown={(e) => {
           if (e.button !== 0) return;
@@ -655,6 +654,13 @@ function SplitDivider({ tab, d }: { tab: string; d: Divider }) {
         }}
         onPointerCancel={() => setGhost(null)}
         onDoubleClick={() => resizeSplit(tab, d.path, 0.5)}
+      />
+      {/* the separator, like Orca's: a visible line, copper while hovered or dragged */}
+      <div
+        className={`pointer-events-none absolute z-10 ${row ? "-ml-px w-[2px]" : "-mt-px h-[2px]"} ${
+          ghost === null ? "bg-chipline peer-hover:bg-copper/60" : "bg-copper"
+        }`}
+        style={line}
       />
     </>
   );

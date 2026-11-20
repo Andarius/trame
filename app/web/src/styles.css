@@ -178,16 +178,7 @@ body {
   }
 }
 
-/* a terminal's scrollbar shows on hover and while scrolling; xterm's `invisible` class also hits Tailwind's utility */
-.xterm .xterm-scrollable-element > .scrollbar.vertical.invisible {
-  visibility: inherit;
-}
-.xterm:hover .xterm-scrollable-element > .scrollbar.vertical.invisible {
-  opacity: 1;
-  pointer-events: auto;
-}
-.xterm .xterm-scrollable-element > .scrollbar.vertical > .slider {
-  left: 5px !important; /* a 4px pill in xterm's 14px track */
-  width: 4px !important;
-  border-radius: 2px;
+/* no terminal scrollbar: the wheel and Shift+PageUp scroll; the 14px xterm keeps for it stays a right margin */
+.xterm .xterm-scrollable-element > .scrollbar.vertical {
+  display: none;
 }
