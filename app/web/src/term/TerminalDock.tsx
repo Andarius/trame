@@ -422,23 +422,17 @@ export default function TerminalDock(
               : "Open a second tab to split it with this one"}
           </div>
         )}
-        {/* every tab stays mounted, in or out of scope: hiding never detaches a shell */}
-        {allTabs.map((t) => (
-          <div key={t.id} className={`absolute inset-0 ${open && t.id === active ? "" : "invisible"}`}>
-            <Panes
-              tab={t}
-              shown={open && t.id === active}
-              zoomed={zoomed}
-              onZoom={(id) => {
-                focusPane(t.id, id);
-                setZoomed(zoomed === id ? null : id);
-              }}
-              drag={drag && !(drag.kind === "tab" && drag.id === t.id) && !(drag.kind === "card" && drag.tab === t.id)
-                ? drag
-                : null}
-            />
-          </div>
-        ))}
+        {/* every tab's shells in one list keyed by shell id: hiding or moving a shell to another tab never remounts it */}
+        <Panes
+          tabs={allTabs}
+          shown={open ? active : null}
+          zoomed={zoomed}
+          onZoom={(tab, id) => {
+            focusPane(tab, id);
+            setZoomed(zoomed === id ? null : id);
+          }}
+          drag={drag}
+        />
       </div>
     </section>
     {newTerm && (
@@ -495,66 +489,85 @@ const sideAt = (e: React.DragEvent): DropSide => {
 };
 
 function Panes(
-  { tab, shown, zoomed, onZoom, drag }: {
-    tab: TermTab;
-    shown: boolean;
+  { tabs, shown, zoomed, onZoom, drag }: {
+    tabs: TermTab[];
+    shown: string | null; // the tab on screen, null when the dock is closed
     zoomed: string | null;
-    onZoom: (term: string) => void;
+    onZoom: (tab: string, term: string) => void;
     drag: TermDrag | null;
   },
 ) {
   const [hover, setHover] = useState<{ id: string; side: DropSide } | null>(null);
-  const panes: [string, Rect][] = [];
+  const panes: { id: string; r: Rect; tab: TermTab; n: number; zoom: string | null }[] = [];
   const lines: Rect[] = [];
-  layout(tab.root, { x: 0, y: 0, w: 100, h: 100 }, panes, lines);
-  const zoom = panes.some(([id]) => id === zoomed) ? zoomed : null;
-  const split = panes.length > 1 && !zoom;
-  // stable order by id: React moves nothing when the tree changes shape
-  panes.sort(([a], [b]) => a.localeCompare(b));
+  for (const tab of tabs) {
+    const mine: [string, Rect][] = [];
+    const tabLines: Rect[] = [];
+    layout(tab.root, { x: 0, y: 0, w: 100, h: 100 }, mine, tabLines);
+    const zoom = mine.some(([id]) => id === zoomed) ? zoomed : null;
+    for (const [id, r] of mine) panes.push({ id, r, tab, n: mine.length, zoom });
+    if (tab.id === shown && !zoom) lines.push(...tabLines);
+  }
+  // stable order by id: React moves nothing when a tree changes shape or a shell changes tab
+  panes.sort((a, b) => a.id.localeCompare(b.id));
   return (
     <>
-      {panes.map(([id, r]) => (
-        <div
-          key={id}
-          className={`absolute flex flex-col ${split && tab.focus !== id ? "opacity-80" : ""} ${zoom && zoom !== id ? "invisible" : ""}`}
-          style={at(zoom === id ? { x: 0, y: 0, w: 100, h: 100 } : r)}
-        >
-          {panes.length > 1 && (
-            <PaneHeader id={id} live={shown && (!zoom || zoom === id)} focused={tab.focus === id} zoomed={zoom === id} onZoom={() => onZoom(id)} />
-          )}
-          <div className="min-h-0 flex-1">
-            <TerminalView id={id} visible={shown} focused={tab.focus === id} onFocus={() => focusPane(tab.id, id)} />
-          </div>
-          {drag && shown && !(drag.kind === "term" && drag.id === id) && (
-            <div
-              className="absolute inset-0 z-20"
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = "move";
-                const side = sideAt(e);
-                if (hover?.id !== id || hover.side !== side) setHover({ id, side });
-              }}
-              onDragLeave={() => setHover(null)}
-              onDrop={(e) => {
-                e.preventDefault();
-                const side = sideAt(e);
-                if (drag.kind === "card") {
-                  if (drag.tab) mergeTab(drag.tab, tab.id, id, side);
-                  else void openTerminalAt({ cwd: drag.cwd, card: drag.id }, { tab: tab.id, term: id, side });
-                } else if (drag.kind === "tab") mergeTab(drag.id, tab.id, id, side);
-                else moveTerm(drag.id, tab.id, id, side);
-                setHover(null);
-                setTermDrag(null);
-              }}
-            >
-              {hover?.id === id && (
-                <div className="pointer-events-none absolute border-2 border-copper bg-copper/15" style={SIDE_ZONE[hover.side]} />
-              )}
+      {panes.map(({ id, r, tab, n, zoom }) => {
+        const visible = tab.id === shown;
+        // a tab dragged onto itself, or a card's own tab, takes no drop
+        const dropping = drag && visible && !(drag.kind === "term" && drag.id === id) &&
+          !(drag.kind === "tab" && drag.id === tab.id) && !(drag.kind === "card" && drag.tab === tab.id);
+        return (
+          <div
+            key={id}
+            className={`absolute flex flex-col ${n > 1 && !zoom && tab.focus !== id ? "opacity-80" : ""} ${
+              !visible || (zoom && zoom !== id) ? "invisible" : ""
+            }`}
+            style={at(zoom === id ? { x: 0, y: 0, w: 100, h: 100 } : r)}
+          >
+            {n > 1 && (
+              <PaneHeader
+                id={id}
+                live={visible && (!zoom || zoom === id)}
+                focused={tab.focus === id}
+                zoomed={zoom === id}
+                onZoom={() => onZoom(tab.id, id)}
+              />
+            )}
+            <div className="min-h-0 flex-1">
+              <TerminalView id={id} visible={visible} focused={tab.focus === id} onFocus={() => focusPane(tab.id, id)} />
             </div>
-          )}
-        </div>
-      ))}
-      {!zoom && lines.map((r, i) => (
+            {dropping && (
+              <div
+                className="absolute inset-0 z-20"
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  const side = sideAt(e);
+                  if (hover?.id !== id || hover.side !== side) setHover({ id, side });
+                }}
+                onDragLeave={() => setHover(null)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const side = sideAt(e);
+                  if (drag.kind === "card") {
+                    if (drag.tab) mergeTab(drag.tab, tab.id, id, side);
+                    else void openTerminalAt({ cwd: drag.cwd, card: drag.id }, { tab: tab.id, term: id, side });
+                  } else if (drag.kind === "tab") mergeTab(drag.id, tab.id, id, side);
+                  else moveTerm(drag.id, tab.id, id, side);
+                  setHover(null);
+                  setTermDrag(null);
+                }}
+              >
+                {hover?.id === id && (
+                  <div className="pointer-events-none absolute border-2 border-copper bg-copper/15" style={SIDE_ZONE[hover.side]} />
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {lines.map((r, i) => (
         <div
           key={i}
           className={`absolute bg-line ${r.w === 0 ? "w-px" : "h-px"}`}
