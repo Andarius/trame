@@ -5,7 +5,8 @@ import { TerminalIcon } from "../ui/icons";
 import { EntityIcon, Modal, SECTION_LABEL, timeAgo, useLocalStorage } from "../ui/ui";
 import { agentCmd } from "../agents/AgentSessions";
 import { useScan } from "../agents/scan";
-import { openTerminal, pickTermFolder, type TermAgent, termAgents, useTermSessions } from "./term-api";
+import { boardRepos, matches } from "./repo-search";
+import { openTerminal, pickTermFolder, type TermAgent, termAgents, termWorktrees, useTermSessions } from "./term-api";
 
 // the project's folders: its cards' repos, most recently touched first
 export function projectFolders(board: BoardData | null, project: string): string[] {
@@ -60,20 +61,31 @@ export function NewTerminalDialog(
   const [lastFolders, setLastFolders] = useLocalStorage<Record<string, string>>("trame:termFolders", {}, FOLDERS_CODEC);
   const lastFolder = lastFolders[project ?? ""] ?? null;
   const list = useRef<HTMLDivElement>(null);
+  const search = useRef<HTMLInputElement>(null);
+  // typed in the search box: repos of every project, not just the chosen one
+  const [query, setQuery] = useState("");
+  const repos = boardRepos(board);
+  const [worktrees, setWorktrees] = useState<Set<string>>(new Set());
+  const [showWorktrees, setShowWorktrees] = useState(false);
   useEffect(() => void termAgents().then(setAgents), []);
-  useEffect(() => {
+  const repoKey = [...repos.keys()].join("\n");
+  useEffect(() => void termWorktrees(repoKey ? repoKey.split("\n") : []).then(setWorktrees), [repoKey]);
+  // the search box takes the keys at once; Enter opens the preselected folder while it is empty
+  useEffect(() => search.current?.focus({ preventScroll: true }), []);
+  const preselected = () => {
     const all = [...(list.current?.querySelectorAll<HTMLButtonElement>("[data-choice]") ?? [])];
-    (all.find((b) => b.dataset.folder === lastFolder) ?? all[0])?.focus({ preventScroll: true });
-  }, [project, lastFolder]);
+    return all.find((b) => b.dataset.folder === lastFolder) ?? all[0];
+  };
   const chosen = agents?.find((a) => a.command === run) ?? null;
 
-  const open = async (cwd: string | null, card: string | null = null) => {
-    const owner = { cwd, card, project: card ? null : project };
+  // `forProject`: a repo found by search opens for its own project
+  const open = async (cwd: string | null, card: string | null = null, forProject = project) => {
+    const owner = { cwd, card, project: card ? null : forProject };
     try {
       await openTerminal(chosen ? { ...owner, command: chosen.command, title: chosen.label } : owner, into);
       setLast(chosen ? chosen.command : SHELL);
-      setLastProject(project ?? "");
-      if (cwd) setLastFolders({ ...lastFolders, [project ?? ""]: cwd });
+      setLastProject(forProject ?? "");
+      if (cwd) setLastFolders({ ...lastFolders, [forProject ?? ""]: cwd });
       onOpened(card, owner.project);
       onClose();
     } catch (e) {
@@ -87,7 +99,13 @@ export function NewTerminalDialog(
     if ("error" in picked) setError(picked.error);
   };
 
-  const folders = project ? projectFolders(board, project) : [];
+  const projectRepos = project ? projectFolders(board, project) : [];
+  const folders = projectRepos.filter((f) => !worktrees.has(f));
+  const projectWorktrees = projectRepos.filter((f) => worktrees.has(f));
+  // search: main checkouts first, then worktrees
+  const found = query.trim()
+    ? [...repos.keys()].filter((f) => matches(f, query)).sort((a, b) => Number(worktrees.has(a)) - Number(worktrees.has(b))).slice(0, 12)
+    : [];
   // past sessions of the chosen agent in these folders, not running now: picked up with --resume
   const scan = useScan(7);
   const running = new Set(useTermSessions().map((x) => x.id));
@@ -172,7 +190,26 @@ export function NewTerminalDialog(
           </div>
         </div>
         <div className="flex flex-col gap-1.5">
-          <div className={SECTION_LABEL}>IN</div>
+          <div className="flex items-center gap-2">
+            <div className={SECTION_LABEL}>IN</div>
+            <input
+              ref={search}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="type to search every repo…"
+              aria-label="Search repos"
+              className="min-w-0 flex-1 rounded-md border border-line bg-transparent px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-copper/50"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  (query.trim() ? list.current?.querySelector<HTMLButtonElement>("[data-choice]") : preselected())?.click();
+                } else if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  list.current?.querySelector<HTMLButtonElement>("[data-choice]")?.focus({ preventScroll: true });
+                }
+              }}
+            />
+          </div>
           <div
             ref={list}
             className="flex max-h-[50vh] flex-col overflow-y-auto"
@@ -185,12 +222,40 @@ export function NewTerminalDialog(
               all[(i + (e.key === "ArrowDown" ? 1 : -1) + all.length) % all.length]?.focus({ preventScroll: true });
             }}
           >
-            {showHere &&
-              folder(here!.cwd ?? "~", () => void open(here!.cwd, here!.card), `Here · ${here!.cwd ? short(here!.cwd) : "~"}`)}
-            {folders.filter((f) => !(showHere && f === here!.cwd)).map((f) => folder(f))}
-            {lastFolder && !(showHere && lastFolder === here!.cwd) && !folders.includes(lastFolder) &&
-              folder(lastFolder, undefined, `Last · ${short(lastFolder)}`)}
-            {(showHere || folders.length > 0) && <div className="my-1 h-px bg-line" />}
+            {query.trim()
+              ? (
+                <>
+                  {found.map((f) =>
+                    folder(f, () => void open(f, null, repos.get(f) ?? null), worktrees.has(f) ? `${short(f)} · worktree` : short(f))
+                  )}
+                  {found.length === 0 && <div className="px-2 py-1.5 text-[12px] text-ink-faint">No repo matches.</div>}
+                </>
+              )
+              : (
+                <>
+                  {showHere &&
+                    folder(here!.cwd ?? "~", () => void open(here!.cwd, here!.card), `Here · ${here!.cwd ? short(here!.cwd) : "~"}`)}
+                  {folders.filter((f) => !(showHere && f === here!.cwd)).map((f) => folder(f))}
+                  {lastFolder && !(showHere && lastFolder === here!.cwd) && !projectRepos.includes(lastFolder) &&
+                    folder(lastFolder, undefined, `Last · ${short(lastFolder)}`)}
+                  {projectWorktrees.length > 0 && (
+                    <button
+                      type="button"
+                      data-choice
+                      aria-expanded={showWorktrees}
+                      className={choice}
+                      onClick={() => setShowWorktrees((v) => !v)}
+                    >
+                      <span className="w-3.5 text-center text-ink-muted">{showWorktrees ? "▾" : "›"}</span>
+                      <span className="text-ink-muted">Worktrees · {projectWorktrees.length}</span>
+                    </button>
+                  )}
+                  {showWorktrees && projectWorktrees.filter((f) => !(showHere && f === here!.cwd)).map((f) =>
+                    folder(f, undefined, `↳ ${short(f)}`)
+                  )}
+                </>
+              )}
+            {(showHere || projectRepos.length > 0 || found.length > 0) && <div className="my-1 h-px bg-line" />}
             <button type="button" data-choice className={choice} onClick={() => void other()}>
               <span className="w-3.5 text-center text-ink-muted">…</span>
               <span>Other folder…</span>

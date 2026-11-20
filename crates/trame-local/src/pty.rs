@@ -539,6 +539,33 @@ pub async fn serve(root: &Path, req: Request<Body>) -> Response {
                 _ => json_response(500, json!({"error":"could not save the folder"})),
             }
         }
+        // which of these folders are git worktrees (their `.git` is a file, not a directory)
+        (Method::POST, ["", "api", "term", "worktrees"]) => {
+            let Ok(bytes) = axum::body::to_bytes(req.into_body(), 256 * 1024).await else {
+                return json_response(400, json!({"error":"body unavailable"}));
+            };
+            let body = serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null);
+            let paths: Vec<String> = body["paths"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|p| {
+                            p.as_str().filter(|p| p.starts_with('/')).map(str::to_owned)
+                        })
+                        .take(500)
+                        .collect()
+                })
+                .unwrap_or_default();
+            let found = crate::blocking::spawn(move || {
+                paths
+                    .into_iter()
+                    .filter(|p| Path::new(p).join(".git").is_file())
+                    .collect::<Vec<_>>()
+            })
+            .await
+            .unwrap_or_default();
+            json_response(200, json!({"worktrees":found}))
+        }
         // choose any folder to open a shell in: the path, `{cancelled}` or `{error}`
         (Method::POST, ["", "api", "term", "pick"]) => {
             let Ok(bytes) = axum::body::to_bytes(req.into_body(), 64 * 1024).await else {
