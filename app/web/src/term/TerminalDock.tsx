@@ -22,6 +22,8 @@ import {
   MAX_PANES,
   moveTerm,
   type PaneNode,
+  resizeSplit,
+  type SplitDir,
   type TermTab,
   openTerminal,
   openTerminalAt,
@@ -452,22 +454,24 @@ export default function TerminalDock(
 }
 
 type Rect = { x: number; y: number; w: number; h: number }; // percent of the tab body
-// splits halve their space; dividers sit on the split line
-function layout(n: PaneNode, r: Rect, panes: [string, Rect][], lines: Rect[]) {
+// a split's divider: where it sits, the split's own rect, and the path to that split from the tab root
+type Divider = { dir: SplitDir; split: Rect; ratio: number; path: string };
+// each split gives `ratio` of its space to `a`
+function layout(n: PaneNode, r: Rect, panes: [string, Rect][], lines: Divider[], path = "") {
   if ("term" in n) {
     panes.push([n.term, r]);
     return;
   }
+  const ratio = n.ratio ?? 0.5;
+  lines.push({ dir: n.dir, split: r, ratio, path });
   if (n.dir === "row") {
-    const w = r.w / 2;
-    layout(n.a, { ...r, w }, panes, lines);
-    layout(n.b, { ...r, x: r.x + w, w }, panes, lines);
-    lines.push({ ...r, x: r.x + w, w: 0 });
+    const w = r.w * ratio;
+    layout(n.a, { ...r, w }, panes, lines, path + "a");
+    layout(n.b, { ...r, x: r.x + w, w: r.w - w }, panes, lines, path + "b");
   } else {
-    const h = r.h / 2;
-    layout(n.a, { ...r, h }, panes, lines);
-    layout(n.b, { ...r, y: r.y + h, h }, panes, lines);
-    lines.push({ ...r, y: r.y + h, h: 0 });
+    const h = r.h * ratio;
+    layout(n.a, { ...r, h }, panes, lines, path + "a");
+    layout(n.b, { ...r, y: r.y + h, h: r.h - h }, panes, lines, path + "b");
   }
 }
 const at = (r: Rect) => ({ left: `${r.x}%`, top: `${r.y}%`, width: `${r.w}%`, height: `${r.h}%` });
@@ -499,14 +503,14 @@ function Panes(
 ) {
   const [hover, setHover] = useState<{ id: string; side: DropSide } | null>(null);
   const panes: { id: string; r: Rect; tab: TermTab; n: number; zoom: string | null }[] = [];
-  const lines: Rect[] = [];
+  let lines: Divider[] = [];
   for (const tab of tabs) {
     const mine: [string, Rect][] = [];
-    const tabLines: Rect[] = [];
+    const tabLines: Divider[] = [];
     layout(tab.root, { x: 0, y: 0, w: 100, h: 100 }, mine, tabLines);
     const zoom = mine.some(([id]) => id === zoomed) ? zoomed : null;
     for (const [id, r] of mine) panes.push({ id, r, tab, n: mine.length, zoom });
-    if (tab.id === shown && !zoom) lines.push(...tabLines);
+    if (tab.id === shown && !zoom) lines = tabLines;
   }
   // stable order by id: React moves nothing when a tree changes shape or a shell changes tab
   panes.sort((a, b) => a.id.localeCompare(b.id));
@@ -567,13 +571,53 @@ function Panes(
           </div>
         );
       })}
-      {lines.map((r, i) => (
-        <div
-          key={i}
-          className={`absolute bg-line ${r.w === 0 ? "w-px" : "h-px"}`}
-          style={r.w === 0 ? { left: `${r.x}%`, top: `${r.y}%`, height: `${r.h}%` } : { left: `${r.x}%`, top: `${r.y}%`, width: `${r.w}%` }}
-        />
-      ))}
+      {shown && lines.map((d) => <SplitDivider key={`${shown}:${d.path}`} tab={shown} d={d} />)}
+    </>
+  );
+}
+
+const MIN_PANE_PX = 80;
+// a split's line; dragging it previews the new position and resizes the panes once, on release
+function SplitDivider({ tab, d }: { tab: string; d: Divider }) {
+  const [ghost, setGhost] = useState<number | null>(null);
+  const box = useRef<DOMRect | null>(null);
+  const row = d.dir === "row";
+  const ratioAt = (e: React.PointerEvent) => {
+    const b = box.current!;
+    const px = row ? (b.width * d.split.w) / 100 : (b.height * d.split.h) / 100;
+    const start = row ? b.left + (b.width * d.split.x) / 100 : b.top + (b.height * d.split.y) / 100;
+    const min = Math.min(0.5, MIN_PANE_PX / px);
+    return Math.min(1 - min, Math.max(min, ((row ? e.clientX : e.clientY) - start) / px));
+  };
+  const ratio = ghost ?? d.ratio;
+  const pos = row ? d.split.x + d.split.w * ratio : d.split.y + d.split.h * ratio;
+  const line: React.CSSProperties = row
+    ? { left: `${pos}%`, top: `${d.split.y}%`, height: `${d.split.h}%` }
+    : { top: `${pos}%`, left: `${d.split.x}%`, width: `${d.split.w}%` };
+  return (
+    <>
+      <div className={`pointer-events-none absolute z-10 ${row ? "w-px" : "h-px"} ${ghost === null ? "bg-line" : "bg-copper"}`} style={line} />
+      <div
+        role="separator"
+        aria-orientation={row ? "vertical" : "horizontal"}
+        title="drag to resize · double-click to even out"
+        className={`absolute z-10 ${row ? "-ml-[3px] w-[7px] cursor-col-resize" : "-mt-[3px] h-[7px] cursor-row-resize"}`}
+        style={line}
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          box.current = (e.currentTarget.offsetParent as HTMLElement).getBoundingClientRect();
+          e.currentTarget.setPointerCapture(e.pointerId);
+          setGhost(ratioAt(e));
+        }}
+        onPointerMove={(e) => ghost !== null && setGhost(ratioAt(e))}
+        onPointerUp={(e) => {
+          if (ghost === null) return;
+          resizeSplit(tab, d.path, ratioAt(e));
+          setGhost(null);
+        }}
+        onPointerCancel={() => setGhost(null)}
+        onDoubleClick={() => resizeSplit(tab, d.path, 0.5)}
+      />
     </>
   );
 }
