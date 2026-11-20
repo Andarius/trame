@@ -78,11 +78,6 @@ export function TermCards(
   // agents asking you something: listed once, on top, out of their groups
   const termSessions = useTermSessions();
   const asking = termSessions.filter((x) => x.waiting);
-  const askingCards = live.filter((l) => l.state === "waiting" && known.has(l.a.session_id));
-  const askingCard = new Set([
-    ...askingCards.map((l) => l.a.session_id),
-    ...asking.map((x) => terms[x.term]?.card).filter((c): c is string => !!c && known.has(c)),
-  ]);
   // agent sessions in shells no card on this board holds: one entry each
   const cardless = termSessions.filter((x) => {
     const card = terms[x.term]?.card;
@@ -101,6 +96,12 @@ export function TermCards(
       if (!t.exited) plainShells.running++;
     }
   }
+  // a card whose agent waits in a terminal outside Trame stays in OUTSIDE TRAME, flagged there
+  const askingCards = live.filter((l) => l.state === "waiting" && known.has(l.a.session_id) && shells.has(l.a.session_id));
+  const askingCard = new Set([
+    ...askingCards.map((l) => l.a.session_id),
+    ...asking.map((x) => terms[x.term]?.card).filter((c): c is string => !!c && known.has(c)),
+  ]);
   // grouped by project, a session in a project's shell sits under that project, not OTHER
   const looseProject = (x: TermSession) => {
     const p = terms[x.term]?.project;
@@ -112,7 +113,10 @@ export function TermCards(
   ).sort((a, b) => b.last_touched.localeCompare(a.last_touched));
   // cards whose agent runs in a terminal outside Trame get their own section, at the bottom
   const isOutside = (s: Session) => !shells.has(s.id) && agentOf.has(s.id);
-  const outside = cards.filter(isOutside);
+  // the ones waiting for you first
+  const outside = cards.filter(isOutside).sort((a, b) =>
+    Number(agentOf.get(b.id)?.state === "waiting") - Number(agentOf.get(a.id)?.state === "waiting")
+  );
   const keyOf = (s: Session) => grouping === "project" ? s.client_id : grouping === "status" ? s.status : "all";
   const groups = new Map<string | null, Session[]>();
   for (const s of cards.filter((s) => !isOutside(s))) groups.set(keyOf(s), [...(groups.get(keyOf(s)) ?? []), s]);
@@ -322,7 +326,7 @@ export function TermCards(
           <span className="flex w-full items-center gap-2">
             <StatusDot status={s.status} size={7} />
             <span className="min-w-0 flex-1 truncate" title={s.title}>{s.title}</span>
-            {count(shells.get(s.id)) ?? (dim && <Outside />)}
+            {count(shells.get(s.id)) ?? (isOutside(s) && <Outside />)}
           </span>
           <AgentLine l={agentOf.get(s.id)} />
         </>
@@ -503,7 +507,7 @@ export function TermCards(
             OUTSIDE TRAME
             <span className="ml-auto tracking-normal tabular-nums">{outside.length}</span>
           </div>
-          {outside.map((s) => cardRow(s, true))}
+          {outside.map((s) => cardRow(s, agentOf.get(s.id)?.state !== "waiting"))}
         </section>
       )}
       <RecentList board={board} selected={recent} history={history} onSelect={onSelectRecent} onHistory={onSelectHistory} />
