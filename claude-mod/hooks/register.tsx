@@ -21,7 +21,7 @@ const localDay = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 const POLL_MS = 15_000
 // tramecli's own reply, so a command that only mentions it does not match
-const DONE = /tracked in Trame \(done /
+const ENDED = /tracked in Trame \((done|paused) /
 const EXIT = 'Exit'
 
 // the app writes its port here on start
@@ -81,11 +81,12 @@ async function openCard($: EngineInterface, url: string, surface: Parameters<Eng
 }
 
 export const register: Register = on => {
-  let isDone = false
+  let ended: string | null = null
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const ran = await next(e)
-    if (ran.deny === undefined && !ran.isError && DONE.test(ran.text ?? '')) isDone = true
+    const m = ran.deny === undefined && !ran.isError ? ENDED.exec(ran.text ?? '') : null
+    if (m) ended = m[1] ?? null
     return ran
   }).catch(($, e, next) => next(e))
 
@@ -98,11 +99,12 @@ export const register: Register = on => {
   // tracking usually happens during a turn: show it right away
   on('turn.complete', async ($, e, next) => {
     void refresh($)
-    if (isDone && e.agentId === undefined && !e.isAborted) {
-      isDone = false
+    if (ended && e.agentId === undefined && !e.isAborted) {
+      const status = ended
+      ended = null
       // detached: $.command.run rejects inside a hook the turn waits on
       void (async () => {
-        const answer = await $.ui.ask('Trame card is done. Exit this session?', [EXIT, 'Stay'])
+        const answer = await $.ui.ask(`Trame card is ${status}. Exit this session?`, [EXIT, 'Stay'])
         if (answer === EXIT) await $.command.run({ command: 'exit' })
       })().catch(err => $.ui.log(`trame: exit prompt failed: ${err}`, { to: 'debug' }))
     }

@@ -6,7 +6,7 @@ tramecli setup — install the agent skills from this binary
   tramecli setup --skills-dir DIR  any Agent Skills directory (repeatable)
   tramecli setup --hook            the git pre-push guard, into the repo you run it from
   tramecli setup --presence        hooks that report agent presence (Claude Code, Codex)
-  tramecli setup --mod             a Claude Code band showing this session's Trame card (offers to exit once it is done)
+  tramecli setup --mod             a Claude Code band showing this session's Trame card (offers to exit once it is done or paused)
 
 The docs are embedded in the binary and call the bare `tramecli`; when that name is
 not on PATH the binary links itself into ~/.local/bin first. From a dev checkout,

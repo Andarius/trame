@@ -2,6 +2,6 @@
   "name": "trame",
   "version": "0.1.0",
   "author": { "name": "Trame" },
-  "description": "A band above the prompt showing the Trame card this session is on, and an exit prompt once that card is done",
+  "description": "A band above the prompt showing the Trame card this session is on, and an exit prompt once that card is done or paused",
   "types": "./types/index.d.ts"
 }

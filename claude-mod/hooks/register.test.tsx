@@ -119,6 +119,7 @@ for (
   const [id, out, choice, commands] of [
     ['card done, Exit runs /exit', DONE_OUT, 'Exit', ['exit']],
     ['card done, Stay keeps the session', DONE_OUT, 'Stay', []],
+    ['card paused, Exit runs /exit', DONE_OUT.replace('(done', '(paused'), 'Exit', ['exit']],
     ['card still active: no prompt', DONE_OUT.replace('(done', '(active'), 'Exit', []],
   ] as const
 ) {
