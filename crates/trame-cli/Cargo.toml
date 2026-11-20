@@ -14,12 +14,12 @@ chrono = "0.4.45"
 libc = "0.2.191"
 regex = "1.13.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
-rmcp = { version = "3.10.0", features = ["server", "transport-io", "macros"] }
+rmcp = { version = "3.11.0", features = ["server", "transport-io", "macros"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "time", "process", "fs", "io-util", "net"] }
 trame-core = { path = "../trame-core" }
-uuid = { version = "1.29.2", features = ["v4"] }
+uuid = { version = "1.29.3", features = ["v4"] }
 
 [dev-dependencies]
 axum = "0.8.9"
