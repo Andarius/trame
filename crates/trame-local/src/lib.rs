@@ -327,7 +327,9 @@ pub async fn run(
     let router = proxy::router(proxy::Proxy { port, native });
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let mut server = tokio::spawn(async move {
-        axum::serve(listener, router)
+        use axum::serve::ListenerExt as _;
+        // no Nagle: a terminal keystroke or echo must not wait for the previous segment's ack
+        axum::serve(listener.tap_io(|tcp| drop(tcp.set_nodelay(true))), router)
             .with_graceful_shutdown(async {
                 let _ = shutdown_rx.await;
             })
