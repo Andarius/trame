@@ -68,8 +68,8 @@ pub struct Term {
     project: Option<String>,
     pid: Option<i32>,
     master: Mutex<Box<dyn MasterPty + Send>>,
-    // dropping the writer sends EOF to the shell, so it lives as long as the terminal
-    writer: Mutex<Box<dyn Write + Send>>,
+    // keystrokes go to a writer thread that owns the pty writer; dropping this sends EOF to the shell
+    input: mpsc::Sender<Vec<u8>>,
     buf: Mutex<Buf>,
     tx: broadcast::Sender<Event>,
     kick: Mutex<Option<oneshot::Sender<()>>>,
@@ -158,9 +158,9 @@ impl Term {
         });
     }
 
+    /// Queue input for the pty in order; never blocks the caller, even on a large paste.
     fn write(&self, data: &[u8]) {
-        let mut writer = self.writer.lock().unwrap();
-        let _ = writer.write_all(data).and_then(|()| writer.flush());
+        let _ = self.input.send(data.to_vec());
     }
 
     /// Signal the shell's group and the tty's foreground group (a job may run in its own).
@@ -241,7 +241,19 @@ pub fn spawn(
     let mut child = pair.slave.spawn_command(cmd)?;
     drop(pair.slave);
     let mut reader = pair.master.try_clone_reader()?;
-    let writer = pair.master.take_writer()?;
+    let mut writer = pair.master.take_writer()?;
+    let (input, keys) = mpsc::channel::<Vec<u8>>();
+    std::thread::spawn(move || {
+        for data in keys {
+            if writer
+                .write_all(&data)
+                .and_then(|()| writer.flush())
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
     let (tx, _) = broadcast::channel(1024);
     let term = Arc::new(Term {
         id: id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
@@ -251,7 +263,7 @@ pub fn spawn(
         project,
         pid: child.process_id().and_then(|p| i32::try_from(p).ok()),
         master: Mutex::new(pair.master),
-        writer: Mutex::new(writer),
+        input,
         buf: Mutex::new(Buf {
             data: VecDeque::new(),
             end: 0,
@@ -263,7 +275,7 @@ pub fn spawn(
     let (drained_tx, drained) = mpsc::channel::<()>();
     let out = term.clone();
     std::thread::spawn(move || {
-        let mut chunk = [0u8; 8192];
+        let mut chunk = vec![0u8; 1 << 16];
         while let Ok(n) = reader.read(&mut chunk) {
             if n == 0 {
                 break;
@@ -1142,8 +1154,7 @@ async fn session(mut ws: WebSocket, id: String) {
             },
             message = ws.recv() => match message {
                 Some(Ok(Message::Binary(data))) => {
-                    let term = term.clone();
-                    let _ = tokio::task::spawn_blocking(move || term.write(&data)).await;
+                    term.write(&data);
                 }
                 Some(Ok(Message::Text(text))) => {
                     let msg = serde_json::from_str::<Value>(&text).unwrap_or(Value::Null);
