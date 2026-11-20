@@ -100,6 +100,11 @@ export const pickFolder = (from: string) =>
     { from: string; to: string } | { cancelled: true } | { error: string }
   >;
 
+// the folders among `paths` that are git worktrees
+export const termWorktrees = (paths: string[]) =>
+  (call("/api/term/worktrees", { method: "POST", body: JSON.stringify({ paths }) }) as Promise<{ worktrees: string[] }>)
+    .then((r) => new Set(r.worktrees), () => new Set<string>());
+
 // any folder to open a shell in, from the native folder dialog opened at `start`
 export const pickTermFolder = (start?: string | null) =>
   call("/api/term/pick", { method: "POST", body: JSON.stringify({ start }) }) as Promise<
