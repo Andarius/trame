@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { activate, type PaneNode, prune, splitAt } from "./pane-tree.ts";
+import { activate, addTerms, type PaneNode, prune, splitAt } from "./pane-tree.ts";
 
 // group ids are random: compare shapes without them
 const shape = (n: PaneNode | null): unknown =>
@@ -46,4 +46,14 @@ test("splitAt puts a new pane beside the pane holding the shell, which activate 
     b: { terms: ["z"], active: "z" },
   });
   expect(activate(root, "z")).toBe(root);
+});
+
+test("addTerms appends new shells to the pane holding `at`, showing the last, and skips ones it holds", () => {
+  const root = { dir: "row", a: g(["x"]), b: g(["y"]) } as PaneNode;
+  expect(shape(addTerms(root, "y", ["z", "y", "w"]))).toEqual({
+    dir: "row",
+    a: { terms: ["x"], active: "x" },
+    b: { terms: ["y", "z", "w"], active: "w" },
+  });
+  expect(addTerms(g(["x"]), "x", ["x"])).toEqual(g(["x"]));
 });
