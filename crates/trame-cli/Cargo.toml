@@ -1,6 +1,6 @@
 [package]
 name = "trame-cli"
-version = "0.34.2"
+version = "0.34.3"
 edition.workspace = true
 publish.workspace = true
 
