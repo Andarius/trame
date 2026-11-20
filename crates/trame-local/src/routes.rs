@@ -223,7 +223,9 @@ fn parses_json(method: &str, path: &str) -> bool {
             true
         }
         ["", "api", "report-files", "delete"] => true,
-        ["", "api", "import", "claude"] | ["", "api", "import", "claude", "ignore"] => true,
+        ["", "api", "import", "claude"] | ["", "api", "import", "claude", "ignore" | "star"] => {
+            true
+        }
         ["", "api", "udb", "icons"] => false,
         ["", "api", "udb", _]
         | ["", "api", "udb", _, "props" | "rows"]
@@ -358,6 +360,16 @@ pub(crate) fn number(value: &str) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn import_routes_get_their_json_body() {
+        for path in [
+            "/api/import/claude",
+            "/api/import/claude/ignore",
+            "/api/import/claude/star",
+        ] {
+            assert!(parses_json("POST", path), "{path}");
+        }
+    }
     #[test]
     fn malformed_page_json_preserves_ts_errors() {
         for (input, wanted) in [

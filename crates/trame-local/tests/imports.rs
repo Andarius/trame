@@ -138,6 +138,9 @@ fn scan_uses_only_scratch_transcripts_and_filters_windows_and_subagents() {
         jsonl(&[
             json!({"cwd":"/repo/alpha"}),
             json!({"type":"user","message":{"content":"fix flaky retry test"}}),
+            json!({"type":"custom-title","customTitle":"retry"}),
+            json!({"type":"ai-title","aiTitle":"Fix the retry test"}),
+            json!({"type":"agent-name","agentName":"retry-fix"}),
         ]),
     )
     .unwrap();
@@ -177,6 +180,31 @@ fn scan_uses_only_scratch_transcripts_and_filters_windows_and_subagents() {
     };
     let seven = scan(&mut t, "7");
     assert_eq!(seven["total"], 2);
+    // a starred session stays listed past the window
+    let star = |t: &mut TestDb, on: bool| {
+        imports::handle(
+            &mut t.db,
+            "POST",
+            "/api/import/claude/star",
+            "",
+            &json!({"claudeId":old,"starred":on}),
+        )
+        .unwrap()
+        .unwrap()
+        .1
+    };
+    assert_eq!(star(&mut t, true), json!({"starred":true}));
+    let starred = scan(&mut t, "7");
+    assert_eq!(starred["total"], 3);
+    let old_item = starred["groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|g| g["sessions"].as_array().unwrap())
+        .find(|s| s["claudeId"] == old);
+    assert_eq!(old_item.unwrap()["starred"], true);
+    star(&mut t, false);
+    assert_eq!(scan(&mut t, "7")["total"], 2);
     let thirty = scan(&mut t, "30");
     assert_eq!(thirty["total"], 3);
     let items: Vec<&Value> = thirty["groups"]
@@ -190,11 +218,7 @@ fn scan_uses_only_scratch_transcripts_and_filters_windows_and_subagents() {
             .iter()
             .any(|s| s["title"] == "alpha — Ship the import feature")
     );
-    assert!(
-        items
-            .iter()
-            .any(|s| s["title"] == "alpha — fix flaky retry test")
-    );
+    assert!(items.iter().any(|s| s["title"] == "alpha — retry-fix"));
     assert!(items.iter().any(|s| s["claudeId"] == codex_id));
     assert!(
         !items

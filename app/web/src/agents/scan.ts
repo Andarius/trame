@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { type ClaudeScan, scanClaudeImport } from "../api";
+import { type ClaudeScan, type ClaudeSession, scanClaudeImport, setClaudeStarred } from "../api";
 
 // the transcript scan per day range, shared by All sessions, Recent and the New terminal dialog
 const scans = new Map<number, ClaudeScan>();
@@ -34,4 +34,18 @@ export function useScan(days: number) {
   const scan = useSyncExternalStore(subscribeScans, () => cachedScan(days));
   useEffect(() => void loadScan(days), [days]);
   return scan;
+}
+
+// flips a session's star in every cached scan at once, then saves it
+export function starSession(s: ClaudeSession, starred: boolean) {
+  for (const [days, scan] of scans) {
+    const groups = scan.groups.map((g) => ({
+      ...g,
+      sessions: g.sessions.map((x) => (x.claudeId === s.claudeId ? { ...x, starred } : x)),
+    }));
+    scans.set(days, { ...scan, groups });
+  }
+  notify();
+  // a failed save comes back with the next scan
+  void setClaudeStarred(s.claudeId, starred, s.source).catch(() => {});
 }

@@ -13,7 +13,7 @@ import { matchQuery, parseQuery } from "../query";
 import { clientColor, MenuRow, Popover, PresenceDot, SECTION_LABEL, STRING_CODEC, useLocalStorage, Select, timeAgo } from "../ui/ui";
 import { openTerminal, revealTerminal, runningAgents, TermError, useTermDock } from "../term/term-api";
 import { AgentIcon, Elapsed, type Live, useAgents } from "./agents";
-import { cachedScan, loadScan, subscribeScans } from "./scan";
+import { cachedScan, loadScan, starSession, subscribeScans } from "./scan";
 import { agentLabel, notLaunched, RESUME_DONE, RESUME_MODES, useResumeMode } from "./resume-modes";
 
 const shq = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`; // POSIX single-quote
@@ -100,6 +100,18 @@ function SessionRow(
   return (
     <div className={copied ? "rounded-md bg-copper/10 py-1 pr-1 ring-1 ring-copper/40" : undefined}>
       <div className="flex items-center gap-2 pl-2 text-[12px]">
+        <button
+          type="button"
+          title={s.starred ? "Unstar" : "Star: keep it at the top, however long ago it ran"}
+          aria-label={s.starred ? "Unstar session" : "Star session"}
+          aria-pressed={!!s.starred}
+          onClick={() => starSession(s, !s.starred)}
+          className={`w-3.5 shrink-0 text-[13px] leading-none ${
+            s.starred ? "text-copper" : "text-ink-muted/50 hover:text-copper"
+          }`}
+        >
+          {s.starred ? "★" : "☆"}
+        </button>
         <SourceIcon source={s.source} onClick={onFilterSource} />
         <button
           type="button"
@@ -107,7 +119,7 @@ function SessionRow(
           title={s.suggestedStatus === "active"
             ? "Touched in the last 48 h — click to filter"
             : "Idle for more than 48 h — click to filter"}
-          className={`shrink-0 rounded px-1.5 py-px text-[9.5px] hover:brightness-125 ${
+          className={`w-[50px] shrink-0 rounded px-1.5 py-px text-center text-[9.5px] hover:brightness-125 ${
             s.suggestedStatus === "active"
               ? "border border-chip-active-border bg-chip-active-bg text-active"
               : "border border-chipline text-ink-muted"
@@ -413,6 +425,9 @@ export function ResumeButton(
 // whether the session has ever been tracked as a Trame board card. Mainly useful
 // right after a reboot, when every terminal (and the memory of what was open) is gone.
 // last scan per day range, kept across visits to the view
+// starred sessions before the others, the order within each kept
+const starFirst = (a: ClaudeSession, b: ClaudeSession) => Number(!!b.starred) - Number(!!a.starred);
+
 export function AgentSessions(
   { board, onOpenSession, slot, embedded = false }: {
     board: BoardData;
@@ -425,7 +440,7 @@ export function AgentSessions(
   const { live } = useAgents();
   const [days, setDays] = useState(7);
   const scan = useSyncExternalStore(subscribeScans, () => cachedScan(days));
-  const [statusFilter, setStatusFilter] = useState<"active" | "paused" | "all">(
+  const [statusFilter, setStatusFilter] = useState<"active" | "paused" | "starred" | "all">(
     "all",
   );
   const [sourceFilter, setSourceFilter] = useState("all");
@@ -478,7 +493,7 @@ export function AgentSessions(
   // board query syntax: bare words hit repo/title/branch, `-word` hides, repo:/title:/branch: scope
   const { terms } = parseQuery(q);
   const isVisible = (s: ClaudeSession, repoName: string) =>
-    (statusFilter === "all" || s.suggestedStatus === statusFilter) &&
+    (statusFilter === "all" || (statusFilter === "starred" ? !!s.starred : s.suggestedStatus === statusFilter)) &&
     (sourceFilter === "all" || s.source === sourceFilter) &&
     matchQuery(terms, (key) => {
       const repo = repoName.toLowerCase(), title = s.title.toLowerCase(), branch = (s.branch ?? "").toLowerCase();
@@ -549,12 +564,14 @@ export function AgentSessions(
           </button>
         ))}
         <div className="ml-1 flex rounded-[7px] bg-panel p-[3px]">
-          {(["all", "active", "paused"] as const).map((f) => (
+          {(["all", "starred", "active", "paused"] as const).map((f) => (
             <button
               type="button"
               key={f}
               onClick={() => setStatusFilter(f)}
-              title={f === "active"
+              title={f === "starred"
+                ? "Starred sessions, whenever they ran"
+                : f === "active"
                 ? "Sessions touched in the last 48 h"
                 : f === "paused"
                 ? "Sessions idle for more than 48 h"
@@ -565,7 +582,7 @@ export function AgentSessions(
                   : "text-ink-muted hover:text-ink-soft"
               }`}
             >
-              {f === "all" ? "all" : f === "active" ? "current" : "past"}
+              {f === "all" ? "all" : f === "starred" ? "★ starred" : f === "active" ? "current" : "past"}
             </button>
           ))}
         </div>
@@ -650,7 +667,7 @@ export function AgentSessions(
           </p>
         )}
         {scan && sortBy === "repo" && scan.groups.map((g) => {
-          const visible = g.sessions.filter((s) => isVisible(s, g.repoName));
+          const visible = g.sessions.filter((s) => isVisible(s, g.repoName)).sort(starFirst);
           if (!visible.length) return null;
           return (
             <div
@@ -704,7 +721,7 @@ export function AgentSessions(
                 .filter((s) => isVisible(s, g.repoName))
                 .map((s) => ({ s, repoName: g.repoName }))
             )
-            .sort((a, b) => b.s.lastActive.localeCompare(a.s.lastActive));
+            .sort((a, b) => starFirst(a.s, b.s) || b.s.lastActive.localeCompare(a.s.lastActive));
           if (!flat.length) {
             // no groups at all already says so above
             return scan.groups.length > 0 && (

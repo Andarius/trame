@@ -376,6 +376,15 @@ pub fn codex_meta(head: &str, tail: &str) -> Value {
     json!({"id":id,"cwd":cwd,"firstPrompt":prompt,"branch":branch,"lastTs":last,"hasActivity":active,"subagent":subagent})
 }
 
+fn rename(event: &Value) -> Option<&str> {
+    match event["type"].as_str()? {
+        "custom-title" => event["customTitle"].as_str(),
+        "agent-name" => event["agentName"].as_str(),
+        _ => None,
+    }
+    .filter(|s| !s.trim().is_empty())
+}
+
 pub fn claude_meta(head: &str, tail: &str) -> Value {
     let (mut cwd, mut prompt) = (None, None);
     for event in lines(head) {
@@ -394,6 +403,20 @@ pub fn claude_meta(head: &str, tail: &str) -> Value {
     }
     let (mut title, mut last_prompt, mut branch, mut last) = (None, None, None, None);
     let mut active = prompt.is_some();
+    // the /rename name: Claude Code appends it again as the session grows, so the last one wins
+    let mut name = None;
+    for line in head.split('\n').chain(tail.split('\n')) {
+        if !line.contains("\"custom-title\"") && !line.contains("\"agent-name\"") {
+            continue;
+        }
+        if let Some(s) = serde_json::from_str::<Value>(line)
+            .ok()
+            .as_ref()
+            .and_then(rename)
+        {
+            name = Some(s.to_owned());
+        }
+    }
     for event in lines(tail) {
         if event["type"] == "ai-title" {
             if let Some(s) = event["aiTitle"].as_str() {
@@ -424,5 +447,5 @@ pub fn claude_meta(head: &str, tail: &str) -> Value {
     if matches!(branch.as_deref(), Some("HEAD" | "")) {
         branch = None;
     }
-    json!({"cwd":cwd,"aiTitle":title,"lastPrompt":last_prompt,"firstPrompt":prompt,"branch":branch,"lastTs":last,"hasActivity":active})
+    json!({"cwd":cwd,"name":name,"aiTitle":title,"lastPrompt":last_prompt,"firstPrompt":prompt,"branch":branch,"lastTs":last,"hasActivity":active})
 }
