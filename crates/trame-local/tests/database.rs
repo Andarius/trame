@@ -154,3 +154,59 @@ fn a_rehearsal_rolls_back_and_refuses_to_nest() {
         "a rehearsal inside a transaction would end it"
     );
 }
+
+#[test]
+fn done_at_follows_a_card_into_and_out_of_a_terminal_status() {
+    const ID: &str = "00000000-0000-4000-8000-00000000d0e1";
+    fn done_at(t: &mut TestDb) -> Value {
+        t.db.query("select done_at from sessions where id=$1", &[json!(ID)])
+            .unwrap()[0]["done_at"]
+            .clone()
+    }
+    let mut t = TestDb::new();
+    t.db.batch_execute(&format!(
+        "insert into sessions(id,title,status) values ('{ID}','card','active')"
+    ))
+    .unwrap();
+    assert_eq!(done_at(&mut t), Value::Null, "open");
+    t.db.batch_execute("update sessions set status='done'")
+        .unwrap();
+    let closed = done_at(&mut t);
+    assert_ne!(closed, Value::Null, "closed");
+    let schema = include_str!("../../../db/schema.sql");
+    for (name, sql, want) in [
+        (
+            "an edit keeps it",
+            "update sessions set title='renamed'",
+            closed,
+        ),
+        (
+            "a synced value stands",
+            "update sessions set done_at='2026-01-02T03:04:05Z'",
+            json!("2026-01-02T03:04:05.000Z"),
+        ),
+        (
+            "a schema rerun keeps it",
+            schema,
+            json!("2026-01-02T03:04:05.000Z"),
+        ),
+        (
+            "reopened",
+            "update sessions set status='active'",
+            Value::Null,
+        ),
+        (
+            "an undated done card",
+            "update sessions set status='done'; update sessions set done_at=null, last_touched='2026-02-03T04:05:06Z'",
+            Value::Null,
+        ),
+        (
+            "is dated by its last activity",
+            schema,
+            json!("2026-02-03T04:05:06.000Z"),
+        ),
+    ] {
+        t.db.batch_execute(sql).unwrap();
+        assert_eq!(done_at(&mut t), want, "{name}");
+    }
+}

@@ -1,5 +1,5 @@
 {
-  "version": 8,
+  "version": 9,
   "entities": [
     {
       "name": "users",
@@ -146,6 +146,7 @@
         "claude_id",
         "agent",
         "last_touched",
+        "done_at",
         "origin",
         "updated_at",
         "deleted"

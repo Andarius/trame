@@ -522,7 +522,7 @@ async fn hub_settings_token_is_trimmed_before_authentication() {
         post.headers.get("authorization").unwrap(),
         "Bearer test-token"
     );
-    assert_eq!(post.headers.get("x-trame-protocol").unwrap(), "8");
+    assert_eq!(post.headers.get("x-trame-protocol").unwrap(), "9");
     server.abort();
 }
 #[tokio::test]
