@@ -615,10 +615,11 @@ function Panes(
 }
 
 const MIN_PANE_PX = 80;
-// a split's line; dragging it previews the new position and resizes the panes once, on release
+// a split's line; dragging it resizes the panes live (shells hear the new size once the drag settles)
 function SplitDivider({ tab, d }: { tab: string; d: Divider }) {
-  const [ghost, setGhost] = useState<number | null>(null);
+  const [dragging, setDragging] = useState(false);
   const box = useRef<DOMRect | null>(null);
+  const frame = useRef(0);
   const row = d.dir === "row";
   const ratioAt = (e: React.PointerEvent) => {
     const b = box.current!;
@@ -627,8 +628,12 @@ function SplitDivider({ tab, d }: { tab: string; d: Divider }) {
     const min = Math.min(0.5, MIN_PANE_PX / px);
     return Math.min(1 - min, Math.max(min, ((row ? e.clientX : e.clientY) - start) / px));
   };
-  const ratio = ghost ?? d.ratio;
-  const pos = row ? d.split.x + d.split.w * ratio : d.split.y + d.split.h * ratio;
+  // one layout update per frame, however fast the pointer moves
+  const moveTo = (ratio: number) => {
+    cancelAnimationFrame(frame.current);
+    frame.current = requestAnimationFrame(() => resizeSplit(tab, d.path, ratio));
+  };
+  const pos = row ? d.split.x + d.split.w * d.ratio : d.split.y + d.split.h * d.ratio;
   const line: React.CSSProperties = row
     ? { left: `${pos}%`, top: `${d.split.y}%`, height: `${d.split.h}%` }
     : { top: `${pos}%`, left: `${d.split.x}%`, width: `${d.split.w}%` };
@@ -644,21 +649,21 @@ function SplitDivider({ tab, d }: { tab: string; d: Divider }) {
           if (e.button !== 0) return;
           box.current = (e.currentTarget.offsetParent as HTMLElement).getBoundingClientRect();
           e.currentTarget.setPointerCapture(e.pointerId);
-          setGhost(ratioAt(e));
+          setDragging(true);
         }}
-        onPointerMove={(e) => ghost !== null && setGhost(ratioAt(e))}
+        onPointerMove={(e) => dragging && moveTo(ratioAt(e))}
         onPointerUp={(e) => {
-          if (ghost === null) return;
-          resizeSplit(tab, d.path, ratioAt(e));
-          setGhost(null);
+          if (!dragging) return;
+          moveTo(ratioAt(e));
+          setDragging(false);
         }}
-        onPointerCancel={() => setGhost(null)}
+        onPointerCancel={() => setDragging(false)}
         onDoubleClick={() => resizeSplit(tab, d.path, 0.5)}
       />
       {/* the separator, like Orca's: a visible line, copper while hovered or dragged */}
       <div
         className={`pointer-events-none absolute z-10 ${row ? "-ml-px w-[2px]" : "-mt-px h-[2px]"} ${
-          ghost === null ? "bg-chipline peer-hover:bg-copper/60" : "bg-copper"
+          dragging ? "bg-copper" : "bg-chipline peer-hover:bg-copper/60"
         }`}
         style={line}
       />
