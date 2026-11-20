@@ -5053,7 +5053,7 @@ dependencies = [
 
 [[package]]
 name = "trame-cli"
-version = "0.34.1"
+version = "0.34.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -5081,7 +5081,7 @@ dependencies = [
 
 [[package]]
 name = "trame-desktop"
-version = "0.34.1"
+version = "0.34.2"
 dependencies = [
  "anyhow",
  "libc",
@@ -5094,7 +5094,7 @@ dependencies = [
 
 [[package]]
 name = "trame-local"
-version = "0.34.1"
+version = "0.34.2"
 dependencies = [
  "anyhow",
  "axum",
