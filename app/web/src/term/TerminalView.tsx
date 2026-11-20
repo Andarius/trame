@@ -1,3 +1,4 @@
+import { NATIVE, nativePane, onNativeLink } from "./native-term"; // POC
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Terminal } from "@xterm/xterm";
@@ -9,7 +10,7 @@ import "@fontsource/jetbrains-mono/latin-400.css";
 import "@fontsource/jetbrains-mono/latin-700.css";
 import "@fontsource/jetbrains-mono/latin-400-italic.css";
 import { openInBrowser } from "../api";
-import { CLOSE_AUTH, CLOSE_GONE, CLOSE_SUPERSEDED, closeTerminal, termImage, type TermTheme, termTheme, termToken } from "./term-api";
+import { CLOSE_AUTH, CLOSE_GONE, CLOSE_SUPERSEDED, closeTerminal, termImage, type TermTheme, termTheme, termToken, setDockMax } from "./term-api";
 import { imageLinks } from "./image-links";
 import { previewBox } from "./preview-size";
 import { FONT_STACK, onTermZoom, scrollbar, termFontSize, termZoomKey, theme, URL_RE } from "./xterm-look";
@@ -122,6 +123,8 @@ export function openLink(uri: string) {
 export function TerminalView(
   { id, visible, focused, onFocus }: { id: string; visible: boolean; focused: boolean; onFocus: () => void },
 ) {
+  // POC: the desktop draws this pane natively under the page (module-level flag, stable hook order)
+  if (NATIVE) return <NativeHole id={id} />;
   const host = useRef<HTMLDivElement>(null);
   const api = useRef<
     { start: () => void; fit: () => void; focus: () => void; reconnect: () => void; term: Terminal } | null
@@ -180,6 +183,70 @@ export function TerminalView(
     const send = (data: string | Uint8Array<ArrayBuffer>) => {
       if (ws?.readyState === WebSocket.OPEN) ws.send(data);
     };
+    // spike probe: key→render latency and cat throughput; the shell writes the result to `file`
+    const probeEnv = (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_TERM_PROBE;
+    const probe = probeEnv ? JSON.parse(probeEnv) as { n: number; file: string; big: string; delay: number; start?: string; warm?: number } : null;
+    console.log("probe mount", !!probe);
+    if (probe) {
+      setTimeout(async () => {
+        console.log("probe fire", ws?.readyState);
+        const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
+        setDockMax(true); // the probe needs the shell on screen: xterm skips hidden renders
+        await new Promise((r) => setTimeout(r, 1500));
+        if (probe.start) {
+          send(enc.encode(`${probe.start}\r`));
+          await new Promise((r) => setTimeout(r, probe.warm ?? 10000));
+        }
+        const render: number[] = [], frame: number[] = [];
+        let stuck = 0;
+        const box = el.getBoundingClientRect();
+        send(enc.encode(`echo "probe start ${document.visibilityState} ${Math.round(box.width)}x${Math.round(box.height)}" > ${probe.file}\r`));
+        await new Promise((r) => setTimeout(r, 1000));
+        for (let i = 0; i < probe.n; i++) {
+          const t = performance.now();
+          const rendered = new Promise<void>((r) => {
+            const parsed = term.onWriteParsed(() => {
+              parsed.dispose();
+              const drawn = term.onRender(() => (drawn.dispose(), r()));
+            });
+          });
+          send(enc.encode("x"));
+          if (i % 50 === 0) console.log("probe step", i, ws?.readyState, stuck);
+          const ok = await Promise.race([rendered.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), 1000))]);
+          if (!ok) {
+            stuck++;
+            continue;
+          }
+          render.push(performance.now() - t);
+          await nextFrame();
+          frame.push(performance.now() - t);
+          await new Promise((r) => setTimeout(r, 60));
+        }
+        send(enc.encode("\x15"));
+        if (probe.start) {
+          // leave the TUI (two Ctrl+C), then report from the shell
+          send(enc.encode("\x03"));
+          await new Promise((r) => setTimeout(r, 500));
+          send(enc.encode("\x03"));
+          await new Promise((r) => setTimeout(r, 3000));
+          const pct = (xs: number[], q: number) => !xs.length ? "na" : [...xs].sort((a, b) => a - b)[Math.floor((xs.length - 1) * q)].toFixed(1);
+          send(enc.encode(`echo "xterm+${probe.start} render p50=${pct(render, 0.5)} p95=${pct(render, 0.95)} +frame p50=${pct(frame, 0.5)} p95=${pct(frame, 0.95)} stuck=${stuck}" > ${probe.file}\r`));
+          return;
+        }
+        let start = 0;
+        const catMs = new Promise<number>((r) =>
+          term.parser.registerOscHandler(7777, (d) => {
+            if (d === "start") start = performance.now();
+            else r(performance.now() - start);
+            return true;
+          })
+        );
+        send(enc.encode(`printf '\\033]7777;start\\007'; cat ${probe.big}; printf '\\033]7777;end\\007'\r`));
+        const cat = await Promise.race([catMs, new Promise<number>((r) => setTimeout(() => r(-1), 300_000))]);
+        const pct = (xs: number[], q: number) => !xs.length ? "na" : [...xs].sort((a, b) => a - b)[Math.floor((xs.length - 1) * q)].toFixed(1);
+        send(enc.encode(`clear; echo "xterm render p50=${pct(render, 0.5)} p95=${pct(render, 0.95)} +frame p50=${pct(frame, 0.5)} p95=${pct(frame, 0.95)} cat=${(cat / 1000).toFixed(2)}s stuck=${stuck}" > ${probe.file}\r`));
+      }, probe.delay);
+    }
     const connect = async (freshToken = false) => {
       clearTimeout(timer);
       let token: string;
@@ -386,5 +453,36 @@ export function TerminalView(
         </div>
       )}
     </div>
+  );
+}
+
+// POC: an empty hole the native pane shows through
+function NativeHole({ id }: { id: string }) {
+  const host = useRef<HTMLDivElement>(null);
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [pr, setPr] = useState<{ url: string; x: number; y: number } | null>(null);
+  useEffect(() => nativePane(id, host.current!), [id]);
+  useEffect(() =>
+    onNativeLink(id, (e) => {
+      if (e.kind === "leave") {
+        setPreview((p) => (p?.full ? p : null));
+        setPr(null);
+      } else if (e.path && /^https?:\/\//.test(e.path)) {
+        // a URL: PR links show their card on hover, any click opens it like xterm's links
+        setPreview((p) => (p?.full ? p : null));
+        if (e.kind === "open") openLink(e.path);
+        else setPr(PR_HREF.test(e.path) ? { url: e.path, x: e.x, y: e.y } : null);
+      } else if (e.path) {
+        const path = e.path;
+        setPr(null);
+        setPreview((p) => (e.kind === "open" ? { path, x: e.x, y: e.y, full: true } : p?.full ? p : { path, x: e.x, y: e.y, full: false }));
+      }
+    }), [id]);
+  return (
+    <>
+      <div ref={host} className="h-full w-full" />
+      {preview && <ImagePreview p={preview} onClose={() => setPreview(null)} />}
+      {pr && <PrPreview {...pr} />}
+    </>
   );
 }

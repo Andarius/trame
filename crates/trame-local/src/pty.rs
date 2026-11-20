@@ -439,6 +439,20 @@ pub async fn serve(root: &Path, req: Request<Body>) -> Response {
         return json_response(401, json!({"error":"terminal token required"}));
     }
     match (method, parts.as_slice()) {
+        (Method::POST, ["", "api", "term", "native"]) => {
+            let Ok(bytes) = axum::body::to_bytes(req.into_body(), 256 * 1024).await else {
+                return json_response(400, json!({"error":"body unavailable"}));
+            };
+            native_channel().send_replace(serde_json::from_slice(&bytes).unwrap_or(Value::Null));
+            json_response(200, json!({"ok":true}))
+        }
+        (Method::POST, ["", "api", "term", "native", "debug"]) => {
+            let Ok(bytes) = axum::body::to_bytes(req.into_body(), 256 * 1024).await else {
+                return json_response(400, json!({"error":"body unavailable"}));
+            };
+            native_debug().send_replace(serde_json::from_slice(&bytes).unwrap_or(Value::Null));
+            json_response(200, json!({"ok":true}))
+        }
         (Method::GET, ["", "api", "term", "agents"]) => {
             let agents = crate::blocking::spawn(installed_agents)
                 .await
@@ -1219,7 +1233,7 @@ const ANSI: [&str; 16] = [
 ];
 
 /// Ghostty's effective font and colors, so the panel looks like the user's terminal.
-fn ghostty_theme() -> Option<Value> {
+pub fn ghostty_theme() -> Option<Value> {
     let app = "/Applications/Ghostty.app/Contents/MacOS/ghostty";
     let bin = if Path::new(app).exists() {
         app
@@ -1290,6 +1304,70 @@ fn parse_ghostty(config: &str) -> Option<Value> {
     theme.entry("selectionBackground").or_insert(fg);
     theme.entry("selectionForeground").or_insert(bg);
     Some(json!({"source":"ghostty","fontFamily":font_family,"fontSize":font_size,"theme":theme}))
+}
+
+// Native panes (POC): the desktop draws terminals under the webview
+
+/// Live output of a shell for a native pane, deduplicated by byte offset.
+pub struct NativeFeed {
+    rx: broadcast::Receiver<Event>,
+    pos: u64,
+}
+
+impl NativeFeed {
+    /// The next output bytes; `None` once the shell has exited.
+    pub async fn next(&mut self) -> Option<Vec<u8>> {
+        loop {
+            match self.rx.recv().await {
+                Ok(Event::Data(at, bytes)) => {
+                    let end = at + bytes.len() as u64;
+                    if end <= self.pos {
+                        continue;
+                    }
+                    let fresh =
+                        bytes.slice(usize::try_from(self.pos.saturating_sub(at)).unwrap_or(0)..);
+                    self.pos = end;
+                    return Some(fresh.to_vec());
+                }
+                Err(broadcast::error::RecvError::Lagged(_)) => {}
+                Ok(Event::Exit(_)) | Err(broadcast::error::RecvError::Closed) => return None,
+            }
+        }
+    }
+}
+
+/// Retained output plus the live feed of shell `id`, beside any web attachment.
+pub fn native_attach(id: &str) -> Option<(Vec<u8>, NativeFeed)> {
+    let term = get(id)?;
+    let Attach {
+        offset, replay, rx, ..
+    } = term.attach(None);
+    let pos = offset + replay.len() as u64;
+    Some((replay.to_vec(), NativeFeed { rx, pos }))
+}
+
+pub fn native_input(id: &str, data: &[u8]) {
+    if let Some(term) = get(id) {
+        term.write(data);
+    }
+}
+
+pub fn native_resize(id: &str, cols: u16, rows: u16) {
+    if let Some(term) = get(id) {
+        term.resize(cols, rows);
+    }
+}
+
+/// Where the page wants native panes (`{"panes":[{id,x,y,w,h,focus}],"bg":"#…"}`) and debug requests.
+pub fn native_channel() -> &'static tokio::sync::watch::Sender<Value> {
+    static TX: OnceLock<tokio::sync::watch::Sender<Value>> = OnceLock::new();
+    TX.get_or_init(|| tokio::sync::watch::channel(Value::Null).0)
+}
+
+/// Debug requests for the desktop (`{"shot":path}` or `{"eval":js}`), POC only.
+pub fn native_debug() -> &'static tokio::sync::watch::Sender<Value> {
+    static TX: OnceLock<tokio::sync::watch::Sender<Value>> = OnceLock::new();
+    TX.get_or_init(|| tokio::sync::watch::channel(Value::Null).0)
 }
 
 #[cfg(test)]

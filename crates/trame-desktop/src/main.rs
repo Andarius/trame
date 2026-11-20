@@ -7,6 +7,8 @@
 #[cfg(target_os = "linux")]
 mod appimage;
 mod geometry;
+#[cfg(all(target_os = "linux", feature = "native-term"))]
+mod native;
 #[cfg(target_os = "linux")]
 mod webkit;
 
@@ -21,6 +23,10 @@ use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
     reason = "tauri::generate_context! expands to process::exit"
 )]
 fn main() -> anyhow::Result<()> {
+    #[cfg(all(target_os = "linux", feature = "native-term"))]
+    if let Ok(dir) = std::env::var("TRAME_NATIVE_TERM_FONTS") {
+        trame_native_term::use_font_dir(std::path::Path::new(&dir), &std::env::temp_dir());
+    }
     trame_local::tune_allocator();
     if let Some(result) = trame_local::pg::supervisor_args() {
         return result;
@@ -106,6 +112,13 @@ fn main() -> anyhow::Result<()> {
         if let Some((x, y)) = saved.position {
             window = window.position(x, y);
         }
+        if std::env::var_os("TRAME_NATIVE_TERM").is_some() {
+            window = window.transparent(std::env::var_os("TRAME_NATIVE_TRANSPARENT").is_some()).initialization_script("window.__trameNative = true;");
+        }
+        // spike probe for the xterm.js terminal (see TerminalView.tsx)
+        if let Ok(spec) = std::env::var("TRAME_TERM_PROBE") {
+            window = window.initialization_script(format!("window.__termProbe={spec};"));
+        }
         let ready_pending = pending.clone();
         let window = window
             .on_navigation(move |url| {
@@ -160,6 +173,11 @@ fn main() -> anyhow::Result<()> {
                     }
                 });
             }).build()?;
+        // POC: native terminal panes under a transparent webview
+        #[cfg(all(target_os = "linux", feature = "native-term"))]
+        if std::env::var_os("TRAME_NATIVE_TERM").is_some() {
+            native::install(&window)?;
+        }
         // POST /api/open and trame:// links: navigate in-page (App.tsx handles popstate) and raise
         let (open_window, open_pending) = (window.clone(), pending.clone());
         open_runtime.spawn(async move {

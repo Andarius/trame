@@ -178,6 +178,11 @@ export async function restoreTerminals() {
   // shells that exited while no window watched close now, as they would have live
   for (const t of list.filter((t) => t.exited)) void kill(t.id);
   list = list.filter((t) => !t.exited);
+  // spike probe: start with one shell open
+  if (!list.length && (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_TERM_PROBE) {
+    await openTerminal({});
+    return;
+  }
   if (!list.length) return;
   const terms = Object.fromEntries(list.map((t) => [t.id, t]));
   let saved: PaneNode[] = [];
