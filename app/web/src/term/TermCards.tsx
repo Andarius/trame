@@ -6,6 +6,7 @@ import { GroupMenu } from "../ui/GroupMenu";
 import { appConfirm, EntityIcon, enumCodec, MenuRow, Popover, SECTION_LABEL, SET_CODEC, StatusDot, useLocalStorage } from "../ui/ui";
 import { LinkCardDialog } from "./LinkCardDialog";
 import { NewTerminalDialog } from "./NewTerminalDialog";
+import { bundle } from "./together";
 import { closeTerminal, revealTerminal, sessionLabel, setTermDrag, tabCards, type TermDrag, type TermSession, useTermDock, useTermSessions } from "./term-api";
 
 const GROUPINGS = ["project", "status", "none"] as const;
@@ -460,7 +461,17 @@ export function TermCards(
             <>
               {grouping === "project" && key && projectShells.has(key) && projectRow(key, "Project shells")}
               {key && loose.filter((x) => looseProject(x) === key).map(sessionRow)}
-              {shownOf(key).map((s) => cardRow(s))}
+              {bundle(shownOf(key), (s) => tabOf(s.id)).map((b) =>
+                b.length === 1 ? cardRow(b[0]) : (
+                  <div
+                    key={`tab:${b[0].id}`}
+                    title="these cards' shells share one terminal tab"
+                    className="ml-1 flex flex-col rounded-l-sm border-l-2 border-copper/70 pl-1"
+                  >
+                    {b.map((s) => cardRow(s))}
+                  </div>
+                )
+              )}
               {groups.get(key)!.some(isIdle) && (
                 <button
                   type="button"
