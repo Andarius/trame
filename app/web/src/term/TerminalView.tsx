@@ -94,6 +94,15 @@ async function copyText(text: string) {
   }
 }
 
+type PrHover = { url: string; x: number; y: number } | null;
+// plain URLs and OSC 8 hyperlinks (Claude Code's) both open via openLink and preview PRs on hover
+export function attachLinks(term: Terminal, setPr: (pr: PrHover) => void) {
+  const hover = (e: MouseEvent, uri: string) => PR_HREF.test(uri) && setPr({ url: uri, x: e.clientX, y: e.clientY });
+  const leave = () => setPr(null);
+  term.loadAddon(new WebLinksAddon((_e, uri) => openLink(uri), { urlRegex: URL_RE, hover, leave }));
+  term.options.linkHandler = { activate: (_e, uri) => openLink(uri), hover, leave };
+}
+
 // Trame's own links (what `tramecli` prints, from this app or another port on this machine)
 // open in place through the app's history handling; anything else goes to the browser
 export function openLink(uri: string) {
@@ -147,11 +156,7 @@ export function TerminalView(
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon((_e, uri) => openLink(uri), {
-      urlRegex: URL_RE,
-      hover: (e, uri) => PR_HREF.test(uri) && setPr({ url: uri, x: e.clientX, y: e.clientY }),
-      leave: () => setPr(null),
-    }));
+    attachLinks(term, setPr);
     // image paths: hover shows a thumbnail, click the full image
     const links = term.registerLinkProvider({
       provideLinks(y, cb) {

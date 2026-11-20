@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import "@fontsource/jetbrains-mono/latin-400.css";
 import "@fontsource/jetbrains-mono/latin-700.css";
 import { termTheme } from "./term-api";
-import { openLink } from "./TerminalView";
-import { FONT_STACK, onTermZoom, scrollbar, termFontSize, termZoomKey, theme, URL_RE } from "./xterm-look";
-import { PR_HREF, PrPreview } from "../md/chips";
+import { attachLinks } from "./TerminalView";
+import { FONT_STACK, onTermZoom, scrollbar, termFontSize, termZoomKey, theme } from "./xterm-look";
+import { PrPreview } from "../md/chips";
 
 // A read-only terminal showing `text` (ANSI), with the same look as the shells
 export function ReplayTerminal({ text, className }: { text: string; className?: string }) {
@@ -27,11 +26,7 @@ export function ReplayTerminal({ text, className }: { text: string; className?: 
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon((_e, uri) => openLink(uri), {
-      urlRegex: URL_RE,
-      hover: (e, uri) => PR_HREF.test(uri) && setPr({ url: uri, x: e.clientX, y: e.clientY }),
-      leave: () => setPr(null),
-    }));
+    attachLinks(term, setPr);
     term.open(el);
     term.attachCustomKeyEventHandler((e) => !termZoomKey(e));
     let alive = true;
