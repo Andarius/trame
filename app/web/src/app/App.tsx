@@ -486,8 +486,8 @@ export function App() {
     setUpdate(u);
     if (u.applied) setUpdateState("done");
   });
-  const checkUpd = () =>
-    getUpdate().then((u) => {
+  const checkUpd = (force = false) =>
+    getUpdate(force).then((u) => {
       setUpdate(u);
       if (u.applied) setUpdateState("done");
     }).catch(() => {});
@@ -1050,7 +1050,7 @@ export function App() {
               updState={updateState}
               updError={updateError}
               onUpdate={onUpdate}
-              onCheckUpdate={checkUpd}
+              onCheckUpdate={() => checkUpd(true)}
             />
           )
           : (

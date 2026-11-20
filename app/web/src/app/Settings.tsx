@@ -233,7 +233,7 @@ export function Settings(
     updState: "idle" | "busy" | "done";
     updError?: string;
     onUpdate: () => void;
-    onCheckUpdate: () => void;
+    onCheckUpdate: () => Promise<void>; // asks GitHub now, not the hour-old answer
   },
 ) {
   const [paths, setPaths] = useState<string[]>([]);
@@ -272,9 +272,15 @@ export function Settings(
       setLoaded(true);
     }).catch(() => setLoaded(true));
   }, []);
-  // re-check on open; a ref, as the app's callback changes every render
+  // re-check on open, and on demand; a ref, as the app's callback changes every render
   const checkUpdate = useRef(onCheckUpdate);
-  useEffect(() => checkUpdate.current(), []);
+  checkUpdate.current = onCheckUpdate;
+  const [checking, setChecking] = useState(false);
+  const checkNow = () => {
+    setChecking(true);
+    void checkUpdate.current().finally(() => setChecking(false));
+  };
+  useEffect(checkNow, []);
 
   const restartBtn = (
     <button
@@ -369,6 +375,16 @@ export function Settings(
                   : "· up to date"}
               </span>
             )}
+          {update && !update.available && !update.applied && !update.off && (
+            <button
+              type="button"
+              disabled={checking}
+              onClick={checkNow}
+              className="text-[10.5px] text-ink-muted underline decoration-chipline underline-offset-2 hover:text-ink-soft disabled:no-underline disabled:opacity-60"
+            >
+              {checking ? "checking…" : "check now"}
+            </button>
+          )}
         </div>
         {update?.building && <RebuildProgress building={update.building} />}
         {updError && <p className="m-0 text-[11.5px] text-blocked">{updError}</p>}
