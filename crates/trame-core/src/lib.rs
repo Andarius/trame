@@ -1,3 +1,4 @@
+pub mod board_link;
 pub mod due;
 pub mod page_markdown;
 pub mod page_merge;

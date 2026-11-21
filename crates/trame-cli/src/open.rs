@@ -6,11 +6,27 @@ use anyhow::{Result, bail};
 use serde_json::json;
 use std::process::{Command, Stdio};
 
-const USAGE: &str = "usage: tramecli open <page id | card id | Trame URL>";
+const USAGE: &str =
+    "usage: tramecli open <page id | card id | Trame URL> | --query '<query>' | --view <name>";
 
-/// The kind (`page`, `card`, or unknown for a bare id) and id named by an argument.
+/// The kind (`page`, `card`, `board`, `view`, or unknown for a bare id) and target named by the arguments.
+fn parse_args(args: &[String]) -> Option<(Option<&'static str>, String)> {
+    match args {
+        [flag, value] if flag == "--query" => Some((Some("board"), value.trim().to_owned())),
+        [flag, value] if flag == "--view" && !value.trim().is_empty() => {
+            Some((Some("view"), value.trim().to_owned()))
+        }
+        [input] => parse(input),
+        _ => None,
+    }
+}
+
+/// The kind (`page`, `card`, `board`, `view`, or unknown for a bare id) and target named by an argument.
 fn parse(input: &str) -> Option<(Option<&'static str>, String)> {
     let input = input.trim();
+    if let Some((kind, target)) = trame_core::board_link::parse(input) {
+        return Some((Some(kind), target));
+    }
     if let Some(rest) = input.strip_prefix("trame://") {
         let (kind, id) = rest.split_once('/')?;
         let kind = match kind {
@@ -62,15 +78,23 @@ fn launch(url: &str) -> bool {
 }
 
 pub async fn main(args: &[String]) -> Result<i32> {
-    let Some((kind, id)) = args.first().and_then(|a| parse(a)) else {
+    let Some((kind, id)) = parse_args(args) else {
         bail!(USAGE);
     };
     if let Some(target) = local_target().await? {
-        let key = kind.map_or("id".to_owned(), |k| format!("{k}_id"));
-        let value = match target.post("/api/open", &json!({key: id})).await {
+        let body = match kind {
+            Some("board") => json!({"q": id}),
+            Some("view") => json!({"view": id}),
+            Some(k) => json!({format!("{k}_id"): id}),
+            None => json!({"id": id}),
+        };
+        let value = match target.post("/api/open", &body).await {
             Ok(value) => value,
             Err(error) => {
                 if let Some(RequestFailure::Http { status: 404, .. }) = error.downcast_ref() {
+                    if kind == Some("view") {
+                        bail!("no saved view named {id} (save one from the Sessions board)");
+                    }
                     bail!("no page or card with id {id}");
                 }
                 return Err(error);
@@ -84,7 +108,10 @@ pub async fn main(args: &[String]) -> Result<i32> {
         return Ok(1);
     }
     // a bare id is a card, as for `tramecli show`
-    let url = format!("trame://{}/{id}", kind.unwrap_or("card"));
+    let url = match kind {
+        Some(k @ ("board" | "view")) => trame_core::board_link::link(k, &id),
+        k => format!("trame://{}/{id}", k.unwrap_or("card")),
+    };
     println!("{url}");
     if scheme_installed() && launch(&url) {
         return Ok(0);
@@ -111,6 +138,14 @@ mod tests {
             ),
             (format!("trame://page/{ID}"), Some((Some("page"), ID))),
             (format!("trame://card/{ID}/"), Some((Some("card"), ID))),
+            (
+                "trame://board?q=tag%3Aparked".to_owned(),
+                Some((Some("board"), "tag:parked")),
+            ),
+            (
+                "trame://view/Parked".to_owned(),
+                Some((Some("view"), "Parked")),
+            ),
             (format!("trame://db/{ID}"), None),
             ("not-an-id".to_owned(), None),
         ] {
@@ -118,6 +153,27 @@ mod tests {
                 parse(&input),
                 expected.map(|(k, id)| (k, id.to_owned())),
                 "{input}"
+            );
+        }
+    }
+
+    #[test]
+    fn query_and_view_flags_name_a_board() {
+        for (args, expected) in [
+            (
+                vec!["--query", " tag:parked "],
+                Some((Some("board"), "tag:parked")),
+            ),
+            (vec!["--view", "Parked"], Some((Some("view"), "Parked"))),
+            (vec!["--view", " "], None),
+            (vec!["--query"], None),
+            (vec!["--view", "a", "b"], None),
+        ] {
+            let args: Vec<String> = args.into_iter().map(str::to_owned).collect();
+            assert_eq!(
+                parse_args(&args),
+                expected.map(|(k, t)| (k, t.to_owned())),
+                "{args:?}"
             );
         }
     }

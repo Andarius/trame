@@ -153,3 +153,44 @@ fn page_link_typescript_assertions_and_share_updates() {
         json!([])
     );
 }
+
+#[test]
+fn board_views_round_trip_through_settings() {
+    let t = TestDb::new();
+    let settings = t.root.join("settings.json");
+    for (id, patch, expected) in [
+        (
+            "saved and trimmed",
+            json!([{"name":" Parked ","q":" tag:parked ","group":"project"}]),
+            json!([{"name":"Parked","q":"tag:parked","group":"project"}]),
+        ),
+        (
+            "unknown group falls back to none",
+            json!([{"name":"Blocked","q":"status:blocked","group":"repo"}]),
+            json!([{"name":"Blocked","q":"status:blocked","group":"none"}]),
+        ),
+        (
+            "same name, last wins",
+            json!([{"name":"Parked","q":"tag:parked"},{"name":"parked","q":"tag:parked status:paused"}]),
+            json!([{"name":"parked","q":"tag:parked status:paused","group":"none"}]),
+        ),
+        (
+            "no name or no query is dropped",
+            json!([{"name":"","q":"tag:x"},{"name":"Empty","q":"  "},"junk"]),
+            json!([]),
+        ),
+    ] {
+        settings::save_explore(&settings, &json!({ "boardViews": patch })).unwrap();
+        assert_eq!(
+            settings::explore(&settings).unwrap()["boardViews"],
+            expected,
+            "{id}"
+        );
+    }
+    settings::save_explore(&settings, &json!({"authorName":"x"})).unwrap();
+    assert_eq!(
+        settings::explore(&settings).unwrap()["boardViews"],
+        json!([]),
+        "a patch without boardViews keeps them"
+    );
+}

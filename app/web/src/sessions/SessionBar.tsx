@@ -1,7 +1,8 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { applySuggestion, parseQuery, QUERY_SYNTAX, type QueryValue, type Suggestion, suggestQuery } from "../query";
 import { SessionSort, type Sort, SORT_FIELDS } from "./SessionSort";
-import { clientColor, EntityIcon, IconButton, pageGlyph, Popover, StatusDot, TagChips } from "../ui/ui";
+import { appConfirm, clientColor, EntityIcon, IconButton, pageGlyph, Popover, StatusDot, TagChips } from "../ui/ui";
+import { type BoardView, deleteView, type Group, sameQuery, saveView, useBoardViews } from "./views";
 
 function SortMenu({ sort, onChange }: { sort: Sort[]; onChange: (sort: Sort[]) => void }) {
   const [open, setOpen] = useState(false);
@@ -184,6 +185,89 @@ function Lead({ sg: { key, value: v } }: { sg: Suggestion }) {
   return null;
 }
 
+// saved views: one chip per named query; the one matching the query box is lit
+function ViewChips(
+  { query, group, onView, count, onResumeAll }: {
+    query: string;
+    group: Group;
+    onView: (v: BoardView) => void;
+    count: (q: string) => number;
+    onResumeAll: () => void;
+  },
+) {
+  const views = useBoardViews();
+  const [naming, setNaming] = useState(false);
+  const add = (raw: string) => {
+    const name = raw.trim();
+    setNaming(false);
+    if (name && query.trim()) saveView({ name, q: query.trim(), group });
+  };
+  return (
+    <div role="toolbar" aria-label="Saved views" className="flex basis-full flex-wrap items-center gap-1.5">
+      <span className="mr-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-faint">Views</span>
+      {views.map((v) => {
+        const on = sameQuery(v.q, query);
+        return (
+          <button
+            key={v.name}
+            type="button"
+            aria-pressed={on}
+            title={`${v.q} · right-click to delete`}
+            onClick={() => onView(v)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              appConfirm(`Delete the view "${v.name}"?`).then((ok) => {
+                if (ok) deleteView(v.name);
+              });
+            }}
+            className={`rounded-full border px-2.5 py-[2px] text-[11.5px] ${
+              on ? "border-copper bg-copper/15 font-medium text-copper" : "border-chipline text-ink-soft hover:text-ink"
+            }`}
+          >
+            {on && "✓ "}
+            {v.name}
+            <span className={`ml-1.5 text-[10.5px] ${on ? "text-copper" : "text-ink-faint"}`}>{count(v.q)}</span>
+          </button>
+        );
+      })}
+      {views.some((v) => sameQuery(v.q, query)) && count(query) > 0 && (
+        <button
+          type="button"
+          onClick={onResumeAll}
+          title="Resume every card of this view, each in its own Trame terminal"
+          className="rounded-full border border-chipline px-2.5 py-[2px] text-[11.5px] text-ink-soft hover:border-copper hover:text-copper"
+        >
+          ▶ Resume all
+        </button>
+      )}
+      {naming && (
+        <input
+          autoFocus
+          aria-label="View name"
+          placeholder="Name this view"
+          onKeyDown={(e) => {
+            if (e.key !== "Enter" && e.key !== "Escape") return;
+            const name = e.key === "Enter" ? e.currentTarget.value : "";
+            e.currentTarget.value = ""; // the unmount blur then saves nothing twice
+            add(name);
+          }}
+          onBlur={(e) => add(e.currentTarget.value)}
+          className="w-36 rounded-full border border-copper bg-transparent px-2.5 py-[2px] text-[11.5px] text-ink outline-none"
+        />
+      )}
+      {!naming && query.trim() && !views.some((v) => sameQuery(v.q, query)) && (
+        <button
+          type="button"
+          onClick={() => setNaming(true)}
+          className="rounded-full border border-dashed border-chipline px-2.5 py-[2px] text-[11.5px] text-ink-muted hover:text-ink"
+        >
+          + Save view
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function SessionBar(
   props: {
     query: string;
@@ -192,6 +276,10 @@ export function SessionBar(
     sort: Sort[];
     onSort: (sort: Sort[]) => void;
     values?: Record<string, QueryValue[]>;
+    group: Group;
+    onView: (v: BoardView) => void;
+    count: (q: string) => number;
+    onResumeAll: () => void;
     children?: ReactNode;
   },
 ) {
@@ -200,6 +288,13 @@ export function SessionBar(
       <QueryBox {...props} />
       {props.children}
       <SortMenu sort={props.sort} onChange={props.onSort} />
+      <ViewChips
+        query={props.query}
+        group={props.group}
+        onView={props.onView}
+        count={props.count}
+        onResumeAll={props.onResumeAll}
+      />
     </div>
   );
 }

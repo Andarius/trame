@@ -141,6 +141,11 @@ fn refuse_live_port(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The settings file of a data root (`TRACKER_SETTINGS_FILE` overrides it).
+pub fn settings_file(root: &Path) -> PathBuf {
+    demo::env_path("TRACKER_SETTINGS_FILE").unwrap_or_else(|| root.join("settings.json"))
+}
+
 #[derive(Clone)]
 pub struct Config {
     pub root: PathBuf,
@@ -235,8 +240,7 @@ pub async fn run(
         }
         pg::check_staging(&config.root)?;
         let pg = pg::Pg::start(&config.root, &config.pg_bin)?;
-        let settings = demo::env_path("TRACKER_SETTINGS_FILE")
-            .unwrap_or_else(|| config.root.join("settings.json"));
+        let settings = settings_file(&config.root);
         if isolated_mode() {
             scratch_path(&settings)?;
         }
