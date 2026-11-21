@@ -414,6 +414,18 @@ export function joinPane(terms: string[], target: string, at: string) {
 }
 
 export const setTermDrag = (drag: TermDrag | null) => set({ drag });
+
+// where a drag was last seen over the window: WebKitGTK ends a drag dropped outside it at 0,0
+let lastOver: { x: number; y: number } | null = null;
+globalThis.addEventListener?.("dragover", (e) => (lastOver = { x: e.clientX, y: e.clientY }), true);
+const EDGE = 48;
+// a drag no drop target took, released outside the window
+export function droppedOutside(e: DragEvent): boolean {
+  if (e.dataTransfer?.dropEffect !== "none") return false;
+  const { x, y } = e.clientX || e.clientY ? { x: e.clientX, y: e.clientY } : lastOver ?? { x: innerWidth / 2, y: innerHeight / 2 };
+  const margin = e.clientX || e.clientY ? 0 : EDGE;
+  return x < margin || y < margin || x > innerWidth - margin || y > innerHeight - margin;
+}
 export const focusPane = (tabId: string, pane: string) =>
   set({ tabs: state.tabs.map((t) => (t.id === tabId && t.focus !== pane ? { ...t, focus: pane } : t)) });
 export const setDockOpen = (open: boolean) => set({ open });
