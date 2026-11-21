@@ -421,8 +421,7 @@ export function TermCards(
         <section key={key ?? "none"} className="flex flex-col gap-0.5">
           {grouping !== "none" && (
             <div
-              className={`relative flex items-center gap-1.5 px-2 pb-1 ${SECTION_LABEL}`}
-              title={grouping === "project" && key ? "right-click: new terminal in this project" : undefined}
+              className={`group/head relative flex items-center gap-1.5 px-2 pb-1 ${SECTION_LABEL}`}
               onContextMenu={grouping === "project" && key
                 ? (e) => {
                   e.preventDefault();
@@ -447,6 +446,19 @@ export function TermCards(
                 </span>
                 <span className="ml-auto pr-1 tracking-normal tabular-nums text-ink-faint">{groups.get(key)!.length || ""}</span>
               </button>
+              {grouping === "project" && key && (
+                <button
+                  type="button"
+                  onClick={() => setMenuFor(key)}
+                  title="new terminal or agent in this project"
+                  aria-label={`New terminal in ${label(key)}`}
+                  className={`-my-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-[15px] leading-none text-ink-muted hover:bg-active-row hover:text-ink ${
+                    menuFor === key ? "" : "opacity-0 focus-visible:opacity-100 group-hover/head:opacity-100"
+                  }`}
+                >
+                  +
+                </button>
+              )}
               {key && menuFor === key && (
                 <NewTerminalDialog
                   board={board}
