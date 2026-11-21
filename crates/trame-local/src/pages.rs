@@ -247,6 +247,9 @@ pub fn resolve_home_project(db: &mut Db, repo_path: &str) -> Result<Value> {
     if path.is_empty() {
         return Ok(Value::Null);
     }
+    if let Some(repo) = crate::repos::repo_for(db, path, &Value::Null)? {
+        return Ok(repo["project_id"].clone());
+    }
     if let Some(row) = db
         .query(
             "select client_id from sessions

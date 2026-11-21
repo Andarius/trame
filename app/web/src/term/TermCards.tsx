@@ -57,6 +57,7 @@ export function TermCards(
     save(next);
   };
   const [menuFor, setMenuFor] = useState<string | null>(null); // the project right-clicked for a new terminal
+  const [repoMenu, setRepoMenu] = useState<{ project: string; path: string } | null>(null); // a repo's + clicked
   const [newOpen, setNewOpen] = useState(false);
   const [linkFor, setLinkFor] = useState<string | null>(null); // the shell to link to a card
   // the row right-clicked: the shell it can link to a card, the shells it can close
@@ -208,8 +209,21 @@ export function TermCards(
     const all = groups.get(key)!;
     return idleOpen.has(gkey(key)) ? all : all.filter((s) => !isIdle(s));
   };
+  // grouped by project, its listed repos split its cards; cards in none of them come first
+  const repoGroups = (key: string | null, list: Session[]) => {
+    const repos = grouping === "project" && key ? board?.projects.find((p) => p.id === key)?.repos ?? [] : [];
+    const ids = new Set(repos.map((r) => r.id));
+    const of = (s: Session) => (s.repo_id && ids.has(s.repo_id) ? s.repo_id : null);
+    return [
+      { repo: null, list: list.filter((s) => of(s) === null) },
+      ...repos.map((repo) => ({ repo, list: list.filter((s) => of(s) === repo.id) })),
+    ].filter((g) => g.list.length > 0);
+  };
   // listed card rows, top to bottom, for Shift-click ranges
-  const order = [...keys.flatMap((k) => shownOf(k).map((s) => s.id)), ...outside.map((s) => s.id)];
+  const order = [
+    ...keys.flatMap((k) => repoGroups(k, shownOf(k)).flatMap((g) => g.list.map((s) => s.id))),
+    ...outside.map((s) => s.id),
+  ];
   const picked = marked.filter((id) => order.includes(id));
   // Shift: a range from the last clicked card; Ctrl/⌘+Shift: one more or less; Ctrl/⌘ alone: a side tab (App)
   const clickCard = (e: React.MouseEvent, id: string) => {
@@ -473,16 +487,46 @@ export function TermCards(
             <>
               {grouping === "project" && key && projectShells.has(key) && projectRow(key, "Project shells")}
               {key && loose.filter((x) => looseProject(x) === key).map(sessionRow)}
-              {bundle(shownOf(key), (s) => tabOf(s.id)).map((b) =>
-                b.length === 1 ? cardRow(b[0]) : (
+              {repoGroups(key, shownOf(key)).map((g) => [
+                g.repo && (
                   <div
-                    key={`tab:${b[0].id}`}
-                    title="these cards' shells share one terminal tab"
-                    className="ml-1 flex flex-col rounded-l-sm border-l-2 border-copper/70 pl-1"
+                    key={`repo:${g.repo.id}`}
+                    className="group/repo flex items-center gap-1 px-2 pt-1 pl-4 text-[11px] text-ink-faint"
+                    title={g.repo.path ?? `${g.repo.remote} · not checked out here`}
                   >
-                    {b.map((s) => cardRow(s))}
+                    <span className="min-w-0 truncate">{g.repo.name}</span>
+                    {g.repo.path && key && (
+                      <button
+                        type="button"
+                        aria-label={`New terminal in ${g.repo.name}`}
+                        className="ml-auto opacity-0 group-hover/repo:opacity-100 hover:text-ink focus-visible:opacity-100"
+                        onClick={() => setRepoMenu({ project: key, path: g.repo!.path! })}
+                      >
+                        +
+                      </button>
+                    )}
                   </div>
-                )
+                ),
+                ...bundle(g.list, (s) => tabOf(s.id)).map((b) =>
+                  b.length === 1 ? cardRow(b[0]) : (
+                    <div
+                      key={`tab:${b[0].id}`}
+                      title="these cards' shells share one terminal tab"
+                      className="ml-1 flex flex-col rounded-l-sm border-l-2 border-copper/70 pl-1"
+                    >
+                      {b.map((s) => cardRow(s))}
+                    </div>
+                  )
+                ),
+              ])}
+              {key && repoMenu?.project === key && (
+                <NewTerminalDialog
+                  board={board}
+                  project={key}
+                  folder={repoMenu.path}
+                  onClose={() => setRepoMenu(null)}
+                  onOpened={(card, project) => (card ? onSelect(card) : project ? onSelectProject(project) : onSelect(null))}
+                />
               )}
               {groups.get(key)!.some(isIdle) && (
                 <button

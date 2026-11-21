@@ -1,5 +1,5 @@
 {
-  "version": 9,
+  "version": 10,
   "entities": [
     {
       "name": "users",
@@ -53,6 +53,19 @@
         "tags",
         "sort_key",
         "owner_id",
+        "origin",
+        "updated_at",
+        "deleted"
+      ]
+    },
+    {
+      "name": "project_repos",
+      "cols": [
+        "id",
+        "project_id",
+        "name",
+        "remote",
+        "sort_key",
         "origin",
         "updated_at",
         "deleted"
@@ -147,6 +160,7 @@
         "agent",
         "last_touched",
         "done_at",
+        "repo_id",
         "origin",
         "updated_at",
         "deleted"

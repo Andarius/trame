@@ -26,6 +26,7 @@ pub mod plugin_updates;
 pub mod plugins;
 pub mod proxy;
 pub mod pty;
+pub mod repos;
 pub mod routes;
 pub mod runtime;
 pub mod sessions;
