@@ -145,7 +145,8 @@ export function closeWorkspaces(ids: Iterable<string>) {
 // keys a focused shell needs for itself: Ctrl+2…8 send control codes, Alt+←/→ move by word
 const inTerminal = (e: Event) => e.target instanceof Element && !!e.target.closest(".xterm");
 
-// Ctrl+1…9 a workspace, Ctrl+Tab the previous one, Alt+←/→ and the mouse's back/forward buttons walk history
+// Ctrl+1…9 a workspace, Ctrl+Tab the previous one, Alt+←/→ and the mouse's back/forward buttons walk history;
+// Ctrl+Alt+←/→ walks it from anywhere, a focused shell or editor included
 export function workspaceKeys(): () => void {
   const onKey = (e: KeyboardEvent) => {
     const ctrl = e.ctrlKey && !e.metaKey && !e.altKey;
@@ -161,9 +162,11 @@ export function workspaceKeys(): () => void {
       e.preventDefault();
       e.stopPropagation();
       switchWorkspace(w.id);
-    } else if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
-      if (inTerminal(e) || (e.target instanceof HTMLElement && e.target.isContentEditable)) return;
+    } else if (e.altKey && !e.metaKey && !e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+      const editing = inTerminal(e) || (e.target instanceof HTMLElement && e.target.isContentEditable);
+      if (!e.ctrlKey && editing) return;
       e.preventDefault();
+      e.stopPropagation();
       if (e.key === "ArrowLeft") history.back();
       else history.forward();
     }
