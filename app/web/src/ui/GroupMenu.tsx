@@ -1,14 +1,16 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { SlidersIcon } from "./icons";
 import { IconButton, MenuRow, Popover, SECTION_LABEL } from "./ui";
 
 // A sidebar list's sliders button: pick how its rows are grouped. `className` can hide it until its section's hover; open, it stays shown.
+// `children` adds the list's other view options below the groupings.
 export function GroupMenu<T extends string>(
-  { value, options, onChange, className = "" }: {
+  { value, options, onChange, className = "", children }: {
     value: T;
     options: Record<T, string>;
     onChange: (v: T) => void;
     className?: string;
+    children?: ReactNode;
   },
 ) {
   const [open, setOpen] = useState(false);
@@ -40,6 +42,7 @@ export function GroupMenu<T extends string>(
               <span className="flex-1">{options[g]}</span>
             </MenuRow>
           ))}
+          {children}
         </Popover>
       )}
     </span>

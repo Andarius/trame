@@ -3,7 +3,7 @@ import type { BoardData, ClaudeSession, Session } from "../api";
 import { RecentList } from "../agents/RecentList";
 import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
-import { appConfirm, EntityIcon, enumCodec, MenuRow, Popover, SECTION_LABEL, SET_CODEC, StatusDot, useLocalStorage } from "../ui/ui";
+import { appConfirm, BOOL_CODEC, EntityIcon, enumCodec, MenuRow, Popover, SECTION_LABEL, SET_CODEC, StatusDot, useLocalStorage } from "../ui/ui";
 import { LinkCardDialog } from "./LinkCardDialog";
 import { NewTerminalDialog } from "./NewTerminalDialog";
 import { bundle } from "./together";
@@ -12,6 +12,10 @@ import { closeTerminal, revealTerminal, sessionLabel, setTermDrag, tabCards, typ
 const GROUPINGS = ["project", "status", "none"] as const;
 type Grouping = typeof GROUPINGS[number];
 const GROUPING_LABEL: Record<Grouping, string> = { project: "Project", status: "Status", none: "No grouping" };
+// grouped by project: a header per project and repo ("Soren / track-backend"), or a coloured edge per project
+const PROJECT_STYLES = ["paths", "edge"] as const;
+type ProjectStyle = typeof PROJECT_STYLES[number];
+const PROJECT_STYLE_LABEL: Record<ProjectStyle, string> = { paths: "Project / repo headers", edge: "Coloured project edge" };
 
 // The Terminals view's sidebar column: cards with shells or a live agent, grouped by project, status or not at all
 // (Orca's project → branch list, with cards); `selected` stays listed even without either.
@@ -48,6 +52,9 @@ export function TermCards(
 ) {
   const { terms, tabs, active } = useTermDock();
   const [grouping, setGrouping] = useLocalStorage<Grouping>("trame:termGrouping", "project", enumCodec(GROUPINGS));
+  const [projectStyle, setProjectStyle] = useLocalStorage<ProjectStyle>("trame:termProjectStyle", "paths", enumCodec(PROJECT_STYLES));
+  // agents waiting on you listed once on top, out of their groups
+  const [pinAsking, setPinAsking] = useLocalStorage("trame:termPinAsking", true, BOOL_CODEC);
   // group headers folded, and groups showing their idle cards (keyed by grouping:key)
   const [folded, setFolded] = useLocalStorage("trame:termFolded", new Set<string>(), SET_CODEC);
   const [idleOpen, setIdleOpen] = useLocalStorage("trame:termIdleOpen", new Set<string>(), SET_CODEC);
@@ -86,7 +93,7 @@ export function TermCards(
     return !(card && known.has(card));
   });
   const seen = (x: TermSession) => x.updated_at ?? x.started_at ?? 0;
-  const loose = cardless.filter((x) => !x.waiting).sort((a, b) => seen(b) - seen(a));
+  const loose = cardless.filter((x) => !(pinAsking && x.waiting)).sort((a, b) => seen(b) - seen(a));
   // a shell running one of those sessions is listed by its session row, not counted again as a project or plain shell
   const sessionShells = new Set(cardless.map((x) => x.term));
   for (const t of Object.values(terms)) {
@@ -111,7 +118,7 @@ export function TermCards(
   };
   const other = loose.filter((x) => !looseProject(x));
   const cards = (board?.sessions ?? []).filter((s) =>
-    (shells.has(s.id) || agentOf.has(s.id) || s.id === selected) && !askingCard.has(s.id)
+    (shells.has(s.id) || agentOf.has(s.id) || s.id === selected) && !(pinAsking && askingCard.has(s.id))
   ).sort((a, b) => b.last_touched.localeCompare(a.last_touched));
   // cards whose agent runs in a terminal outside Trame get their own section, at the bottom
   const isOutside = (s: Session) => !shells.has(s.id) && agentOf.has(s.id);
@@ -219,6 +226,45 @@ export function TermCards(
       ...repos.map((repo) => ({ repo, list: list.filter((s) => of(s) === repo.id) })),
     ].filter((g) => g.list.length > 0);
   };
+  // where a row belongs: its project and, when it sits in one of the project's repos, that repo
+  const projectOf = (id: string | null | undefined) => (id ? board?.projects.find((p) => p.id === id) : undefined);
+  const repoName = (project: string | null | undefined, repo: string | null | undefined) =>
+    repo ? projectOf(project)?.repos?.find((r) => r.id === repo)?.name ?? null : null;
+  // a cardless session's repo: the project repo holding its shell's folder
+  const looseRepo = (x: TermSession, project: string | null) => {
+    const cwd = terms[x.term]?.cwd;
+    if (!project || !cwd) return null;
+    const inside = (projectOf(project)?.repos ?? []).filter((r) => r.path && (cwd === r.path || cwd.startsWith(`${r.path}/`)));
+    return inside.sort((a, b) => b.path!.length - a.path!.length)[0]?.id ?? null;
+  };
+  const sessionProject = (x: TermSession) => {
+    const card = terms[x.term]?.card;
+    return (card && board?.sessions.find((s) => s.id === card)?.client_id) || terms[x.term]?.project || null;
+  };
+  // not grouped by project, each row says where it belongs
+  const showWhere = grouping !== "project";
+  // grouped by project with the coloured edge, each row names its repo on the right
+  const repoTags = grouping === "project" && projectStyle === "edge";
+  const where = (project: string | null | undefined, repo: string | null) => {
+    const p = projectOf(project);
+    if (!p) return null;
+    return (
+      <span className="flex w-full min-w-0 items-center gap-1 pl-[15px] pt-0.5 text-[11px] text-ink-faint">
+        <EntityIcon icon={p.icon} size={11} />
+        <span className="shrink-0">{p.name}</span>
+        {repo && (
+          <>
+            <span>›</span>
+            <span className="min-w-0 truncate text-ink-muted">{repo}</span>
+          </>
+        )}
+      </span>
+    );
+  };
+  const tag = (repo: string | null) => repoTags && repo && (
+    <span className="min-w-0 max-w-[35%] truncate text-[11px] font-normal text-ink-faint" title={repo}>{repo}</span>
+  );
+
   // listed card rows, top to bottom, for Shift-click ranges
   const order = [
     ...keys.flatMap((k) => repoGroups(k, shownOf(k)).flatMap((g) => g.list.map((s) => s.id))),
@@ -283,7 +329,7 @@ export function TermCards(
     </button>
   );
   // laid out like a card row: what it is, then the agent line
-  const sessionRow = (x: TermSession) => (
+  const sessionRow = (x: TermSession, pinned = false) => (
     <div
       key={`term:${x.term}:${x.id}`}
       className="relative"
@@ -305,6 +351,7 @@ export function TermCards(
               />
             )}
           <span className="min-w-0 flex-1 truncate">{sessionLabel(x)}</span>
+          {tag(repoName(sessionProject(x), looseRepo(x, sessionProject(x))))}
         </span>
         <span className={`flex w-full items-center gap-1.5 pl-[15px] pt-0.5 text-[11px] ${x.waiting ? "text-wait" : x.done && !x.busy ? "text-live/80" : "text-ink-faint"}`}>
           <AgentIcon a={{ harness: x.agent, icon: null }} />
@@ -313,6 +360,7 @@ export function TermCards(
           </span>
           {seen(x) > 0 && <span className="shrink-0 font-mono text-[10px] tabular-nums" title="last update">{age(seen(x))}</span>}
         </span>
+        {(showWhere || pinned) && where(sessionProject(x), repoName(sessionProject(x), looseRepo(x, sessionProject(x))))}
       </>
     ))}
     </div>
@@ -341,13 +389,155 @@ export function TermCards(
           <span className="flex w-full items-center gap-2">
             <StatusDot status={s.status} size={7} />
             <span className="min-w-0 flex-1 truncate" title={s.title}>{s.title}</span>
+            {tag(repoName(s.client_id, s.repo_id))}
             {count(shells.get(s.id)) ?? (isOutside(s) && <Outside />)}
           </span>
           <AgentLine l={agentOf.get(s.id)} />
+          {showWhere && where(s.client_id, repoName(s.client_id, s.repo_id))}
         </>
       ), { kind: "card", id: s.id, tab: tabOf(s.id) ?? null, cwd: s.repo_path ?? null }, picked.includes(s.id))}
     </div>
   );
+
+  // a project-grouping header: folds its rows; + opens New terminal there (in the repo, for a repo's header)
+  const head = (fold: string, title: React.ReactNode, n: number, project: string, repoPath?: string | null) => (
+    <div
+      key={`head:${fold}`}
+      className={`group/head relative flex items-center gap-1.5 px-2 pb-1 ${SECTION_LABEL}`}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenuFor(project);
+      }}
+    >
+      <button
+        type="button"
+        className="group/fold flex min-w-0 flex-1 items-center gap-1.5 text-left hover:text-ink-soft"
+        aria-expanded={!folded.has(fold)}
+        title={folded.has(fold) ? "show this group" : "fold this group"}
+        onClick={() => flip(folded, setFolded, fold)}
+      >
+        {title}
+        <span aria-hidden="true" className={`text-[10px] leading-none ${folded.has(fold) ? "" : "opacity-0 group-hover/fold:opacity-100"}`}>
+          {folded.has(fold) ? "▸" : "▾"}
+        </span>
+        <span className="ml-auto pr-1 tracking-normal tabular-nums text-ink-faint">{n || ""}</span>
+      </button>
+      <button
+        type="button"
+        onClick={() => (repoPath ? setRepoMenu({ project, path: repoPath }) : setMenuFor(project))}
+        title={repoPath ? "new terminal or agent in this repo" : "new terminal or agent in this project"}
+        aria-label={`New terminal in ${fold}`}
+        className="-my-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-[15px] leading-none text-ink-muted opacity-0 hover:bg-active-row hover:text-ink focus-visible:opacity-100 group-hover/head:opacity-100"
+      >
+        +
+      </button>
+    </div>
+  );
+  // grouped by project: "Project / repo" headers, or one coloured edge per project with the repo on each row
+  const projectSection = (key: string) => {
+    const p = projectOf(key);
+    const icon = <EntityIcon icon={p?.icon} size={14} />;
+    const all = groups.get(key)!;
+    const list = idleOpen.has(gkey(key)) ? all : all.filter((s) => !isIdle(s));
+    const sessions = loose.filter((x) => looseProject(x) === key);
+    const repos = p?.repos ?? [];
+    const repoOf = (s: Session) => (s.repo_id && repos.some((r) => r.id === s.repo_id) ? s.repo_id : null);
+    const rows = (repo: string | null) => [
+      ...sessions.filter((x) => looseRepo(x, key) === repo).map((x) => sessionRow(x)),
+      ...bundle(list.filter((s) => repoOf(s) === repo), (s) => tabOf(s.id)).map((b) =>
+        b.length === 1 ? cardRow(b[0]) : (
+          <div
+            key={`tab:${b[0].id}`}
+            title="these cards' shells share one terminal tab"
+            className="ml-1 flex flex-col rounded-l-sm border-l-2 border-copper/70 pl-1"
+          >
+            {b.map((s) => cardRow(s))}
+          </div>
+        )
+      ),
+    ];
+    const shellsRow = projectShells.has(key) && projectRow(key, "Project shells");
+    const idle = all.some(isIdle) && (
+      <button
+        type="button"
+        className="mx-2 flex items-center gap-1.5 rounded-md border border-line px-2 py-0.5 text-left text-[11px] text-ink-faint hover:text-ink-soft"
+        title="cards with shells but no live agent"
+        onClick={() => flip(idleOpen, setIdleOpen, gkey(key))}
+      >
+        <span className="flex-1">{idleOpen.has(gkey(key)) ? "Hide idle cards" : `${all.filter(isIdle).length} idle`}</span>
+        <span>{idleOpen.has(gkey(key)) ? "▴" : "›"}</span>
+      </button>
+    );
+    const dialogs = (
+      <>
+        {menuFor === key && (
+          <NewTerminalDialog
+            board={board}
+            project={key}
+            onClose={() => setMenuFor(null)}
+            onOpened={(card, project) => (card ? onSelect(card) : project ? onSelectProject(project) : onSelect(null))}
+          />
+        )}
+        {repoMenu?.project === key && (
+          <NewTerminalDialog
+            board={board}
+            project={key}
+            folder={repoMenu.path}
+            onClose={() => setRepoMenu(null)}
+            onOpened={(card, project) => (card ? onSelect(card) : project ? onSelectProject(project) : onSelect(null))}
+          />
+        )}
+      </>
+    );
+    const name = <span className="truncate normal-case tracking-normal text-[11.5px] text-ink-soft">{p?.name}</span>;
+    if (projectStyle === "edge") {
+      const body = [...rows(null), ...repos.flatMap((r) => rows(r.id))];
+      return (
+        <section key={key} className="flex flex-col gap-0.5">
+          {head(gkey(key), <>{icon}{name}</>, body.length, key)}
+          {!folded.has(gkey(key)) && (
+            <div className="ml-2 flex flex-col gap-0.5 border-l-2 pl-1" style={{ borderColor: p?.color || edgeColor(key) }}>
+              {shellsRow}
+              {body}
+              {idle}
+            </div>
+          )}
+          {dialogs}
+        </section>
+      );
+    }
+    const bare = rows(null);
+    const parts = repos.map((r) => ({ r, rows: rows(r.id) })).filter((x) => x.rows.length > 0);
+    return (
+      <section key={key} className="flex flex-col gap-0.5">
+        {(bare.length > 0 || shellsRow || parts.length === 0) && head(gkey(key), <>{icon}{name}</>, bare.length, key)}
+        {!folded.has(gkey(key)) && shellsRow}
+        {!folded.has(gkey(key)) && bare}
+        {parts.map(({ r, rows }) => {
+          const fold = `${gkey(key)}/${r.id}`;
+          return [
+            head(
+              fold,
+              <>
+                {icon}
+                <span className="min-w-0 truncate normal-case tracking-normal text-[11.5px]">
+                  <span className="text-ink-muted">{p?.name}</span>
+                  <span className="text-ink-faint"> / </span>
+                  <span className="text-ink">{r.name}</span>
+                </span>
+              </>,
+              rows.length,
+              key,
+              r.path,
+            ),
+            !folded.has(fold) && rows,
+          ];
+        })}
+        {idle}
+        {dialogs}
+      </section>
+    );
+  };
 
   return (
     <nav
@@ -361,7 +551,7 @@ export function TermCards(
         } else if (e.key === "Escape") setMarked([]);
       }}
     >
-      {(asking.length > 0 || askingCards.length > 0) && (
+      {pinAsking && (asking.length > 0 || askingCards.length > 0) && (
         <section className="flex flex-col gap-0.5">
           <div className={`px-2 pb-1 ${SECTION_LABEL} text-wait`}>NEEDS YOU · {asking.length + askingCards.length}</div>
           {askingCards.map((l) => {
@@ -374,10 +564,11 @@ export function TermCards(
                   {count(shells.get(s.id)) ?? <Outside />}
                 </span>
                 <AgentLine l={l} />
+                {where(s.client_id, repoName(s.client_id, s.repo_id))}
               </>
             ));
           })}
-          {asking.filter((x) => !askingCards.some((l) => l.a.session_id === terms[x.term]?.card)).map(sessionRow)}
+          {asking.filter((x) => !askingCards.some((l) => l.a.session_id === terms[x.term]?.card)).map((x) => sessionRow(x, true))}
         </section>
       )}
       <div className="-mb-1 flex items-center px-2">
@@ -404,7 +595,20 @@ export function TermCards(
         >
           +
         </button>
-        <GroupMenu value={grouping} options={GROUPING_LABEL} onChange={setGrouping} />
+        <GroupMenu value={grouping} options={GROUPING_LABEL} onChange={setGrouping}>
+          <div className={`px-2 pb-1 pt-2 ${SECTION_LABEL}`}>PROJECTS AS</div>
+          {PROJECT_STYLES.map((v) => (
+            <MenuRow key={v} active={grouping === "project" && v === projectStyle} onClick={() => (setProjectStyle(v), setGrouping("project"))}>
+              <span className="w-3 text-center">{grouping === "project" && v === projectStyle ? "✓" : ""}</span>
+              <span className="flex-1">{PROJECT_STYLE_LABEL[v]}</span>
+            </MenuRow>
+          ))}
+          <div className="my-1 h-px bg-line" />
+          <MenuRow onClick={() => setPinAsking(!pinAsking)}>
+            <span className="w-3 text-center">{pinAsking ? "✓" : ""}</span>
+            <span className="flex-1">Pin “needs you” on top</span>
+          </MenuRow>
+        </GroupMenu>
         {newOpen && (
           <NewTerminalDialog
             board={board}
@@ -431,7 +635,7 @@ export function TermCards(
           Nothing running. Start one with + above (Ctrl+T), or resume one below.
         </p>
       )}
-      {keys.map((key) => (
+      {keys.map((key) => grouping === "project" && key ? projectSection(key) : (
         <section key={key ?? "none"} className="flex flex-col gap-0.5">
           {grouping !== "none" && (
             <div
@@ -486,7 +690,7 @@ export function TermCards(
           {!folded.has(gkey(key)) && (
             <>
               {grouping === "project" && key && projectShells.has(key) && projectRow(key, "Project shells")}
-              {key && loose.filter((x) => looseProject(x) === key).map(sessionRow)}
+              {key && loose.filter((x) => looseProject(x) === key).map((x) => sessionRow(x))}
               {repoGroups(key, shownOf(key)).map((g) => [
                 g.repo && (
                   <div
@@ -549,7 +753,7 @@ export function TermCards(
         <section className="flex flex-col gap-0.5">
           <div className={`px-2 pb-1 ${SECTION_LABEL}`}>OTHER</div>
           {grouping !== "project" && [...projectShells.keys()].map((p) => projectRow(p, `${projectName(board, p)} shells`))}
-          {other.map(sessionRow)}
+          {other.map((x) => sessionRow(x))}
           {plain > 0 && (
             <div className="relative" onContextMenu={menuOn("plain", shellsOf(plainShell))}>
               {menuAt("plain")}
@@ -595,6 +799,10 @@ export function TermCards(
 function Outside() {
   return <span className="ml-auto shrink-0 text-ink-faint" title="its agent runs in a terminal outside Trame">↗</span>;
 }
+
+// a project without a colour still gets a stable edge colour of its own
+const EDGES = ["#7bd88f", "#7aa7ff", "#c98a63", "#e5c07b", "#c792ea", "#4fd1c5"];
+const edgeColor = (id: string) => EDGES[[...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 0) % EDGES.length];
 
 const projectName = (board: BoardData | null, id: string) => board?.projects.find((p) => p.id === id)?.name ?? "";
 
