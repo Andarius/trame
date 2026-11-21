@@ -15,7 +15,8 @@ import { imageLinks } from "./image-links";
 import { previewBox } from "./preview-size";
 import { termBindingKey } from "./key-bindings";
 import { FONT_STACK, onTermZoom, scrollbar, termFontSize, termZoomKey, theme, URL_RE } from "./xterm-look";
-import { PR_HREF, PrPreview } from "../md/chips";
+import { LinkPreview, type LinkHover, previewable } from "./LinkPreview";
+import { type TrameTarget, trameScheme } from "./trame-links";
 
 type Notice = "superseded" | "gone" | null;
 // an image path under the mouse (a thumbnail by it) or clicked (full size)
@@ -95,10 +96,9 @@ async function copyText(text: string) {
   }
 }
 
-type PrHover = { url: string; x: number; y: number } | null;
-// plain URLs and OSC 8 hyperlinks (Claude Code's) both open via openLink and preview PRs on hover
-export function attachLinks(term: Terminal, setPr: (pr: PrHover) => void) {
-  const hover = (e: MouseEvent, uri: string) => PR_HREF.test(uri) && setPr({ url: uri, x: e.clientX, y: e.clientY });
+// plain URLs and OSC 8 hyperlinks (Claude Code's) both open via openLink; PRs and Trame links preview on hover
+export function attachLinks(term: Terminal, setPr: (pr: LinkHover | null) => void) {
+  const hover = (e: MouseEvent, uri: string) => previewable(uri) && setPr({ url: uri, x: e.clientX, y: e.clientY });
   const leave = () => setPr(null);
   term.loadAddon(new WebLinksAddon((_e, uri) => openLink(uri), { urlRegex: URL_RE, hover, leave }));
   term.options.linkHandler = { activate: (_e, uri) => openLink(uri), hover, leave };
@@ -107,6 +107,8 @@ export function attachLinks(term: Terminal, setPr: (pr: PrHover) => void) {
 // Trame's own links (what `tramecli` prints, from this app or another port on this machine) open in a
 // workspace of their own, so the terminal stays where it is; anything else goes to the browser
 export function openLink(uri: string) {
+  const scheme = trameScheme(uri);
+  if (scheme) return openTrame(scheme);
   let u: URL;
   try {
     u = new URL(uri);
@@ -134,6 +136,24 @@ export function openLink(uri: string) {
   dispatchEvent(new PopStateEvent("popstate"));
 }
 
+// a trame:// link opens here, in a workspace like this app's own http links, never through the OS
+function openTrame(t: TrameTarget) {
+  if (t.kind === "card") return openWorkspaceAt(t.id, `?view=card&card=${t.id}`);
+  if (t.kind === "page") {
+    return void getPage(t.id).then((p) => p.title, () => undefined).then((n) => openWorkspaceAt(`page:${t.id}`, `?page=${t.id}`, n));
+  }
+  if (t.kind === "db") {
+    return void getUdb(t.id).then((d) => d.db.name, () => undefined).then((n) => openWorkspaceAt(`db:${t.id}`, `?db=${t.id}`, n));
+  }
+  // a saved view is resolved by name server side
+  if (t.kind === "view") {
+    return void fetch("/api/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ view: t.name }) });
+  }
+  if (!("q" in t)) return;
+  history.pushState(null, "", `/?${new URLSearchParams({ view: "board", group: "none", q: t.q })}`);
+  dispatchEvent(new PopStateEvent("popstate"));
+}
+
 // One backend shell. Stays mounted while hidden so its screen and scrollback survive tab switches.
 export function TerminalView(
   { id, visible, focused, onFocus, onExit = closeTerminal }: {
@@ -152,7 +172,7 @@ export function TerminalView(
   // a selection's Copy / Reply bubble, where the mouse let go (px in the pane)
   const [bubble, setBubble] = useState<{ x: number; y: number } | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
-  const [pr, setPr] = useState<{ url: string; x: number; y: number } | null>(null); // a PR link hovered
+  const [pr, setPr] = useState<LinkHover | null>(null); // a PR or Trame link hovered
   const focusCb = useRef(onFocus);
   focusCb.current = onFocus;
   const exitCb = useRef(onExit);
@@ -393,7 +413,7 @@ export function TerminalView(
         </div>
       )}
       {preview && <ImagePreview p={preview} onClose={() => setPreview(null)} />}
-      {pr && <PrPreview {...pr} />}
+      {pr && <LinkPreview {...pr} />}
       {notice && (
         <div className="absolute inset-0 flex items-center justify-center bg-block/80 text-xs text-ink-soft">
           {notice === "superseded"

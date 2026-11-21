@@ -7,12 +7,12 @@ import "@fontsource/jetbrains-mono/latin-700.css";
 import { termTheme } from "./term-api";
 import { attachLinks } from "./TerminalView";
 import { FONT_STACK, onTermZoom, scrollbar, termFontSize, termZoomKey, theme } from "./xterm-look";
-import { PrPreview } from "../md/chips";
+import { LinkPreview, type LinkHover } from "./LinkPreview";
 
 // A read-only terminal showing `text` (ANSI), with the same look as the shells
 export function ReplayTerminal({ text, className }: { text: string; className?: string }) {
   const host = useRef<HTMLDivElement>(null);
-  const [pr, setPr] = useState<{ url: string; x: number; y: number } | null>(null); // a PR link hovered
+  const [pr, setPr] = useState<LinkHover | null>(null); // a PR or Trame link hovered
   useEffect(() => {
     const el = host.current!;
     const term = new Terminal({
@@ -71,7 +71,7 @@ export function ReplayTerminal({ text, className }: { text: string; className?: 
   return (
     <>
       <div ref={host} className={`rounded-lg px-3 py-2 ${className ?? ""}`} />
-      {pr && <PrPreview {...pr} />}
+      {pr && <LinkPreview {...pr} />}
     </>
   );
 }
