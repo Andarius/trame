@@ -1,7 +1,7 @@
 import { type MouseEvent, useContext, useEffect, useState } from "react";
 import { setMark, todayMark } from "../../../../core/todo-marks.ts";
-import { type BoardData, type DueTodo, getPage, resumeCommand, updatePage } from "../api";
-import { openTerminal } from "../term/term-api";
+import { type BoardData, type DueTodo, getPage, updatePage } from "../api";
+import { resumeInTerminals } from "../term/resume-cards";
 import { DUE_TONE_CLS, dueLabel, dueTone, focusBlock, refreshDue } from "../ui/due";
 import { GroupMenu } from "../ui/GroupMenu";
 import { clearSelection, EntityIcon, enumCodec, FoldLabel, IconButton, SECTION_LABEL, useFold, useLocalStorage } from "../ui/ui";
@@ -125,15 +125,11 @@ export function DueList(
 
   // each selected todo's card, in a Trame terminal like the card's own button
   const openSelected = () => run(async () => {
-    for (const card of cards) {
-      let r = await resumeCommand(card);
-      // nothing to resume here: start the card's agent on it, as the card's "Open in" does
-      if (!r.ok) r = await resumeCommand(card, r.agent ?? "claude");
-      if (!r.ok || !r.repo) throw new Error(`${board?.sessions.find((s) => s.id === card)?.title ?? card}: can't resume here`);
-      const title = board?.sessions.find((s) => s.id === card)?.title;
-      await openTerminal({ cwd: r.repo, command: r.command, title, card });
-    }
-    onOpenTerminals(cards.at(-1)!);
+    const failed = await resumeInTerminals(
+      cards.map((id) => ({ id, title: board?.sessions.find((s) => s.id === id)?.title ?? id })),
+    );
+    if (failed.length < cards.length) onOpenTerminals(cards.at(-1)!);
+    if (failed.length) throw new Error(`can't resume here: ${failed.map((c) => c.title).join(", ")}`);
   });
 
   const row = (d: DueTodo) => {

@@ -63,6 +63,7 @@ import { hasTerm, queryValues, termOf, toggleTerm } from "../query";
 import { Settings, settingsSection, SettingsNav } from "./Settings";
 import { DatabaseView } from "../udb/DatabaseTable";
 import { buildClock } from "../build-info";
+import { resumeInTerminals } from "../term/resume-cards";
 import { TermCards } from "../term/TermCards";
 import { projectFolders } from "../term/NewTerminalDialog";
 import { openTerminal, restoreTerminals, setDockMax, setDockOpen, useTermDock, watchPopouts } from "../term/term-api";
@@ -419,6 +420,12 @@ export function App() {
     if (v === "settings") setSettingsPage(settingsSection(q.get("section")));
     setOpenId(q.get("session"));
     setDrawerFull(false);
+    // a board link (trame://board, trame://view) carries its query and grouping
+    if (q.has("q")) setSessionQuery(q.get("q") ?? "");
+    if (q.has("group")) {
+      const g = q.get("group");
+      setGroup(g === "story" || g === "project" ? g : "none");
+    }
   };
   useEffect(() => {
     const off = onWorkspaceNavigate((search) => {
@@ -888,6 +895,19 @@ export function App() {
               onClear={() => setSessionQuery("")}
               sort={sessionSort}
               onSort={setSessionSort}
+              group={group}
+              onView={(v) => {
+                setSessionQuery(v.q);
+                setGroup(v.group);
+              }}
+              count={(q) => filterSessionBoard(board, q, faces).sessions.length}
+              onResumeAll={async () => {
+                const cards = filterSessionBoard(board, sessionQuery, faces).sessions;
+                if (!await appConfirm(`Resume ${cards.length} sessions, each in a Trame terminal?`, "Resume")) return;
+                const failed = await resumeInTerminals(cards);
+                if (failed.length < cards.length) openTerminals(cards.find((c) => !failed.some((f) => f.id === c.id))!.id);
+                if (failed.length) await appConfirm(`Not resumable on this machine: ${failed.map((c) => c.title).join(", ")}`, "OK");
+              }}
             >
             <BoardToolbar
               view={view}

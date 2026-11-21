@@ -218,6 +218,7 @@ export type Settings = {
   authorName: string;
   authorAvatar: string;
   agentPresence: AgentPresenceSettings;
+  boardViews: import("./sessions/views").BoardView[]; // saved session queries, this machine only
 };
 // mirrors app/files.ts — the server fills defaults and clamps
 export type AgentPresenceSettings = {
@@ -283,6 +284,7 @@ export const patchSettings = (
     authorName?: string;
     authorAvatar?: string;
     agentPresence?: AgentPresenceSettings;
+    boardViews?: import("./sessions/views").BoardView[];
   },
 ) =>
   fetch("/api/settings", {

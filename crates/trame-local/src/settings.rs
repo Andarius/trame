@@ -48,6 +48,25 @@ pub fn update(path: &Path, mutate: impl FnOnce(&mut Value) -> Result<()>) -> Res
     Ok(next)
 }
 
+/// Saved board views: `{name, q, group}` with a name and a query, unique by name (case-insensitive, last wins).
+pub fn normalize_board_views(raw: &Value) -> Value {
+    let mut out: Vec<Value> = Vec::new();
+    for v in raw.as_array().into_iter().flatten() {
+        let name = trim(v["name"].as_str().unwrap_or(""));
+        let q = trim(v["q"].as_str().unwrap_or(""));
+        if name.is_empty() || q.is_empty() {
+            continue;
+        }
+        let group = v["group"]
+            .as_str()
+            .filter(|g| matches!(*g, "story" | "project"))
+            .unwrap_or("none");
+        out.retain(|o| !o["name"].as_str().unwrap_or("").eq_ignore_ascii_case(name));
+        out.push(json!({"name": name, "q": q, "group": group}));
+    }
+    json!(out)
+}
+
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
@@ -148,7 +167,7 @@ pub fn explore(path: &Path) -> Result<Value> {
             .collect()
     };
     Ok(
-        json!({"paths":paths.iter().map(|s|expand(s).to_string_lossy().into_owned()).collect::<Vec<_>>(),"ignore":strings(&s["ignorePaths"])?,"starred":strings(&s["starredPaths"])?,"htmlFilter":if s["htmlFilter"]=="all"{"all"}else{"smart"},"source":if has_paths{"settings"}else{"env"},"hubApi":hub,"hubSource":source,"hubHasToken":token,"authorName":trim(s["authorName"].as_str().unwrap_or("")),"authorAvatar":trim(s["authorAvatar"].as_str().unwrap_or("")),"agentPresence":normalize_agent_presence(&s["agentPresence"]),"embedHosts":embed_hosts.iter().map(|h| h.to_lowercase()).collect::<Vec<_>>()}),
+        json!({"paths":paths.iter().map(|s|expand(s).to_string_lossy().into_owned()).collect::<Vec<_>>(),"ignore":strings(&s["ignorePaths"])?,"starred":strings(&s["starredPaths"])?,"htmlFilter":if s["htmlFilter"]=="all"{"all"}else{"smart"},"source":if has_paths{"settings"}else{"env"},"hubApi":hub,"hubSource":source,"hubHasToken":token,"authorName":trim(s["authorName"].as_str().unwrap_or("")),"authorAvatar":trim(s["authorAvatar"].as_str().unwrap_or("")),"agentPresence":normalize_agent_presence(&s["agentPresence"]),"boardViews":normalize_board_views(&s["boardViews"]),"embedHosts":embed_hosts.iter().map(|h| h.to_lowercase()).collect::<Vec<_>>()}),
     )
 }
 
@@ -179,6 +198,9 @@ pub fn save_explore(path: &Path, patch: &Value) -> Result<()> {
                     s[key] = json!(v);
                 }
             }
+        }
+        if patch["boardViews"].is_array() {
+            s["boardViews"] = normalize_board_views(&patch["boardViews"]);
         }
         if let Some(v) = patch.get("agentPresence") {
             s["agentPresence"] = normalize_agent_presence(v);
