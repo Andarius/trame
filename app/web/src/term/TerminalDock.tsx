@@ -12,6 +12,7 @@ import {
   closeTab,
   closeTerminal,
   type DropSide,
+  droppedOutside,
   focusPane,
   leaves,
   liveCwd,
@@ -266,9 +267,11 @@ export default function TerminalDock(
                     if (other) setTimeout(() => selectTab(other.id), 0);
                   }
                 }}
-                onDragEnd={() => {
+                // dropped outside the window: its focused shell gets a window of its own
+                onDragEnd={(e) => {
                   clearTimeout(hoverTimer.current);
                   setTermDrag(null);
+                  if (droppedOutside(e.nativeEvent)) popOut(t.focus);
                 }}
                 // hovering another tab while dragging shows it, to drop into its panes
                 onDragEnter={() => {
@@ -778,13 +781,16 @@ function ShellTab({ id, tab, shown, focused }: { id: string; tab: string; shown:
   return (
     <div
       draggable
-      title={cwd ? `${cwd} · drag onto a pane to move this shell there` : "drag onto a pane to move this shell there"}
+      title={`${cwd ? `${cwd} · ` : ""}drag onto a pane to move this shell there, or out of the window to give it its own`}
       onDragStart={(e) => {
         e.dataTransfer.setData("application/x-trame-term", id);
         e.dataTransfer.effectAllowed = "move";
         setTermDrag({ kind: "term", id });
       }}
-      onDragEnd={() => setTermDrag(null)}
+      onDragEnd={(e) => {
+        setTermDrag(null);
+        if (droppedOutside(e.nativeEvent)) popOut(id);
+      }}
       onClick={() => focusPane(tab, id)}
       className={`group flex max-w-56 shrink-0 cursor-pointer items-center gap-1.5 pl-2.5 pr-1 text-[12px] ${
         why ? "text-wait" : shown ? "text-ink" : "text-ink-faint hover:text-ink-soft"
