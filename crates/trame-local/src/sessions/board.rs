@@ -4,12 +4,21 @@ use anyhow::Result;
 use serde_json::{Value, json};
 
 pub(super) fn board(db: &mut Db, deleted: bool) -> Result<Value> {
-    let projects = db.query("select id,title as name,color,icon from pages where kind='project' and not deleted order by title", &[])?;
+    let mut projects = db.query("select id,title as name,color,icon from pages where kind='project' and not deleted order by title", &[])?;
+    let mut repos = crate::repos::by_project(db)?;
+    let any_repos = !repos.is_empty();
+    for p in &mut projects {
+        let id = p["id"].as_str().unwrap_or_default().to_owned();
+        p["repos"] = json!(repos.remove(&id).unwrap_or_default());
+    }
     let stories = db.query("select *,null::text as mark_role from pages where kind='story' and not deleted order by title", &[])?;
-    let sessions = db.query(
+    let mut sessions = db.query(
         "select * from sessions where deleted=$1 order by last_touched desc",
         &[json!(deleted)],
     )?;
+    if any_repos {
+        crate::repos::fill_cards(db, &mut sessions)?;
+    }
     let pages = db.query("select id,parent_id,kind,title,icon,client_id,color,tags,null::text as mark_role from pages where not deleted order by title", &[])?;
     let statuses = db.query("select id,key,label,color,terminal,sort_key from statuses where not deleted order by sort_key", &[])?;
     Ok(

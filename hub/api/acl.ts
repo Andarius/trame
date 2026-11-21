@@ -83,6 +83,8 @@ export function rowVisible(access: Access, entity: string, row: Row): boolean {
     case "page_comments":
     case "comment_agent_status":
       return access.pages.has(String(row.page_id));
+    case "project_repos":
+      return access.pages.has(String(row.project_id));
     case "udb_databases":
       return access.dbs.has(String(row.id));
     case "udb_properties":
@@ -119,6 +121,8 @@ export function mayWrite(access: Access, entity: string, row: Row): boolean {
     case "comment_agent_status":
       // an editor's local comment watcher may push its status rows
       return editor(access.pages, row.page_id);
+    case "project_repos":
+      return editor(access.pages, row.project_id);
     case "udb_databases":
       return editor(access.dbs, row.id) || editor(access.pages, row.page_id);
     case "udb_properties":
@@ -171,6 +175,7 @@ export async function subtreeIds(db: Q, pageId: string): Promise<SubtreeRow[]> {
       ["comment_agent_status", "page_id"],
       ["page_shares", "page_id"],
       ["udb_databases", "page_id"],
+      ["project_repos", "project_id"],
     ] as const
   ) {
     const rows = await db.query(

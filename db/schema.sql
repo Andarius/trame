@@ -343,6 +343,25 @@ update sessions set branches = branch
 where coalesce(branches, '') = '' and coalesce(branch, '') <> '';
 alter table sessions add column if not exists done_at timestamptz;
 
+-- A project's repos, recognised by git remote (paths differ per machine)
+create table if not exists project_repos (
+  id uuid primary key default uuidv7(),
+  project_id uuid not null,               -- the project page; no FK (LWW pull order)
+  name text not null default '',
+  remote text not null default '',        -- normalised: host/owner/repo, lowercase
+  sort_key text not null default 'a0',
+  origin text not null default 'seed',
+  updated_at timestamptz not null default now(),
+  deleted boolean not null default false
+);
+create index if not exists project_repos_remote on project_repos (remote) where not deleted;
+alter table sessions add column if not exists repo_id uuid;
+-- this machine's checkout of each repo (NOT synced)
+create table if not exists repo_checkouts (
+  repo_id uuid primary key,
+  path text not null
+);
+
 create or replace function trame_session_done_at() returns trigger
 language plpgsql as $fn$
 begin
@@ -428,7 +447,7 @@ do $$
 declare t text;
 begin
   foreach t in array array['users','devices','pages','page_shares','page_links','page_comments','comment_agent_status','statuses','tags','sessions',
-                           'session_events','reports','udb_databases','udb_properties','udb_rows','udb_links'] loop
+                           'session_events','reports','udb_databases','udb_properties','udb_rows','udb_links','project_repos'] loop
     execute format(
       'create or replace trigger %I after insert or update or delete on %I for each row execute function trame_log_change()',
       t || '_change_log', t
@@ -481,6 +500,8 @@ comment on column sessions.claude_id is 'Claude Code or Codex transcript UUID (t
 comment on column sessions.agent is 'Transcript provider: claude or codex. Null on manual cards.';
 comment on column sessions.summary is 'Last "what happened" blurb; a changed value is also appended to session_events as the worklog.';
 comment on column sessions.last_touched is 'Activity clock for board ordering (distinct from updated_at, the LWW clock).';
+comment on table project_repos is 'Repos of a project page, matched to folders by normalised git remote; each machine keeps its checkout path in repo_checkouts.';
+comment on column sessions.repo_id is 'project_repos row the card works in; set when filed, null on older cards (resolved from repo_path on read).';
 comment on column sessions.done_at is 'When the card entered a terminal status; null while open. Kept by the sessions_done_at trigger.';
 
 comment on table statuses is 'Kanban board columns — user-editable. sessions.status stores statuses.key (a stable slug), not the id. terminal marks done-like columns. Built-ins (active/paused/blocked/done) are seeded with fixed ids so LWW sync dedupes them.';
@@ -529,7 +550,7 @@ do $$
 declare t text;
 begin
   foreach t in array array['pages','page_comments','comment_agent_status','statuses','sessions','session_events','reports',
-                           'udb_databases','udb_properties','udb_rows','udb_links','users','devices','page_shares','page_links'] loop
+                           'udb_databases','udb_properties','udb_rows','udb_links','users','devices','page_shares','page_links','project_repos'] loop
     execute format('comment on column %I.id is %L', t, 'PK. uuidv7() on newer tables (time-ordered), gen_random_uuid() v4 on the originals — minted per node, no sequence (offline multi-writer).');
     execute format('comment on column %I.origin is %L', t, 'NODE_ID that wrote the row — push only sends own-origin rows (not ones just pulled).');
     execute format('comment on column %I.updated_at is %L', t, 'LWW clock: on conflict the newer updated_at wins, on both ends of the sync.');
