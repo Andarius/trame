@@ -35,6 +35,8 @@ fn allowed(url: &Url, port: u16) -> bool {
     reason = "tauri::generate_context! expands to process::exit"
 )]
 fn main() -> anyhow::Result<()> {
+    #[cfg(target_os = "linux")]
+    webkit::avoid_scale_flicker();
     trame_local::tune_allocator();
     if let Some(result) = trame_local::pg::supervisor_args() {
         return result;
