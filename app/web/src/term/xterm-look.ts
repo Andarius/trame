@@ -16,8 +16,8 @@ export const scrollbar = (): ITheme => ({
   scrollbarSliderHoverBackground: `${css("--color-ink-faint")}99`,
   scrollbarSliderActiveBackground: `${css("--color-ink-faint")}cc`,
 });
-// web-links' own URL pattern, plus file:// like a desktop terminal
-export const URL_RE = /(https?|HTTPS?|file):[/]{2}[^\s"'!*(){}|\\^<>`]*[^\s"':,.!?{}|\\^~[\]`()<>]/;
+// web-links' own URL pattern, plus file:// like a desktop terminal and Trame's own trame:// links
+export const URL_RE = /(https?|HTTPS?|file|trame):[/]{2}[^\s"'!*(){}|\\^<>`]*[^\s"':,.!?{}|\\^~[\]`()<>]/;
 
 // Ctrl/⌘ + = - 0 in a focused shell: every shell's font, a pixel a step, kept per machine
 const ZOOM_KEY = "trame:termFontStep";
