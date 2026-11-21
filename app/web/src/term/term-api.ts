@@ -210,6 +210,16 @@ export async function openTerminal(opts: TermOpts, into?: { tab: string; term: s
   return info;
 }
 
+// a Claude session running in a terminal outside Trame: stopped there, resumed in a new tab here;
+// refused with `code: "busy"` mid-turn unless `force`
+export async function moveIntoTrame(opts: { session: string; card: string | null; title: string; force?: boolean }) {
+  const info = (await call("/api/term/move-in", { method: "POST", body: JSON.stringify(opts) })) as TermInfo;
+  state = { ...state, terms: { ...state.terms, [info.id]: info } };
+  const t = tab(group([info.id]));
+  set({ tabs: [...state.tabs, t], active: t.id, open: true });
+  return info;
+}
+
 // a new shell beside the `at` shell of a tab, or in a tab of its own without one (or when that tab is full)
 export async function openTerminalAt(opts: TermOpts, at?: { tab: string; term: string; side: DropSide }) {
   const fits = (t?: TermTab) => !!t && leaves(t.root).includes(at!.term) && groups(t.root).length < MAX_PANES;
