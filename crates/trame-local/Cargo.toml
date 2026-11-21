@@ -17,8 +17,8 @@ tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "t
 uuid = { version = "1.29.3", features = ["v4", "v5"] }
 
 trame-core = { path = "../trame-core" }
-bytes = "1.12.1"
-regex = "1.13.1"
+bytes = "1.12.2"
+regex = "1.13.2"
 chrono = { version = "0.4.45", features = ["serde"] }
 base64 = "0.23.1"
 glob = "0.3.4"
