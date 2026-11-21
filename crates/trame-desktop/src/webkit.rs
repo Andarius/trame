@@ -21,3 +21,14 @@ pub(crate) fn kill_web_processes() {
         }
     }
 }
+
+/// On Wayland, `WebKit`'s DMA-BUF renderer flickers when the window moves between screens of different scales.
+#[allow(unsafe_code, reason = "set_var before any thread starts")]
+pub(crate) fn avoid_scale_flicker() {
+    if std::env::var_os("WAYLAND_DISPLAY").is_some()
+        && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
+    {
+        // SAFETY: first call in main, the process is still single-threaded
+        unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
+    }
+}
