@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { type BoardData, type ClaudeSession, type TailStep, transcriptTail } from "../api";
 import { openTerminal } from "../term/term-api";
+import { moveIn } from "../term/move-in";
 import { SECTION_LABEL, timeAgo } from "../ui/ui";
 import { AgentIcon } from "./agents";
 import { agentCmd, ResumeButton, resumeCmd } from "./AgentSessions";
@@ -36,8 +37,15 @@ export function RecentSession(
   }, [session.source, session.claudeId]);
   const card = board?.sessions.find((s) => s.id === session.claudeId || s.claude_id === session.claudeId);
   const agent = session.source === "codex" ? "codex" : "claude";
+  // open in another terminal: resuming beside it would fork the conversation, so it moves here instead
+  const elsewhere = !!session.live && session.live.kind !== "bg" && session.source !== "codex";
   const resume = async () => {
     try {
+      if (elsewhere) {
+        const info = await moveIn({ session: session.claudeId, card: card?.id ?? null, title: `${agentLabel(agent)} · ${session.title}` });
+        if (info) onResumed(info.id);
+        return;
+      }
       const info = await openTerminal({
         cwd: session.repoPath,
         command: agentCmd(session),
@@ -82,7 +90,7 @@ export function RecentSession(
       <div className="flex flex-wrap items-center gap-2">
         {session.repoPath && (
           <button type="button" className={`${btn} border-copper/60 bg-copper/10 text-ink`} onClick={() => void resume()}>
-            {session.live?.kind === "bg" ? "↻ Attach in a tab" : "↻ Resume in a tab"}
+            {session.live?.kind === "bg" ? "↻ Attach in a tab" : elsewhere ? "↘ Move into Trame" : "↻ Resume in a tab"}
           </button>
         )}
         <ResumeButton session={session} card={card?.id} onCopied={() => setCopied(true)} modePick={modePick} />

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { AgentIcon } from "../agents/agents";
+import { AgentIcon, useAgents } from "../agents/agents";
 import type { BoardData, Project } from "../api";
 import { projectFor } from "./project-for";
 import { appConfirm, EntityIcon, IconButton, MenuRow, Popover, PresenceDot, useLocalStorage } from "../ui/ui";
 import { needsYou } from "./attention";
 import { ChevronIcon, MaximizeIcon, PlusIcon, PopOutIcon, SidebarIcon, SplitDownIcon, SplitRightIcon } from "../ui/icons";
+import { moveIn } from "./move-in";
 import { NewTerminalDialog } from "./NewTerminalDialog";
 import { TerminalView } from "./TerminalView";
 import {
@@ -106,6 +107,19 @@ export default function TerminalDock(
     return boardProject(leaves(t.root)) === scopeProject;
   };
   const tabs = scope ? allTabs.filter(inScope) : allTabs;
+  // the scoped card's Claude runs in a terminal outside Trame: offer to move it here
+  const { live } = useAgents();
+  const scopeCard = scope?.card ? board?.sessions.find((s) => s.id === scope.card) : undefined;
+  const outside = scopeCard?.claude_id && live.some((l) => l.a.session_id === scopeCard.id) ? scopeCard : null;
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const moveHere = async () => {
+    setMoveError(null);
+    try {
+      await moveIn({ session: outside!.claude_id!, card: outside!.id, title: `Claude · ${outside!.title}` });
+    } catch (e) {
+      setMoveError(e instanceof Error ? e.message : String(e));
+    }
+  };
   const active = tabs.some((t) => t.id === dock.active) ? dock.active : tabs[0]?.id ?? null;
   const open = !!scope || dock.open;
   const full = !!scope || (open && dock.max);
@@ -415,7 +429,23 @@ export default function TerminalDock(
               onScope?.(drag.id, null);
             }}
           >
-            <span>{scope.card ? "No terminal for this card yet." : scope.all ? "No terminals yet." : "No other shells."}</span>
+            {outside
+              ? (
+                <>
+                  <span>Its Claude runs in a terminal outside Trame.</span>
+                  <button
+                    type="button"
+                    className="rounded-md border border-copper/60 bg-copper/10 px-3 py-1.5 text-ink"
+                    title="stop it in the other terminal and resume it in a tab here"
+                    onClick={() => void moveHere()}
+                  >
+                    ↘ Move into Trame
+                  </button>
+                  {moveError && <span className="text-blocked">{moveError}</span>}
+                  <span className="mt-2 text-ink-faint">or start something else</span>
+                </>
+              )
+              : <span>{scope.card ? "No terminal for this card yet." : scope.all ? "No terminals yet." : "No other shells."}</span>}
             <div className="flex gap-2">
               <button type="button" className="rounded-md border border-line px-3 py-1.5 hover:text-ink" onClick={() => void openNew("shell")}>
                 New terminal

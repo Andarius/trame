@@ -566,6 +566,79 @@ pub async fn serve(root: &Path, req: Request<Body>) -> Response {
             .unwrap_or_default();
             json_response(200, json!({"worktrees":found}))
         }
+        // a Claude session running in a terminal outside Trame: stop it there, resume it in a Trame shell
+        (Method::POST, ["", "api", "term", "move-in"]) => {
+            let Ok(bytes) = axum::body::to_bytes(req.into_body(), 64 * 1024).await else {
+                return json_response(400, json!({"error":"body unavailable"}));
+            };
+            let body = serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null);
+            let Some(id) = body["session"]
+                .as_str()
+                .filter(|s| crate::routes::valid_uuid(s))
+                .map(str::to_owned)
+            else {
+                return json_response(400, json!({"error":"session must be a Claude session id"}));
+            };
+            let shells: Vec<u32> = {
+                let terms = registry().terms.lock().unwrap();
+                terms
+                    .values()
+                    .filter(|t| !t.exited())
+                    .filter_map(|t| u32::try_from(t.pid?).ok())
+                    .collect()
+            };
+            let lookup = id.clone();
+            let found = crate::blocking::spawn(move || {
+                let files = claude_session_files();
+                find_outside(
+                    &files,
+                    &lookup,
+                    &crate::diagnostics::processes(),
+                    &shells,
+                    proc_start,
+                )
+            })
+            .await
+            .unwrap_or(Err("not_running"));
+            let outside = match found {
+                Ok(o) => o,
+                Err("in_trame") => {
+                    return json_response(
+                        409,
+                        json!({"error":"this session already runs in a Trame shell","code":"in_trame"}),
+                    );
+                }
+                Err(code) => {
+                    return json_response(
+                        404,
+                        json!({"error":"this session isn't running in another terminal","code":code}),
+                    );
+                }
+            };
+            if outside.busy && body["force"] != true {
+                return json_response(
+                    409,
+                    json!({"error":"it is in the middle of a turn","code":"busy"}),
+                );
+            }
+            let pid = outside.pid;
+            if !crate::blocking::spawn(move || stop_process(pid))
+                .await
+                .unwrap_or(false)
+            {
+                return json_response(
+                    500,
+                    json!({"error":"it didn't exit in the other terminal","code":"still_running"}),
+                );
+            }
+            let open = json!({
+                "cwd": outside.cwd,
+                "command": format!("claude --resume {id}"),
+                "card": body["card"],
+                "title": body["title"],
+            });
+            create(root, &open).await
+        }
         // choose any folder to open a shell in: the path, `{cancelled}` or `{error}`
         (Method::POST, ["", "api", "term", "pick"]) => {
             let Ok(bytes) = axum::body::to_bytes(req.into_body(), 64 * 1024).await else {
@@ -664,13 +737,8 @@ struct Running {
 /// Claude sessions alive now anywhere on this machine (a terminal, the background daemon), by transcript id:
 /// `{"kind": "bg" | "interactive" | …, "job": <jobId for `claude attach`>}`.
 pub(crate) fn live_claude_sessions() -> HashMap<String, Value> {
-    let Some(Ok(entries)) = claude_dir().map(|d| std::fs::read_dir(d.join("sessions"))) else {
-        return HashMap::new();
-    };
-    entries
-        .flatten()
-        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
-        .filter_map(|e| serde_json::from_slice::<Value>(&std::fs::read(e.path()).ok()?).ok())
+    claude_session_files()
+        .into_iter()
         .filter(|f| {
             let pid = f["pid"].as_i64().and_then(|p| i32::try_from(p).ok());
             // signal 0 only checks the process exists
@@ -681,6 +749,91 @@ pub(crate) fn live_claude_sessions() -> HashMap<String, Value> {
             Some((id, json!({"kind": f["kind"], "job": f["jobId"]})))
         })
         .collect()
+}
+
+fn claude_session_files() -> Vec<Value> {
+    let Some(Ok(entries)) = claude_dir().map(|d| std::fs::read_dir(d.join("sessions"))) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+        .filter_map(|e| serde_json::from_slice::<Value>(&std::fs::read(e.path()).ok()?).ok())
+        .collect()
+}
+
+/// The process start time in clock ticks, as Claude records it in `procStart` (Linux only).
+fn proc_start(pid: u32) -> Option<String> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    // the command name can hold spaces: fields count from its closing paren
+    let rest = &stat[stat.rfind(')')? + 2..];
+    rest.split(' ').nth(19).map(str::to_owned)
+}
+
+#[derive(Debug, PartialEq)]
+struct Outside {
+    pid: u32,
+    cwd: Option<String>,
+    busy: bool,
+}
+
+/// The interactive Claude process holding session `id` in a terminal that isn't one of Trame's `shells`.
+fn find_outside(
+    files: &[Value],
+    id: &str,
+    all: &[crate::diagnostics::Process],
+    shells: &[u32],
+    started: impl Fn(u32) -> Option<String>,
+) -> Result<Outside, &'static str> {
+    let file = files
+        .iter()
+        .find(|f| f["sessionId"] == id && f["kind"] == "interactive" && f["entrypoint"] == "cli")
+        .ok_or("not_running")?;
+    let pid = file["pid"]
+        .as_u64()
+        .and_then(|p| u32::try_from(p).ok())
+        .ok_or("not_running")?;
+    let process = all.iter().find(|p| p.pid == pid).ok_or("not_running")?;
+    // the pid is still that Claude, not a later process that reused it
+    let same = match (file["procStart"].as_str(), started(pid)) {
+        (Some(recorded), Some(now)) => recorded == now,
+        _ => process.args.iter().any(|a| a.contains("claude")),
+    };
+    if !same {
+        return Err("not_running");
+    }
+    let mut up = process.ppid;
+    for _ in 0..64 {
+        if shells.contains(&up) {
+            return Err("in_trame");
+        }
+        match all.iter().find(|p| p.pid == up) {
+            Some(p) if p.ppid != up => up = p.ppid,
+            _ => break,
+        }
+    }
+    Ok(Outside {
+        pid,
+        cwd: file["cwd"].as_str().map(str::to_owned),
+        busy: file["status"] == "busy",
+    })
+}
+
+/// SIGTERM, then wait up to 5 s for the process to go.
+fn stop_process(pid: u32) -> bool {
+    let Ok(pid) = i32::try_from(pid) else {
+        return false;
+    };
+    if pid <= 1 || unsafe { libc::kill(pid, libc::SIGTERM) } != 0 {
+        return false;
+    }
+    for _ in 0..50 {
+        std::thread::sleep(Duration::from_millis(100));
+        if unsafe { libc::kill(pid, 0) } != 0 {
+            return true;
+        }
+    }
+    false
 }
 
 fn claude_session(dir: &Path, pid: u32) -> Option<AgentSession> {
@@ -1389,9 +1542,9 @@ fn parse_ghostty(config: &str) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::{
-        AgentSession, Saved, SavedAgent, card_id, no_follow_ups, parse_claude_session,
-        parse_ghostty, preview_image, process_cwd, process_name, reopen_plan, repo_root,
-        resolve_cwd, running_agents,
+        AgentSession, Outside, Saved, SavedAgent, card_id, find_outside, no_follow_ups,
+        parse_claude_session, parse_ghostty, preview_image, process_cwd, process_name, reopen_plan,
+        repo_root, resolve_cwd, running_agents,
     };
     use crate::diagnostics::Process;
     use serde_json::{Value, json};
@@ -1451,6 +1604,56 @@ mod tests {
                 {"term":"t2","agent":"codex","id":"x-2","name":null,"named":false,"busy":false,"waiting":null,"started_at":null,"updated_at":null,"done":false},
             ])
         );
+    }
+
+    #[test]
+    fn move_in_finds_only_the_same_claude_outside_trame() {
+        let id = "6f0a2c1e-0000-4000-8000-0000000000aa";
+        let all = [
+            proc(10, 1, "konsole", &[]),
+            proc(11, 10, "zsh", &[]),
+            proc(
+                12,
+                11,
+                "2.1.328",
+                &["/home/u/.local/share/claude/versions/2.1.328"],
+            ),
+            proc(20, 1, "zsh", &[]), // a Trame shell
+            proc(
+                21,
+                20,
+                "2.1.328",
+                &["/home/u/.local/share/claude/versions/2.1.328"],
+            ),
+        ];
+        let file = |pid: u32, extra: Value| {
+            let mut f = json!({"pid":pid,"sessionId":id,"kind":"interactive","entrypoint":"cli",
+                               "procStart":"500","cwd":"/repo","status":"idle"});
+            f.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            f
+        };
+        let started = |_| Some("500".to_owned());
+        let found = |f: Value| find_outside(&[f], id, &all, &[20], started);
+        assert_eq!(
+            found(file(12, json!({"status":"busy"}))),
+            Ok(Outside {
+                pid: 12,
+                cwd: Some("/repo".into()),
+                busy: true
+            })
+        );
+        for (f, err) in [
+            (file(21, json!({})), "in_trame"),
+            (file(12, json!({"procStart":"499"})), "not_running"), // pid reused by another process
+            (file(13, json!({})), "not_running"),
+            (file(12, json!({"kind":"bg"})), "not_running"),
+            (file(12, json!({"entrypoint":"sdk-cli"})), "not_running"),
+            (file(12, json!({"sessionId":"other"})), "not_running"),
+        ] {
+            assert_eq!(found(f.clone()), Err(err), "{f}");
+        }
     }
 
     #[test]
