@@ -9,17 +9,16 @@ import { LinkCardDialog } from "./LinkCardDialog";
 import { NewTerminalDialog } from "./NewTerminalDialog";
 import { closeTerminal, revealTerminal, sessionLabel, type TermSession, useTermDock, useTermSessions } from "./term-api";
 
-const GROUPINGS = ["project", "none"] as const;
+// by project with a folder per repo, by project and repo, by project (the repo on each agent's line), or not at all
+const GROUPINGS = ["tree", "paths", "project", "none"] as const;
 type Grouping = typeof GROUPINGS[number];
-const GROUPING_LABEL: Record<Grouping, string> = { project: "Project", none: "No grouping" };
-const REPO_STYLES = ["tree", "paths", "row", "off"] as const;
-type RepoStyle = typeof REPO_STYLES[number];
-const REPO_STYLE_LABEL: Record<RepoStyle, string> = {
-  tree: "Under their project",
-  paths: "Project / repo headers",
-  row: "On the agent's line",
-  off: "Hidden",
+const GROUPING_LABEL: Record<Grouping, string> = {
+  tree: "Project › repo",
+  paths: "Project / repo",
+  project: "Project",
+  none: "No grouping",
 };
+const GROUPING_HINT: Record<Grouping, string> = { tree: "└ api", paths: "acme / api", project: "api · opus", none: "api · opus" };
 
 // The Terminals view's sidebar column: the agents running in Trame's shells (and outside it, from their card's
 // presence), grouped by project or not at all.
@@ -55,8 +54,8 @@ export function TermCards(
   },
 ) {
   const { terms } = useTermDock();
-  const [grouping, setGrouping] = useLocalStorage<Grouping>("trame:termGrouping", "project", enumCodec(GROUPINGS));
-  const [repoStyle, setRepoStyle] = useLocalStorage<RepoStyle>("trame:termRepoStyle", "tree", enumCodec(REPO_STYLES));
+  const [grouping, setGrouping] = useLocalStorage<Grouping>("trame:termGrouping", "tree", enumCodec(GROUPINGS));
+  const byProject = grouping !== "none";
   // group headers folded (keyed by grouping:key)
   const [folded, setFolded] = useLocalStorage("trame:termFolded", new Set<string>(), SET_CODEC);
   const flip = (set: Set<string>, save: (v: Set<string>) => void, k: string) => {
@@ -92,13 +91,13 @@ export function TermCards(
     const t = terms[x.term];
     return repoName((t?.card && cardOf.get(t.card)?.repo_path) || t?.cwd || null);
   };
-  // one section per project, or per project and repo with "Project / repo headers"
+  // one section per project, or per project and repo with "Project / repo"
   type Group = { key: string; project: string | null; repo: string | null; xs: TermSession[] };
   const groups = new Map<string, Group>();
   for (const x of running) {
-    const project = grouping === "project" ? projectOf(x) : null;
-    const repo = grouping === "project" && repoStyle === "paths" ? repoOf(x) : null;
-    const key = grouping === "project" ? `${project ?? ""}/${repo ?? ""}` : "all";
+    const project = byProject ? projectOf(x) : null;
+    const repo = grouping === "paths" ? repoOf(x) : null;
+    const key = byProject ? `${project ?? ""}/${repo ?? ""}` : "all";
     const g = groups.get(key) ?? { key, project, repo, xs: [] };
     g.xs.push(x);
     groups.set(key, g);
@@ -189,7 +188,7 @@ export function TermCards(
               {dot(waiting, working, !waiting && !working && x.done)}
               <span className="min-w-0 flex-1 truncate">{sessionLabel(x)}</span>
             </span>
-            <AgentLine l={l} x={x} repo={repoStyle === "row" ? repoOf(x) : null} />
+            <AgentLine l={l} x={x} repo={grouping === "project" || grouping === "none" ? repoOf(x) : null} />
           </>
         ))}
       </div>
@@ -244,15 +243,7 @@ export function TermCards(
         >
           +
         </button>
-        <GroupMenu value={grouping} options={GROUPING_LABEL} onChange={setGrouping}>
-          <div className={`px-2 pb-1 pt-2 ${SECTION_LABEL}`}>REPOS</div>
-          {REPO_STYLES.map((r) => (
-            <MenuRow key={r} active={r === repoStyle} onClick={() => setRepoStyle(r)}>
-              <span className="w-3 text-center">{r === repoStyle ? "✓" : ""}</span>
-              <span className="flex-1">{REPO_STYLE_LABEL[r]}</span>
-            </MenuRow>
-          ))}
-        </GroupMenu>
+        <GroupMenu value={grouping} options={GROUPING_LABEL} hints={GROUPING_HINT} onChange={setGrouping} />
         {newOpen && (
           <NewTerminalDialog
             board={board}
@@ -315,7 +306,7 @@ export function TermCards(
               )}
             </div>
           )}
-          {!folded.has(gkey(key)) && (grouping === "project" && repoStyle === "tree"
+          {!folded.has(gkey(key)) && (grouping === "tree"
             ? byRepo(xs).map(([r, rs]) =>
               r === null ? rs.map(agentRow) : (
                 <div key={r} className="flex flex-col gap-0.5">
