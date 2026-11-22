@@ -3,6 +3,7 @@ import type { BoardData, ClaudeSession } from "../api";
 import { RecentList } from "../agents/RecentList";
 import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
+import { BranchIcon } from "../ui/icons";
 import { appConfirm, EntityIcon, enumCodec, MenuRow, Popover, SECTION_LABEL, SET_CODEC, useLocalStorage } from "../ui/ui";
 import { LinkCardDialog } from "./LinkCardDialog";
 import { NewTerminalDialog } from "./NewTerminalDialog";
@@ -85,6 +86,16 @@ export function TermCards(
   const keys = [...groups.keys()].sort((a, b) =>
     a === null ? 1 : b === null ? -1 : projectName(board, a).localeCompare(projectName(board, b))
   );
+  // a project's agents by repo: their card's, else the folder their shell started in; a worktree counts as its repo
+  const repoOf = (x: TermSession) => {
+    const t = terms[x.term];
+    return repoName((t?.card && cardOf.get(t.card)?.repo_path) || t?.cwd || null);
+  };
+  const byRepo = (xs: TermSession[]) => {
+    const m = new Map<string | null, TermSession[]>();
+    for (const x of xs) m.set(repoOf(x), [...(m.get(repoOf(x)) ?? []), x]);
+    return [...m].sort(([a], [b]) => (a === null ? 1 : b === null ? -1 : a.localeCompare(b)));
+  };
   const label = (key: string | null) => (key ? projectName(board, key).toUpperCase() : "NO PROJECT");
   // agents running in a terminal outside Trame: a card's presence with no shell here, waiting ones first
   const shelled = new Set(Object.values(terms).map((t) => t.card));
@@ -275,7 +286,19 @@ export function TermCards(
               )}
             </div>
           )}
-          {!folded.has(gkey(key)) && groups.get(key)!.map(agentRow)}
+          {!folded.has(gkey(key)) && (grouping === "project"
+            ? byRepo(groups.get(key)!).map(([repo, xs]) =>
+              repo === null ? xs.map(agentRow) : (
+                <div key={repo} className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-1.5 px-2 pt-0.5 text-[11.5px] text-ink-faint" title={`agents in ${repo}`}>
+                    <BranchIcon size={11} />
+                    <span className="min-w-0 flex-1 truncate">{repo}</span>
+                  </div>
+                  <div className="ml-[13px] flex flex-col gap-0.5 border-l border-line pl-1">{xs.map(agentRow)}</div>
+                </div>
+              )
+            )
+            : groups.get(key)!.map(agentRow))}
         </section>
       ))}
       {outside.length > 0 && (
@@ -301,6 +324,13 @@ export function TermCards(
     </nav>
   );
 }
+
+// the repo a folder belongs to, by name: a worktree <repo>/.scratch/<wt> (or .worktrees/, .claude/worktrees/) is <repo>
+const repoName = (path: string | null) => {
+  if (!path) return null;
+  const root = path.replace(/\/+$/, "").replace(/\/(\.scratch|\.worktrees|\.claude\/worktrees)\/[^/]+$/, "");
+  return root.split("/").pop() || null;
+};
 
 const projectName = (board: BoardData | null, id: string) => board?.projects.find((p) => p.id === id)?.name ?? "";
 const seen = (x: TermSession) => x.updated_at ?? x.started_at ?? 0;
