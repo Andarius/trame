@@ -35,7 +35,8 @@ export function GroupMenu<T extends string>(
             onHover={() => setHover({ key: "", value: g })}
             onClick={() => {
               onChange(g);
-              setOpen(false);
+              // a menu with other choices or a preview stays open to keep tuning
+              if (!preview && !more.length) setOpen(false);
             }}
           />
         ))}
