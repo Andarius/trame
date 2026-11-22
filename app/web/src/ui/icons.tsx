@@ -202,6 +202,15 @@ export function BranchIcon({ size = 14 }: { size?: number }) {
   );
 }
 
+// a pushpin: kept at the top
+export function PinIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+      <path d="M6 2h4M7 2v4L4.5 9h7L9 6V2M8 9v5" />
+    </svg>
+  );
+}
+
 // a pull request: two branches merging
 export function PrIcon({ size = 14 }: { size?: number }) {
   return (
