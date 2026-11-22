@@ -3,7 +3,7 @@ import type { BoardData, ClaudeSession } from "../api";
 import { RecentList } from "../agents/RecentList";
 import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
-import { BranchIcon } from "../ui/icons";
+import { FolderIcon } from "../ui/icons";
 import { appConfirm, EntityIcon, enumCodec, MenuRow, Popover, SECTION_LABEL, SET_CODEC, useLocalStorage } from "../ui/ui";
 import { LinkCardDialog } from "./LinkCardDialog";
 import { NewTerminalDialog } from "./NewTerminalDialog";
@@ -12,6 +12,14 @@ import { closeTerminal, revealTerminal, sessionLabel, type TermSession, useTermD
 const GROUPINGS = ["project", "none"] as const;
 type Grouping = typeof GROUPINGS[number];
 const GROUPING_LABEL: Record<Grouping, string> = { project: "Project", none: "No grouping" };
+const REPO_STYLES = ["tree", "paths", "row", "off"] as const;
+type RepoStyle = typeof REPO_STYLES[number];
+const REPO_STYLE_LABEL: Record<RepoStyle, string> = {
+  tree: "Under their project",
+  paths: "Project / repo headers",
+  row: "On the agent's line",
+  off: "Hidden",
+};
 
 // The Terminals view's sidebar column: the agents running in Trame's shells (and outside it, from their card's
 // presence), grouped by project or not at all.
@@ -48,6 +56,7 @@ export function TermCards(
 ) {
   const { terms } = useTermDock();
   const [grouping, setGrouping] = useLocalStorage<Grouping>("trame:termGrouping", "project", enumCodec(GROUPINGS));
+  const [repoStyle, setRepoStyle] = useLocalStorage<RepoStyle>("trame:termRepoStyle", "tree", enumCodec(REPO_STYLES));
   // group headers folded (keyed by grouping:key)
   const [folded, setFolded] = useLocalStorage("trame:termFolded", new Set<string>(), SET_CODEC);
   const flip = (set: Set<string>, save: (v: Set<string>) => void, k: string) => {
@@ -78,25 +87,34 @@ export function TermCards(
     const p = (t?.card && cardOf.get(t.card)?.client_id) || t?.project;
     return p && knownProjects.has(p) ? p : null;
   };
-  const groups = new Map<string | null, TermSession[]>();
-  for (const x of running) {
-    const k = grouping === "project" ? projectOf(x) : "all";
-    groups.set(k, [...(groups.get(k) ?? []), x]);
-  }
-  const keys = [...groups.keys()].sort((a, b) =>
-    a === null ? 1 : b === null ? -1 : projectName(board, a).localeCompare(projectName(board, b))
-  );
   // a project's agents by repo: their card's, else the folder their shell started in; a worktree counts as its repo
   const repoOf = (x: TermSession) => {
     const t = terms[x.term];
     return repoName((t?.card && cardOf.get(t.card)?.repo_path) || t?.cwd || null);
   };
+  // one section per project, or per project and repo with "Project / repo headers"
+  type Group = { key: string; project: string | null; repo: string | null; xs: TermSession[] };
+  const groups = new Map<string, Group>();
+  for (const x of running) {
+    const project = grouping === "project" ? projectOf(x) : null;
+    const repo = grouping === "project" && repoStyle === "paths" ? repoOf(x) : null;
+    const key = grouping === "project" ? `${project ?? ""}/${repo ?? ""}` : "all";
+    const g = groups.get(key) ?? { key, project, repo, xs: [] };
+    g.xs.push(x);
+    groups.set(key, g);
+  }
+  const last = (a: string | null, b: string | null, cmp: (a: string, b: string) => number) =>
+    a === b ? 0 : a === null ? 1 : b === null ? -1 : cmp(a, b);
+  const sections = [...groups.values()].sort((a, b) =>
+    last(a.project, b.project, (x, y) => projectName(board, x).localeCompare(projectName(board, y))) ||
+    last(a.repo, b.repo, (x, y) => x.localeCompare(y))
+  );
   const byRepo = (xs: TermSession[]) => {
     const m = new Map<string | null, TermSession[]>();
     for (const x of xs) m.set(repoOf(x), [...(m.get(repoOf(x)) ?? []), x]);
-    return [...m].sort(([a], [b]) => (a === null ? 1 : b === null ? -1 : a.localeCompare(b)));
+    return [...m].sort(([a], [b]) => last(a, b, (x, y) => x.localeCompare(y)));
   };
-  const label = (key: string | null) => (key ? projectName(board, key).toUpperCase() : "NO PROJECT");
+  const label = (project: string | null) => (project ? projectName(board, project).toUpperCase() : "NO PROJECT");
   // agents running in a terminal outside Trame: a card's presence with no shell here, waiting ones first
   const shelled = new Set(Object.values(terms).map((t) => t.card));
   const outside = live.filter((l) => cardOf.has(l.a.session_id) && !shelled.has(l.a.session_id)).sort((a, b) =>
@@ -171,7 +189,7 @@ export function TermCards(
               {dot(waiting, working, !waiting && !working && x.done)}
               <span className="min-w-0 flex-1 truncate">{sessionLabel(x)}</span>
             </span>
-            <AgentLine l={l} x={x} />
+            <AgentLine l={l} x={x} repo={repoStyle === "row" ? repoOf(x) : null} />
           </>
         ))}
       </div>
@@ -226,7 +244,15 @@ export function TermCards(
         >
           +
         </button>
-        <GroupMenu value={grouping} options={GROUPING_LABEL} onChange={setGrouping} />
+        <GroupMenu value={grouping} options={GROUPING_LABEL} onChange={setGrouping}>
+          <div className={`px-2 pb-1 pt-2 ${SECTION_LABEL}`}>REPOS</div>
+          {REPO_STYLES.map((r) => (
+            <MenuRow key={r} active={r === repoStyle} onClick={() => setRepoStyle(r)}>
+              <span className="w-3 text-center">{r === repoStyle ? "✓" : ""}</span>
+              <span className="flex-1">{REPO_STYLE_LABEL[r]}</span>
+            </MenuRow>
+          ))}
+        </GroupMenu>
         {newOpen && (
           <NewTerminalDialog
             board={board}
@@ -242,8 +268,8 @@ export function TermCards(
           No agent running. Start one with + above (Ctrl+T), or resume one below.
         </p>
       )}
-      {keys.map((key) => (
-        <section key={key ?? "none"} className="flex flex-col gap-0.5">
+      {sections.map(({ key, project, repo, xs }) => (
+        <section key={key} className="flex flex-col gap-0.5">
           {grouping !== "none" && (
             <div className={`group/head relative flex items-center gap-1.5 px-2 pb-1 ${SECTION_LABEL}`}>
               <button
@@ -253,22 +279,25 @@ export function TermCards(
                 title={folded.has(gkey(key)) ? "show this group" : "fold this group"}
                 onClick={() => flip(folded, setFolded, gkey(key))}
               >
-                {key && <EntityIcon icon={board?.projects.find((p) => p.id === key)?.icon} size={14} />}
-                <span className="truncate">{label(key)}</span>
+                {project && <EntityIcon icon={board?.projects.find((p) => p.id === project)?.icon} size={14} />}
+                <span className="truncate">
+                  {label(project)}
+                  {repo && <span className="normal-case tracking-normal text-ink-soft">{` / ${repo}`}</span>}
+                </span>
                 <span
                   aria-hidden="true"
                   className={`text-[10px] leading-none ${folded.has(gkey(key)) ? "" : "opacity-0 group-hover/fold:opacity-100"}`}
                 >
                   {folded.has(gkey(key)) ? "▸" : "▾"}
                 </span>
-                <span className="ml-auto pr-1 tracking-normal tabular-nums text-ink-faint">{groups.get(key)!.length}</span>
+                <span className="ml-auto pr-1 tracking-normal tabular-nums text-ink-faint">{xs.length}</span>
               </button>
-              {key && (
+              {project && (
                 <button
                   type="button"
                   onClick={() => setMenuFor(key)}
                   title="new terminal or agent in this project"
-                  aria-label={`New terminal in ${label(key)}`}
+                  aria-label={`New terminal in ${label(project)}`}
                   className={`-my-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-[15px] leading-none text-ink-muted hover:bg-active-row hover:text-ink ${
                     menuFor === key ? "" : "opacity-0 focus-visible:opacity-100 group-hover/head:opacity-100"
                   }`}
@@ -276,29 +305,29 @@ export function TermCards(
                   +
                 </button>
               )}
-              {key && menuFor === key && (
+              {project && menuFor === key && (
                 <NewTerminalDialog
                   board={board}
-                  project={key}
+                  project={project}
                   onClose={() => setMenuFor(null)}
                   onOpened={(card, project) => (card ? onSelect(card) : project ? onSelectProject(project) : onSelect(null))}
                 />
               )}
             </div>
           )}
-          {!folded.has(gkey(key)) && (grouping === "project"
-            ? byRepo(groups.get(key)!).map(([repo, xs]) =>
-              repo === null ? xs.map(agentRow) : (
-                <div key={repo} className="flex flex-col gap-0.5">
-                  <div className="flex items-center gap-1.5 px-2 pt-0.5 text-[11.5px] text-ink-faint" title={`agents in ${repo}`}>
-                    <BranchIcon size={11} />
-                    <span className="min-w-0 flex-1 truncate">{repo}</span>
+          {!folded.has(gkey(key)) && (grouping === "project" && repoStyle === "tree"
+            ? byRepo(xs).map(([r, rs]) =>
+              r === null ? rs.map(agentRow) : (
+                <div key={r} className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-1.5 px-2 pt-0.5 text-[11.5px] text-ink-faint" title={`agents in ${r}`}>
+                    <FolderIcon size={12} />
+                    <span className="min-w-0 flex-1 truncate">{r}</span>
                   </div>
-                  <div className="ml-[13px] flex flex-col gap-0.5 border-l border-line pl-1">{xs.map(agentRow)}</div>
+                  <div className="ml-[13px] flex flex-col gap-0.5 border-l border-line pl-1">{rs.map(agentRow)}</div>
                 </div>
               )
             )
-            : groups.get(key)!.map(agentRow))}
+            : xs.map(agentRow))}
         </section>
       ))}
       {outside.length > 0 && (
@@ -337,7 +366,7 @@ const seen = (x: TermSession) => x.updated_at ?? x.started_at ?? 0;
 
 // under an agent's name: its model and state, how long, then what it does (or asks) on a second line;
 // `l` is its card's presence from the hooks, `x` what Trame reads from the process itself
-function AgentLine({ l, x }: { l?: Live; x?: TermSession }) {
+function AgentLine({ l, x, repo }: { l?: Live; x?: TermSession; repo?: string | null }) {
   if (!l && !x) return null;
   const waiting = l?.state === "waiting" || !!x?.waiting;
   const working = !waiting && (l?.state === "working" || !!x?.busy);
@@ -349,6 +378,7 @@ function AgentLine({ l, x }: { l?: Live; x?: TermSession }) {
       <span className="flex w-full items-center gap-1.5 text-ink-faint">
         <AgentIcon a={l?.a ?? { harness: x!.agent, icon: null }} />
         <span className="min-w-0 flex-1 truncate" title={l?.a.model ?? undefined}>
+          {repo && `${repo} · `}
           {model && `${model} · `}
           {waiting ? <span className="text-wait">needs you</span> : working ? "working" : done ? "done" : "idle"}
         </span>
