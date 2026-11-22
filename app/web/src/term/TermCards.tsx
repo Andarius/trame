@@ -1,10 +1,9 @@
 import { useState } from "react";
-import { type BoardData, type ClaudeSession, openInBrowser, type Session } from "../api";
+import type { BoardData, ClaudeSession, Session } from "../api";
 import { RecentList } from "../agents/RecentList";
 import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
-import { PR_STATE_COLOR, usePrInfo } from "../md/chips";
-import { BranchIcon, FolderIcon, PrIcon } from "../ui/icons";
+import { BranchIcon, FolderIcon } from "../ui/icons";
 import { appConfirm, BOOL_CODEC, EntityIcon, enumCodec, MenuRow, Popover, SECTION_LABEL, SET_CODEC, useLocalStorage } from "../ui/ui";
 import { LinkCardDialog } from "./LinkCardDialog";
 import { NewTerminalDialog } from "./NewTerminalDialog";
@@ -207,7 +206,6 @@ export function TermCards(
             <span className="flex w-full items-center gap-2" title={`${x.agent} · ${x.id}`}>
               {dot(waiting, working, !waiting && !working && x.done)}
               <span className="min-w-0 flex-1 truncate">{sessionLabel(x)}</span>
-              <PrChip card={cardOf.get(terms[x.term]?.card ?? "")} />
             </span>
             <AgentLine
               l={l}
@@ -230,8 +228,7 @@ export function TermCards(
             <span className="flex w-full items-center gap-2">
               {dot(waiting, l.state === "working", false)}
               <span className="min-w-0 flex-1 truncate">{l.a.name ?? cardOf.get(l.a.session_id)?.title}</span>
-              <PrChip card={cardOf.get(l.a.session_id)} />
-              <span className="shrink-0 text-ink-faint" title="it runs in a terminal outside Trame">↗</span>
+              <span className="ml-auto shrink-0 text-ink-faint" title="it runs in a terminal outside Trame">↗</span>
             </span>
             <AgentLine l={l} branch={branchOf(cardOf.get(l.a.session_id))} />
           </>
@@ -561,32 +558,8 @@ function AgentLine({ l, x, repo, branch }: { l?: Live; x?: TermSession; repo?: s
   );
 }
 
-// an agent's PR from its card: its number, colored by state; a click opens it
-function PrChip({ card }: { card?: Session }) {
-  const pr = card?.pr_url ?? null;
-  const info = usePrInfo(pr);
-  if (!pr) return null;
-  const n = pr.match(/\/(?:pull|merge_requests)\/(\d+)/)?.[1];
-  const state = info?.state ?? "unknown";
-  return (
-    <span
-      role="link"
-      tabIndex={0}
-      title={`${info?.title ?? pr} · ${state}`}
-      onClick={(e) => {
-        e.stopPropagation();
-        openInBrowser(pr);
-      }}
-      className="flex shrink-0 items-center gap-1 rounded border border-chipline px-1 font-mono text-[10.5px] leading-[16px] text-ink-muted hover:border-copper/60 hover:text-ink"
-    >
-      <span style={{ color: PR_STATE_COLOR[state] ?? PR_STATE_COLOR.unknown }}><PrIcon size={10} /></span>
-      {n ? `#${n}` : "PR"}
-    </span>
-  );
-}
-
-// the branch shown on an agent's status line: none when its PR chip already names the work
-const branchOf = (card?: Session) => (card?.pr_url ? null : card?.branch ?? null);
+// an agent's branch, from its card
+const branchOf = (card?: Session) => card?.branch ?? null;
 
 const shortModel = (m?: string | null) => (m ? m.match(/opus|sonnet|haiku|fable/i)?.[0].toLowerCase() ?? m.replace(/^claude-/, "") : null);
 

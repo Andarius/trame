@@ -8,7 +8,7 @@ import { openInBrowser, type PrInfo, prInfo, setStatus } from "../api";
 // module-wide so each URL fetches once.
 export const PR_HREF =
   /^https?:\/\/[^\s<>)]+\/(?:pull|-\/merge_requests)\/\d+(?:[/?#][^\s<>)]*)?$/;
-export const PR_STATE_COLOR: Record<string, string> = {
+const PR_STATE_COLOR: Record<string, string> = {
   open: "#7bd88f",
   draft: "#8b93a3",
   merged: "#b590e7",
@@ -37,7 +37,7 @@ export const getPrInfo = (url: string): Promise<PrInfo> => {
 };
 
 // mounted chips refetch each TTL while the PR can still change and the tab is visible
-export function usePrInfo(url: string | null): PrInfo | undefined {
+function usePrInfo(url: string | null): PrInfo | undefined {
   const [info, setInfo] = useState(url ? prInfoCache.get(url)?.info : undefined);
   useEffect(() => {
     if (!url) return;
