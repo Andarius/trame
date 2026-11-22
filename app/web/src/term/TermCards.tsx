@@ -4,7 +4,7 @@ import { RecentList } from "../agents/RecentList";
 import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
 import { FolderIcon } from "../ui/icons";
-import { appConfirm, EntityIcon, enumCodec, MenuRow, Popover, SECTION_LABEL, SET_CODEC, useLocalStorage } from "../ui/ui";
+import { appConfirm, BOOL_CODEC, EntityIcon, enumCodec, MenuRow, Popover, SECTION_LABEL, SET_CODEC, useLocalStorage } from "../ui/ui";
 import { LinkCardDialog } from "./LinkCardDialog";
 import { NewTerminalDialog } from "./NewTerminalDialog";
 import { closeTerminal, revealTerminal, sessionLabel, type TermSession, useTermDock, useTermSessions } from "./term-api";
@@ -21,6 +21,10 @@ const GROUPING_LABEL: Record<Grouping, string> = {
 const SPACINGS = ["comfortable", "compact"] as const;
 type Spacing = typeof SPACINGS[number];
 const SPACING_LABEL: Record<Spacing, string> = { comfortable: "Comfortable", compact: "Compact" };
+// plain shells (no agent in them): a folded section at the bottom, or not listed at all
+const SHELLS = ["show", "hide"] as const;
+type Shells = typeof SHELLS[number];
+const SHELLS_LABEL: Record<Shells, string> = { show: "Folded section", hide: "Hidden" };
 // what the menu's preview draws when no agent runs
 const SAMPLE = [
   { name: "invoice-export", project: "Acme", repo: "api", what: "sonnet · working", working: true },
@@ -64,6 +68,8 @@ export function TermCards(
   const { terms } = useTermDock();
   const [grouping, setGrouping] = useLocalStorage<Grouping>("trame:termGrouping", "tree", enumCodec(GROUPINGS));
   const [spacing, setSpacing] = useLocalStorage<Spacing>("trame:termSpacing", "comfortable", enumCodec(SPACINGS));
+  const [shells, setShells] = useLocalStorage<Shells>("trame:termShells", "show", enumCodec(SHELLS));
+  const [shellsOpen, setShellsOpen] = useLocalStorage("trame:termShellsOpen", false, BOOL_CODEC);
   const gap = spacing === "compact" ? "gap-0" : "gap-1";
   const byProject = grouping !== "none";
   // group headers folded (keyed by grouping:key)
@@ -131,6 +137,9 @@ export function TermCards(
   );
   const selectedCard = selected ? cardOf.get(selected) : undefined;
   const everyShell = Object.values(terms);
+  // shells with no agent in them, running ones first
+  const agentTerms = new Set(termSessions.map((x) => x.term));
+  const plain = everyShell.filter((t) => !agentTerms.has(t.id)).sort((a, b) => Number(a.exited) - Number(b.exited));
 
   const closeShell = async (term: string) => {
     if (!(await appConfirm("Close this shell? The agent running in it stops.", "Close"))) return;
@@ -222,6 +231,50 @@ export function TermCards(
       </div>
     );
   };
+  // a shell with no agent in it: its title, and the folder it started in
+  const shellRow = (t: (typeof plain)[number]) => (
+    <div
+      key={`shell:${t.id}`}
+      className={t.exited ? "opacity-50 hover:opacity-100" : ""}
+      title="right-click: link to a card, close"
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenu(`shell:${t.id}`);
+      }}
+    >
+      {menu === `shell:${t.id}` && (
+        <Popover portal onClose={() => setMenu(null)} className="w-44">
+          <MenuRow
+            onClick={() => {
+              setLinkFor(t.id);
+              setMenu(null);
+            }}
+          >
+            Link to card…
+          </MenuRow>
+          <MenuRow
+            className="hover:text-blocked"
+            onClick={() => {
+              setMenu(null);
+              void closeTerminal(t.id);
+            }}
+          >
+            Close shell
+          </MenuRow>
+        </Popover>
+      )}
+      {row(`shell:${t.id}`, selectedTerm === t.id, () => {
+        onSelectTerm(t.id, t.title);
+        void revealTerminal(t.id);
+      }, (
+        <span className="flex w-full items-center gap-2" title={t.cwd}>
+          <span className="w-[7px] shrink-0 text-center font-mono text-[10px] leading-none text-ink-faint">$</span>
+          <span className="min-w-0 flex-1 truncate">{t.title}</span>
+          <span className="shrink-0 truncate text-[11px] text-ink-faint">{t.exited ? "exited" : repoName(t.cwd) === t.title ? "" : repoName(t.cwd)}</span>
+        </span>
+      ))}
+    </div>
+  );
   const gkey = (key: string | null) => `${grouping}:${key ?? ""}`;
   const agents = termSessions.length + outside.length;
   // the sliders menu's picture of the list: the first agents (else a sample) as `g` and `space` lay them out
@@ -253,7 +306,12 @@ export function TermCards(
         {sub && <span className="tracking-normal text-ink-muted">{` / ${sub}`}</span>}
       </div>
     );
-    if (g === "none") return <div className="flex flex-col">{xs.map((x) => item(x, true))}</div>;
+    const shellsHead = more.shells === "show" && (
+      <div className="mt-1.5 flex items-center gap-1 border-t border-line pt-1.5 text-[9.5px] tracking-[0.08em] text-ink-faint">
+        SHELLS · {plain.length || 2} <span className="ml-auto">▸</span>
+      </div>
+    );
+    if (g === "none") return <div className="flex flex-col">{xs.map((x) => item(x, true))}{shellsHead}</div>;
     const by = new Map<string, typeof xs>();
     for (const x of xs) {
       const k = g === "paths" ? `${x.project}\u0000${x.repo}` : x.project;
@@ -274,6 +332,7 @@ export function TermCards(
               : ys.map((y) => item(y, g === "project"))}
           </div>
         ))}
+        {shellsHead}
       </div>
     );
   };
@@ -316,6 +375,12 @@ export function TermCards(
             value: spacing,
             options: SPACING_LABEL,
             onChange: (v) => setSpacing(v as Spacing),
+          }, {
+            key: "shells",
+            label: "PLAIN SHELLS",
+            value: shells,
+            options: SHELLS_LABEL,
+            onChange: (v) => setShells(v as Shells),
           }]}
           preview={preview}
         />
@@ -404,6 +469,24 @@ export function TermCards(
             <span className="ml-auto tracking-normal tabular-nums">{outside.length}</span>
           </div>
           {outside.map(outsideRow)}
+        </section>
+      )}
+      {shells === "show" && plain.length > 0 && (
+        <section className={`flex flex-col ${gap}`}>
+          <button
+            type="button"
+            className={`group/fold flex items-center gap-1.5 px-2 pb-1 text-left ${SECTION_LABEL} hover:text-ink-soft`}
+            aria-expanded={shellsOpen}
+            title={shellsOpen ? "fold the shells" : "show the shells with no agent in them"}
+            onClick={() => setShellsOpen(!shellsOpen)}
+          >
+            SHELLS
+            <span aria-hidden="true" className={`text-[10px] leading-none ${shellsOpen ? "opacity-0 group-hover/fold:opacity-100" : ""}`}>
+              {shellsOpen ? "▾" : "▸"}
+            </span>
+            <span className="ml-auto pr-1 tracking-normal tabular-nums text-ink-faint">{plain.length}</span>
+          </button>
+          {shellsOpen && plain.map(shellRow)}
         </section>
       )}
       <RecentList board={board} selected={recent} history={history} onSelect={onSelectRecent} onHistory={onSelectHistory} />
