@@ -681,6 +681,14 @@ pub async fn serve(root: &Path, req: Request<Body>) -> Response {
             *term.card.lock().unwrap() = card;
             json_response(200, term.summary())
         }
+        // stop the agent's current turn: the Esc key it reads as an interrupt
+        (Method::POST, ["", "api", "term", id, "interrupt"]) => {
+            let Some(term) = registry().terms.lock().unwrap().get(*id).cloned() else {
+                return json_response(404, json!({"error":"not found"}));
+            };
+            term.write(b"\x1b");
+            json_response(200, json!({"ok":true}))
+        }
         (Method::DELETE, ["", "api", "term", id]) => {
             let id = (*id).to_owned();
             let found = crate::blocking::spawn(move || kill(&id))

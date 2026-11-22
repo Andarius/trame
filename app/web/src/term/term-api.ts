@@ -294,6 +294,9 @@ export async function closeTerminal(id: string) {
   await kill(id);
 }
 
+// stop an agent's current turn, as Esc in its shell would
+export const interruptTerminal = (id: string) => call(`/api/term/${id}/interrupt`, { method: "POST" });
+
 export async function closeTab(tabId: string) {
   const t = state.tabs.find((x) => x.id === tabId);
   for (const id of t ? leaves(t.root) : []) await closeTerminal(id);
