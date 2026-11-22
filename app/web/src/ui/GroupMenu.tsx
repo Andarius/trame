@@ -3,7 +3,7 @@ import { SlidersIcon } from "./icons";
 import { IconButton, MenuRow, Popover, SECTION_LABEL } from "./ui";
 
 // A sidebar list's sliders button: pick how its rows are grouped. `className` can hide it until its section's hover; open, it stays shown.
-// `hints` show, on the right of each option, a sample of what it looks like.
+// `hints` show, under each option, a sample of what it looks like.
 export function GroupMenu<T extends string>(
   { value, options, hints, onChange, className = "" }: {
     value: T;
@@ -27,7 +27,7 @@ export function GroupMenu<T extends string>(
         <SlidersIcon />
       </IconButton>
       {open && (
-        <Popover portal onClose={() => setOpen(false)} className="min-w-52">
+        <Popover portal onClose={() => setOpen(false)} className="min-w-44">
           <MenuSection label="GROUP BY" first>
             {(Object.keys(options) as T[]).map((g) => (
               <MenuOption
@@ -58,18 +58,20 @@ function MenuSection({ label, first, children }: { label: string; first?: boolea
   );
 }
 
-// one choice of a menu section: a radio dot, its label, and an optional mono hint of what it looks like
+// one choice of a menu section: a radio dot, its label, and an optional mono sample of what it looks like under it
 function MenuOption({ active, label, hint, onClick }: { active: boolean; label: string; hint?: string; onClick: () => void }) {
   return (
-    <MenuRow active={active} role="menuitemradio" aria-checked={active} onClick={onClick}>
+    <MenuRow active={active} role="menuitemradio" aria-checked={active} onClick={onClick} className="items-start">
       <span
         aria-hidden="true"
-        className={`grid h-3 w-3 shrink-0 place-items-center rounded-full border ${active ? "border-copper" : "border-ink-faint/60"}`}
+        className={`mt-[3px] grid h-3 w-3 shrink-0 place-items-center rounded-full border ${active ? "border-copper" : "border-ink-faint/60"}`}
       >
         {active && <span className="h-1.5 w-1.5 rounded-full bg-copper" />}
       </span>
-      <span className="flex-1">{label}</span>
-      {hint && <span className="pl-3 font-mono text-[10.5px] text-ink-faint">{hint}</span>}
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span>{label}</span>
+        {hint && <span className="pt-0.5 font-mono text-[10.5px] text-ink-faint">{hint}</span>}
+      </span>
     </MenuRow>
   );
 }
