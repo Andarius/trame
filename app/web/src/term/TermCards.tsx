@@ -7,7 +7,7 @@ import { FolderIcon, PinIcon } from "../ui/icons";
 import { appConfirm, BOOL_CODEC, EntityIcon, enumCodec, MenuRow, Popover, SECTION_LABEL, SET_CODEC, useLocalStorage } from "../ui/ui";
 import { LinkCardDialog } from "./LinkCardDialog";
 import { NewTerminalDialog } from "./NewTerminalDialog";
-import { closeTerminal, revealTerminal, sessionLabel, type TermSession, useTermDock, useTermSessions } from "./term-api";
+import { closeTerminal, interruptTerminal, openTerminal, revealTerminal, sessionLabel, type TermSession, useTermDock, useTermSessions } from "./term-api";
 
 // by project with a folder per repo, by project and repo, by project (the repo on each agent's line), or not at all
 const GROUPINGS = ["tree", "paths", "project", "none"] as const;
@@ -175,7 +175,7 @@ export function TermCards(
       <div
         key={key}
         className={`group/row relative ${waiting ? "rounded-md bg-wait/[0.14]" : ""}`}
-        title="right-click: pin, link to a card, close"
+        title="right-click: pin, fork, stop, link to a card, close"
         onContextMenu={(e) => {
           e.preventDefault();
           setMenu(key);
@@ -191,6 +191,35 @@ export function TermCards(
             >
               {pinned.has(x.id) ? "Unpin" : "Pin to top"}
             </MenuRow>
+            {x.agent === "claude" && (
+              <MenuRow
+                title="a new agent in a new shell that starts from this conversation"
+                onClick={() => {
+                  setMenu(null);
+                  const t = terms[x.term];
+                  void openTerminal({
+                    cwd: t?.cwd,
+                    card: t?.card ?? null,
+                    project: t?.project ?? null,
+                    title: `${sessionLabel(x)} (fork)`,
+                    command: `claude --resume ${x.id} --fork-session`,
+                  });
+                }}
+              >
+                Fork
+              </MenuRow>
+            )}
+            {working && (
+              <MenuRow
+                title="stop its current turn, as Esc would; the shell stays"
+                onClick={() => {
+                  setMenu(null);
+                  void interruptTerminal(x.term);
+                }}
+              >
+                Stop
+              </MenuRow>
+            )}
             <MenuRow
               onClick={() => {
                 setLinkFor(x.term);
