@@ -23,6 +23,13 @@ export function GroupMenu<T extends string>(
   const [hover, setHover] = useState<{ key: string; value: string } | null>(null);
   const group = hover?.key === "" ? hover.value as T : value;
   const picked = Object.fromEntries(more.map((m) => [m.key, hover?.key === m.key ? hover.value : m.value]));
+  // every combination of grouping and other choices, for a preview pane sized to the largest
+  const variants: [T, Record<string, string>][] = preview
+    ? more.reduce<[T, Record<string, string>][]>(
+      (acc, m) => acc.flatMap(([g, c]) => Object.keys(m.options).map((v) => [g, { ...c, [m.key]: v }] as [T, Record<string, string>])),
+      (Object.keys(options) as T[]).map((g) => [g, {}]),
+    )
+    : [];
   const opts = (
     <div className="flex flex-col" onMouseLeave={() => setHover(null)}>
       <MenuSection label="GROUP BY" first>
@@ -74,7 +81,18 @@ export function GroupMenu<T extends string>(
             ? (
               <div className="grid grid-cols-[auto_200px]">
                 <div className="border-r border-line pr-1.5">{opts}</div>
-                <div className="ml-1.5 overflow-hidden rounded-md bg-canvas p-2.5" aria-label="preview">{preview(group, picked)}</div>
+                <div className="ml-1.5 grid overflow-hidden rounded-md bg-canvas p-2.5" aria-label="preview">
+                  {/* every variant sits in one cell, so the pane keeps the size of the largest as you hover */}
+                  {variants.map(([g, m]) => (
+                    <div
+                      key={`${g}|${Object.values(m).join("|")}`}
+                      className={`[grid-area:1/1] ${g === group && sameChoices(m, picked) ? "" : "invisible"}`}
+                      aria-hidden={!(g === group && sameChoices(m, picked))}
+                    >
+                      {preview(g, m)}
+                    </div>
+                  ))}
+                </div>
               </div>
             )
             : opts}
@@ -82,6 +100,10 @@ export function GroupMenu<T extends string>(
       )}
     </span>
   );
+}
+
+function sameChoices(a: Record<string, string>, b: Record<string, string>) {
+  return Object.keys(a).every((k) => a[k] === b[k]);
 }
 
 // a titled group of options; any after the first gets a divider
