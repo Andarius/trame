@@ -343,7 +343,7 @@ export function TermCards(
         className="ml-[19px] flex w-[calc(100%-19px)] items-center gap-1.5 rounded-md px-2 py-0.5 text-left text-[11.5px] text-ink-muted hover:bg-active-row hover:text-ink-soft"
       >
         <ForkState state={a.done ? (failed.length ? "failed" : "done") : "running"} />
-        <span className="flex shrink-0 items-center gap-0.5">
+        <span className="flex shrink-0 items-center -space-x-[3px]">
           {a.advisors.map((v) => (
             <span key={v.name} title={`${v.name} ${v.status}`} className={`inline-flex ${v.status === "failed" ? "opacity-35 grayscale" : ""}`}>
               <AgentIcon a={{ harness: ADVISOR_HARNESS[v.name] ?? v.name, icon: null }} />
