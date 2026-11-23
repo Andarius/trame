@@ -3,7 +3,7 @@ import type { BoardData, ClaudeSession } from "../api";
 import { RecentList } from "../agents/RecentList";
 import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
-import { BranchIcon, FolderIcon, PinIcon } from "../ui/icons";
+import { FolderIcon, PinIcon } from "../ui/icons";
 import { appConfirm, BOOL_CODEC, EntityIcon, enumCodec, MenuRow, Popover, SECTION_LABEL, SET_CODEC, useLocalStorage } from "../ui/ui";
 import { LinkCardDialog } from "./LinkCardDialog";
 import { NewTerminalDialog } from "./NewTerminalDialog";
@@ -292,7 +292,7 @@ export function TermCards(
       <button
         key={`fork:${f.job}`}
         type="button"
-        title={`${f.name ?? label} · background fork · click to attach (claude attach ${f.job})`}
+        title={`${f.name ?? label} · background fork, ${state} · click to attach (claude attach ${f.job})`}
         onClick={() =>
           void openTerminal({
             cwd: f.cwd ?? t?.cwd,
@@ -303,9 +303,10 @@ export function TermCards(
           })}
         className="ml-[19px] flex w-[calc(100%-19px)] items-center gap-1.5 rounded-md px-2 py-0.5 text-left text-[11.5px] text-ink-muted hover:bg-active-row hover:text-ink-soft"
       >
-        <span className="inline-block shrink-0 text-ink-faint [&>svg]:inline"><BranchIcon size={10} /></span>
+        <ForkState state={state} />
+        <AgentIcon a={{ harness: x.agent, icon: null }} />
         <span className="min-w-0 flex-1 truncate">{label}</span>
-        <span className={`shrink-0 text-[10.5px] ${state === "waiting" ? "text-wait" : "text-ink-faint"}`}>{state}</span>
+        <span className="shrink-0 font-mono text-[10.5px] text-ink-faint">{ago(sinceMs(f.updated_at))}</span>
       </button>
     );
   };
@@ -621,6 +622,39 @@ const FORK_DONE_MS = 12 * 3600_000; // a finished fork stays listed this long
 // waiting on you first, then working, then finished
 const forkRank = (f: Fork) => (f.state === "blocked" ? 0 : f.state === "done" ? 2 : 1);
 const sinceMs = (iso: string | null) => (iso ? Date.now() - Date.parse(iso) : Infinity);
+// "6m", "2h", "3d" for a duration in ms
+const ago = (ms: number) => {
+  const m = Math.floor(ms / 60_000);
+  if (!Number.isFinite(m)) return "";
+  return m < 60 ? `${Math.max(1, m)}m` : m < 1440 ? `${Math.floor(m / 60)}h` : `${Math.floor(m / 1440)}d`;
+};
+
+// a fork's state as a glyph: a spinner while it runs, a check once done, a question mark when it waits on you
+function ForkState({ state }: { state: string }) {
+  const cls = "h-3 w-3 shrink-0";
+  if (state === "done") {
+    return (
+      <svg viewBox="0 0 12 12" className={`${cls} text-live`} fill="none" stroke="currentColor" strokeWidth="1.3" aria-label="done">
+        <circle cx="6" cy="6" r="5" />
+        <path d="M3.8 6.1l1.5 1.5 2.9-3" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (state === "waiting") {
+    return (
+      <svg viewBox="0 0 12 12" className={`${cls} text-wait`} fill="none" stroke="currentColor" strokeWidth="1.3" aria-label="waiting">
+        <circle cx="6" cy="6" r="5" />
+        <path d="M4.6 4.7a1.4 1.4 0 1 1 1.9 1.3c-.4.2-.5.4-.5.8" strokeLinecap="round" />
+        <circle cx="6" cy="8.6" r=".4" fill="currentColor" stroke="none" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 12 12" className={`${cls} animate-spin text-wait`} fill="none" stroke="currentColor" strokeWidth="1.5" aria-label={state}>
+      <path d="M6 1a5 5 0 1 1-5 5" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 const projectName = (board: BoardData | null, id: string) => board?.projects.find((p) => p.id === id)?.name ?? "";
 const seen = (x: TermSession) => x.updated_at ?? x.started_at ?? 0;
