@@ -294,6 +294,19 @@ export async function closeTerminal(id: string) {
   await kill(id);
 }
 
+// a background session `/fork` started, by the session it was forked from
+export type Fork = {
+  job: string; // what `claude attach` takes
+  id: string;
+  parent: string;
+  name: string | null;
+  intent: string | null;
+  state: string | null; // blocked (waits on you), done, stopped, …
+  cwd: string | null;
+  updated_at: string | null;
+};
+export const termForks = () => call("/api/term/forks") as Promise<Fork[]>;
+
 // stop an agent's current turn, as Esc in its shell would
 export const interruptTerminal = (id: string) => call(`/api/term/${id}/interrupt`, { method: "POST" });
 

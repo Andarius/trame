@@ -1,13 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { BoardData, ClaudeSession } from "../api";
 import { RecentList } from "../agents/RecentList";
 import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
-import { FolderIcon, PinIcon } from "../ui/icons";
+import { BranchIcon, FolderIcon, PinIcon } from "../ui/icons";
 import { appConfirm, BOOL_CODEC, EntityIcon, enumCodec, MenuRow, Popover, SECTION_LABEL, SET_CODEC, useLocalStorage } from "../ui/ui";
 import { LinkCardDialog } from "./LinkCardDialog";
 import { NewTerminalDialog } from "./NewTerminalDialog";
-import { closeTerminal, interruptTerminal, openTerminal, revealTerminal, sessionLabel, type TermSession, useTermDock, useTermSessions } from "./term-api";
+import { closeTerminal, type Fork, interruptTerminal, openTerminal, revealTerminal, termForks, sessionLabel, type TermSession, useTermDock, useTermSessions } from "./term-api";
 
 // by project with a folder per repo, by project and repo, by project (the repo on each agent's line), or not at all
 const GROUPINGS = ["tree", "paths", "project", "none"] as const;
@@ -90,6 +90,20 @@ export function TermCards(
   const cardOf = new Map(board?.sessions.map((s) => [s.id, s]));
   const knownProjects = new Set(board?.projects.map((p) => p.id));
   const termSessions = useTermSessions();
+  // `/fork` background sessions, under the agent they came from; stopped ones and those attached in a shell left out
+  const [forks, setForks] = useState<Fork[]>([]);
+  useEffect(() => {
+    const load = () => !document.hidden && termForks().then(setForks).catch(() => {});
+    load();
+    const t = setInterval(load, FORKS_POLL_MS);
+    return () => clearInterval(t);
+  }, []);
+  const inShell = new Set(termSessions.map((x) => x.id));
+  const forksOf = new Map<string, Fork[]>();
+  for (const f of forks) {
+    if (f.state === "stopped" || inShell.has(f.id) || (f.state === "done" && sinceMs(f.updated_at) > FORK_DONE_MS)) continue;
+    forksOf.set(f.parent, [...(forksOf.get(f.parent) ?? []), f]);
+  }
   // the hooks report model, step and question per card: an agent gets its shell's card's
   const liveOf = (x: TermSession) => {
     const c = terms[x.term]?.card;
@@ -253,6 +267,7 @@ export function TermCards(
             <AgentLine l={l} x={x} repo={flat || grouping === "project" || grouping === "none" ? repoOf(x) : null} />
           </>
         ))}
+        {(forksOf.get(x.id) ?? []).sort((a, b) => forkRank(a) - forkRank(b)).map((f) => forkRow(f, x))}
         <button
           type="button"
           onClick={() => flip(pinned, setPinned, x.id)}
@@ -266,6 +281,32 @@ export function TermCards(
           <PinIcon size={12} />
         </button>
       </div>
+    );
+  };
+  // a `/fork` of `x` running in the background: a click attaches to it in a new shell
+  const forkRow = (f: Fork, x: TermSession) => {
+    const t = terms[x.term];
+    const label = f.intent || f.name || f.job;
+    const state = f.state === "blocked" ? "waiting" : f.state ?? "running";
+    return (
+      <button
+        key={`fork:${f.job}`}
+        type="button"
+        title={`${f.name ?? label} · background fork · click to attach (claude attach ${f.job})`}
+        onClick={() =>
+          void openTerminal({
+            cwd: f.cwd ?? t?.cwd,
+            card: t?.card ?? null,
+            project: t?.project ?? null,
+            title: label,
+            command: `claude attach ${f.job}`,
+          })}
+        className="ml-[19px] flex w-[calc(100%-19px)] items-center gap-1.5 rounded-md px-2 py-0.5 text-left text-[11.5px] text-ink-muted hover:bg-active-row hover:text-ink-soft"
+      >
+        <span className="inline-block shrink-0 text-ink-faint [&>svg]:inline"><BranchIcon size={10} /></span>
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <span className={`shrink-0 text-[10.5px] ${state === "waiting" ? "text-wait" : "text-ink-faint"}`}>{state}</span>
+      </button>
     );
   };
   // an agent running in a terminal outside Trame, known from its card's presence
@@ -574,6 +615,12 @@ const repoName = (path: string | null) => {
   const root = path.replace(/\/+$/, "").replace(/\/(\.scratch|\.worktrees|\.claude\/worktrees)\/[^/]+$/, "");
   return root.split("/").pop() || null;
 };
+
+const FORKS_POLL_MS = 10_000;
+const FORK_DONE_MS = 12 * 3600_000; // a finished fork stays listed this long
+// waiting on you first, then working, then finished
+const forkRank = (f: Fork) => (f.state === "blocked" ? 0 : f.state === "done" ? 2 : 1);
+const sinceMs = (iso: string | null) => (iso ? Date.now() - Date.parse(iso) : Infinity);
 
 const projectName = (board: BoardData | null, id: string) => board?.projects.find((p) => p.id === id)?.name ?? "";
 const seen = (x: TermSession) => x.updated_at ?? x.started_at ?? 0;
