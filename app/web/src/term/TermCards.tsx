@@ -7,7 +7,7 @@ import { FolderIcon, PinIcon } from "../ui/icons";
 import { appConfirm, BOOL_CODEC, EntityIcon, enumCodec, MenuRow, Popover, SECTION_LABEL, SET_CODEC, useLocalStorage } from "../ui/ui";
 import { LinkCardDialog } from "./LinkCardDialog";
 import { NewTerminalDialog } from "./NewTerminalDialog";
-import { closeTerminal, type Fork, interruptTerminal, openTerminal, revealTerminal, termForks, sessionLabel, type TermSession, useTermDock, useTermSessions } from "./term-api";
+import { type Advice, closeTerminal, type Fork, interruptTerminal, openTerminal, revealTerminal, termAdvices, termForks, sessionLabel, type TermSession, useTermDock, useTermSessions } from "./term-api";
 
 // by project with a folder per repo, by project and repo, by project (the repo on each agent's line), or not at all
 const GROUPINGS = ["tree", "paths", "project", "none"] as const;
@@ -98,6 +98,18 @@ export function TermCards(
     const t = setInterval(load, FORKS_POLL_MS);
     return () => clearInterval(t);
   }, []);
+  // `/advices` runs, under the agent that asked them
+  const [advices, setAdvices] = useState<Advice[]>([]);
+  useEffect(() => {
+    const load = () => !document.hidden && termAdvices().then(setAdvices).catch(() => {});
+    load();
+    const t = setInterval(load, FORKS_POLL_MS);
+    return () => clearInterval(t);
+  }, []);
+  const advicesOf = new Map<string, Advice[]>();
+  for (const a of [...advices].sort((a, b) => (b.asked_at ?? 0) - (a.asked_at ?? 0))) {
+    advicesOf.set(a.session, [...(advicesOf.get(a.session) ?? []), a]);
+  }
   const inShell = new Set(termSessions.map((x) => x.id));
   const forksOf = new Map<string, Fork[]>();
   for (const f of forks) {
@@ -268,6 +280,7 @@ export function TermCards(
           </>
         ))}
         {(forksOf.get(x.id) ?? []).sort((a, b) => forkRank(a) - forkRank(b)).map((f) => forkRow(f, x))}
+        {(advicesOf.get(x.id) ?? []).map((a) => adviceRow(a, x))}
         <button
           type="button"
           onClick={() => flip(pinned, setPinned, x.id)}
@@ -307,6 +320,38 @@ export function TermCards(
         <AgentIcon a={{ harness: x.agent, icon: null }} />
         <span className="min-w-0 flex-1 truncate">{label}</span>
         <span className="shrink-0 font-mono text-[10.5px] text-ink-faint">{ago(sinceMs(f.updated_at))}</span>
+      </button>
+    );
+  };
+  // an `/advices` run `x` asked: a click shows the answers (or follows the advisors while they run) in a new shell
+  const adviceRow = (a: Advice, x: TermSession) => {
+    const t = terms[x.term];
+    const failed = a.advisors.filter((v) => v.status === "failed").map((v) => v.name);
+    return (
+      <button
+        key={`adv:${a.run}`}
+        type="button"
+        title={`/advices · ${a.advisors.map((v) => `${v.name} ${v.status}`).join(", ")} · click to read the answers`}
+        onClick={() =>
+          void openTerminal({
+            cwd: a.dir,
+            card: t?.card ?? null,
+            project: t?.project ?? null,
+            title: `advices: ${a.question}`,
+            command: a.done ? "less answers/*.md" : "tail -f raw/*.log",
+          })}
+        className="ml-[19px] flex w-[calc(100%-19px)] items-center gap-1.5 rounded-md px-2 py-0.5 text-left text-[11.5px] text-ink-muted hover:bg-active-row hover:text-ink-soft"
+      >
+        <ForkState state={a.done ? (failed.length ? "failed" : "done") : "running"} />
+        <span className="flex shrink-0 items-center gap-0.5">
+          {a.advisors.map((v) => (
+            <span key={v.name} title={`${v.name} ${v.status}`} className={`inline-flex ${v.status === "failed" ? "opacity-35 grayscale" : ""}`}>
+              <AgentIcon a={{ harness: ADVISOR_HARNESS[v.name] ?? v.name, icon: null }} />
+            </span>
+          ))}
+        </span>
+        <span className="min-w-0 flex-1 truncate">{a.question}</span>
+        <span className="shrink-0 font-mono text-[10.5px] text-ink-faint">{a.asked_at ? ago(Date.now() - a.asked_at) : ""}</span>
       </button>
     );
   };
@@ -622,6 +667,9 @@ const FORK_DONE_MS = 12 * 3600_000; // a finished fork stays listed this long
 // waiting on you first, then working, then finished
 const forkRank = (f: Fork) => (f.state === "blocked" ? 0 : f.state === "done" ? 2 : 1);
 const sinceMs = (iso: string | null) => (iso ? Date.now() - Date.parse(iso) : Infinity);
+// the harness logo for an `/advices` advisor
+const ADVISOR_HARNESS: Record<string, string> = { fable: "claude", "vibe-large": "vibe", gemini: "agy" };
+
 // "6m", "2h", "3d" for a duration in ms
 const ago = (ms: number) => {
   const m = Math.floor(ms / 60_000);
@@ -629,7 +677,7 @@ const ago = (ms: number) => {
   return m < 60 ? `${Math.max(1, m)}m` : m < 1440 ? `${Math.floor(m / 60)}h` : `${Math.floor(m / 1440)}d`;
 };
 
-// a fork's state as a glyph: a spinner while it runs, a check once done, a question mark when it waits on you
+// a fork's or advice run's state: a spinner while it runs, a check once done, a cross if it failed, a question mark when it waits on you
 function ForkState({ state }: { state: string }) {
   const cls = "h-3 w-3 shrink-0";
   if (state === "done") {
@@ -637,6 +685,14 @@ function ForkState({ state }: { state: string }) {
       <svg viewBox="0 0 12 12" className={`${cls} text-live`} fill="none" stroke="currentColor" strokeWidth="1.3" aria-label="done">
         <circle cx="6" cy="6" r="5" />
         <path d="M3.8 6.1l1.5 1.5 2.9-3" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (state === "failed") {
+    return (
+      <svg viewBox="0 0 12 12" className={`${cls} text-blocked`} fill="none" stroke="currentColor" strokeWidth="1.3" aria-label="an advisor failed">
+        <circle cx="6" cy="6" r="5" />
+        <path d="M4.3 4.3l3.4 3.4M7.7 4.3l-3.4 3.4" strokeLinecap="round" />
       </svg>
     );
   }
