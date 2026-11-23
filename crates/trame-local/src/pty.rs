@@ -1001,6 +1001,7 @@ struct AgentSession {
     started_at: Option<u64>, // epoch ms, Claude only
     updated_at: Option<u64>, // epoch ms of its last status change, Claude only
     done: bool,              // idle, and its last reply ended with "Follow-ups: none"
+    follow_ups: Option<Vec<String>>, // idle: the items of its last reply's follow-ups list
 }
 
 #[derive(Debug, PartialEq, serde::Serialize)]
@@ -1123,7 +1124,8 @@ fn claude_session(dir: &Path, pid: u32) -> Option<AgentSession> {
     }
     let mut session = parse_claude_session(&file)?;
     if !session.busy && session.waiting.is_none() {
-        session.done = last_reply(dir, &session.id).is_some_and(|text| no_follow_ups(&text));
+        session.follow_ups = last_reply(dir, &session.id).and_then(|text| follow_ups(&text));
+        session.done = session.follow_ups.as_ref().is_some_and(Vec::is_empty);
     }
     Some(session)
 }
@@ -1161,17 +1163,44 @@ fn last_reply(dir: &Path, id: &str) -> Option<String> {
         })
 }
 
-/// The reply's last "Follow-ups…:" list is "none".
-fn no_follow_ups(text: &str) -> bool {
+/// The items of the reply's last "Follow-ups…:" list: empty for "none", `None` without such a list.
+fn follow_ups(text: &str) -> Option<Vec<String>> {
     static HEADING: OnceLock<regex::Regex> = OnceLock::new();
     let heading =
         HEADING.get_or_init(|| regex::Regex::new(r"(?i)follow[- ]?ups?[^:\n]{0,40}:").unwrap());
-    heading.find_iter(text).last().is_some_and(|m| {
-        text[m.end()..]
-            .trim_start_matches(|c: char| c.is_whitespace() || matches!(c, '-' | '*' | '_'))
-            .to_lowercase()
-            .starts_with("none")
-    })
+    let rest = &text[heading.find_iter(text).last()?.end()..];
+    let first =
+        rest.trim_start_matches(|c: char| c.is_whitespace() || matches!(c, '-' | '*' | '_'));
+    if first.to_lowercase().starts_with("none") {
+        return Some(Vec::new());
+    }
+    let (inline, lines) = rest.split_once('\n').unwrap_or((rest, ""));
+    // the top-level items of the list right under the heading, or the one written on the heading's line
+    let items: Vec<String> = lines
+        .lines()
+        .skip_while(|l| l.trim().is_empty())
+        .take_while(|l| !l.trim().is_empty())
+        .filter_map(|l| {
+            let t = l.trim_start();
+            if l.len() - t.len() >= 2 {
+                return None;
+            }
+            let item = t
+                .strip_prefix("- ")
+                .or_else(|| t.strip_prefix("* "))
+                .or_else(|| {
+                    t.split_once(". ")
+                        .filter(|(n, _)| n.parse::<u32>().is_ok())
+                        .map(|(_, r)| r)
+                })?;
+            let item = item.strip_prefix("[ ] ").unwrap_or(item).trim();
+            (!item.is_empty()).then(|| item.to_owned())
+        })
+        .collect();
+    if items.is_empty() && !inline.trim().is_empty() {
+        return Some(vec![inline.trim().to_owned()]);
+    }
+    Some(items)
 }
 
 fn parse_claude_session(file: &Value) -> Option<AgentSession> {
@@ -1190,6 +1219,7 @@ fn parse_claude_session(file: &Value) -> Option<AgentSession> {
         started_at: file["startedAt"].as_u64(),
         updated_at: file["updatedAt"].as_u64(),
         done: false,
+        follow_ups: None,
     })
 }
 
@@ -1235,6 +1265,7 @@ fn running_agents(
                     started_at: None,
                     updated_at: None,
                     done: false,
+                    follow_ups: None,
                 })
             };
             let found = session_of(p.pid)
@@ -1822,7 +1853,7 @@ fn parse_ghostty(config: &str) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::{
-        AgentSession, Outside, Saved, SavedAgent, card_id, find_outside, no_follow_ups,
+        AgentSession, Outside, Saved, SavedAgent, card_id, find_outside, follow_ups,
         parse_claude_session, parse_ghostty, preview_image, process_cwd, process_name, reopen_plan,
         repo_root, resolve_cwd, running_agents,
     };
@@ -1871,6 +1902,7 @@ mod tests {
             started_at: Some(1),
             updated_at: Some(2),
             done: false,
+            follow_ups: None,
         };
         let session = |pid| match pid {
             11 => Some(claude("c-1")),
@@ -1880,8 +1912,8 @@ mod tests {
         assert_eq!(
             json!(running_agents(&all, &shells, session)),
             json!([
-                {"term":"t1","agent":"claude","id":"c-1","name":"test","named":true,"busy":true,"waiting":null,"started_at":1,"updated_at":2,"done":false},
-                {"term":"t2","agent":"codex","id":"x-2","name":null,"named":false,"busy":false,"waiting":null,"started_at":null,"updated_at":null,"done":false},
+                {"term":"t1","agent":"claude","id":"c-1","name":"test","named":true,"busy":true,"waiting":null,"started_at":1,"updated_at":2,"done":false,"follow_ups":null},
+                {"term":"t2","agent":"codex","id":"x-2","name":null,"named":false,"busy":false,"waiting":null,"started_at":null,"updated_at":null,"done":false,"follow_ups":null},
             ])
         );
     }
@@ -1951,19 +1983,28 @@ mod tests {
     }
 
     #[test]
-    fn no_follow_ups_reads_the_last_list() {
-        for (text, done) in [
-            ("Done.\n\nFollow-ups: none.", true),
-            ("Follow-ups (on the card): none", true),
-            ("Follow-ups:\n- none", true),
-            ("Follow-ups:\n- check #356 in the desktop app", false),
+    fn follow_ups_reads_the_last_list() {
+        for (text, items) in [
+            ("Done.\n\nFollow-ups: none.", Some(vec![])),
+            ("Follow-ups (on the card): none", Some(vec![])),
+            ("Follow-ups:\n- none", Some(vec![])),
             (
-                "Follow-ups: none\n\nNext topic.\n\nFollow-ups:\n- push",
-                false,
+                "Follow-ups:\n- check #356 in the desktop app",
+                Some(vec!["check #356 in the desktop app"]),
             ),
-            ("All set, nothing left.", false),
+            (
+                "Follow-ups:\n\n- one\n  - nested\n* [ ] two\n3. three\n\nBye.",
+                Some(vec!["one", "two", "three"]),
+            ),
+            ("Follow-ups: push the branch", Some(vec!["push the branch"])),
+            (
+                "Follow-ups: none\n\nNext topic.\n\nFollow-ups:\n- push\n- tag",
+                Some(vec!["push", "tag"]),
+            ),
+            ("All set, nothing left.", None),
         ] {
-            assert_eq!(no_follow_ups(text), done, "{text}");
+            let items = items.map(|v| v.into_iter().map(str::to_owned).collect::<Vec<_>>());
+            assert_eq!(follow_ups(text), items, "{text}");
         }
     }
 

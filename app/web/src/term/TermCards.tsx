@@ -139,6 +139,8 @@ export function TermCards(
   const asking = termSessions.filter(isWaiting);
   const running = termSessions.filter((x) => !isWaiting(x)).sort((a, b) => seen(b) - seen(a));
   const pins = running.filter((x) => pinned.has(x.id));
+  // idle agents whose follow-ups have waited over a day, above the groups
+  const leftOver = running.filter((x) => !pinned.has(x.id) && !x.busy && liveOf(x)?.state !== "working" && isLeftOver(x));
   // an agent's project: its card's, else its shell's
   const projectOf = (x: TermSession) => {
     const t = terms[x.term];
@@ -154,7 +156,7 @@ export function TermCards(
   type Group = { key: string; project: string | null; repo: string | null; xs: TermSession[] };
   const groups = new Map<string, Group>();
   for (const x of running) {
-    if (pinned.has(x.id)) continue;
+    if (pinned.has(x.id) || leftOver.includes(x)) continue;
     const project = byProject ? projectOf(x) : null;
     const repo = grouping === "paths" ? repoOf(x) : null;
     const key = byProject ? `${project ?? ""}/${repo ?? ""}` : "all";
@@ -293,6 +295,31 @@ export function TermCards(
             <AgentLine l={l} x={x} repo={flat || grouping === "project" || grouping === "none" ? repoOf(x) : null} />
           </>
         ))}
+        {selectedTerm === x.term && !x.busy && (x.follow_ups?.length ?? 0) > 0 && (
+          <ul aria-label="Follow-ups" className="ml-[19px] flex flex-col pb-0.5">
+            {x.follow_ups!.map((item) => (
+              <li key={item}>
+                <button
+                  type="button"
+                  title={`start an agent on it: ${item}`}
+                  onClick={() =>
+                    void openTerminal({
+                      cwd: terms[x.term]?.cwd,
+                      card: terms[x.term]?.card ?? null,
+                      project: terms[x.term]?.project ?? null,
+                      title: item,
+                      command: `${x.agent} ${shellQuote(item)}`,
+                    })}
+                  className="group/fu flex w-full items-center gap-1.5 rounded-md px-2 py-0.5 text-left text-[11.5px] text-ink-muted hover:bg-active-row hover:text-ink-soft"
+                >
+                  <span aria-hidden="true" className="h-[9px] w-[9px] shrink-0 rounded-[2px] border border-current opacity-70" />
+                  <span className="min-w-0 flex-1 truncate">{item}</span>
+                  <span className="shrink-0 text-[10.5px] text-copper opacity-0 group-hover/fu:opacity-100">start ▸</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
         {(forksOf.get(x.id) ?? []).sort((a, b) => forkRank(a) - forkRank(b)).map((f) => forkRow(f, x))}
         {(subsOf.get(x.id) ?? []).map((a) => subRow(a, x))}
         {(advicesOf.get(x.id) ?? []).map((a) => adviceRow(a, x))}
@@ -334,7 +361,7 @@ export function TermCards(
         <ForkState state={state} />
         <AgentIcon a={{ harness: x.agent, icon: null }} />
         <span className="min-w-0 flex-1 truncate">{label}</span>
-        <span className="shrink-0 font-mono text-[10.5px] text-ink-faint">{ago(sinceMs(f.updated_at))}</span>
+        <span className="shrink-0 font-mono text-[10.5px] text-ink-faint">{f.updated_at ? age(Date.parse(f.updated_at)) : ""}</span>
       </button>
     );
   };
@@ -380,7 +407,7 @@ export function TermCards(
           ))}
         </span>
         <span className="min-w-0 flex-1 truncate">{a.question}</span>
-        <span className="shrink-0 font-mono text-[10.5px] text-ink-faint">{a.asked_at ? ago(Date.now() - a.asked_at) : ""}</span>
+        <span className="shrink-0 font-mono text-[10.5px] text-ink-faint">{a.asked_at ? age(a.asked_at) : ""}</span>
       </button>
     );
   };
@@ -514,6 +541,14 @@ export function TermCards(
         <section className={`flex flex-col ${gap}`}>
           <div className={`px-2 pb-1 ${SECTION_LABEL} text-wait`}>NEEDS YOU · {asking.length}</div>
           {asking.map((x) => agentRow(x))}
+        </section>
+      )}
+      {leftOver.length > 0 && (
+        <section className={`flex flex-col ${gap}`} aria-label="Left over">
+          <div className={`px-2 pb-1 ${SECTION_LABEL}`} title="idle agents whose follow-ups have waited over a day">
+            LEFT OVER · {leftOver.length}
+          </div>
+          {leftOver.map((x) => agentRow(x, true))}
         </section>
       )}
       <div className="-mb-1 flex items-center px-2">
@@ -695,7 +730,7 @@ const FORKS_POLL_MS = 10_000;
 const SUBAGENTS_POLL_MS = 5_000;
 const subAge = (a: Subagent) => {
   const at = a.done ? a.updated_at : a.started_at;
-  return at ? ago(Date.now() - at) : "";
+  return at ? age(at) : "";
 };
 const FORK_DONE_MS = 12 * 3600_000; // a finished fork stays listed this long
 // waiting on you first, then working, then finished
@@ -704,12 +739,6 @@ const sinceMs = (iso: string | null) => (iso ? Date.now() - Date.parse(iso) : In
 // the harness logo for an `/advices` advisor
 const ADVISOR_HARNESS: Record<string, string> = { fable: "claude", "vibe-large": "vibe", gemini: "agy" };
 
-// "6m", "2h", "3d" for a duration in ms
-const ago = (ms: number) => {
-  const m = Math.floor(ms / 60_000);
-  if (!Number.isFinite(m)) return "";
-  return m < 60 ? `${Math.max(1, m)}m` : m < 1440 ? `${Math.floor(m / 60)}h` : `${Math.floor(m / 1440)}d`;
-};
 
 // a fork's or advice run's state: a spinner while it runs, a check once done, a cross if it failed, a question mark when it waits on you
 function ForkState({ state }: { state: string }) {
@@ -748,6 +777,10 @@ function ForkState({ state }: { state: string }) {
 
 const projectName = (board: BoardData | null, id: string) => board?.projects.find((p) => p.id === id)?.name ?? "";
 const seen = (x: TermSession) => x.updated_at ?? x.started_at ?? 0;
+const LEFT_OVER_MS = 24 * 3600_000;
+// open follow-ups, untouched for over a day
+const isLeftOver = (x: TermSession) => (x.follow_ups?.length ?? 0) > 0 && seen(x) > 0 && Date.now() - seen(x) > LEFT_OVER_MS;
+const shellQuote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
 
 // under an agent's name: its model and state, how long, then what it does (or asks) on a second line;
 // `l` is its card's presence from the hooks, `x` what Trame reads from the process itself
@@ -765,7 +798,24 @@ function AgentLine({ l, x, repo }: { l?: Live; x?: TermSession; repo?: string | 
         <span className="min-w-0 flex-1 truncate" title={l?.a.model ?? undefined}>
           {repo && `${repo} · `}
           {model && `${model} · `}
-          {waiting ? <span className="text-wait">needs you</span> : working ? "working" : done ? "done" : "idle"}
+          {waiting
+            ? <span className="text-wait">needs you</span>
+            : working
+            ? "working"
+            : done
+            ? "done"
+            : x?.follow_ups?.length
+            ? (
+              <span
+                title={x.follow_ups.join("\n")}
+                className={isLeftOver(x)
+                  ? "rounded-full border border-wait/45 px-1.5 text-wait"
+                  : "text-ink-soft"}
+              >
+                {x.follow_ups.length} left
+              </span>
+            )
+            : "idle"}
         </span>
         <span className="shrink-0 font-mono text-[10px] tabular-nums">
           {l ? <Elapsed since={l.a.since} state={l.state} /> : x && seen(x) > 0 && age(seen(x))}

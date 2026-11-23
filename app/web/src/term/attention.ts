@@ -11,6 +11,7 @@ export type TermSession = {
   started_at: number | null; // epoch ms, Claude only
   updated_at: number | null; // epoch ms of its last status change, Claude only
   done: boolean; // idle, and its last reply ended with "Follow-ups: none"
+  follow_ups?: string[] | null; // idle: the items of its last reply's follow-ups list
 };
 
 // shells to flag as finished: an agent going from busy to idle joins, one busy again or gone leaves
