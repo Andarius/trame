@@ -480,6 +480,24 @@ pub async fn serve(root: &Path, req: Request<Body>) -> Response {
             .unwrap_or_default();
             json_response(200, json!(forks))
         }
+        // the running and just-finished subagents of the Claude sessions in `?sessions=a,b`
+        (Method::GET, ["", "api", "term", "subagents"]) => {
+            let ids: Vec<String> =
+                crate::sessions::query_param(req.uri().query().unwrap_or(""), "sessions")
+                    .unwrap_or_default()
+                    .split(',')
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_owned)
+                    .collect();
+            let subs = crate::blocking::spawn(move || {
+                claude_dir()
+                    .map(|d| subagents(&d.join("projects"), &ids))
+                    .unwrap_or_default()
+            })
+            .await
+            .unwrap_or_default();
+            json_response(200, json!(subs))
+        }
         // the recent `/advices` runs, by the session that asked them
         (Method::GET, ["", "api", "term", "advices"]) => {
             let runs = crate::blocking::spawn(|| {
@@ -773,6 +791,95 @@ fn background_forks(jobs: &Path) -> Vec<Fork> {
             })
         })
         .collect()
+}
+
+/// A subagent an agent session spawned, from Claude Code's `<session>/subagents/agent-<id>.meta.json` (an internal format).
+#[derive(Debug, PartialEq, serde::Serialize)]
+struct Subagent {
+    session: String,
+    id: String,
+    kind: Option<String>, // its agent type, e.g. Explore, general-purpose
+    description: Option<String>,
+    model: Option<String>,
+    done: bool,
+    started_at: Option<u64>, // epoch ms of its transcript's first entry
+    updated_at: Option<u64>, // epoch ms of its transcript's last write
+}
+
+// a finished subagent stays listed this long; one silent this long without finishing is taken as dead
+const SUBAGENT_RECENT: std::time::Duration = std::time::Duration::from_mins(10);
+const SUBAGENT_STALE: std::time::Duration = std::time::Duration::from_mins(30);
+
+fn subagents(projects: &Path, sessions: &[String]) -> Vec<Subagent> {
+    let roots: Vec<PathBuf> = std::fs::read_dir(projects)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|p| p.path())
+        .collect();
+    let mut out = Vec::new();
+    for session in sessions {
+        let Some(dir) = roots
+            .iter()
+            .map(|r| r.join(session).join("subagents"))
+            .find(|d| d.is_dir())
+        else {
+            continue;
+        };
+        for f in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let name = f.file_name();
+            let Some(id) = name.to_str().and_then(|n| n.strip_suffix(".meta.json")) else {
+                continue;
+            };
+            let Some(meta) = std::fs::read(f.path())
+                .ok()
+                .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            else {
+                continue;
+            };
+            let done = meta["finished"] == true;
+            let written = std::fs::metadata(dir.join(format!("{id}.jsonl")))
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::UNIX_EPOCH);
+            let quiet = written.elapsed().unwrap_or_default();
+            if quiet
+                > if done {
+                    SUBAGENT_RECENT
+                } else {
+                    SUBAGENT_STALE
+                }
+            {
+                continue;
+            }
+            let text = |k: &str| meta[k].as_str().map(str::to_owned);
+            out.push(Subagent {
+                session: session.clone(),
+                id: id.trim_start_matches("agent-").to_owned(),
+                kind: text("agentType"),
+                description: text("description"),
+                model: text("model"),
+                done,
+                started_at: first_timestamp(&dir.join(format!("{id}.jsonl"))),
+                updated_at: written
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .ok()
+                    .and_then(|t| u64::try_from(t.as_millis()).ok()),
+            });
+        }
+    }
+    out
+}
+
+/// The `timestamp` of a transcript's first entry, in epoch ms.
+fn first_timestamp(path: &Path) -> Option<u64> {
+    use std::io::BufRead;
+    let mut line = String::new();
+    std::io::BufReader::new(std::fs::File::open(path).ok()?)
+        .read_line(&mut line)
+        .ok()?;
+    let entry: Value = serde_json::from_str(&line).ok()?;
+    let at = chrono::DateTime::parse_from_rfc3339(entry["timestamp"].as_str()?).ok()?;
+    u64::try_from(at.timestamp_millis()).ok()
 }
 
 /// Where the `/advices` runner keeps its runs.
