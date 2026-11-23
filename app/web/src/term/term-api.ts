@@ -306,6 +306,17 @@ export type Fork = {
   updated_at: string | null;
 };
 export const termForks = () => call("/api/term/forks") as Promise<Fork[]>;
+// an `/advices` run: other LLMs asked for a second opinion by agent session `session`
+export type Advice = {
+  run: string;
+  session: string;
+  question: string;
+  advisors: { name: string; status: string }[];
+  done: boolean;
+  dir: string;
+  asked_at: number | null;
+};
+export const termAdvices = () => call("/api/term/advices") as Promise<Advice[]>;
 
 // stop an agent's current turn, as Esc in its shell would
 export const interruptTerminal = (id: string) => call(`/api/term/${id}/interrupt`, { method: "POST" });

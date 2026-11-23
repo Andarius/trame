@@ -480,6 +480,15 @@ pub async fn serve(root: &Path, req: Request<Body>) -> Response {
             .unwrap_or_default();
             json_response(200, json!(forks))
         }
+        // the recent `/advices` runs, by the session that asked them
+        (Method::GET, ["", "api", "term", "advices"]) => {
+            let runs = crate::blocking::spawn(|| {
+                advices_dir().map(|d| advice_runs(&d)).unwrap_or_default()
+            })
+            .await
+            .unwrap_or_default();
+            json_response(200, json!(runs))
+        }
         // an image a shell printed the path of, for the hover preview
         (Method::GET, ["", "api", "term", "file"]) => {
             let path = crate::sessions::query_param(req.uri().query().unwrap_or(""), "path");
@@ -761,6 +770,114 @@ fn background_forks(jobs: &Path) -> Vec<Fork> {
                 state: text(&state["state"]),
                 cwd: text(&state["cwd"]),
                 updated_at: text(&state["updatedAt"]),
+            })
+        })
+        .collect()
+}
+
+/// Where the `/advices` runner keeps its runs.
+fn advices_dir() -> Option<PathBuf> {
+    if let Some(d) = std::env::var_os("ADVICES_RUNS_DIR") {
+        return Some(PathBuf::from(d));
+    }
+    let data = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| Some(PathBuf::from(std::env::var_os("HOME")?).join(".local/share")))?;
+    Some(data.join("advices/runs"))
+}
+
+/// An `/advices` run: other LLMs asked for a second opinion by an agent session.
+#[derive(Debug, PartialEq, serde::Serialize)]
+struct Advice {
+    run: String,
+    session: String,
+    question: String, // its first line
+    advisors: Vec<Advisor>,
+    done: bool,
+    dir: String,
+    asked_at: Option<u64>, // epoch ms
+}
+
+#[derive(Debug, PartialEq, serde::Serialize)]
+struct Advisor {
+    name: String,
+    status: String, // running, ok, failed, pending
+}
+
+const ADVICE_RECENT: std::time::Duration = std::time::Duration::from_hours(12);
+
+/// The runs of the last 12h that recorded their asking session (`session.txt`); the manifest only lands once they finish.
+fn advice_runs(runs: &Path) -> Vec<Advice> {
+    let Ok(dirs) = std::fs::read_dir(runs) else {
+        return Vec::new();
+    };
+    dirs.flatten()
+        .filter_map(|d| {
+            let dir = d.path();
+            let asked = std::fs::metadata(dir.join("session.txt"))
+                .ok()?
+                .modified()
+                .ok()?;
+            if asked.elapsed().ok()? > ADVICE_RECENT {
+                return None;
+            }
+            let session = std::fs::read_to_string(dir.join("session.txt"))
+                .ok()?
+                .trim()
+                .to_owned();
+            let question = std::fs::read_to_string(dir.join("question.md")).unwrap_or_default();
+            let manifest: Option<Value> = std::fs::read(dir.join("manifest.json"))
+                .ok()
+                .and_then(|b| serde_json::from_slice(&b).ok());
+            let advisors = if let Some(m) = &manifest {
+                m["advisors"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|a| {
+                        Some(Advisor {
+                            name: a["name"].as_str()?.to_owned(),
+                            status: a["status"].as_str().unwrap_or("ok").to_owned(),
+                        })
+                    })
+                    .collect()
+            } else {
+                let mut names: Vec<String> = std::fs::read_dir(dir.join("raw"))
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .filter_map(|f| {
+                        f.file_name()
+                            .to_str()?
+                            .strip_suffix(".log")
+                            .map(str::to_owned)
+                    })
+                    .collect();
+                names.sort();
+                names
+                    .into_iter()
+                    .map(|name| Advisor {
+                        name,
+                        status: "running".into(),
+                    })
+                    .collect()
+            };
+            Some(Advice {
+                run: d.file_name().into_string().ok()?,
+                session,
+                question: question
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_owned(),
+                advisors,
+                done: manifest.is_some(),
+                dir: dir.to_string_lossy().into_owned(),
+                asked_at: asked
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .ok()
+                    .and_then(|t| u64::try_from(t.as_millis()).ok()),
             })
         })
         .collect()
