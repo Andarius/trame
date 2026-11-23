@@ -7,7 +7,7 @@ import { FolderIcon, PinIcon } from "../ui/icons";
 import { appConfirm, BOOL_CODEC, EntityIcon, enumCodec, MenuRow, Popover, SECTION_LABEL, SET_CODEC, useLocalStorage } from "../ui/ui";
 import { LinkCardDialog } from "./LinkCardDialog";
 import { NewTerminalDialog } from "./NewTerminalDialog";
-import { type Advice, closeTerminal, type Fork, interruptTerminal, openTerminal, revealTerminal, termAdvices, termForks, sessionLabel, type TermSession, useTermDock, useTermSessions } from "./term-api";
+import { type Advice, closeTerminal, type Fork, interruptTerminal, openTerminal, revealTerminal, type Subagent, termAdvices, termForks, termSubagents, sessionLabel, type TermSession, useTermDock, useTermSessions } from "./term-api";
 
 // by project with a folder per repo, by project and repo, by project (the repo on each agent's line), or not at all
 const GROUPINGS = ["tree", "paths", "project", "none"] as const;
@@ -109,6 +109,20 @@ export function TermCards(
   const advicesOf = new Map<string, Advice[]>();
   for (const a of [...advices].sort((a, b) => (b.asked_at ?? 0) - (a.asked_at ?? 0))) {
     advicesOf.set(a.session, [...(advicesOf.get(a.session) ?? []), a]);
+  }
+  // the subagents of the Claude sessions in shells, running ones first
+  const claudeIds = termSessions.filter((x) => x.agent === "claude").map((x) => x.id).sort().join(",");
+  const [subs, setSubs] = useState<Subagent[]>([]);
+  useEffect(() => {
+    if (!claudeIds) return setSubs([]);
+    const load = () => !document.hidden && termSubagents(claudeIds.split(",")).then(setSubs).catch(() => {});
+    load();
+    const t = setInterval(load, SUBAGENTS_POLL_MS);
+    return () => clearInterval(t);
+  }, [claudeIds]);
+  const subsOf = new Map<string, Subagent[]>();
+  for (const a of [...subs].sort((a, b) => Number(a.done) - Number(b.done) || (b.updated_at ?? 0) - (a.updated_at ?? 0))) {
+    subsOf.set(a.session, [...(subsOf.get(a.session) ?? []), a]);
   }
   const inShell = new Set(termSessions.map((x) => x.id));
   const forksOf = new Map<string, Fork[]>();
@@ -280,6 +294,7 @@ export function TermCards(
           </>
         ))}
         {(forksOf.get(x.id) ?? []).sort((a, b) => forkRank(a) - forkRank(b)).map((f) => forkRow(f, x))}
+        {(subsOf.get(x.id) ?? []).map((a) => subRow(a, x))}
         {(advicesOf.get(x.id) ?? []).map((a) => adviceRow(a, x))}
         <button
           type="button"
@@ -323,6 +338,20 @@ export function TermCards(
       </button>
     );
   };
+  // a subagent of `x`: what it was asked, its type and model on hover; how long it has run, or since it finished
+  const subRow = (a: Subagent, x: TermSession) => (
+    <div
+      key={`sub:${a.id}`}
+      title={[a.kind, a.model, a.done ? "finished" : "running"].filter(Boolean).join(" · ")}
+      className="ml-[19px] flex w-[calc(100%-19px)] items-center gap-1.5 px-2 py-0.5 text-[11.5px] text-ink-muted"
+    >
+      <ForkState state={a.done ? "done" : "running"} />
+      <AgentIcon a={{ harness: x.agent, icon: null }} />
+      <span className="min-w-0 flex-1 truncate">{a.description ?? a.kind ?? "subagent"}</span>
+      {a.model && <span className="shrink-0 font-mono text-[10px] text-ink-faint/70">{a.model}</span>}
+      <span className="shrink-0 font-mono text-[10.5px] text-ink-faint">{subAge(a)}</span>
+    </div>
+  );
   // an `/advices` run `x` asked: a click shows the answers (or follows the advisors while they run) in a new shell
   const adviceRow = (a: Advice, x: TermSession) => {
     const t = terms[x.term];
@@ -663,6 +692,11 @@ const repoName = (path: string | null) => {
 };
 
 const FORKS_POLL_MS = 10_000;
+const SUBAGENTS_POLL_MS = 5_000;
+const subAge = (a: Subagent) => {
+  const at = a.done ? a.updated_at : a.started_at;
+  return at ? ago(Date.now() - at) : "";
+};
 const FORK_DONE_MS = 12 * 3600_000; // a finished fork stays listed this long
 // waiting on you first, then working, then finished
 const forkRank = (f: Fork) => (f.state === "blocked" ? 0 : f.state === "done" ? 2 : 1);

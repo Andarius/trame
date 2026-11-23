@@ -317,6 +317,19 @@ export type Advice = {
   asked_at: number | null;
 };
 export const termAdvices = () => call("/api/term/advices") as Promise<Advice[]>;
+// a subagent a Claude session spawned, running or finished in the last minutes
+export type Subagent = {
+  session: string;
+  id: string;
+  kind: string | null;
+  description: string | null;
+  model: string | null;
+  done: boolean;
+  started_at: number | null;
+  updated_at: number | null;
+};
+export const termSubagents = (sessions: string[]) =>
+  call(`/api/term/subagents?sessions=${encodeURIComponent(sessions.join(","))}`) as Promise<Subagent[]>;
 
 // stop an agent's current turn, as Esc in its shell would
 export const interruptTerminal = (id: string) => call(`/api/term/${id}/interrupt`, { method: "POST" });
