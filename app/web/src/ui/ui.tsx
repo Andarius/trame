@@ -205,11 +205,12 @@ export function Popover(
   const ref = useRef<HTMLDivElement>(null);
   const anchor = useRef<HTMLSpanElement>(null);
   const [at, setAt] = useState<{ left: number; top: number } | null>(null);
+  const px = point?.x, py = point?.y;
   useEffect(() => {
     if (!portal) return;
     const place = () => {
-      const r = point
-        ? { left: point.x, top: point.y, bottom: point.y }
+      const r = px !== undefined && py !== undefined
+        ? { left: px, top: py, bottom: py }
         : anchor.current?.parentElement?.getBoundingClientRect();
       if (!r) return;
       const w = ref.current?.offsetWidth ?? 0, h = ref.current?.offsetHeight ?? 0;
@@ -224,7 +225,7 @@ export function Popover(
       removeEventListener("scroll", place, true);
       removeEventListener("resize", place);
     };
-  }, [portal, point?.x, point?.y]);
+  }, [portal, px, py]);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   useEffect(() => {
