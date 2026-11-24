@@ -332,6 +332,14 @@ export const termSubagents = (sessions: string[]) =>
   call(`/api/term/subagents?sessions=${encodeURIComponent(sessions.join(","))}`) as Promise<Subagent[]>;
 
 // stop an agent's current turn, as Esc in its shell would
+// the Terminals footer: plan windows from settings' usageCommand, this host, the other hosts syncing with it
+export type UsageBar = {
+  usage: { tool: string; name: string | null; used: number; resets_at: number | null }[];
+  host: string;
+  hosts: string[];
+};
+export const termUsage = () => call("/api/term/usage") as Promise<UsageBar>;
+
 export const interruptTerminal = (id: string) => call(`/api/term/${id}/interrupt`, { method: "POST" });
 
 export async function closeTab(tabId: string) {

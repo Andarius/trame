@@ -65,6 +65,7 @@ export function Sidebar(
     onOpenSession,
     onOpenTerminals,
     column,
+    footer,
     wide,
     bare,
     hidden,
@@ -98,6 +99,7 @@ export function Sidebar(
     onOpenTerminals: (card: string) => void;
     // the view's own column content, in place of the workspace (Working now, due, pages)
     column?: ReactNode;
+    footer?: ReactNode; // under the column, outside its scroll
     // a view whose list needs more room (Explore's search and filters)
     wide?: boolean;
     // a view with nothing to list beside it (plugins): the rail alone, the view takes the width
@@ -522,6 +524,7 @@ export function Sidebar(
       </>
       )}
       </div>
+      {column && footer}
       {!column && live.length > 0 && (
         <button
           type="button"

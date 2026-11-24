@@ -249,10 +249,11 @@ export function Popover(
   if (portal) {
     return (
       <span ref={anchor} hidden>
+        {/* its own layer: WebKitGTK paints a scroller's overlay scrollbar over an unlayered popover */}
         {createPortal(
           <div
             ref={ref}
-            className={`fixed z-50 ${box} ${className ?? ""}`}
+            className={`fixed z-50 will-change-transform ${box} ${className ?? ""}`}
             style={{ ...style, left: at?.left ?? 0, top: at?.top ?? 0, visibility: at ? undefined : "hidden" }}
           >
             {children}
