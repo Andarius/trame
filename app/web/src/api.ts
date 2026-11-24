@@ -255,6 +255,7 @@ export type LiveAgent = {
   since: number;
   at: number;
   session_title: string;
+  agent_id?: string | null; // the harness's own session id (Claude's), matching a shell's agent
   links: { page_id: string; block_id: string | null; anchor: string; page_title: string }[];
 };
 export const getAgentPresence = async (): Promise<LiveAgent[]> => {

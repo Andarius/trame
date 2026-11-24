@@ -152,7 +152,7 @@ pub fn touch_agent_presence(id: &str, body: &Value, at: i64) -> Result<Value> {
     } else {
         at
     };
-    let p = json!({"session_id":id,"state":state,"harness":harness,"name":cleaned(body,"name",60),"icon":cleaned(body,"icon",2048),"provider":cleaned(body,"provider",40),"model":cleaned(body,"model",80),"tokens":number(body,"tokens"),"context_max":number(body,"context_max"),"step":cleaned(body,"step",200),"question":question,"page_id":page,"block_id":block,"since":since,"at":at});
+    let p = json!({"session_id":id,"state":state,"harness":harness,"name":cleaned(body,"name",60),"icon":cleaned(body,"icon",2048),"provider":cleaned(body,"provider",40),"model":cleaned(body,"model",80),"tokens":number(body,"tokens"),"context_max":number(body,"context_max"),"step":cleaned(body,"step",200),"question":question,"page_id":page,"block_id":block,"since":since,"at":at,"agent_id":cleaned(body,"agent_id",64)});
     if let Some(old) = registry.iter_mut().find(|old| old["session_id"] == id) {
         *old = p.clone();
     } else {
@@ -251,6 +251,7 @@ pub(super) fn presence_route(db: &mut Db, id: &str, body: &Value) -> Result<(u16
     if card.is_null() {
         return Ok((404, json!({"error":"no card for that session"})));
     }
+    let raw = id;
     let id = card["id"].as_str().unwrap();
     if !body.is_object() {
         return Ok((400, json!({"error":"JSON object expected"})));
@@ -288,7 +289,10 @@ pub(super) fn presence_route(db: &mut Db, id: &str, body: &Value) -> Result<(u16
             return Ok((400, json!({"error":"no such block on that page"})));
         }
     }
-    let p = match touch_agent_presence(id, body, now()) {
+    // the harness's own session id, so a shell running it can be matched to the card
+    let mut body = body.clone();
+    body["agent_id"] = json!(raw);
+    let p = match touch_agent_presence(id, &body, now()) {
         Ok(p) => p,
         Err(e) => return Ok((400, json!({"error":e.to_string()}))),
     };
