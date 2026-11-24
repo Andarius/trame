@@ -1041,6 +1041,7 @@ fn advice_runs(runs: &Path) -> Vec<Advice> {
                         f.file_name()
                             .to_str()?
                             .strip_suffix(".log")
+                            .filter(|n| !n.ends_with(".runner")) // a runner's own log, not an advisor
                             .map(str::to_owned)
                     })
                     .collect();
@@ -1942,7 +1943,7 @@ fn parse_ghostty(config: &str) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::{
-        AgentSession, Outside, Saved, SavedAgent, card_id, find_outside, follow_ups,
+        AgentSession, Outside, Saved, SavedAgent, advice_runs, card_id, find_outside, follow_ups,
         parse_claude_session, parse_ghostty, preview_image, process_cwd, process_name, reopen_plan,
         repo_root, resolve_cwd, running_agents, usage_rows,
     };
@@ -1963,6 +1964,25 @@ mod tests {
             fds: None,
             sockets: None,
         }
+    }
+
+    #[test]
+    fn running_advice_lists_advisors_not_runner_logs() {
+        let runs =
+            std::env::temp_dir().join(format!("trame-advices-{}", uuid::Uuid::new_v4().simple()));
+        let raw = runs.join("run1/raw");
+        fs::create_dir_all(&raw).unwrap();
+        fs::write(runs.join("run1/session.txt"), "s1").unwrap();
+        for f in ["codex.log", "vibe.log", "vibe.runner.log", "vibe.err"] {
+            fs::write(raw.join(f), "").unwrap();
+        }
+        let names: Vec<String> = advice_runs(&runs)[0]
+            .advisors
+            .iter()
+            .map(|a| a.name.clone())
+            .collect();
+        fs::remove_dir_all(&runs).unwrap();
+        assert_eq!(names, ["codex", "vibe"]);
     }
 
     #[test]
