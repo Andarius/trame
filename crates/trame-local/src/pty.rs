@@ -469,6 +469,17 @@ pub async fn serve(root: &Path, req: Request<Body>) -> Response {
         (Method::GET, ["", "api", "term", "sessions"]) => {
             json_response(200, json!(running_in_shells().await))
         }
+        // the background sessions `/fork` started, by the session they were forked from
+        (Method::GET, ["", "api", "term", "forks"]) => {
+            let forks = crate::blocking::spawn(|| {
+                claude_dir()
+                    .map(|d| background_forks(&d.join("jobs")))
+                    .unwrap_or_default()
+            })
+            .await
+            .unwrap_or_default();
+            json_response(200, json!(forks))
+        }
         // an image a shell printed the path of, for the hover preview
         (Method::GET, ["", "api", "term", "file"]) => {
             let path = crate::sessions::query_param(req.uri().query().unwrap_or(""), "path");
@@ -717,6 +728,42 @@ fn claude_dir() -> Option<PathBuf> {
     std::env::var_os("CLAUDE_CONFIG_DIR")
         .map(PathBuf::from)
         .or_else(|| Some(PathBuf::from(std::env::var_os("HOME")?).join(".claude")))
+}
+
+/// A background session started by `/fork`, from Claude Code's `jobs/<job>/state.json` (an internal format: unreadable records are skipped).
+#[derive(Debug, PartialEq, serde::Serialize)]
+struct Fork {
+    job: String, // what `claude attach` takes
+    id: String,
+    parent: String,
+    name: Option<String>,
+    intent: Option<String>,
+    state: Option<String>, // e.g. blocked (waits on you), done, stopped
+    cwd: Option<String>,
+    updated_at: Option<String>, // ISO 8601
+}
+
+fn background_forks(jobs: &Path) -> Vec<Fork> {
+    let Ok(dirs) = std::fs::read_dir(jobs) else {
+        return Vec::new();
+    };
+    let text = |v: &Value| v.as_str().map(str::to_owned);
+    dirs.flatten()
+        .filter_map(|d| {
+            let state: Value =
+                serde_json::from_slice(&std::fs::read(d.path().join("state.json")).ok()?).ok()?;
+            Some(Fork {
+                job: d.file_name().into_string().ok()?,
+                id: text(&state["sessionId"])?,
+                parent: text(&state["forkParentSessionId"])?,
+                name: text(&state["name"]),
+                intent: text(&state["intent"]),
+                state: text(&state["state"]),
+                cwd: text(&state["cwd"]),
+                updated_at: text(&state["updatedAt"]),
+            })
+        })
+        .collect()
 }
 
 /// An agent's transcript and, for Claude, its `/rename` name and busy / waiting state.
