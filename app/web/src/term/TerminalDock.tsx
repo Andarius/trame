@@ -191,7 +191,7 @@ export default function TerminalDock(
     <>
     <section
       className={`relative flex flex-col bg-panel ${full ? "min-h-0 flex-1" : "shrink-0 border-t border-line"}`}
-      style={open && !full ? { height } : undefined}
+      style={open && !full ? { height, maxHeight: "calc(100vh - 120px)" } : undefined}
       // ⌘⇧P / Ctrl+Shift+P jump to a terminal, ⌘T / Ctrl+T new tab (Ctrl+T no longer reaches the shell), ⌘D / ⌘⇧D split like iTerm and Ghostty, Ctrl+( / Ctrl+), Ctrl+Shift+E and Ctrl+Shift+←/→ (tabs) like Konsole, before the shell sees the key
       onKeyDownCapture={(e) => {
         const ctrl = e.ctrlKey && !e.metaKey && !e.altKey;
