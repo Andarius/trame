@@ -166,6 +166,7 @@ export const search = (q: string) =>
 
 export const getBoard = () =>
   fetch("/api/board").then((r) => r.json() as Promise<BoardData>);
+export const getProjects = () => getBoard().then((b) => b.projects);
 
 // null when unchanged since this url's last poll (304), so the caller skips the parse and the re-render
 const pollTags = new Map<string, string>();
@@ -222,6 +223,7 @@ export type Settings = {
   authorName: string;
   authorAvatar: string;
   agentPresence: AgentPresenceSettings;
+  boardViews: import("./sessions/views").BoardView[]; // saved session queries, this machine only
 };
 // mirrors app/files.ts — the server fills defaults and clamps
 export type AgentPresenceSettings = {
@@ -287,6 +289,7 @@ export const patchSettings = (
     authorName?: string;
     authorAvatar?: string;
     agentPresence?: AgentPresenceSettings;
+    boardViews?: import("./sessions/views").BoardView[];
   },
 ) =>
   fetch("/api/settings", {

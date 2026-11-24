@@ -1765,18 +1765,28 @@ async fn mcp_initialize_lists_and_calls_real_tools() {
 async fn open_without_app_prints_the_link_and_exits_1() {
     let scratch = Scratch::new();
     let id = "0b5c1d2e-3f40-4a51-8b62-7c83d94ea5f6";
-    for (input, url) in [
-        (id.to_owned(), format!("trame://card/{id}")),
+    for (args, url) in [
+        (vec![id.to_owned()], format!("trame://card/{id}")),
         (
-            format!("http://127.0.0.1:8787/?page={id}"),
+            vec![format!("http://127.0.0.1:8787/?page={id}")],
             format!("trame://page/{id}"),
         ),
+        (
+            vec!["--query".to_owned(), "tag:parked".to_owned()],
+            "trame://board?q=tag:parked".to_owned(),
+        ),
+        (
+            vec!["--view".to_owned(), "Parked".to_owned()],
+            "trame://view/Parked".to_owned(),
+        ),
     ] {
+        let input = args.join(" ");
         // no port file, and no xdg-mime/open on PATH: nothing can show it
         let output = scratch
             .command(None)
             .env("PATH", &scratch.0)
-            .args(["open", &input])
+            .arg("open")
+            .args(&args)
             .output()
             .await
             .unwrap();

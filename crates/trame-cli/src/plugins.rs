@@ -224,8 +224,7 @@ fn build(list: &Path, format: &str, tag: &str) -> Result<PathBuf> {
         .args(["scripts/rust-package.sh", format])
         .env("PATH", &path)
         .env("TRAME_UPDATE_VIA", "rebuild")
-        // an installed build, not a dev iteration: keep the shipped release profile
-        .env("TRAME_FULL_RELEASE", "1")
+        // the fast local profile: the cached checkout keeps incremental state across rebuilds
         .current_dir(&dir))?;
     Ok(dir.join(match format {
         "deb" => "dist/linux/trame.deb",

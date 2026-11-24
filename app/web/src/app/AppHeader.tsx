@@ -32,8 +32,8 @@ export function HeaderTitle(
   return (
     <>
     <span className="-ml-2 flex shrink-0 items-center">
-      <button type="button" className={nav} title="Back (Alt+←)" aria-label="Back" onClick={() => history.back()}>‹</button>
-      <button type="button" className={nav} title="Forward (Alt+→)" aria-label="Forward" onClick={() => history.forward()}>›</button>
+      <button type="button" className={nav} title="Back (Alt+← · Ctrl+Alt+← in a terminal)" aria-label="Back" onClick={() => history.back()}>‹</button>
+      <button type="button" className={nav} title="Forward (Alt+→ · Ctrl+Alt+→ in a terminal)" aria-label="Forward" onClick={() => history.forward()}>›</button>
     </span>
     {active && active.id !== HOME && (
       <span className="flex min-w-0 max-w-[180px] shrink-0 items-center gap-1 text-[13px] text-copper" title="workspace (Ctrl+Tab: previous)">

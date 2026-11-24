@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AgentIcon } from "../agents/agents";
 import type { BoardData } from "../api";
-import { TerminalIcon } from "../ui/icons";
+import { BranchIcon, TerminalIcon } from "../ui/icons";
 import { EntityIcon, Modal, SECTION_LABEL, timeAgo, useLocalStorage } from "../ui/ui";
 import { agentCmd } from "../agents/AgentSessions";
 import { useScan } from "../agents/scan";
@@ -71,6 +71,8 @@ export function NewTerminalDialog(
   const search = useRef<HTMLInputElement>(null);
   // typed in the search box: repos of every project, not just the chosen one
   const [query, setQuery] = useState("");
+  // the choice ↑↓ moved to while typing (focus stays in the search box); null = none yet
+  const [cursor, setCursor] = useState<number | null>(null);
   const repos = boardRepos(board);
   const [worktrees, setWorktrees] = useState<Set<string>>(new Set());
   const [showWorktrees, setShowWorktrees] = useState(false);
@@ -79,6 +81,13 @@ export function NewTerminalDialog(
   useEffect(() => void termWorktrees(repoKey ? repoKey.split("\n") : []).then(setWorktrees), [repoKey]);
   // the search box takes the keys at once; Enter opens the preselected folder while it is empty
   useEffect(() => search.current?.focus({ preventScroll: true }), []);
+  const choices = () => [...(list.current?.querySelectorAll<HTMLButtonElement>("[data-choice]") ?? [])];
+  useEffect(() => {
+    choices().forEach((b, i) => {
+      b.toggleAttribute("data-active", i === cursor);
+      if (i === cursor) b.scrollIntoView({ block: "nearest" });
+    });
+  });
   const preselected = () => {
     const all = [...(list.current?.querySelectorAll<HTMLButtonElement>("[data-choice]") ?? [])];
     return all.find((b) => b.dataset.folder === lastFolder) ?? all[0];
@@ -138,14 +147,26 @@ export function NewTerminalDialog(
   };
   // here is offered when it belongs to the chosen project (or no project is chosen)
   const showHere = !!here && (project === null || project === hereProject);
-  const choice = "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] text-ink-soft outline-none hover:bg-active-row hover:text-ink focus-visible:bg-active-row focus-visible:text-ink";
-  const folder = (f: string, onClick = () => void open(f), label = repoNames.get(f) ?? short(f)) => (
-    <button key={f} type="button" data-choice data-folder={f} className={choice} title={f} onClick={onClick}>
-      <span className="text-ink-muted"><TerminalIcon /></span>
-      <span className="truncate">{label}</span>
-      <span className="ml-auto max-w-[55%] truncate text-[11px] text-ink-faint">{f}</span>
-    </button>
-  );
+  const choice = "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] text-ink-soft outline-none hover:bg-active-row hover:text-ink focus-visible:bg-active-row focus-visible:text-ink data-[active]:bg-copper/10 data-[active]:text-ink data-[active]:ring-1 data-[active]:ring-inset data-[active]:ring-copper/40";
+  // the main checkout a worktree belongs to, when it is nested in one (`.scratch/wt-*`, `.claude/worktrees/*`)
+  const mainOf = (f: string) =>
+    [...repos.keys()].filter((r) => !worktrees.has(r) && f.startsWith(`${r}/`)).sort((a, b) => b.length - a.length)[0];
+  const folder = (f: string, onClick = () => void open(f), label = repoNames.get(f) ?? short(f)) => {
+    const wt = worktrees.has(f);
+    const main = wt ? mainOf(f) : undefined;
+    return (
+      <button key={f} type="button" data-choice data-folder={f} className={choice} title={f} onClick={onClick}>
+        <span className={wt ? "text-copper" : "text-ink-muted"}>{wt ? <BranchIcon /> : <TerminalIcon />}</span>
+        <span className="truncate">{wt ? f.split("/").at(-1) : label}</span>
+        {wt && (
+          <span className="shrink-0 rounded border border-copper/40 px-1 text-[10.5px] text-copper">
+            {main ? `worktree of ${main.split("/").at(-1)}` : "worktree"}
+          </span>
+        )}
+        <span className="ml-auto max-w-[45%] truncate text-[11px] text-ink-faint">{f}</span>
+      </button>
+    );
+  };
   const projectChip = (id: string | null, label: string, icon: React.ReactNode) => (
     <button
       key={id ?? "none"}
@@ -202,17 +223,19 @@ export function NewTerminalDialog(
             <input
               ref={search}
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => (setQuery(e.target.value), setCursor(null))}
               placeholder="type to search every repo…"
               aria-label="Search repos"
               className="min-w-0 flex-1 rounded-md border border-line bg-transparent px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-copper/50"
               onKeyDown={(e) => {
+                const all = choices();
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  (query.trim() ? list.current?.querySelector<HTMLButtonElement>("[data-choice]") : preselected())?.click();
-                } else if (e.key === "ArrowDown") {
+                  (cursor !== null ? all[cursor] : query.trim() ? all[0] : preselected())?.click();
+                } else if ((e.key === "ArrowDown" || e.key === "ArrowUp") && all.length) {
                   e.preventDefault();
-                  list.current?.querySelector<HTMLButtonElement>("[data-choice]")?.focus({ preventScroll: true });
+                  const step = e.key === "ArrowDown" ? 1 : -1;
+                  setCursor(cursor === null ? (step > 0 ? 0 : all.length - 1) : (cursor + step + all.length) % all.length);
                 }
               }}
             />
@@ -233,7 +256,7 @@ export function NewTerminalDialog(
               ? (
                 <>
                   {found.map((f) =>
-                    folder(f, () => void open(f, null, repos.get(f) ?? null), worktrees.has(f) ? `${short(f)} · worktree` : short(f))
+                    folder(f, () => void open(f, null, repos.get(f) ?? null))
                   )}
                   {found.length === 0 && <div className="px-2 py-1.5 text-[12px] text-ink-faint">No repo matches.</div>}
                 </>
@@ -258,7 +281,7 @@ export function NewTerminalDialog(
                     </button>
                   )}
                   {showWorktrees && projectWorktrees.filter((f) => !(showHere && f === here!.cwd)).map((f) =>
-                    folder(f, undefined, `↳ ${short(f)}`)
+                    folder(f)
                   )}
                 </>
               )}

@@ -182,6 +182,26 @@ export function TerminalIcon({ size = 14 }: { size?: number }) {
   );
 }
 
+// a git branch: a worktree's checkout
+export function FolderIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+      <path d="M1.75 4.25a1 1 0 0 1 1-1h3.1l1.4 1.5h6a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1z" />
+    </svg>
+  );
+}
+
+export function BranchIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+      <circle cx="4.5" cy="3.5" r="1.5" />
+      <circle cx="4.5" cy="12.5" r="1.5" />
+      <circle cx="11.5" cy="5.5" r="1.5" />
+      <path d="M4.5 5v6M11.5 7c0 2.5-2 3.5-7 4" />
+    </svg>
+  );
+}
+
 // a pull request: two branches merging
 export function PrIcon({ size = 14 }: { size?: number }) {
   return (

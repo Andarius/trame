@@ -63,10 +63,11 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
     }
+    let settings_file = trame_local::settings_file(&config.root);
     let pending = Arc::new(Mutex::new(
         link.as_deref()
             .and_then(trame_local::open::scheme_target)
-            .map(|(kind, id)| trame_local::open::query(kind, &id)),
+            .and_then(|(kind, id)| trame_local::open::link_query(kind, &id, &settings_file)),
     ));
     let (open_tx, mut open_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
     config.open = Some(open_tx.clone());
@@ -265,11 +266,12 @@ fn main() -> anyhow::Result<()> {
         }
         #[cfg(target_os = "macos")]
         tauri::RunEvent::Opened { urls } => {
-            for (kind, id) in urls
+            for query in urls
                 .iter()
                 .filter_map(|url| trame_local::open::scheme_target(url.as_str()))
+                .filter_map(|(kind, id)| trame_local::open::link_query(kind, &id, &settings_file))
             {
-                let _ = open_tx.send(trame_local::open::query(kind, &id));
+                let _ = open_tx.send(query);
             }
         }
         // macOS Quit (menu, Cmd+Q, Apple Event) terminates without ExitRequested

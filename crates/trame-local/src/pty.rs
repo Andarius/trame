@@ -1391,12 +1391,13 @@ fn process_cwd(pid: i32) -> Option<String> {
 }
 
 /// Agent CLIs the launcher offers, as (command, label).
-const AGENTS: [(&str, &str); 5] = [
+const AGENTS: [(&str, &str); 6] = [
     ("claude", "Claude Code"),
     ("codex", "Codex"),
     ("gemini", "Gemini"),
     ("agy", "Antigravity"),
     ("vibe", "Mistral Vibe"),
+    ("pi", "Pi"),
 ];
 
 /// The agents on the user's login-shell PATH (a GUI app's own PATH misses ~/.local/bin, nvm, …).

@@ -7,11 +7,11 @@
     "lint": "oxlint app core protocol hub/api scripts"
   },
   "dependencies": {
-    "@electric-sql/pglite": "0.5.16",
+    "@electric-sql/pglite": "0.5.17",
     "postgres": "3.4.9"
   },
   "devDependencies": {
-    "@types/bun": "1.4.4",
+    "@types/bun": "1.4.5",
     "oxlint": "1.94.0",
     "typescript": "7.0.2"
   }

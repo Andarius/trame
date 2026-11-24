@@ -5,6 +5,7 @@ export { openPluginSettings, usePluginEnabled } from "./plugins/enabled";
 export {
   getPlugins,
   getPluginSettings,
+  getProjects,
   getUdb,
   listUdbs,
   openInBrowser,
@@ -12,11 +13,12 @@ export {
   setPluginEnabled,
   updatePage,
 } from "./api";
-export type { Block, PageDetail, Session, UdbMeta, UdbProp } from "./api";
+export type { Block, PageDetail, Project, Session, UdbMeta, UdbProp } from "./api";
 export {
   appConfirm,
   Button,
   EmptyState,
+  EntityIcon,
   ErrorNote,
   Field,
   FIELD_LABEL,
