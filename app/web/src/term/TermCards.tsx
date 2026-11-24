@@ -3,7 +3,7 @@ import type { BoardData, ClaudeSession } from "../api";
 import { RecentList } from "../agents/RecentList";
 import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
-import { FolderIcon, PinIcon } from "../ui/icons";
+import { FolderIcon, PinIcon, PlusIcon } from "../ui/icons";
 import { appConfirm, BOOL_CODEC, EntityIcon, enumCodec, MenuRow, Popover, SECTION_LABEL, SET_CODEC, useLocalStorage } from "../ui/ui";
 import { LinkCardDialog } from "./LinkCardDialog";
 import { NewTerminalDialog } from "./NewTerminalDialog";
@@ -645,11 +645,11 @@ export function TermCards(
                   onClick={() => setMenuFor(key)}
                   title="new terminal or agent in this project"
                   aria-label={`New terminal in ${label(project)}`}
-                  className={`-my-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-[15px] leading-none text-ink-muted hover:bg-active-row hover:text-ink ${
+                  className={`-my-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-active-row hover:text-ink ${
                     menuFor === key ? "" : "opacity-0 focus-visible:opacity-100 group-hover/head:opacity-100"
                   }`}
                 >
-                  +
+                  <PlusIcon size={12} />
                 </button>
               )}
               {project && menuFor === key && (
