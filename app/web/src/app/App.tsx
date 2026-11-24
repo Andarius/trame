@@ -66,7 +66,7 @@ import { buildClock } from "../build-info";
 import { resumeInTerminals } from "../term/resume-cards";
 import { TermCards } from "../term/TermCards";
 import { projectFolders } from "../term/NewTerminalDialog";
-import { openTerminal, restoreTerminals, setDockMax, setDockOpen, useTermDock, watchPopouts } from "../term/term-api";
+import { FIND_TERMINAL, openTerminal, restoreTerminals, setDockMax, setDockOpen, useTermDock, watchPopouts } from "../term/term-api";
 // d3-force/zoom only load when the graph tab opens
 const Graph = lazy(() => import("../sessions/Graph"));
 const TerminalDock = lazy(() => import("../term/TerminalDock"));
@@ -233,7 +233,8 @@ export function App() {
   );
   const [updateDismissed, setUpdateDismissed] = useState(false);
   const [updateError, setUpdateError] = useState<string>();
-  const [paletteOpen, setPaletteOpen] = useState(false);
+  // "terms": Ctrl+Shift+P lists only the open terminals
+  const [paletteOpen, setPaletteOpen] = useState<false | "all" | "terms">(false);
   const [shareFlash, setShareFlash] = useState<string | null>(null); // transient Export-button label
   const [sharePageId, setSharePageId] = useState<string | null>(null); // ShareModal target
   const shareFlashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -281,19 +282,23 @@ export function App() {
     return () => removeEventListener("keydown", h);
   }, [setSidebarHidden]);
 
-  // Ctrl/Cmd+P — Notion-style quick find (preventDefault beats the print dialog)
+  // Ctrl/Cmd+P — Notion-style quick find (preventDefault beats the print dialog); with Shift, terminals only
   useEffect(() => {
+    const toggle = (mode: "all" | "terms") => setPaletteOpen((v) => (v === mode ? false : mode));
     const h = (e: KeyboardEvent) => {
-      if (
-        (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey &&
-        e.key.toLowerCase() === "p"
-      ) {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.code === "KeyP") {
         e.preventDefault();
-        setPaletteOpen((v) => !v);
+        toggle(e.shiftKey ? "terms" : "all");
       }
     };
+    // the shell keeps its keys, so the dock relays Ctrl+Shift+P as this event
+    const fromShell = () => toggle("terms");
     addEventListener("keydown", h);
-    return () => removeEventListener("keydown", h);
+    addEventListener(FIND_TERMINAL, fromShell);
+    return () => {
+      removeEventListener("keydown", h);
+      removeEventListener(FIND_TERMINAL, fromShell);
+    };
   }, []);
 
   // Ctrl/Cmd+R and F5 reload the desktop window (WebKitGTK has no reload shortcut)
@@ -1170,7 +1175,7 @@ export function App() {
           : null;
       })()}
       {paletteOpen && (
-        <Palette onClose={() => setPaletteOpen(false)} onPick={onPalettePick} />
+        <Palette terminals={paletteOpen === "terms"} onClose={() => setPaletteOpen(false)} onPick={onPalettePick} />
       )}
       {modal === "import" && board && (
         <ImportClaudeModal

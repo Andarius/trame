@@ -33,7 +33,7 @@ test("search matches by title and returns recent items on an empty query", async
 test("Ctrl+P opens the palette; typing filters; Enter opens the session drawer", async ({ page }) => {
   await page.goto("/");
   await page.keyboard.press("Control+p");
-  const input = page.getByPlaceholder("Search sessions, pages, projects, databases…");
+  const input = page.getByPlaceholder("Search terminals, sessions, pages, projects…");
   await expect(input).toBeVisible();
 
   await input.fill("zephyr");
@@ -50,7 +50,7 @@ test("Ctrl+P opens the palette; typing filters; Enter opens the session drawer",
   // Ctrl+P toggles it closed again
   await page.keyboard.press("Escape");
   await page.keyboard.press("Control+p");
-  await expect(page.getByPlaceholder("Search sessions, pages, projects, databases…")).toBeVisible();
+  await expect(page.getByPlaceholder("Search terminals, sessions, pages, projects…")).toBeVisible();
   await page.keyboard.press("Control+p");
-  await expect(page.getByPlaceholder("Search sessions, pages, projects, databases…")).toBeHidden();
+  await expect(page.getByPlaceholder("Search terminals, sessions, pages, projects…")).toBeHidden();
 });

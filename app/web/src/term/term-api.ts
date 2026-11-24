@@ -339,6 +339,8 @@ export async function closeTab(tabId: string) {
   for (const id of t ? leaves(t.root) : []) await closeTerminal(id);
 }
 
+// window event: open the palette on the terminals (the shell swallows Ctrl+Shift+P otherwise)
+export const FIND_TERMINAL = "trame:find-terminal";
 export const selectTab = (id: string) => set({ active: id, open: true });
 
 // `{transcript id: term id}` for the Claude/Codex sessions running in a live shell
