@@ -3,6 +3,7 @@
 # USAGE: scripts/rust-package.sh [prepare|cli|deb|appimage|dmg]
 # Locally (plugin rebuilds included) it builds without LTO (fast rebuilds); CI, or TRAME_FULL_RELEASE=1
 # (bin/quickstart.sh), uses the shipped release profile. Switching between the two rebuilds everything once.
+# TRAME_BUNDLE_ONLY=1 (Linux) bundles the binary an earlier run built, without rebuilding.
 # EXAMPLES: scripts/rust-package.sh deb
 #           scripts/rust-package.sh dmg   # on macOS arm64
 set -euo pipefail
@@ -124,12 +125,17 @@ if [[ "$mode" == prepare ]]; then
     exit 0
 fi
 
-npm ci --prefix app/web
-npm run build --prefix app/web
-cargo build -p trame-cli --release --locked
-cp target/release/tramecli "$package/tramecli-$triple"
 cd crates/trame-desktop
-npx --yes @tauri-apps/cli@2.12.2 build --ci --bundles "$mode"
+if [[ -n "${TRAME_BUNDLE_ONLY:-}" ]]; then
+    # reuse the binary of a previous build: `tauri build` would relink it after its bundle-type patch
+    npx --yes @tauri-apps/cli@2.12.2 bundle --ci --bundles "$mode"
+else
+    npm ci --prefix ../../app/web
+    npm run build --prefix ../../app/web
+    cargo build -p trame-cli --release --locked
+    cp ../../target/release/tramecli "$package/tramecli-$triple"
+    npx --yes @tauri-apps/cli@2.12.2 build --ci --bundles "$mode"
+fi
 cd ../..
 mkdir -p dist/linux
 if [[ "$mode" == deb ]]; then

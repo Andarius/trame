@@ -64,8 +64,9 @@ jobs:
     permissions:
       contents: read
 
+  # builds run alongside verify: assets land on the draft, and only publish waits for verify
   build:
-    needs: [prepare, verify]
+    needs: prepare
     runs-on: ubuntu-24.04
     env:
       RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
@@ -82,11 +83,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev \
             libicu74 liburing2 libnuma1 libxml2 libldap2 libpam0g libzstd1 liblz4-1 libpq5
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Build deb
         run: bash scripts/rust-package.sh deb
       - name: Build AppImage (best effort)
         continue-on-error: true
-        run: bash scripts/rust-package.sh appimage
+        run: TRAME_BUNDLE_ONLY=1 bash scripts/rust-package.sh appimage
       - name: Upload native assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -101,7 +103,7 @@ jobs:
           fi
 
   build-macos:
-    needs: [prepare, verify]
+    needs: prepare
     runs-on: macos-15
     env:
       RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
@@ -112,10 +114,11 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "22.23.5"
+      - name: Rust toolchain
+        run: rustup toolchain install  # reads rust-toolchain.toml
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Build dmg (ad-hoc signed)
-        run: |
-          rustup toolchain install  # reads rust-toolchain.toml
-          bash scripts/rust-package.sh dmg
+        run: bash scripts/rust-package.sh dmg
       - name: Upload macOS assets
         env:
           GH_TOKEN: ${{ github.token }}
