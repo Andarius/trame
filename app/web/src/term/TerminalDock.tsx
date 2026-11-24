@@ -32,6 +32,7 @@ import {
   resizeSplit,
   type SplitDir,
   type TermTab,
+  FIND_TERMINAL,
   openTerminal,
   openTerminalAt,
   selectTab,
@@ -191,7 +192,7 @@ export default function TerminalDock(
     <section
       className={`relative flex flex-col bg-panel ${full ? "min-h-0 flex-1" : "shrink-0 border-t border-line"}`}
       style={open && !full ? { height } : undefined}
-      // ⌘T / Ctrl+T new tab (Ctrl+T no longer reaches the shell), ⌘D / ⌘⇧D split like iTerm and Ghostty, Ctrl+( / Ctrl+), Ctrl+Shift+E and Ctrl+Shift+←/→ (tabs) like Konsole, before the shell sees the key
+      // ⌘⇧P / Ctrl+Shift+P jump to a terminal, ⌘T / Ctrl+T new tab (Ctrl+T no longer reaches the shell), ⌘D / ⌘⇧D split like iTerm and Ghostty, Ctrl+( / Ctrl+), Ctrl+Shift+E and Ctrl+Shift+←/→ (tabs) like Konsole, before the shell sees the key
       onKeyDownCapture={(e) => {
         const ctrl = e.ctrlKey && !e.metaKey && !e.altKey;
         const run = (f: () => void) => {
@@ -200,6 +201,7 @@ export default function TerminalDock(
           f();
         };
         if ((e.metaKey || e.ctrlKey) && !(e.metaKey && e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "t") run(() => void openNew(undefined, true));
+        else if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.code === "KeyP") run(() => dispatchEvent(new Event(FIND_TERMINAL)));
         else if (e.metaKey && !e.altKey && !e.ctrlKey && e.key.toLowerCase() === "d") run(() => split(e.shiftKey ? "col" : "row"));
         else if (ctrl && e.key === "(") run(() => split("row"));
         else if (ctrl && e.key === ")") run(() => split("col"));
