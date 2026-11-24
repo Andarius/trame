@@ -980,6 +980,25 @@ export const transcriptTail = (source: string, id: string) =>
     if (!r.ok) throw new Error(r.status === 404 ? "transcript not found on this machine" : `tail: ${r.status}`);
     return r.json() as Promise<{ steps: TailStep[]; more: boolean }>;
   });
+// a session's full history, a page of whole transcript lines in [start, end)
+export type HistoryItem =
+  & { ts?: string }
+  & (
+    | { kind: "user" | "assistant" | "thinking"; text: string; truncated: boolean }
+    | { kind: "note"; text: string }
+    | { kind: "tool"; id: string; name: string; input: Record<string, unknown> }
+    | { kind: "result"; toolId: string; text: string; error: boolean; truncated: boolean }
+  );
+export type HistoryPage = { items: HistoryItem[]; start: number; end: number; more: boolean };
+export const transcriptHistory = (source: string, id: string, at: { before?: number; after?: number } = {}) => {
+  const q = new URLSearchParams({ source, id });
+  if (at.before !== undefined) q.set("before", String(at.before));
+  if (at.after !== undefined) q.set("after", String(at.after));
+  return fetch(`/api/import/claude/history?${q}`).then(async (r) => {
+    if (!r.ok) throw new Error(r.status === 404 ? "transcript not found on this machine" : `history: ${r.status}`);
+    return r.json() as Promise<HistoryPage>;
+  });
+};
 export const runClaudeImport = (items: ClaudeImportItem[]) =>
   post("/api/import/claude", { items }).then((r) =>
     r.json() as Promise<{ imported: number; skipped: number }>

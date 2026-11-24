@@ -2,11 +2,14 @@ import { useEffect, useState } from "react";
 import { type BoardData, type ClaudeSession, type TailStep, transcriptTail } from "../api";
 import { openTerminal } from "../term/term-api";
 import { moveIn } from "../term/move-in";
-import { SECTION_LABEL, timeAgo } from "../ui/ui";
+import { enumCodec, SECTION_LABEL, timeAgo, useLocalStorage } from "../ui/ui";
 import { AgentIcon } from "./agents";
 import { agentCmd, ResumeButton, resumeCmd } from "./AgentSessions";
 import { agentLabel, useResumeMode } from "./resume-modes";
 import { ReplayTerminal } from "../term/ReplayTerminal";
+import { AgentHistory } from "./AgentHistory";
+
+const VIEW_CODEC = enumCodec<"summary" | "history">(["summary", "history"]);
 
 const short = (path: string) => path.replace(/^\/home\/[^/]+/, "~");
 
@@ -20,6 +23,7 @@ export function RecentSession(
   },
 ) {
   const modePick = useResumeMode();
+  const [view, setView] = useLocalStorage<"summary" | "history">("trame:recentView", "summary", VIEW_CODEC);
   const [tail, setTail] = useState<{ steps: TailStep[]; more: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -97,10 +101,28 @@ export function RecentSession(
         <button type="button" className={btn} onClick={() => void copy()}>{copied ? "Copied" : "Copy command"}</button>
       </div>
       <section className="flex flex-col gap-2">
-        <div className={SECTION_LABEL}>WHERE YOU LEFT OFF</div>
-        {error && <p className="text-[12.5px] text-ink-muted">{error}</p>}
-        {!error && !tail && <p className="text-[12.5px] text-ink-faint">reading the transcript…</p>}
-        {tail && <ReplayTerminal text={replay(tail)} className="h-[460px] border border-line" />}
+        <div className="flex items-center gap-3">
+          <div className={SECTION_LABEL}>{view === "history" ? "CONVERSATION" : "WHERE YOU LEFT OFF"}</div>
+          <div className="ml-auto flex gap-1 text-[11.5px]">
+            {(["summary", "history"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                className={`rounded-md px-2 py-0.5 ${view === v ? "bg-copper/15 text-ink" : "text-ink-muted hover:text-ink"}`}
+                onClick={() => setView(v)}
+              >
+                {v === "summary" ? "Summary" : "Full history"}
+              </button>
+            ))}
+          </div>
+        </div>
+        {view === "history" ? <AgentHistory source={session.source} id={session.claudeId} className="h-[460px]" /> : (
+          <>
+            {error && <p className="text-[12.5px] text-ink-muted">{error}</p>}
+            {!error && !tail && <p className="text-[12.5px] text-ink-faint">reading the transcript…</p>}
+            {tail && <ReplayTerminal text={replay(tail)} className="h-[460px] border border-line" />}
+          </>
+        )}
       </section>
       <section className="flex flex-col gap-1 rounded-lg border border-line px-4 py-3">
         <div className={SECTION_LABEL}>COMMAND</div>
