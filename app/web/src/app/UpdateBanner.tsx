@@ -16,11 +16,25 @@ export function useRebuildPoll(active: boolean, onInfo: (u: UpdateInfo) => void)
 const elapsed = (s: number) => s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
 
 export function RebuildProgress({ building }: { building: NonNullable<UpdateInfo["building"]> }) {
+  // against the last rebuild's time, when one is known
+  const last = building.lastSecs ?? null;
+  const left = last ? last - building.elapsedSecs : null;
   return (
     <div className="flex min-w-0 flex-col gap-0.5 text-[11px]">
       <span className="text-ink-soft">
         {building.phase}… <span className="text-ink-muted">{elapsed(building.elapsedSecs)}</span>
+        {left !== null && (
+          <span className="text-ink-muted">{left > 0 ? ` · about ${elapsed(left)} left` : " · longer than last time"}</span>
+        )}
       </span>
+      {last && (
+        <span className="h-1 overflow-hidden rounded-full bg-well" title={`the last rebuild took ${elapsed(last)}`}>
+          <span
+            className="block h-full rounded-full bg-copper transition-[width] duration-1000"
+            style={{ width: `${Math.min(97, (building.elapsedSecs / last) * 100)}%` }}
+          />
+        </span>
+      )}
       {building.line && <span className="truncate font-mono text-[10.5px] text-ink-muted" title={building.line}>{building.line}</span>}
     </div>
   );
