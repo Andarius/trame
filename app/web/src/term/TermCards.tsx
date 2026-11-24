@@ -18,7 +18,15 @@ const GROUPING_LABEL: Record<Grouping, string> = {
   project: "Project",
   none: "No grouping",
 };
-const GROUPING_HINT: Record<Grouping, string> = { tree: "└ api", paths: "acme / api", project: "api · opus", none: "api · opus" };
+const SPACINGS = ["comfortable", "compact"] as const;
+type Spacing = typeof SPACINGS[number];
+const SPACING_LABEL: Record<Spacing, string> = { comfortable: "Comfortable", compact: "Compact" };
+// what the menu's preview draws when no agent runs
+const SAMPLE = [
+  { name: "invoice-export", project: "Acme", repo: "api", what: "sonnet · working", working: true },
+  { name: "landing-copy", project: "Acme", repo: "web", what: "idle", working: false },
+  { name: "cluster-upgrade", project: "Atlas", repo: "infra", what: "opus · working", working: true },
+];
 
 // The Terminals view's sidebar column: the agents running in Trame's shells (and outside it, from their card's
 // presence), grouped by project or not at all.
@@ -55,6 +63,8 @@ export function TermCards(
 ) {
   const { terms } = useTermDock();
   const [grouping, setGrouping] = useLocalStorage<Grouping>("trame:termGrouping", "tree", enumCodec(GROUPINGS));
+  const [spacing, setSpacing] = useLocalStorage<Spacing>("trame:termSpacing", "comfortable", enumCodec(SPACINGS));
+  const gap = spacing === "compact" ? "gap-0" : "gap-1";
   const byProject = grouping !== "none";
   // group headers folded (keyed by grouping:key)
   const [folded, setFolded] = useLocalStorage("trame:termFolded", new Set<string>(), SET_CODEC);
@@ -131,7 +141,7 @@ export function TermCards(
       key={key}
       type="button"
       onClick={onClick}
-      className={`flex w-full flex-col rounded-md px-2 py-1.5 text-left text-[12.5px] ${
+      className={`flex w-full flex-col rounded-md px-2 ${spacing === "compact" ? "py-1" : "py-2"} text-left text-[12.5px] ${
         active ? "bg-active-row font-medium text-ink" : "text-ink-muted hover:text-ink-soft"
       }`}
     >
@@ -214,11 +224,64 @@ export function TermCards(
   };
   const gkey = (key: string | null) => `${grouping}:${key ?? ""}`;
   const agents = termSessions.length + outside.length;
+  // the sliders menu's picture of the list: the first agents (else a sample) as `g` and `space` lay them out
+  const preview = (g: Grouping, more: Record<string, string>) => {
+    const real = running.slice(0, 3).map((x) => {
+      const working = liveOf(x)?.state === "working" || x.busy;
+      return {
+        name: sessionLabel(x),
+        project: projectOf(x) ? projectName(board, projectOf(x)!) : "No project",
+        repo: repoOf(x) ?? "",
+        what: [shortModel(liveOf(x)?.a.model), working ? "working" : x.done ? "done" : "idle"].filter(Boolean).join(" · "),
+        working,
+      };
+    });
+    const xs = real.length ? real : SAMPLE;
+    const roomy = more.spacing !== "compact";
+    const item = (x: typeof xs[number], repoOnLine: boolean) => (
+      <div key={x.name} className={`flex flex-col ${roomy ? "py-1" : "py-px"}`}>
+        <span className="flex items-center gap-1.5 truncate text-[11.5px] text-ink-soft">
+          <span className={`h-[5px] w-[5px] shrink-0 rounded-full ${x.working ? "bg-live" : "bg-ink-faint"}`} />
+          {x.name}
+        </span>
+        <span className="truncate pl-[11px] text-[10px] text-ink-faint">{repoOnLine && x.repo ? `${x.repo} · ${x.what}` : x.what}</span>
+      </div>
+    );
+    const head = (t: string, sub?: string) => (
+      <div className={`truncate pt-1 text-[9.5px] tracking-[0.08em] text-ink-faint ${roomy ? "pb-0.5" : ""}`}>
+        {t.toUpperCase()}
+        {sub && <span className="tracking-normal text-ink-muted">{` / ${sub}`}</span>}
+      </div>
+    );
+    if (g === "none") return <div className="flex flex-col">{xs.map((x) => item(x, true))}</div>;
+    const by = new Map<string, typeof xs>();
+    for (const x of xs) {
+      const k = g === "paths" ? `${x.project}\u0000${x.repo}` : x.project;
+      by.set(k, [...(by.get(k) ?? []), x]);
+    }
+    return (
+      <div className="flex flex-col">
+        {[...by.values()].map((ys) => (
+          <div key={`${ys[0].project}/${g === "paths" ? ys[0].repo : ""}`}>
+            {head(ys[0].project, g === "paths" ? ys[0].repo : undefined)}
+            {g === "tree"
+              ? [...new Set(ys.map((y) => y.repo))].map((r) => (
+                <div key={r}>
+                  <div className="flex items-center gap-1 pt-0.5 text-[10.5px] text-ink-faint"><FolderIcon size={10} />{r}</div>
+                  <div className="ml-[5px] border-l border-line pl-1.5">{ys.filter((y) => y.repo === r).map((y) => item(y, false))}</div>
+                </div>
+              ))
+              : ys.map((y) => item(y, g === "project"))}
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   return (
     <nav aria-label="Running agents" className="flex flex-col gap-3">
       {asking.length > 0 && (
-        <section className="flex flex-col gap-0.5">
+        <section className={`flex flex-col ${gap}`}>
           <div className={`px-2 pb-1 ${SECTION_LABEL} text-wait`}>NEEDS YOU · {asking.length}</div>
           {asking.map(agentRow)}
         </section>
@@ -243,7 +306,19 @@ export function TermCards(
         >
           +
         </button>
-        <GroupMenu value={grouping} options={GROUPING_LABEL} hints={GROUPING_HINT} onChange={setGrouping} />
+        <GroupMenu
+          value={grouping}
+          options={GROUPING_LABEL}
+          onChange={setGrouping}
+          more={[{
+            key: "spacing",
+            label: "ROW SPACING",
+            value: spacing,
+            options: SPACING_LABEL,
+            onChange: (v) => setSpacing(v as Spacing),
+          }]}
+          preview={preview}
+        />
         {newOpen && (
           <NewTerminalDialog
             board={board}
@@ -260,7 +335,7 @@ export function TermCards(
         </p>
       )}
       {sections.map(({ key, project, repo, xs }) => (
-        <section key={key} className="flex flex-col gap-0.5">
+        <section key={key} className={`flex flex-col ${gap}`}>
           {grouping !== "none" && (
             <div className={`group/head relative flex items-center gap-1.5 px-2 pb-1 ${SECTION_LABEL}`}>
               <button
@@ -309,12 +384,12 @@ export function TermCards(
           {!folded.has(gkey(key)) && (grouping === "tree"
             ? byRepo(xs).map(([r, rs]) =>
               r === null ? rs.map(agentRow) : (
-                <div key={r} className="flex flex-col gap-0.5">
+                <div key={r} className={`flex flex-col ${gap}`}>
                   <div className="flex items-center gap-1.5 px-2 pt-0.5 text-[11.5px] text-ink-faint" title={`agents in ${r}`}>
                     <FolderIcon size={12} />
                     <span className="min-w-0 flex-1 truncate">{r}</span>
                   </div>
-                  <div className="ml-[13px] flex flex-col gap-0.5 border-l border-line pl-1">{rs.map(agentRow)}</div>
+                  <div className={`ml-[13px] flex flex-col ${gap} border-l border-line pl-1`}>{rs.map(agentRow)}</div>
                 </div>
               )
             )
@@ -322,7 +397,7 @@ export function TermCards(
         </section>
       ))}
       {outside.length > 0 && (
-        <section className="flex flex-col gap-0.5">
+        <section className={`flex flex-col ${gap}`}>
           <div className="mx-2 mb-1 border-t border-dashed border-line" />
           <div className={`flex items-center px-2 pb-1 ${SECTION_LABEL}`} title="agents running in a terminal outside Trame">
             OUTSIDE TRAME
