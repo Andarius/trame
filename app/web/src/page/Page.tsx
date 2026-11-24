@@ -37,6 +37,7 @@ import { useFocusedBlock } from "../ui/due";
 import { PAGE_STATUSES } from "../../../../core/page-status.ts";
 import { useAgents } from "../agents/agents";
 import { PageDatabase } from "./PageDatabase";
+import { ProjectRepos } from "./ProjectRepos";
 import { blockOf, FRONTEND_PLUGINS, useCardFaces } from "../plugins";
 import { queryValues } from "../query";
 import { markRoleOf } from "../../../../core/mark-roles.ts";
@@ -389,6 +390,8 @@ export function Page(
               onClose={() => setMdOpen(false)}
             />
           )}
+
+          {isProject && <ProjectRepos board={board} project={page.id} onChanged={onChanged} />}
 
           {isStory && (
             <div className="flex items-center gap-3">

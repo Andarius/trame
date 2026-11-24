@@ -16,6 +16,7 @@ export type Session = {
   client_id: string | null;
   page_id: string | null;
   repo_path: string | null;
+  repo_id: string | null;
   branch: string | null;
   next_step: string | null;
   specs_page_id: string | null;
@@ -36,11 +37,14 @@ export type Story = {
   tags: string[];
   mark_role?: "ticket" | "linked-story" | null;
 };
+// a project's repo, matched to folders by git remote; `path` is this machine's checkout
+export type ProjectRepo = { id: string; name: string; remote: string; sort_key: string; path: string | null };
 export type Project = {
   id: string;
   name: string;
   color: string | null;
   icon: string | null;
+  repos: ProjectRepo[];
 };
 export type BoardPage = {
   id: string;
@@ -453,6 +457,24 @@ export const resumeAllSessions = (
       { ok: boolean; launched: number; mode: string; error?: string }
     >
   );
+
+async function repoPost(path: string, body?: unknown) {
+  const r = await fetch(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const v = await r.json();
+  if (!r.ok) throw new Error(v.error ?? r.statusText);
+  return v;
+}
+export const addRepo = (project_id: string, path: string, name?: string): Promise<ProjectRepo> =>
+  repoPost("/api/repos", { project_id, path, name });
+export const updateRepo = (id: string, patch: { name?: string; path?: string }) => repoPost(`/api/repos/${id}`, patch);
+export const removeRepo = (id: string) => repoPost(`/api/repos/${id}/delete`);
+// checkouts this project's cards worked in that it doesn't list yet
+export const repoSuggestions = (project: string): Promise<{ path: string; remote: string; name: string }[]> =>
+  fetch(`/api/repos/suggest?project=${project}`).then((r) => (r.ok ? r.json() : []));
 
 export const setStatus = (id: string, status: Status) =>
   fetch(`/api/sessions/${id}/status`, {

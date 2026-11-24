@@ -8,7 +8,8 @@
 // v7: sessions.branches (a card holds every branch it shipped).
 // v8: session_events.model / tokens / cost_usd / agent_name (who wrote a worklog entry, at what cost).
 // v9: sessions.done_at (when a card entered a terminal status).
-export const PROTOCOL_VERSION = 9;
+// v10: project_repos entity + sessions.repo_id (a project's repos, matched by git remote).
+export const PROTOCOL_VERSION = 10;
 
 export const ENTITIES = [
   {
@@ -52,6 +53,10 @@ export const ENTITIES = [
       "updated_at",
       "deleted",
     ],
+  },
+  {
+    name: "project_repos",
+    cols: ["id", "project_id", "name", "remote", "sort_key", "origin", "updated_at", "deleted"],
   },
   {
     name: "page_shares",
@@ -135,6 +140,7 @@ export const ENTITIES = [
       "agent",
       "last_touched",
       "done_at",
+      "repo_id",
       "origin",
       "updated_at",
       "deleted",

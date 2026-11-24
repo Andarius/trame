@@ -42,6 +42,10 @@ pub fn owns(method: &str, path: &str) -> bool {
         ["", "api", "comments", id] | ["", "api", "comments", id, "delete" | "agent-status"] => {
             !id.is_empty() && method == "POST"
         }
+        ["", "api", "repos", "suggest"] => method == "GET",
+        ["", "api", "repos"] | ["", "api", "repos", _] | ["", "api", "repos", _, "delete"] => {
+            method == "POST"
+        }
         _ => false,
     }
 }
@@ -73,6 +77,9 @@ fn handle_inner(
         return result;
     }
     if let Some(result) = crate::imports::handle(db, method, path, query, body) {
+        return result;
+    }
+    if let Some(result) = crate::repos::handle(db, method, path, query, body) {
         return result;
     }
     if let Some(result) = crate::pages::handle(db, method, path, body) {
@@ -206,9 +213,9 @@ fn parses_json(method: &str, path: &str) -> bool {
             "",
             "api",
             "pages" | "comments" | "sessions" | "stories" | "statuses" | "tags" | "presence"
-            | "settings" | "reports" | "shares" | "page-links" | "open-path" | "udb",
+            | "settings" | "reports" | "shares" | "page-links" | "open-path" | "udb" | "repos",
         ] => true,
-        ["", "api", "pages", _] | ["", "api", "pages", _, "move"] => true,
+        ["", "api", "pages" | "repos", _] | ["", "api", "pages", _, "move"] => true,
         ["", "api", "comments", "inbox"] => false,
         ["", "api", "comments", _] | ["", "api", "comments", _, "agent-status"] => true,
         [

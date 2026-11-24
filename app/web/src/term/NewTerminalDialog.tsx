@@ -8,12 +8,14 @@ import { useScan } from "../agents/scan";
 import { boardRepos, matches } from "./repo-search";
 import { openTerminal, pickTermFolder, type TermAgent, termAgents, termWorktrees, useTermSessions } from "./term-api";
 
-// the project's folders: its cards' repos, most recently touched first
+// the project's folders: its listed repos checked out here, then its cards' other folders, most recent first
 export function projectFolders(board: BoardData | null, project: string): string[] {
+  const repos = (board?.projects.find((p) => p.id === project)?.repos ?? [])
+    .flatMap((r) => (r.path ? [r.path.replace(/\/+$/, "")] : []));
   const cards = (board?.sessions ?? [])
     .filter((s) => s.client_id === project && s.repo_path)
     .sort((a, b) => b.last_touched.localeCompare(a.last_touched));
-  return [...new Set(cards.map((s) => s.repo_path!.replace(/\/+$/, "")))].slice(0, 8);
+  return [...new Set([...repos, ...cards.map((s) => s.repo_path!.replace(/\/+$/, ""))])].slice(0, 8);
 }
 
 const short = (path: string) => path.split("/").slice(-2).join("/");
@@ -35,10 +37,11 @@ const STRING_CODEC = { parse: (r: string) => r, stringify: (v: string) => v };
 // any folder). Run and project start on the last picks; `project` (or here's) overrides the project.
 // `onOpened` gets the new shell's card and project.
 export function NewTerminalDialog(
-  { board, here, project: presetProject, agent: preset, into = null, onClose, onOpened }: {
+  { board, here, project: presetProject, folder: presetFolder, agent: preset, into = null, onClose, onOpened }: {
     board: BoardData | null;
     here?: { cwd: string | null; card: string | null; project?: string | null } | null;
     project?: string;
+    folder?: string; // preselect this folder instead of the last one opened
     agent?: string; // preselect this agent's command instead of the last pick
     onClose: () => void;
     onOpened: (card: string | null, project: string | null) => void;
@@ -59,7 +62,11 @@ export function NewTerminalDialog(
   const [error, setError] = useState<string | null>(null);
   // the folder last opened per project ("" = none), preselected the next time
   const [lastFolders, setLastFolders] = useLocalStorage<Record<string, string>>("trame:termFolders", {}, FOLDERS_CODEC);
-  const lastFolder = lastFolders[project ?? ""] ?? null;
+  const lastFolder = presetFolder ?? lastFolders[project ?? ""] ?? null;
+  // a listed repo's checkout shows the repo's name
+  const repoNames = new Map(
+    (board?.projects ?? []).flatMap((p) => (p.repos ?? []).flatMap((r) => (r.path ? [[r.path.replace(/\/+$/, ""), r.name]] : []))),
+  );
   const list = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   // typed in the search box: repos of every project, not just the chosen one
@@ -144,7 +151,7 @@ export function NewTerminalDialog(
   // the main checkout a worktree belongs to, when it is nested in one (`.scratch/wt-*`, `.claude/worktrees/*`)
   const mainOf = (f: string) =>
     [...repos.keys()].filter((r) => !worktrees.has(r) && f.startsWith(`${r}/`)).sort((a, b) => b.length - a.length)[0];
-  const folder = (f: string, onClick = () => void open(f), label = short(f)) => {
+  const folder = (f: string, onClick = () => void open(f), label = repoNames.get(f) ?? short(f)) => {
     const wt = worktrees.has(f);
     const main = wt ? mainOf(f) : undefined;
     return (

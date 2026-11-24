@@ -19,11 +19,12 @@ const card = (
 
 const board = (sessions: Session[]) =>
   ({
-    projects: [{ id: "p1", name: "Obitrain", color: "#7bd88f", icon: null }, {
+    projects: [{ id: "p1", name: "Obitrain", color: "#7bd88f", icon: null, repos: [] }, {
       id: "p2",
       name: "Soren",
       color: null,
       icon: null,
+      repos: [],
     }],
     stories: [],
     pages: [],

@@ -82,6 +82,11 @@ await pg.query(
   [DB_ID, SUB],
 );
 await pg.query(
+  `insert into project_repos (project_id, name, remote, origin) values
+   ($1, 'web', 'github.com/acme/web', 'member-dev'), ($2, 'secret', 'github.com/acme/secret', 'member-dev')`,
+  [SHARED, PRIVATE],
+);
+await pg.query(
   `insert into page_comments (page_id, block_id, body, author_id, origin)
    values ($1, 'b1', 'root note', $2, 'member-dev')`,
   [SHARED, MEMBER],
@@ -137,6 +142,8 @@ test("sharing a page exposes exactly its subtree + attached database", async () 
   expect(pages).toStrictEqual([SHARED, SUB]);
   expect(r.changes.filter((c) => c.entity === "udb_databases").length).toStrictEqual(1);
   expect(r.changes.filter((c) => c.entity === "page_comments").length).toStrictEqual(1);
+  expect(r.changes.filter((c) => c.entity === "project_repos").map((c) => (c.value as { name: string }).name))
+    .toStrictEqual(["web"]);
   expect(r.changes.filter((c) => c.entity === "sessions").length).toStrictEqual(0);
 });
 
