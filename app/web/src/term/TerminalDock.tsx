@@ -293,8 +293,8 @@ export default function TerminalDock(
               >
                 <button
                   type="button"
-                  title={project ? `${project.name} · ${lead?.cwd}` : lead?.cwd}
-                  className="flex items-center gap-1.5"
+                  title={[name, project ? `${project.name} · ${lead?.cwd}` : lead?.cwd].filter(Boolean).join("\n")}
+                  className="flex min-w-0 items-center gap-1.5"
                   onClick={() => {
                     if (cover) onUncover?.(t.focus);
                     if (t.id === active && open && !scope) setDockOpen(false);
@@ -305,7 +305,7 @@ export default function TerminalDock(
                   {project?.icon || project?.color || !agent
                     ? <ProjectMark project={project} />
                     : <AgentIcon a={{ harness: agent, icon: null }} />}
-                  <span className={exited ? "opacity-50" : ""}>{name}</span>
+                  <span className={`max-w-56 truncate ${exited ? "opacity-50" : ""}`}>{name}</span>
                   {why && (
                     <span title={why} className="flex">
                       <PresenceDot state="waiting" />
