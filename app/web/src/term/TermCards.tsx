@@ -25,6 +25,11 @@ const SPACING_LABEL: Record<Spacing, string> = { comfortable: "Comfortable", com
 const SHELLS = ["show", "hide"] as const;
 type Shells = typeof SHELLS[number];
 const SHELLS_LABEL: Record<Shells, string> = { show: "Folded section", hide: "Hidden" };
+// working agents' rows: a tinted background, or none
+const TINTS = ["live", "copper", "off"] as const;
+type Tint = typeof TINTS[number];
+const TINT_LABEL: Record<Tint, string> = { live: "Green", copper: "Copper", off: "Off" };
+const TINT_BG: Record<Tint, string> = { live: "rounded-md bg-live/[0.10]", copper: "rounded-md bg-copper/[0.12]", off: "" };
 // what the menu's preview draws when no agent runs
 const SAMPLE = [
   { name: "invoice-export", project: "Acme", repo: "api", what: "sonnet · working", working: true },
@@ -68,6 +73,7 @@ export function TermCards(
   const { terms: dockTerms } = useTermDock();
   const [grouping, setGrouping] = useLocalStorage<Grouping>("trame:termGrouping", "tree", enumCodec(GROUPINGS));
   const [spacing, setSpacing] = useLocalStorage<Spacing>("trame:termSpacing", "comfortable", enumCodec(SPACINGS));
+  const [tint, setTint] = useLocalStorage<Tint>("trame:termRunningTint", "live", enumCodec(TINTS));
   const [shells, setShells] = useLocalStorage<Shells>("trame:termShells", "show", enumCodec(SHELLS));
   const [shellsOpen, setShellsOpen] = useLocalStorage("trame:termShellsOpen", false, BOOL_CODEC);
   const gap = spacing === "compact" ? "gap-0" : "gap-1";
@@ -240,7 +246,7 @@ export function TermCards(
     return (
       <div
         key={key}
-        className={`group/row relative ${waiting ? "rounded-md bg-wait/[0.14]" : ""}`}
+        className={`group/row relative ${waiting ? "rounded-md bg-wait/[0.14]" : working ? TINT_BG[tint] : ""}`}
         title="right-click: pin, fork, stop, link to a card, close"
         onContextMenu={(e) => {
           e.preventDefault();
@@ -526,7 +532,7 @@ export function TermCards(
     const xs = real.length ? real : SAMPLE;
     const roomy = more.spacing !== "compact";
     const item = (x: typeof xs[number], repoOnLine: boolean) => (
-      <div key={x.name} className={`flex flex-col ${roomy ? "py-1" : "py-px"}`}>
+      <div key={x.name} className={`flex flex-col ${roomy ? "py-1" : "py-px"} ${x.working ? `px-1 ${TINT_BG[(more.tint as Tint) ?? "live"]}` : ""}`}>
         <span className="flex items-center gap-1.5 truncate text-[11.5px] text-ink-soft">
           <span className={`h-[5px] w-[5px] shrink-0 rounded-full ${x.working ? "bg-live" : "bg-ink-faint"}`} />
           {x.name}
@@ -617,6 +623,12 @@ export function TermCards(
             value: spacing,
             options: SPACING_LABEL,
             onChange: (v) => setSpacing(v as Spacing),
+          }, {
+            key: "tint",
+            label: "RUNNING AGENTS",
+            value: tint,
+            options: TINT_LABEL,
+            onChange: (v) => setTint(v as Tint),
           }, {
             key: "shells",
             label: "PLAIN SHELLS",
