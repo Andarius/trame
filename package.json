@@ -1,5 +1,6 @@
 {
   "name": "trame",
+  "license": "MIT OR Apache-2.0",
   "version": "0.35.3",
   "private": true,
   "type": "module",

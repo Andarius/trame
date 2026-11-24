@@ -1,0 +1,13 @@
+Trame
+Copyright (c) 2026 Julien Brayere
+
+Licensed under MIT OR Apache-2.0 (see LICENSE-MIT and LICENSE-APACHE).
+
+Third-party marks
+
+The agent and model-provider logos embedded in app/web/src/agents/agents.tsx
+(the `claude`, `anthropic` and `openai` icons, plus the `vibe` (Mistral) and
+`antigravity` (Google) marks) are trademarks of their respective owners
+(Anthropic, OpenAI, Mistral AI, Google). They are used only to identify those
+products, are not covered by the MIT or Apache-2.0 licenses of this project,
+and no rights in them are granted.

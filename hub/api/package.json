@@ -1,5 +1,6 @@
 {
   "name": "trame-hub-api",
+  "license": "MIT OR Apache-2.0",
   "private": true,
   "type": "module",
   "scripts": {

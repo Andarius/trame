@@ -5,6 +5,7 @@ resolver = "2"
 [workspace.package]
 edition = "2024"
 publish = false
+license = "MIT OR Apache-2.0"
 
 
 # lint set from astral-sh/uv

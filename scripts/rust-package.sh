@@ -26,6 +26,8 @@ if [[ -z "${CI:-}" && -z "${TRAME_FULL_RELEASE:-}" ]]; then
     # linuxdeploy's per-library dpkg-query copyright lookups: AppImage bundling ~178s → ~32s; CI keeps them
     export DISABLE_COPYRIGHT_FILES_DEPLOYMENT=1
 fi
+# psql uses the host's GNU Readline (GPL-3) instead of shipping it in the AppImage
+export LINUXDEPLOY_EXCLUDED_LIBRARIES="libreadline.so*"
 if [[ "$mode" == cli ]]; then
     cargo build -p trame-cli --release --locked
     mkdir -p dist
@@ -72,6 +74,11 @@ if [[ "$platform" == Darwin/arm64 ]]; then
     [[ -f "$pg/usr/lib/postgresql/18/share/postgres.bki" ]]
     prune_pg "$pg/usr/lib/postgresql/18" "$pg/usr/lib/postgresql/18/share"
     rm -rf "$pg/usr/lib/postgresql/18/include"
+    # keep the licence files of the PostgreSQL tarball (shipped as resources)
+    mkdir -p "$pg/usr/share/doc/postgresql"
+    for f in "$pg"/usr/lib/postgresql/18/{COPYRIGHT*,LICENSE*,copyright*}; do
+        [[ -f "$f" ]] && cp "$f" "$pg/usr/share/doc/postgresql/"
+    done
     triple=aarch64-apple-darwin
     [[ "$(rustc -vV | sed -n 's/^host: //p')" == "$triple" ]]
     if [[ "$mode" == prepare ]]; then
@@ -92,6 +99,10 @@ if [[ "$platform" == Darwin/arm64 ]]; then
     [[ -f dist/macos/Trame.dmg ]]
     cp target/release/tramecli dist/macos/tramecli
     exit 0
+fi
+# a tree from before the copyright files were kept is rebuilt
+if [[ -x "$pg/usr/lib/postgresql/18/bin/postgres" && -z "$(find "$pg/usr/share/doc" -name copyright 2>/dev/null)" ]]; then
+    rm -rf "$pg"
 fi
 if [[ ! -x "$pg/usr/lib/postgresql/18/bin/postgres" ]]; then
     if [[ -x .scratch/stage0/pg18/usr/lib/postgresql/18/bin/postgres ]]; then
@@ -115,7 +126,11 @@ fi
 [[ -f "$pg/usr/share/postgresql/18/postgres.bki" ]]
 
 prune_pg "$pg/usr/lib/postgresql/18" "$pg/usr/share/postgresql/18"
-rm -rf "$pg/usr/share/doc" "$pg/usr/share/man" "$pg/usr/share/lintian" "$pg/etc"
+rm -rf "$pg/usr/share/man" "$pg/usr/share/lintian" "$pg/etc"
+# keep PostgreSQL's copyright files (shipped as resources); drop the rest of the docs
+find "$pg/usr/share/doc" -mindepth 1 ! -type d ! -name copyright -delete
+find "$pg/usr/share/doc" -mindepth 1 -type d -empty -delete
+[[ -n "$(find "$pg/usr/share/doc" -name copyright)" ]]
 
 triple="$(rustc -vV | sed -n 's/^host: //p')"
 [[ "$triple" == x86_64-unknown-linux-gnu ]]
