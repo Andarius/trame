@@ -911,6 +911,26 @@ fn journal_presence_records_one_join_and_one_leave_without_reopening_done() {
 }
 
 #[test]
+fn presence_by_harness_session_keeps_its_id() {
+    let mut t = TestDb::new();
+    let claude = uuid::Uuid::new_v4().to_string();
+    let id = create(&mut t, json!({"title":"Shelled","claude_id":claude}));
+    let route = format!("/api/sessions/{claude}/presence");
+    let (code, p) = sessions::handle(
+        &mut t.db,
+        "POST",
+        &route,
+        "",
+        &json!({"state":"working","harness":"claude-code"}),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(code, 200);
+    assert_eq!(p["session_id"], id);
+    assert_eq!(p["agent_id"], claude);
+}
+
+#[test]
 fn status_ids_revive_and_board_deleted_filter_is_exact() {
     let mut t = TestDb::new();
     let create_status = |t: &mut TestDb, color: &str| {

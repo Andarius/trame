@@ -65,7 +65,7 @@ export function TermCards(
     onSelectHistory: () => void;
   },
 ) {
-  const { terms } = useTermDock();
+  const { terms: dockTerms } = useTermDock();
   const [grouping, setGrouping] = useLocalStorage<Grouping>("trame:termGrouping", "tree", enumCodec(GROUPINGS));
   const [spacing, setSpacing] = useLocalStorage<Spacing>("trame:termSpacing", "comfortable", enumCodec(SPACINGS));
   const [shells, setShells] = useLocalStorage<Shells>("trame:termShells", "show", enumCodec(SHELLS));
@@ -92,6 +92,16 @@ export function TermCards(
   const cardOf = new Map(board?.sessions.map((s) => [s.id, s]));
   const knownProjects = new Set(board?.projects.map((p) => p.id));
   const termSessions = useTermSessions();
+  // a shell opened before its agent's card existed: linked through the agent's session id
+  const byAgent = new Map([
+    ...(board?.sessions.flatMap((s): [string, string][] => (s.claude_id ? [[s.claude_id, s.id]] : [])) ?? []),
+    ...live.flatMap((l): [string, string][] => (l.a.agent_id ? [[l.a.agent_id, l.a.session_id]] : [])),
+  ]);
+  const terms = { ...dockTerms };
+  for (const x of termSessions) {
+    const t = terms[x.term], c = byAgent.get(x.id);
+    if (t && !t.card && c) terms[x.term] = { ...t, card: c };
+  }
   // `/fork` background sessions, under the agent they came from; stopped ones and those attached in a shell left out
   const [forks, setForks] = useState<Fork[]>([]);
   useEffect(() => {
