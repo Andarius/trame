@@ -10,7 +10,7 @@ import "@fontsource/jetbrains-mono/latin-700.css";
 import "@fontsource/jetbrains-mono/latin-400-italic.css";
 import { getPage, getUdb, openInBrowser } from "../api";
 import { openWorkspaceAt } from "../app/workspaces";
-import { CLOSE_AUTH, CLOSE_GONE, CLOSE_SUPERSEDED, closeTerminal, termImage, type TermTheme, termTheme, termToken } from "./term-api";
+import { CLOSE_AUTH, CLOSE_GONE, CLOSE_STOPPING, CLOSE_SUPERSEDED, closeTerminal, termImage, type TermTheme, termTheme, termToken } from "./term-api";
 import { imageLinks } from "./image-links";
 import { previewBox } from "./preview-size";
 import { termBindingKey } from "./key-bindings";
@@ -257,6 +257,8 @@ export function TerminalView(
         if (e.code === CLOSE_SUPERSEDED) {
           done = true;
           setNotice("superseded");
+        } else if (e.code === CLOSE_STOPPING) {
+          done = true; // the layout keeps this pane for the next launch
         } else if (e.code === CLOSE_GONE) {
           done = true;
           setNotice("gone");

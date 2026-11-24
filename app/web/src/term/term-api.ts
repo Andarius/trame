@@ -30,6 +30,7 @@ export const TOKEN_HEADER = "x-trame-term";
 export const CLOSE_AUTH = 4401;
 export const CLOSE_GONE = 4404;
 export const CLOSE_SUPERSEDED = 4000;
+export const CLOSE_STOPPING = 4503; // Trame quit: the shell ended with it, its pane stays
 
 let token: Promise<string> | null = null;
 // fetched once per page and kept out of storage; `fresh` refetches after the backend restarted
