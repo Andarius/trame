@@ -38,6 +38,8 @@ pub const CLOSE_AUTH: u16 = 4401;
 pub const CLOSE_GONE: u16 = 4404;
 pub const CLOSE_SUPERSEDED: u16 = 4000;
 pub const CLOSE_LAGGED: u16 = 4002;
+/// Trame is quitting: the shell ended with it, so its pane stays for the next launch.
+pub const CLOSE_STOPPING: u16 = 4503;
 
 /// The shell's exit; `code` is unknown when waiting on it failed.
 #[derive(Clone, Copy)]
@@ -1655,6 +1657,15 @@ async fn send_json(ws: &mut WebSocket, value: &Value) -> bool {
         .is_ok()
 }
 
+/// The shell ended: `{type:"exit"}` closes its pane, unless Trame hung it up on its way out.
+async fn ended(ws: &mut WebSocket, code: Option<u32>) {
+    if STOPPED.load(Ordering::SeqCst) {
+        return close(ws, CLOSE_STOPPING, "trame stopping").await;
+    }
+    send_json(ws, &json!({"type":"exit","code":code})).await;
+    close(ws, 1000, "exited").await;
+}
+
 /// One attachment: `{type:"auth",token,from?,cols,rows}` first, then binary input and
 /// `{type:"resize"}` frames in; `{type:"attach"}`, binary output and `{type:"exit"}` out.
 async fn session(mut ws: WebSocket, id: String) {
@@ -1698,8 +1709,7 @@ async fn session(mut ws: WebSocket, id: String) {
         return;
     }
     if let Some(Exited { code }) = exit {
-        send_json(&mut ws, &json!({"type":"exit","code":code})).await;
-        return close(&mut ws, 1000, "exited").await;
+        return ended(&mut ws, code).await;
     }
     loop {
         tokio::select! {
@@ -1716,10 +1726,7 @@ async fn session(mut ws: WebSocket, id: String) {
                         return;
                     }
                 }
-                Ok(Event::Exit(Exited { code })) => {
-                    send_json(&mut ws, &json!({"type":"exit","code":code})).await;
-                    return close(&mut ws, 1000, "exited").await;
-                }
+                Ok(Event::Exit(Exited { code })) => return ended(&mut ws, code).await,
                 // the client re-attaches from its offset and catches up from the ring
                 Err(broadcast::error::RecvError::Lagged(_)) => return close(&mut ws, CLOSE_LAGGED, "lagged").await,
                 Err(broadcast::error::RecvError::Closed) => return,
