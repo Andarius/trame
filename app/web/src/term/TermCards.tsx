@@ -81,6 +81,8 @@ export function TermCards(
   };
   // agents kept at the top of the list, by session id
   const [pinned, setPinned] = useLocalStorage("trame:termPinned", new Set<string>(), SET_CODEC);
+  // "<agent session>\n<follow-up>" → the shell started on it
+  const [started, setStarted] = useLocalStorage<Record<string, string>>("trame:termFollowStarted", {}, FOLLOW_CODEC);
   const [menuFor, setMenuFor] = useState<string | null>(null); // the project right-clicked for a new terminal
   const [newOpen, setNewOpen] = useState(false);
   const [linkFor, setLinkFor] = useState<string | null>(null); // the shell to link to a card
@@ -136,11 +138,22 @@ export function TermCards(
     return c ? agentOf.get(c) : undefined;
   };
   const isWaiting = (x: TermSession) => !!x.waiting || liveOf(x)?.state === "waiting";
+  // each follow-up an agent was started on, by its shell: that agent's state is the item's progress
+  const followUps = (x: TermSession): FollowUp[] =>
+    (x.follow_ups ?? []).map((item) => {
+      const term = started[`${x.id}\n${item}`];
+      if (!term) return { item, state: "todo" };
+      const shell = terms[term];
+      const agent = termSessions.find((s) => s.term === term);
+      if (!shell || shell.exited || agent?.done) return { item, state: "done" };
+      const state = !agent ? "started" : isWaiting(agent) ? "waiting" : agent.busy ? "running" : "started";
+      return { item, state, term };
+    });
   const asking = termSessions.filter(isWaiting);
   const running = termSessions.filter((x) => !isWaiting(x)).sort((a, b) => seen(b) - seen(a));
   const pins = running.filter((x) => pinned.has(x.id));
   // idle agents whose follow-ups have waited over a day, above the groups
-  const leftOver = running.filter((x) => !pinned.has(x.id) && !x.busy && liveOf(x)?.state !== "working" && isLeftOver(x));
+  const leftOver = running.filter((x) => !pinned.has(x.id) && !x.busy && liveOf(x)?.state !== "working" && isLeftOver(x, openCount(followUps(x))));
   // an agent's project: its card's, else its shell's
   const projectOf = (x: TermSession) => {
     const t = terms[x.term];
@@ -211,6 +224,7 @@ export function TermCards(
   const agentRow = (x: TermSession, flat = false) => {
     const key = `term:${x.term}:${x.id}`;
     const l = liveOf(x);
+    const fu = followUps(x);
     const waiting = isWaiting(x);
     const working = !waiting && (l?.state === "working" || x.busy);
     return (
@@ -292,29 +306,41 @@ export function TermCards(
               {/* room for the pin button */}
               <span className="w-4 shrink-0" />
             </span>
-            <AgentLine l={l} x={x} repo={flat || grouping === "project" || grouping === "none" ? repoOf(x) : null} />
+            <AgentLine l={l} x={x} fu={fu} repo={flat || grouping === "project" || grouping === "none" ? repoOf(x) : null} />
           </>
         ))}
-        {selectedTerm === x.term && !x.busy && (x.follow_ups?.length ?? 0) > 0 && (
+        {selectedTerm === x.term && !x.busy && fu.length > 0 && (
           <ul aria-label="Follow-ups" className="ml-[19px] flex flex-col pb-0.5">
-            {x.follow_ups!.map((item) => (
+            {fu.map(({ item, state, term }) => (
               <li key={item}>
                 <button
                   type="button"
-                  title={`start an agent on it: ${item}`}
-                  onClick={() =>
-                    void openTerminal({
+                  title={term ? `show the agent on it: ${item}` : state === "done" ? `done: ${item}` : `start an agent on it: ${item}`}
+                  disabled={state === "done"}
+                  onClick={async () => {
+                    if (term) return void revealTerminal(term);
+                    const info = await openTerminal({
                       cwd: terms[x.term]?.cwd,
                       card: terms[x.term]?.card ?? null,
                       project: terms[x.term]?.project ?? null,
                       title: item,
                       command: `${x.agent} ${shellQuote(item)}`,
-                    })}
-                  className="group/fu flex w-full items-center gap-1.5 rounded-md px-2 py-0.5 text-left text-[11.5px] text-ink-muted hover:bg-active-row hover:text-ink-soft"
+                    });
+                    setStarted((m) => ({ ...m, [`${x.id}\n${item}`]: info.id }));
+                  }}
+                  className={`group/fu flex w-full items-center gap-1.5 rounded-md px-2 py-0.5 text-left text-[11.5px] ${
+                    state === "done" ? "text-ink-faint line-through" : "text-ink-muted hover:bg-active-row hover:text-ink-soft"
+                  }`}
                 >
-                  <span aria-hidden="true" className="h-[9px] w-[9px] shrink-0 rounded-[2px] border border-current opacity-70" />
+                  {state === "todo"
+                    ? <span aria-hidden="true" className="mx-[1.5px] h-[9px] w-[9px] shrink-0 rounded-[2px] border border-current opacity-70" />
+                    : <ForkState state={state === "started" ? "idle" : state} />}
                   <span className="min-w-0 flex-1 truncate">{item}</span>
-                  <span className="shrink-0 text-[10.5px] text-copper opacity-0 group-hover/fu:opacity-100">start ▸</span>
+                  {state !== "done" && (
+                    <span className="shrink-0 text-[10.5px] text-copper no-underline opacity-0 group-hover/fu:opacity-100">
+                      {term ? "show ▸" : "start ▸"}
+                    </span>
+                  )}
                 </button>
               </li>
             ))}
@@ -759,6 +785,14 @@ function ForkState({ state }: { state: string }) {
       </svg>
     );
   }
+  if (state === "idle") {
+    return (
+      <svg viewBox="0 0 12 12" className={`${cls} text-ink-soft`} fill="none" stroke="currentColor" strokeWidth="1.3" aria-label="started, idle">
+        <circle cx="6" cy="6" r="5" />
+        <path d="M6 1a5 5 0 0 1 0 10z" fill="currentColor" stroke="none" />
+      </svg>
+    );
+  }
   if (state === "waiting") {
     return (
       <svg viewBox="0 0 12 12" className={`${cls} text-wait`} fill="none" stroke="currentColor" strokeWidth="1.3" aria-label="waiting">
@@ -779,12 +813,30 @@ const projectName = (board: BoardData | null, id: string) => board?.projects.fin
 const seen = (x: TermSession) => x.updated_at ?? x.started_at ?? 0;
 const LEFT_OVER_MS = 24 * 3600_000;
 // open follow-ups, untouched for over a day
-const isLeftOver = (x: TermSession) => (x.follow_ups?.length ?? 0) > 0 && seen(x) > 0 && Date.now() - seen(x) > LEFT_OVER_MS;
+const isLeftOver = (x: TermSession, open: number) => open > 0 && seen(x) > 0 && Date.now() - seen(x) > LEFT_OVER_MS;
+// a follow-up and the agent started on it, if any: "started" is idle without having finished
+type FollowUp = { item: string; state: "todo" | "running" | "waiting" | "started" | "done"; term?: string };
+const openCount = (fu: FollowUp[]) => fu.filter((f) => f.state !== "done").length;
+const FOLLOW_CODEC = {
+  parse: (r: string) => Object.fromEntries(Object.entries(JSON.parse(r) as Record<string, unknown>).filter(([, v]) => typeof v === "string")) as Record<string, string>,
+  stringify: (v: Record<string, string>) => JSON.stringify(v),
+};
 const shellQuote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
+
+// one notch per follow-up: done, under way, not started
+function FollowBar({ fu }: { fu: FollowUp[] }) {
+  const tone = (f: FollowUp) =>
+    f.state === "done" ? "bg-live" : f.state === "todo" ? "bg-ink-faint/35" : "bg-wait";
+  return (
+    <span aria-label={`${fu.length - openCount(fu)} of ${fu.length} done`} className="inline-flex items-center gap-[2px]">
+      {fu.map((f) => <span key={f.item} className={`h-[5px] w-[7px] rounded-[1px] ${tone(f)}`} />)}
+    </span>
+  );
+}
 
 // under an agent's name: its model and state, how long, then what it does (or asks) on a second line;
 // `l` is its card's presence from the hooks, `x` what Trame reads from the process itself
-function AgentLine({ l, x, repo }: { l?: Live; x?: TermSession; repo?: string | null }) {
+function AgentLine({ l, x, fu = [], repo }: { l?: Live; x?: TermSession; fu?: FollowUp[]; repo?: string | null }) {
   if (!l && !x) return null;
   const waiting = l?.state === "waiting" || !!x?.waiting;
   const working = !waiting && (l?.state === "working" || !!x?.busy);
@@ -804,15 +856,16 @@ function AgentLine({ l, x, repo }: { l?: Live; x?: TermSession; repo?: string | 
             ? "working"
             : done
             ? "done"
-            : x?.follow_ups?.length
+            : x && fu.length
             ? (
               <span
-                title={x.follow_ups.join("\n")}
-                className={isLeftOver(x)
-                  ? "rounded-full border border-wait/45 px-1.5 text-wait"
-                  : "text-ink-soft"}
+                title={fu.map((f) => `${f.state === "done" ? "✓" : f.state === "todo" ? "☐" : "…"} ${f.item}`).join("\n")}
+                className={`inline-flex items-center gap-1.5 ${
+                  isLeftOver(x, openCount(fu)) ? "rounded-full border border-wait/45 px-1.5 text-wait" : "text-ink-soft"
+                }`}
               >
-                {x.follow_ups.length} left
+                {openCount(fu) ? `${openCount(fu)} left` : "all done"}
+                {fu.some((f) => f.state !== "todo") && <FollowBar fu={fu} />}
               </span>
             )
             : "idle"}
