@@ -93,6 +93,7 @@ export function TermCards(
   const [newOpen, setNewOpen] = useState(false);
   const [linkFor, setLinkFor] = useState<string | null>(null); // the shell to link to a card
   const [menu, setMenu] = useState<string | null>(null); // the agent row right-clicked
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | undefined>(); // where it was right-clicked
   const { live } = useAgents();
   const agentOf = new Map<string, Live>(live.map((l) => [l.a.session_id, l]));
   const cardOf = new Map(board?.sessions.map((s) => [s.id, s]));
@@ -250,11 +251,12 @@ export function TermCards(
         title="right-click: pin, fork, stop, link to a card, close"
         onContextMenu={(e) => {
           e.preventDefault();
+          setMenuAt({ x: e.clientX, y: e.clientY });
           setMenu(key);
         }}
       >
         {menu === key && (
-          <Popover portal onClose={() => setMenu(null)} className="w-44">
+          <Popover portal point={menuAt} onClose={() => setMenu(null)} className="w-44">
             <MenuRow
               onClick={() => {
                 flip(pinned, setPinned, x.id);
@@ -479,11 +481,12 @@ export function TermCards(
       title="right-click: link to a card, close"
       onContextMenu={(e) => {
         e.preventDefault();
+        setMenuAt({ x: e.clientX, y: e.clientY });
         setMenu(`shell:${t.id}`);
       }}
     >
       {menu === `shell:${t.id}` && (
-        <Popover portal onClose={() => setMenu(null)} className="w-44">
+        <Popover portal point={menuAt} onClose={() => setMenu(null)} className="w-44">
           <MenuRow
             onClick={() => {
               setLinkFor(t.id);
