@@ -3,7 +3,7 @@ import type { BoardData, ClaudeSession } from "../api";
 import { RecentList } from "../agents/RecentList";
 import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
-import { FolderIcon } from "../ui/icons";
+import { FolderIcon, PinIcon } from "../ui/icons";
 import { appConfirm, BOOL_CODEC, EntityIcon, enumCodec, MenuRow, Popover, SECTION_LABEL, SET_CODEC, useLocalStorage } from "../ui/ui";
 import { LinkCardDialog } from "./LinkCardDialog";
 import { NewTerminalDialog } from "./NewTerminalDialog";
@@ -79,6 +79,8 @@ export function TermCards(
     if (!next.delete(k)) next.add(k);
     save(next);
   };
+  // agents kept at the top of the list, by session id
+  const [pinned, setPinned] = useLocalStorage("trame:termPinned", new Set<string>(), SET_CODEC);
   const [menuFor, setMenuFor] = useState<string | null>(null); // the project right-clicked for a new terminal
   const [newOpen, setNewOpen] = useState(false);
   const [linkFor, setLinkFor] = useState<string | null>(null); // the shell to link to a card
@@ -96,6 +98,7 @@ export function TermCards(
   const isWaiting = (x: TermSession) => !!x.waiting || liveOf(x)?.state === "waiting";
   const asking = termSessions.filter(isWaiting);
   const running = termSessions.filter((x) => !isWaiting(x)).sort((a, b) => seen(b) - seen(a));
+  const pins = running.filter((x) => pinned.has(x.id));
   // an agent's project: its card's, else its shell's
   const projectOf = (x: TermSession) => {
     const t = terms[x.term];
@@ -111,6 +114,7 @@ export function TermCards(
   type Group = { key: string; project: string | null; repo: string | null; xs: TermSession[] };
   const groups = new Map<string, Group>();
   for (const x of running) {
+    if (pinned.has(x.id)) continue;
     const project = byProject ? projectOf(x) : null;
     const repo = grouping === "paths" ? repoOf(x) : null;
     const key = byProject ? `${project ?? ""}/${repo ?? ""}` : "all";
@@ -162,7 +166,7 @@ export function TermCards(
       ? <span className="w-[7px] shrink-0 text-center text-[10px] leading-none text-live" title="done: no follow-ups">✓</span>
       : <span className={`h-[7px] w-[7px] shrink-0 rounded-full ${waiting ? "bg-wait" : working ? "bg-live" : "bg-ink-faint"}`} />;
   // one agent running in a Trame shell
-  const agentRow = (x: TermSession) => {
+  const agentRow = (x: TermSession, flat = false) => {
     const key = `term:${x.term}:${x.id}`;
     const l = liveOf(x);
     const waiting = isWaiting(x);
@@ -170,8 +174,8 @@ export function TermCards(
     return (
       <div
         key={key}
-        className={`relative ${waiting ? "rounded-md bg-wait/[0.14]" : ""}`}
-        title="right-click: link to a card, close"
+        className={`group/row relative ${waiting ? "rounded-md bg-wait/[0.14]" : ""}`}
+        title="right-click: pin, link to a card, close"
         onContextMenu={(e) => {
           e.preventDefault();
           setMenu(key);
@@ -179,6 +183,14 @@ export function TermCards(
       >
         {menu === key && (
           <Popover portal onClose={() => setMenu(null)} className="w-44">
+            <MenuRow
+              onClick={() => {
+                flip(pinned, setPinned, x.id);
+                setMenu(null);
+              }}
+            >
+              {pinned.has(x.id) ? "Unpin" : "Pin to top"}
+            </MenuRow>
             <MenuRow
               onClick={() => {
                 setLinkFor(x.term);
@@ -206,10 +218,24 @@ export function TermCards(
             <span className="flex w-full items-center gap-2" title={`${x.agent} · ${x.id}`}>
               {dot(waiting, working, !waiting && !working && x.done)}
               <span className="min-w-0 flex-1 truncate">{sessionLabel(x)}</span>
+              {/* room for the pin button */}
+              <span className="w-4 shrink-0" />
             </span>
-            <AgentLine l={l} x={x} repo={grouping === "project" || grouping === "none" ? repoOf(x) : null} />
+            <AgentLine l={l} x={x} repo={flat || grouping === "project" || grouping === "none" ? repoOf(x) : null} />
           </>
         ))}
+        <button
+          type="button"
+          onClick={() => flip(pinned, setPinned, x.id)}
+          title={pinned.has(x.id) ? "unpin" : "pin to the top"}
+          aria-label={pinned.has(x.id) ? `Unpin ${sessionLabel(x)}` : `Pin ${sessionLabel(x)}`}
+          aria-pressed={pinned.has(x.id)}
+          className={`absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded hover:bg-active-row ${
+            pinned.has(x.id) ? "text-copper" : "text-ink-faint opacity-0 hover:text-ink focus-visible:opacity-100 group-hover/row:opacity-100"
+          }`}
+        >
+          <PinIcon size={12} />
+        </button>
       </div>
     );
   };
@@ -342,7 +368,7 @@ export function TermCards(
       {asking.length > 0 && (
         <section className={`flex flex-col ${gap}`}>
           <div className={`px-2 pb-1 ${SECTION_LABEL} text-wait`}>NEEDS YOU · {asking.length}</div>
-          {asking.map(agentRow)}
+          {asking.map((x) => agentRow(x))}
         </section>
       )}
       <div className="-mb-1 flex items-center px-2">
@@ -399,6 +425,16 @@ export function TermCards(
           No agent running. Start one with + above (Ctrl+T), or resume one below.
         </p>
       )}
+      {pins.length > 0 && (
+        <section className={`flex flex-col ${gap}`} aria-label="Pinned">
+          <div className={`flex items-center gap-1.5 px-2 pb-1 ${SECTION_LABEL}`}>
+            <PinIcon size={12} />
+            PINNED
+            <span className="ml-auto pr-1 tracking-normal tabular-nums text-ink-faint">{pins.length}</span>
+          </div>
+          {pins.map((x) => agentRow(x, true))}
+        </section>
+      )}
       {sections.map(({ key, project, repo, xs }) => (
         <section key={key} className={`flex flex-col ${gap}`}>
           {grouping !== "none" && (
@@ -448,17 +484,17 @@ export function TermCards(
           )}
           {!folded.has(gkey(key)) && (grouping === "tree"
             ? byRepo(xs).map(([r, rs]) =>
-              r === null ? rs.map(agentRow) : (
+              r === null ? rs.map((x) => agentRow(x)) : (
                 <div key={r} className={`flex flex-col ${gap}`}>
                   <div className="flex items-center gap-1.5 px-2 pt-0.5 text-[11.5px] text-ink-faint" title={`agents in ${r}`}>
                     <FolderIcon size={12} />
                     <span className="min-w-0 flex-1 truncate">{r}</span>
                   </div>
-                  <div className={`ml-[13px] flex flex-col ${gap} border-l border-line pl-1`}>{rs.map(agentRow)}</div>
+                  <div className={`ml-[13px] flex flex-col ${gap} border-l border-line pl-1`}>{rs.map((x) => agentRow(x))}</div>
                 </div>
               )
             )
-            : xs.map(agentRow))}
+            : xs.map((x) => agentRow(x)))}
         </section>
       ))}
       {outside.length > 0 && (
