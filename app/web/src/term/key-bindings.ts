@@ -36,9 +36,11 @@ export function comboOf(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "altKey" | "s
   return [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Meta", key].filter(Boolean).join("+");
 }
 
-// what the shell gets: ^X caret notation, or text with \e \n \r \t \xHH \\ escapes
+// what the shell gets: ^X caret notation (chords like ^X^S), or text with \e \n \r \t \xHH \\ escapes
 export function decodeSend(s: string): string {
-  if (/^\^[@-_?a-z]$/.test(s)) return s[1] === "?" ? "\x7f" : String.fromCharCode(s[1].toUpperCase().charCodeAt(0) ^ 0x40);
+  if (/^(\^[@-_?a-z])+$/i.test(s)) {
+    return s.replace(/\^(.)/g, (_, c: string) => (c === "?" ? "\x7f" : String.fromCharCode(c.toUpperCase().charCodeAt(0) ^ 0x40)));
+  }
   return s.replace(/\\(x[0-9a-fA-F]{2}|[enrt\\])/g, (_, c: string) =>
     c[0] === "x"
       ? String.fromCharCode(parseInt(c.slice(1), 16))
