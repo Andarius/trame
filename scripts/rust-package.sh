@@ -22,6 +22,8 @@ export TRAME_BUILD="$sha${dirty:+-dirty}"
 # local packages skip LTO and keep incremental: ~6s instead of ~75s per rebuild; CI ships the full profile
 if [[ -z "${CI:-}" && -z "${TRAME_FULL_RELEASE:-}" ]]; then
     export CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 CARGO_PROFILE_RELEASE_INCREMENTAL=true
+    # linuxdeploy's per-library dpkg-query copyright lookups: AppImage bundling ~178s → ~32s; CI keeps them
+    export DISABLE_COPYRIGHT_FILES_DEPLOYMENT=1
 fi
 if [[ "$mode" == cli ]]; then
     cargo build -p trame-cli --release --locked
