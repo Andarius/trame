@@ -581,7 +581,7 @@ export function TermCards(
   };
 
   return (
-    <nav aria-label="Running agents" className="flex flex-col gap-3">
+    <nav aria-label="Running agents" className="flex flex-col gap-3 [&>section+section]:border-t [&>section+section]:border-line [&>section+section]:pt-3">
       {asking.length > 0 && (
         <section className={`flex flex-col ${gap}`}>
           <div className={`px-2 pb-1 ${SECTION_LABEL} text-wait`}>NEEDS YOU · {asking.length}</div>
