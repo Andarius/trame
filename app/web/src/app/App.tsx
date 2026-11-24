@@ -48,6 +48,7 @@ import { NewSessionModal, NewUdbModal } from "../modals/modals";
 import { DbActions, HeaderTitle, PageActions } from "./AppHeader";
 import { BoardToolbar } from "./BoardToolbar";
 import { Palette } from "./Palette";
+import { UsageBar } from "../term/UsageBar";
 import { useAgentsPoll, useSelection, useStarred, useSync } from "./app-hooks";
 import { SelectionBar, UpdateBanner, useRebuildPoll } from "./UpdateBanner";
 import { Sidebar } from "./Sidebar";
@@ -791,6 +792,7 @@ export function App() {
           : view === "settings"
           ? <SettingsNav section={settingsPage} onSection={setSettingsPage} />
           : undefined}
+        footer={terminals ? <UsageBar /> : undefined}
         wide={view === "explore"}
         bare={view === "insights" || (view === "plugin" && !pluginColumn)}
         hidden={sidebarHidden}

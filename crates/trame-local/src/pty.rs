@@ -498,6 +498,8 @@ pub async fn serve(root: &Path, req: Request<Body>) -> Response {
             .unwrap_or_default();
             json_response(200, json!(subs))
         }
+        // the sidebar's footer: plan usage from settings' `usageCommand`, this host, the hosts that sync with it
+        (Method::GET, ["", "api", "term", "usage"]) => json_response(200, usage_bar(root).await),
         // the recent `/advices` runs, by the session that asked them
         (Method::GET, ["", "api", "term", "advices"]) => {
             let runs = crate::blocking::spawn(|| {
@@ -909,6 +911,86 @@ struct Advice {
 struct Advisor {
     name: String,
     status: String, // running, ok, failed, pending
+}
+
+const USAGE_TTL: Duration = Duration::from_mins(5);
+const USAGE_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// `{usage, host, hosts}`; the usage command's output is kept for [`USAGE_TTL`].
+async fn usage_bar(root: &Path) -> Value {
+    static LAST: Mutex<Option<(Instant, Value)>> = Mutex::new(None);
+    let cached = LAST
+        .lock()
+        .unwrap()
+        .clone()
+        .filter(|(at, _)| at.elapsed() < USAGE_TTL);
+    let usage = if let Some((_, v)) = cached {
+        v
+    } else {
+        let command = crate::settings::read(&crate::settings_file(root))["usageCommand"]
+            .as_str()
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+            .map(str::to_owned);
+        let v = match command {
+            Some(c) => run_usage(&c).await,
+            None => json!([]),
+        };
+        *LAST.lock().unwrap() = Some((Instant::now(), v.clone()));
+        v
+    };
+    let host = crate::startup::node_id().unwrap_or_default();
+    let root = root.to_path_buf();
+    let mut hosts = crate::blocking::spawn(move || synced_hosts(&root))
+        .await
+        .unwrap_or_default();
+    hosts.retain(|h| h != &host);
+    json!({"usage":usage,"host":host,"hosts":hosts})
+}
+
+/// `[{tool, name, used, resets_at}]` from a command printing that JSON (e.g. `choub usage --json`); `[]` on failure.
+async fn run_usage(command: &str) -> Value {
+    let run = tokio::process::Command::new("sh")
+        .args(["-c", command])
+        .kill_on_drop(true)
+        .output();
+    let Ok(Ok(out)) = tokio::time::timeout(USAGE_TIMEOUT, run).await else {
+        return json!([]);
+    };
+    let rows = serde_json::from_slice::<Value>(&out.stdout).unwrap_or_default();
+    usage_rows(&rows)
+}
+
+fn usage_rows(rows: &Value) -> Value {
+    let rows = rows.as_array().map(Vec::as_slice).unwrap_or_default();
+    json!(
+        rows.iter()
+            .filter(|r| r["tool"].is_string() && r["used"].is_number())
+            .map(|r| json!({"tool":r["tool"],"name":r["name"],"used":r["used"],"resets_at":r["resets_at"]}))
+            .collect::<Vec<_>>()
+    )
+}
+
+/// The other devices that shared usage through the hub, from the insights cache.
+fn synced_hosts(root: &Path) -> Vec<String> {
+    #[derive(serde::Deserialize)]
+    struct Row {
+        node_id: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct Cache {
+        #[serde(default)]
+        usage: Vec<Row>,
+    }
+    let Ok(bytes) = std::fs::read(root.join("stats-cache.json")) else {
+        return vec![];
+    };
+    let mut hosts: Vec<String> = serde_json::from_slice::<Cache>(&bytes)
+        .map(|c| c.usage.into_iter().map(|r| r.node_id).collect())
+        .unwrap_or_default();
+    hosts.sort();
+    hosts.dedup();
+    hosts
 }
 
 const ADVICE_RECENT: std::time::Duration = std::time::Duration::from_hours(12);
@@ -1855,7 +1937,7 @@ mod tests {
     use super::{
         AgentSession, Outside, Saved, SavedAgent, card_id, find_outside, follow_ups,
         parse_claude_session, parse_ghostty, preview_image, process_cwd, process_name, reopen_plan,
-        repo_root, resolve_cwd, running_agents,
+        repo_root, resolve_cwd, running_agents, usage_rows,
     };
     use crate::diagnostics::Process;
     use serde_json::{Value, json};
@@ -1979,6 +2061,23 @@ mod tests {
             (json!(42), Err(())),
         ] {
             assert_eq!(card_id(&value), expected, "{value}");
+        }
+    }
+
+    #[test]
+    fn usage_rows_keep_the_tool_windows() {
+        for (out, want) in [
+            (
+                json!([{"tool":"codex","name":"weekly","used":7.0,"resets_at":1,"extra":true}]),
+                json!([{"tool":"codex","name":"weekly","used":7.0,"resets_at":1}]),
+            ),
+            (
+                json!([{"tool":"claude","used":"50"}, {"name":"weekly","used":3}]),
+                json!([]),
+            ),
+            (json!({"error":"offline"}), json!([])),
+        ] {
+            assert_eq!(usage_rows(&out), want);
         }
     }
 
