@@ -1031,6 +1031,22 @@ export type StatsRow = {
   done: number;
   prs: number;
   merged: number;
+  // this machine's split of `tokens` (zero on other devices' rows): output, cache reads, cache writes
+  out: number;
+  cached: number;
+  written: number;
+};
+// one row per card and day: tokens and prompts of the transcripts linked to the card
+export type CardUsage = {
+  s: string;
+  d: string;
+  m: string | null; // null on the row carrying the day's prompts
+  tokens: number;
+  out: number;
+  cached: number;
+  written: number;
+  prompts: number;
+  sub: number; // of `tokens`, spent in subagents
 };
 export const getStats = () =>
   fetch("/api/stats").then(async (r) => {
@@ -1039,6 +1055,11 @@ export const getStats = () =>
       today: string;
       from: string; // first day covered
       rows: StatsRow[];
+      cards: CardUsage[]; // this machine's transcripts, by the card they link to
+      hours: { d: string; h: number; n: number }[]; // prompts per day and local hour
+      closed: { s: string; p: string | null; d: string; days: number }[]; // closed cards and how long they were open
+      agent_time: { d: string; a: string; ms: number }[]; // agent time on cards, from presence
+      parallel: { d: string; peak: number; ms: number }[]; // most agents at once, and time with two or more
       scan: { files: number; parsed: number; ms: number };
       prs: { pending: boolean; fetched: boolean }; // merged PRs come from GitHub/GitLab in the background
       // other devices' prompts and tokens, from the hub in the background

@@ -24,7 +24,7 @@ use std::{
 
 const DAYS: i64 = 366;
 const CACHE: &str = "stats-cache.json";
-const CACHE_VERSION: u32 = 3;
+const CACHE_VERSION: u32 = 4;
 // how long fetched merged PRs, and other devices' usage, stay fresh
 const PRS_TTL_MS: i64 = 15 * 60_000;
 static SCAN: Mutex<()> = Mutex::new(());
@@ -48,6 +48,20 @@ pub async fn serve(state: Native) -> Response {
 struct Tokens {
     input: u64,
     output: u64,
+    // cache reads (not in `input`) and cache writes (part of `input`)
+    #[serde(default)]
+    cached: u64,
+    #[serde(default)]
+    written: u64,
+}
+
+impl Tokens {
+    fn add(&mut self, t: &Self) {
+        self.input += t.input;
+        self.output += t.output;
+        self.cached += t.cached;
+        self.written += t.written;
+    }
 }
 
 /// One transcript's activity: prompts per day, tokens per day and model.
@@ -57,6 +71,9 @@ struct FileStats {
     cwd: Option<String>,
     prompts: BTreeMap<NaiveDate, u64>,
     tokens: BTreeMap<NaiveDate, BTreeMap<String, Tokens>>,
+    // prompts per day and local hour
+    #[serde(default)]
+    hours: BTreeMap<NaiveDate, BTreeMap<u8, u64>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -106,6 +123,8 @@ struct Counts {
     prompts: u64,
     entries: u64,
     tokens: u64,
+    // this machine's split of `tokens`, for cost and cache stats
+    split: Tokens,
     done: u64,
     prs: u64,
     merged: u64,
@@ -128,6 +147,14 @@ struct Owners {
     // PR repo (as `forge::pr_repo`) → project id
     pr_projects: HashMap<String, String>,
     gitlab_hosts: BTreeSet<String>,
+    // transcript UUID → card id
+    cards: HashMap<String, String>,
+    // cards closed in range: id, project, done day, days open
+    closed: Vec<Value>,
+    // agent time on cards: day, agent, ms
+    agent_time: Vec<Value>,
+    // agents at work at once: day, peak, ms with two or more
+    parallel: Vec<Value>,
 }
 
 fn stats(state: &Native) -> Result<Value> {
@@ -162,6 +189,7 @@ fn stats(state: &Native) -> Result<Value> {
         let row = rows.entry(key).or_default();
         row.prompts += c.prompts;
         row.tokens += c.tokens;
+        row.split.add(&c.split);
     }
     for u in cache.usage.iter().filter(|u| u.d >= from) {
         let row = rows
@@ -196,19 +224,28 @@ fn stats(state: &Native) -> Result<Value> {
         });
     }
     merged_rows(&cache, from, &owners.pr_projects, &mut rows);
+    let cards = card_rows(&cache.files, &owners.cards, from);
+    let hours = hour_rows(&cache.files, from);
     if changed {
         save_cache(&cache_path, &mut cache);
     }
     let rows: Vec<Value> = rows
         .into_iter()
         .map(|((d, p, r, a, m), c)| {
-            json!({"d":d,"p":p,"r":r,"a":a,"m":m,"prompts":c.prompts,"entries":c.entries,"tokens":c.tokens,"done":c.done,"prs":c.prs,"merged":c.merged})
+            let t = c.split;
+            json!({"d":d,"p":p,"r":r,"a":a,"m":m,"prompts":c.prompts,"entries":c.entries,"tokens":c.tokens,"done":c.done,"prs":c.prs,"merged":c.merged,
+                   "out":t.output,"cached":t.cached,"written":t.written})
         })
         .collect();
     Ok(json!({
         "today": Local::now().date_naive(),
         "from": from,
         "rows": rows,
+        "cards": cards,
+        "hours": hours,
+        "closed": owners.closed,
+        "agent_time": owners.agent_time,
+        "parallel": owners.parallel,
         "scan": {"files": files, "parsed": parsed, "ms": started.elapsed().as_millis()},
         "prs": {"pending": FETCHING.load(Ordering::SeqCst), "fetched": !cache.checked.is_empty()},
         "devices": {
@@ -384,7 +421,7 @@ fn db_rows(db: &mut Db, from: NaiveDate, rows: &mut BTreeMap<Key, Counts>) -> Re
                 status in (select key from statuses where terminal and not deleted) done,
                 coalesce(pr_url, '') <> '' pr
            from sessions where not deleted and (last_touched >= $1::date or done_at >= $1::date)",
-        &[since],
+        std::slice::from_ref(&since),
     )? {
         let project = s["p"].as_str().map(str::to_owned);
         let repo = project
@@ -428,6 +465,16 @@ fn db_rows(db: &mut Db, from: NaiveDate, rows: &mut BTreeMap<Key, Counts>) -> Re
             }
         }
     }
+    for s in db.query(
+        "select id::text s, claude_id::text c from sessions where not deleted and claude_id is not null",
+        &[],
+    )? {
+        if let (Some(card), Some(id)) = (s["s"].as_str(), s["c"].as_str()) {
+            owners.cards.insert(id.to_owned(), card.to_owned());
+        }
+    }
+    owners.closed = closed_cards(db, &since)?;
+    (owners.agent_time, owners.parallel) = agent_time(db, &since)?;
     owners.repos = elected(repos).collect();
     owners.pr_projects = elected(pr_repos).collect();
     Ok(owners)
@@ -656,7 +703,9 @@ fn transcript_rows(
                     s.source.clone(),
                     Some(model.clone()),
                 );
-                rows.entry(key).or_default().tokens += t.input + t.output;
+                let row = rows.entry(key).or_default();
+                row.tokens += t.input + t.output;
+                row.split.add(t);
             }
         }
     }
@@ -666,11 +715,221 @@ fn transcript_rows(
     (total, parsed, changed)
 }
 
+/// Closed cards with how long they stayed open, from their first worklog event to `done_at`.
+fn closed_cards(db: &mut Db, since: &Value) -> Result<Vec<Value>> {
+    let rows = db.query(
+        "select s.id::text s, s.client_id::text p, extract(epoch from s.done_at)::float8 dt,
+                extract(epoch from min(e.at))::float8 st
+           from sessions s join session_events e on e.session_id = s.id and not e.deleted
+          where not s.deleted and s.done_at >= $1::date
+            and s.status in (select key from statuses where terminal and not deleted)
+          group by s.id",
+        std::slice::from_ref(since),
+    )?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|r| {
+            let (dt, st) = (r["dt"].as_f64()?, r["st"].as_f64()?);
+            let d = local_date(dt)?;
+            Some(json!({"s":r["s"],"p":r["p"],"d":d,"days":((dt - st).max(0.0) / 86_400.0)}))
+        })
+        .collect())
+}
+
+// a visit longer than this lost its "left" event
+const MAX_VISIT_MS: f64 = 12.0 * 3_600_000.0;
+
+/// Agent time on cards per day and agent, and per day how many agents worked at once.
+fn agent_time(db: &mut Db, since: &Value) -> Result<(Vec<Value>, Vec<Value>)> {
+    let rows = db.query(
+        "select session_id::text s, coalesce(agent_name, agent, '') k, coalesce(agent, 'agent') a,
+                extract(epoch from at)::float8 t, summary like 'joined%' joined
+           from session_events
+          where not deleted and kind = 'presence' and at >= $1::date
+          order by at, id",
+        std::slice::from_ref(since),
+    )?;
+    let events = rows.iter().filter_map(|r| {
+        Some((
+            (r["s"].as_str()?, r["k"].as_str()?),
+            r["a"].as_str()?,
+            r["t"].as_f64()?,
+            r["joined"] == true,
+        ))
+    });
+    let visits = visits(events);
+    let time = presence_ms(&visits)
+        .into_iter()
+        .map(|((d, a), ms)| json!({"d":d,"a":a,"ms":ms}))
+        .collect();
+    let parallel = parallel(&visits)
+        .into_iter()
+        .map(|(d, (peak, ms))| json!({"d":d,"peak":peak,"ms":ms}))
+        .collect();
+    Ok((time, parallel))
+}
+
+/// One agent's stay on a card: start and end in epoch seconds, agent.
+type Visit = (f64, f64, String);
+
+/// Pairs each join with the next leave of the same (card, agent); `events` must be in time order.
+fn visits<'a>(
+    events: impl Iterator<Item = ((&'a str, &'a str), &'a str, f64, bool)>,
+) -> Vec<Visit> {
+    let mut open: HashMap<(&str, &str), f64> = HashMap::new();
+    let mut out = Vec::new();
+    for (key, agent, t, joined) in events {
+        if joined {
+            open.entry(key).or_insert(t);
+            continue;
+        }
+        let Some(start) = open.remove(&key) else {
+            continue;
+        };
+        let ms = (t - start) * 1000.0;
+        if ms > 0.0 && ms <= MAX_VISIT_MS {
+            out.push((start, t, agent_of(agent)));
+        }
+    }
+    out
+}
+
+/// Agent time per day (the day a visit started) and agent.
+fn presence_ms(visits: &[Visit]) -> BTreeMap<(NaiveDate, String), u64> {
+    let mut out: BTreeMap<(NaiveDate, String), u64> = BTreeMap::new();
+    for (start, end, agent) in visits {
+        if let Some(d) = local_date(*start) {
+            *out.entry((d, agent.clone())).or_default() += secs_ms(end - start);
+        }
+    }
+    out
+}
+
+/// Per day: the most agents at work at once, and the time two or more were.
+fn parallel(visits: &[Visit]) -> BTreeMap<NaiveDate, (u64, u64)> {
+    let mut edges: Vec<(f64, i64)> = visits
+        .iter()
+        .flat_map(|(s, e, _)| [(*s, 1), (*e, -1)])
+        .collect();
+    // a leave sorts before a join at the same instant, so back-to-back visits don't overlap
+    edges.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+    let mut out: BTreeMap<NaiveDate, (u64, u64)> = BTreeMap::new();
+    let mut running = 0_i64;
+    for (i, (t, step)) in edges.iter().enumerate() {
+        running += step;
+        let Some(d) = local_date(*t) else {
+            continue;
+        };
+        let day = out.entry(d).or_default();
+        day.0 = day.0.max(running.unsigned_abs());
+        if let (true, Some((next, _))) = (running >= 2, edges.get(i + 1)) {
+            day.1 += secs_ms(next - t);
+        }
+    }
+    out.retain(|_, (peak, _)| *peak > 0);
+    out
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn secs_ms(secs: f64) -> u64 {
+    (secs.max(0.0) * 1000.0) as u64
+}
+
+// journal agent ids name harnesses differently
+fn agent_of(agent: &str) -> String {
+    if agent == "claude-code" {
+        "claude".into()
+    } else {
+        agent.to_owned()
+    }
+}
+
+/// Prompts per day and local hour, across this machine's transcripts.
+fn hour_rows(files: &HashMap<PathBuf, Cached>, from: NaiveDate) -> Vec<Value> {
+    let mut by: BTreeMap<(NaiveDate, u8), u64> = BTreeMap::new();
+    for c in files.values() {
+        for (d, hours) in c.stats.hours.range(from..) {
+            for (h, n) in hours {
+                *by.entry((*d, *h)).or_default() += n;
+            }
+        }
+    }
+    by.into_iter()
+        .map(|((d, h), n)| json!({"d":d,"h":h,"n":n}))
+        .collect()
+}
+
+/// The transcript UUID a file belongs to: its own, or its parent's for a Claude subagent file.
+fn transcript_id(path: &Path) -> Option<String> {
+    path.ancestors().take(3).find_map(|p| {
+        let name = p.file_stem()?.to_str()?;
+        let id = name.get(name.len().checked_sub(36)?..)?;
+        uuid::Uuid::try_parse(id).ok().map(|u| u.to_string())
+    })
+}
+
+// tokens, prompts, tokens spent in subagents
+type CardTotals = (Tokens, u64, u64);
+
+/// Tokens and prompts per card and day, from the transcripts cards link to.
+fn card_rows(
+    files: &HashMap<PathBuf, Cached>,
+    cards: &HashMap<String, String>,
+    from: NaiveDate,
+) -> Vec<Value> {
+    // prompts sit on the row without a model
+    let mut by: BTreeMap<(&str, NaiveDate, Option<&str>), CardTotals> = BTreeMap::new();
+    for (path, c) in files {
+        let Some(card) = transcript_id(path).and_then(|t| cards.get(&t)) else {
+            continue;
+        };
+        let sub = path
+            .parent()
+            .and_then(Path::file_name)
+            .is_some_and(|n| n == "subagents");
+        for (d, n) in c.stats.prompts.range(from..) {
+            by.entry((card, *d, None)).or_default().1 += n;
+        }
+        for (d, models) in c.stats.tokens.range(from..) {
+            for (m, t) in models {
+                let row = by.entry((card, *d, Some(m))).or_default();
+                row.0.add(t);
+                if sub {
+                    row.2 += t.input + t.output;
+                }
+            }
+        }
+    }
+    by.into_iter()
+        .map(|((s, d, m), (t, prompts, sub))| {
+            json!({"s":s,"d":d,"m":m,"tokens":t.input + t.output,"out":t.output,"cached":t.cached,"written":t.written,"prompts":prompts,"sub":sub})
+        })
+        .collect()
+}
+
 fn event_date(event: &Value) -> Option<NaiveDate> {
     event["timestamp"]
         .as_str()
         .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
         .map(|t| t.with_timezone(&Local).date_naive())
+}
+
+fn bump_hour(stats: &mut FileStats, event: &Value) {
+    let Some(t) = event["timestamp"]
+        .as_str()
+        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+        .map(|t| t.with_timezone(&Local))
+    else {
+        return;
+    };
+    #[allow(clippy::cast_possible_truncation)]
+    let h = chrono::Timelike::hour(&t) as u8;
+    *stats
+        .hours
+        .entry(t.date_naive())
+        .or_default()
+        .entry(h)
+        .or_default() += 1;
 }
 
 fn count(v: &Value) -> u64 {
@@ -709,6 +968,7 @@ fn claude_stats(reader: impl BufRead) -> FileStats {
                 && transcript::claude_user(&event).is_some()
             {
                 *stats.prompts.entry(d).or_default() += 1;
+                bump_hour(&mut stats, &event);
             }
             continue;
         }
@@ -731,7 +991,10 @@ fn claude_stats(reader: impl BufRead) -> FileStats {
             .or_default()
             .entry(model.to_owned())
             .or_default();
-        t.input += count(&u["input_tokens"]) + count(&u["cache_creation_input_tokens"]);
+        let written = count(&u["cache_creation_input_tokens"]);
+        t.input += count(&u["input_tokens"]) + written;
+        t.written += written;
+        t.cached += count(&u["cache_read_input_tokens"]);
         t.output += count(&u["output_tokens"]);
     }
     stats
@@ -785,8 +1048,9 @@ fn codex_stats(reader: impl BufRead) -> FileStats {
                     .entry(model.clone())
                     .or_default();
                 // input_tokens includes the cached part
-                t.input +=
-                    count(&u["input_tokens"]).saturating_sub(count(&u["cached_input_tokens"]));
+                let cached = count(&u["cached_input_tokens"]);
+                t.input += count(&u["input_tokens"]).saturating_sub(cached);
+                t.cached += cached;
                 t.output += count(&u["output_tokens"]);
             }
             (Some("event_msg"), Some("user_message")) if !subagent => {
@@ -794,6 +1058,7 @@ fn codex_stats(reader: impl BufRead) -> FileStats {
                     && transcript::codex_user(&event).is_some()
                 {
                     *stats.prompts.entry(d).or_default() += 1;
+                    bump_hour(&mut stats, &event);
                 }
             }
             _ => {}
@@ -842,6 +1107,8 @@ fn vibe_stats(reader: impl BufRead, meta_path: &Path) -> FileStats {
         input: count(&s["session_prompt_tokens"])
             .saturating_sub(count(&s["session_cached_tokens"])),
         output: count(&s["session_completion_tokens"]),
+        cached: count(&s["session_cached_tokens"]),
+        written: 0,
     };
     if t.input + t.output > 0 {
         stats
@@ -887,7 +1154,7 @@ mod tests {
             json!({"type":"user","timestamp":ts,"isSidechain":true,"message":{"content":"subagent brief"}}),
             json!({"type":"user","timestamp":ts,"message":{"content":[{"type":"tool_result","content":"ok"}]}}),
             json!({"type":"user","timestamp":ts,"message":{"content":"<command-name>/clear</command-name>"}}),
-            json!({"type":"assistant","timestamp":ts,"message":{"id":"m1","model":"claude-x","usage":{"input_tokens":10,"cache_creation_input_tokens":5,"output_tokens":7}}}),
+            json!({"type":"assistant","timestamp":ts,"message":{"id":"m1","model":"claude-x","usage":{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":30,"output_tokens":7}}}),
             json!({"type":"assistant","timestamp":ts,"message":{"id":"m1","model":"claude-x","usage":{"input_tokens":10,"cache_creation_input_tokens":5,"output_tokens":7}}}),
             json!({"type":"assistant","timestamp":ts,"message":{"id":"m2","model":"<synthetic>","usage":{"input_tokens":1,"output_tokens":1}}}),
         ];
@@ -900,9 +1167,20 @@ mod tests {
             Tokens {
                 input: 15,
                 output: 7,
+                cached: 30,
+                written: 5,
             },
         )]);
         assert_eq!(stats.tokens, BTreeMap::from([(day(ts), tokens)]));
+        let hour = chrono::Timelike::hour(
+            &DateTime::parse_from_rfc3339(ts)
+                .unwrap()
+                .with_timezone(&Local),
+        );
+        assert_eq!(
+            stats.hours[&day(ts)],
+            BTreeMap::from([(u8::try_from(hour).unwrap(), 1)])
+        );
     }
 
     #[test]
@@ -942,7 +1220,9 @@ mod tests {
                 s.tokens[&d]["mistral-large-4"],
                 Tokens {
                     input: 200,
-                    output: 50
+                    output: 50,
+                    cached: 800,
+                    written: 0,
                 }
             );
             assert_eq!(s.prompts.get(&d).copied(), prompts);
@@ -976,12 +1256,115 @@ mod tests {
             Tokens {
                 input: 40,
                 output: 9,
+                cached: 60,
+                written: 0,
             },
         )]);
         assert_eq!(main.tokens, BTreeMap::from([(day(ts), tokens.clone())]));
         let sub = codex_stats(session(true).as_bytes());
         assert!(sub.prompts.is_empty());
         assert_eq!(sub.tokens, BTreeMap::from([(day(ts), tokens)]));
+    }
+
+    #[test]
+    fn card_rows_sum_a_cards_transcripts_and_subagents_in_range() {
+        let date = |d: &str| NaiveDate::parse_from_str(d, "%Y-%m-%d").unwrap();
+        let claude = "053f0800-8e71-472d-b5db-19b7493f486c";
+        let codex = "01a1f85e-01bf-7981-808a-d0c34df2f15e";
+        let file = |d: &str, input: u64, prompts: u64| Cached {
+            len: 0,
+            mtime: 0,
+            stats: FileStats {
+                prompts: BTreeMap::from([(date(d), prompts)]),
+                tokens: BTreeMap::from([(
+                    date(d),
+                    BTreeMap::from([(
+                        "m".to_owned(),
+                        Tokens {
+                            input,
+                            output: 1,
+                            cached: 2,
+                            written: 0,
+                        },
+                    )]),
+                )]),
+                ..FileStats::default()
+            },
+        };
+        let files = HashMap::from([
+            (
+                PathBuf::from(format!("/c/-w-acme/{claude}.jsonl")),
+                file("2026-05-02", 9, 2),
+            ),
+            (
+                PathBuf::from(format!("/c/-w-acme/{claude}/subagents/agent-a1.jsonl")),
+                file("2026-05-02", 4, 0),
+            ),
+            (
+                PathBuf::from(format!(
+                    "/x/2026/05/01/rollout-2026-05-01T10-00-00-{codex}.jsonl"
+                )),
+                file("2026-05-01", 19, 1),
+            ),
+            // before the range, and a transcript no card links
+            (
+                PathBuf::from(format!("/c/-w-acme/{claude}/subagents/agent-old.jsonl")),
+                file("2025-01-01", 99, 0),
+            ),
+            (
+                PathBuf::from("/c/-w-acme/9b2d6c1e-0000-4000-8000-000000000000.jsonl"),
+                file("2026-05-02", 99, 9),
+            ),
+        ]);
+        let cards = HashMap::from([
+            (claude.to_owned(), "card-a".to_owned()),
+            (codex.to_owned(), "card-b".to_owned()),
+        ]);
+        let rows = card_rows(&files, &cards, date("2026-01-01"));
+        assert_eq!(
+            rows,
+            vec![
+                json!({"s":"card-a","d":"2026-05-02","m":null,"tokens":0,"out":0,"cached":0,"written":0,"prompts":2,"sub":0}),
+                // the subagent's 4 + 1 tokens
+                json!({"s":"card-a","d":"2026-05-02","m":"m","tokens":15,"out":2,"cached":4,"written":0,"prompts":0,"sub":5}),
+                json!({"s":"card-b","d":"2026-05-01","m":null,"tokens":0,"out":0,"cached":0,"written":0,"prompts":1,"sub":0}),
+                json!({"s":"card-b","d":"2026-05-01","m":"m","tokens":20,"out":1,"cached":2,"written":0,"prompts":0,"sub":0}),
+            ]
+        );
+    }
+
+    #[test]
+    fn presence_pairs_joins_with_leaves_per_card_and_agent() {
+        let t0 = 1_777_716_000.0; // 2026-05-02T10:00:00Z
+        let (a, b) = (("c1", "ju"), ("c2", "ju"));
+        let events = [
+            (a, "claude-code", t0, true),
+            (a, "claude-code", t0 + 60.0, true), // a second join keeps the first start
+            (b, "codex", t0 + 10.0, true),
+            (a, "claude-code", t0 + 600.0, false),
+            (b, "codex", t0 + 13.0 * 3600.0, false), // over the cap: lost its leave
+            (a, "claude-code", t0 + 700.0, false),   // a leave without a join
+        ];
+        let d = day("2026-05-02T10:00:00Z");
+        assert_eq!(
+            presence_ms(&visits(events.into_iter())),
+            BTreeMap::from([((d, "claude".to_owned()), 600_000)])
+        );
+    }
+
+    #[test]
+    fn parallel_counts_overlapping_visits() {
+        let t0 = 1_777_716_000.0; // 2026-05-02T10:00:00Z
+        let visit = |s: f64, e: f64| (t0 + s, t0 + e, "claude".to_owned());
+        // three overlap on 100..200, two on 50..100 and 200..300; the last starts as one ends
+        let visits = [
+            visit(0.0, 300.0),
+            visit(50.0, 200.0),
+            visit(100.0, 400.0),
+            visit(400.0, 500.0),
+        ];
+        let d = day("2026-05-02T10:00:00Z");
+        assert_eq!(parallel(&visits), BTreeMap::from([(d, (3, 250_000))]));
     }
 
     #[test]
