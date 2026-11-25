@@ -193,7 +193,7 @@ fn settings_path() -> PathBuf {
     data_file("TRACKER_SETTINGS_FILE", "settings.json")
 }
 
-fn read_settings() -> Result<Value> {
+pub(crate) fn read_settings() -> Result<Value> {
     match fs::read_to_string(settings_path()) {
         Ok(text) => serde_json::from_str(&text).context("settings.json is not valid JSON"),
         Err(_) => Ok(json!({})),
@@ -212,7 +212,7 @@ pub fn schedules_from(settings: &Value) -> Result<Vec<Schedule>> {
     Ok(list)
 }
 
-fn write_schedules(list: &[Schedule]) -> Result<()> {
+pub(crate) fn write_schedules(list: &[Schedule]) -> Result<()> {
     let mut settings = read_settings()?;
     if !settings.is_object() {
         settings = json!({});

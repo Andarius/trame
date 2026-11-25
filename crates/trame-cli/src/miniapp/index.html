@@ -60,6 +60,22 @@
   .bg-red { background: var(--red); } .bg-orange { background: var(--orange); } .bg-blue { background: var(--button); }
   .msg { color: var(--hint); text-align: center; margin: 48px 24px; font-size: 15px; }
   .msg.error { color: var(--red); }
+  .topbar { display: flex; align-items: center; padding: 4px 16px 12px; }
+  .topbar .title { flex: 1; }
+  .icon-btn { font-size: 22px; line-height: 1; padding: 6px; color: var(--link); background: none; border: 0; cursor: pointer; }
+  .field { display: flex; align-items: center; gap: 12px; padding: 0 16px; min-height: 44px; }
+  .field + .field { border-top: .5px solid var(--separator); }
+  .field label { flex: 1; font-size: 17px; }
+  .field input, .field select { font: inherit; font-size: 17px; color: var(--link); background: none; border: 0; text-align: right; min-width: 0; }
+  .field input[type=text] { color: var(--text); text-align: left; flex: 2; }
+  .days { display: flex; gap: 6px; padding: 10px 16px; flex-wrap: wrap; }
+  .day { padding: 6px 10px; border-radius: 14px; font-size: 15px; border: 1px solid var(--separator); color: var(--text); background: none; cursor: pointer; }
+  .day.on { background: var(--button); border-color: var(--button); color: var(--button-text); }
+  .link { color: var(--link); } .danger { color: var(--red); }
+  .note { padding: 8px 32px 0; font-size: 13px; color: var(--hint); }
+  .err { margin: 8px 16px; color: var(--red); font-size: 15px; }
+  .fallback-save { display: block; margin: 16px; width: calc(100% - 32px); height: 50px; border-radius: 12px; border: 0;
+                   background: var(--button); color: var(--button-text); font: inherit; font-weight: 600; font-size: 16px; }
 </style>
 </head>
 <body>
@@ -134,11 +150,14 @@
     if (tg) { if (stack.length) tg.BackButton.show(); else tg.BackButton.hide(); }
   }
   function go(render) { stack.push(render); show(render()); tap(); }
-  function back() { stack.pop(); show(stack.length ? stack[stack.length - 1]() : home()); }
+  function back() { mainButton(null); stack.pop(); show(stack.length ? stack[stack.length - 1]() : home()); }
 
   // 1 · project tiles
   function home() {
     var view = el('div');
+    var gear = el('button', 'icon-btn', '⚙'); gear.type = 'button'; gear.setAttribute('aria-label', 'Schedules');
+    gear.onclick = function () { go(schedulesView); };
+    add(view, add(el('div', 'topbar'), el('div', 'title', 'Due'), gear));
     var projects = group(data.rows, function (r) { return r.project; });
     if (!projects.length) return add(view, el('div', 'msg', 'Nothing late or due this week.'));
     projects.forEach(function (p) {
@@ -193,6 +212,163 @@
       sec.appendChild(add(el('div', 'cell'), add(el('div', 'mid'), el('div', 'wrap', plain(r.text)), el('div', 'cap ' + sev(r.days), late(r.days) + ' · due ' + r.due))));
     });
     return add(view, sec);
+  }
+
+
+  // Schedules: read and saved through the signed API; validation is the server's
+  var DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+  var WINDOWS = [['late', 'Late only'], ['today', 'Late + today'], ['week', 'Late + this week']];
+  var settings = null;
+
+  function api(path, body) {
+    return fetch(path, {
+      method: 'POST',
+      headers: { 'X-Telegram-Init-Data': tg ? tg.initData : '', 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (json) {
+        if (!res.ok) throw new Error(json.error || ('Request failed (' + res.status + ')'));
+        return json;
+      });
+    });
+  }
+  function daysLabel(days) {
+    if (days.length === 7) return 'Every day';
+    if (days.join() === 'mon,tue,wed,thu,fri') return 'Mon–Fri';
+    return days.map(function (d) { return d.charAt(0).toUpperCase() + d.slice(1); }).join(', ');
+  }
+  function windowLabel(w) {
+    for (var i = 0; i < WINDOWS.length; i++) if (WINDOWS[i][0] === w) return WINDOWS[i][1];
+    return 'Late + next ' + w + ' days';
+  }
+  function mainButton(text, onClick) {
+    if (!tg) return null;
+    var b = tg.MainButton;
+    b.offClick(b._trameHandler || function () {});
+    if (!text) { b.hide(); return b; }
+    b._trameHandler = onClick;
+    b.setText(text); b.onClick(onClick); b.show();
+    return b;
+  }
+
+  function schedulesView() {
+    var view = el('div');
+    mainButton(null);
+    if (!settings) {
+      view.appendChild(el('div', 'msg', 'Loading…'));
+      api('/tg/api/settings').then(function (s) { settings = s; show(schedulesView()); })
+        .catch(function (e) { fail(e.message); });
+      return view;
+    }
+    add(view, add(el('div', 'head'), el('div', 'title', 'Schedules'),
+      el('div', 'st', 'Runs on ' + settings.runs_on + ' · ' + (settings.connectors.join(', ') || 'no connector set up'))));
+    var sec = el('div', 'sec');
+    settings.schedules.forEach(function (sch, i) {
+      var cell = add(el('div', 'cell tap'), add(el('div', 'mid'), el('div', 't', sch.name),
+        el('div', 'st', sch.at + '–' + sch.until + ' · ' + daysLabel(sch.days) + ' · ' + windowLabel(sch.window))), el('span', 'chev', '›'));
+      cell.onclick = function () { go(function () { return editView(i); }); };
+      sec.appendChild(cell);
+    });
+    var addCell = add(el('div', 'cell tap'), add(el('div', 'mid'), el('div', 't link', '+ Add schedule')));
+    addCell.onclick = function () { go(function () { return editView(-1); }); };
+    sec.appendChild(addCell);
+    view.appendChild(sec);
+    view.appendChild(el('div', 'note', 'A schedule sends once a day, between its start and end, to its connectors. The timer checks every 5 minutes.'));
+    return view;
+  }
+
+  function editView(index) {
+    var base = index >= 0 ? settings.schedules[index] : settings.defaults;
+    var draft = JSON.parse(JSON.stringify(base));
+    if (index < 0) draft.name = 'schedule' + (settings.schedules.length + 1);
+    var view = el('div');
+    add(view, add(el('div', 'head'), el('div', 'title', index >= 0 ? draft.name : 'New schedule')));
+    var err = el('div', 'err');
+
+    function input(label, type, value, set) {
+      var i = el('input'); i.type = type; i.value = value;
+      i.oninput = function () { set(i.value); };
+      return add(el('div', 'field'), el('label', null, label), i);
+    }
+    var sec = el('div', 'sec');
+    add(sec, input('Name', 'text', draft.name, function (v) { draft.name = v.trim(); }),
+      input('Starts', 'time', draft.at, function (v) { draft.at = v; }),
+      input('Ends', 'time', draft.until, function (v) { draft.until = v; }));
+    var sel = el('select');
+    WINDOWS.forEach(function (w) { var o = el('option', null, w[1]); o.value = w[0]; sel.appendChild(o); });
+    var custom = el('option', null, 'Late + next N days…'); custom.value = 'n'; sel.appendChild(custom);
+    sel.value = typeof draft.window === 'number' ? 'n' : draft.window;
+    sel.onchange = function () {
+      if (sel.value !== 'n') { draft.window = sel.value; return; }
+      var n = parseInt(window.prompt('Days ahead', '3') || '', 10);
+      if (n >= 0) draft.window = n; else sel.value = typeof draft.window === 'number' ? 'n' : draft.window;
+    };
+    sec.appendChild(add(el('div', 'field'), el('label', null, 'Lists'), sel));
+    view.appendChild(sec);
+
+    view.appendChild(el('div', 'sh', 'Days'));
+    var days = el('div', 'sec days');
+    DAYS.forEach(function (d) {
+      var b = el('button', 'day' + (draft.days.indexOf(d) >= 0 ? ' on' : ''), d.charAt(0).toUpperCase() + d.slice(1));
+      b.type = 'button';
+      b.onclick = function () {
+        var at = draft.days.indexOf(d);
+        if (at >= 0) draft.days.splice(at, 1); else draft.days.push(d);
+        draft.days.sort(function (a, c) { return DAYS.indexOf(a) - DAYS.indexOf(c); });
+        b.classList.toggle('on', at < 0);
+        if (tg && tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
+      };
+      days.appendChild(b);
+    });
+    view.appendChild(days);
+
+    view.appendChild(el('div', 'sh', 'Send to'));
+    var to = el('div', 'sec');
+    if (!settings.connectors.length) to.appendChild(add(el('div', 'field'), el('label', 'cap', 'No connector set up on ' + settings.runs_on)));
+    settings.connectors.forEach(function (c) {
+      var box = el('input'); box.type = 'checkbox';
+      box.checked = !draft.to || !draft.to.length || draft.to.indexOf(c) >= 0;
+      box.onchange = function () {
+        var list = settings.connectors.filter(function (x) { return x === c ? box.checked : (!draft.to || !draft.to.length || draft.to.indexOf(x) >= 0); });
+        draft.to = list.length === settings.connectors.length ? [] : list;
+      };
+      to.appendChild(add(el('div', 'field'), el('label', null, c), box));
+    });
+    view.appendChild(to);
+    var where = el('div', 'sec');
+    where.appendChild(add(el('div', 'field'), el('label', null, 'Runs on'), el('span', 'cap', settings.runs_on)));
+    view.appendChild(where);
+    view.appendChild(err);
+
+    function save(list) {
+      err.textContent = '';
+      if (tg) tg.MainButton.showProgress(false);
+      api('/tg/api/settings/save', { schedules: list }).then(function (r) {
+        settings.schedules = r.schedules;
+        if (tg) { tg.MainButton.hideProgress(); tg.HapticFeedback.notificationOccurred('success'); }
+        back();
+      }).catch(function (e) {
+        if (tg) { tg.MainButton.hideProgress(); tg.HapticFeedback.notificationOccurred('error'); }
+        err.textContent = e.message;
+      });
+    }
+    function saveDraft() {
+      var list = settings.schedules.slice();
+      if (index >= 0) list[index] = draft; else list.push(draft);
+      save(list);
+    }
+    if (index >= 0) {
+      var del = add(el('div', 'sec'), add(el('div', 'cell tap'), add(el('div', 'mid'), el('div', 't danger', 'Delete schedule'))));
+      del.onclick = function () {
+        var remove = function (ok) { if (ok) save(settings.schedules.filter(function (_, i) { return i !== index; })); };
+        if (tg && tg.showConfirm) tg.showConfirm('Delete ' + draft.name + '?', remove); else remove(window.confirm('Delete ' + draft.name + '?'));
+      };
+      view.appendChild(del);
+    }
+    if (!mainButton('Save', saveDraft)) {
+      var b = el('button', 'fallback-save', 'Save'); b.type = 'button'; b.onclick = saveDraft; view.appendChild(b);
+    }
+    return view;
   }
 
   function fail(text) { root.textContent = ''; root.appendChild(el('div', 'msg error', text)); }

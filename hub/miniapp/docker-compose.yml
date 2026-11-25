@@ -3,14 +3,18 @@ services:
   miniapp:
     image: ubuntu:24.04 # glibc 2.39, like the host that builds tramecli
     restart: unless-stopped
+    # the host user: settings.json written here must stay readable by its tramecli timer
+    user: "${UID:-1000}:${GID:-1000}"
     environment:
       HOME: /home/trame
+      TRAME_RUNNER_NAME: linux-mini
     volumes:
       - ${HOME}/.local/bin/tramecli:/usr/local/bin/tramecli:ro
       # the folder, not the file: setup replaces connectors.env atomically (new inode)
       - ${HOME}/.config/trame:/home/trame/.config/trame:ro
-      # settings.json (hubApi + hubApiToken) and certs/ca.crt
-      - ${HOME}/.local/share/trame:/home/trame/.local/share/trame:ro
+      # settings.json (hubApi + hubApiToken, due.schedules) and certs/ca.crt; writable for the
+      # Mini App's schedule screen (it writes settings.json atomically, owner-only)
+      - ${HOME}/.local/share/trame:/home/trame/.local/share/trame
     command: ["tramecli", "miniapp", "serve", "--addr", "0.0.0.0:8790"]
     networks:
       - proxy

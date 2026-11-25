@@ -2026,6 +2026,7 @@ async fn emptying_a_written_page_needs_force() {
 async fn miniapp_serves_page_and_due_rows_only_to_the_signed_user() {
     use hmac::{Hmac, KeyInit, Mac};
     use sha2::Sha256;
+    use std::os::unix::fs::PermissionsExt;
     let (base, state, _server) = server().await;
     let port = base.rsplit(':').next().unwrap().parse::<u16>().unwrap();
     let today = chrono::Local::now().date_naive();
@@ -2104,4 +2105,81 @@ async fn miniapp_serves_page_and_due_rows_only_to_the_signed_user() {
     assert_eq!(rows[0]["text"], "rotate");
     assert_eq!(rows[0]["days"], -2);
     assert!(rows[0].get("card_id").is_none() && rows[0].get("url").is_none());
+
+    // schedules: read and written only for the signed user, validated like the CLI
+    let settings_file = scratch.0.join("settings.json");
+    std::fs::write(&settings_file, r#"{"keep": 1}"#).unwrap();
+    std::fs::set_permissions(&settings_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let signed = init_data(r#"{"id":42}"#, "123:TOKEN");
+    let call = |path: &str, header: Option<&str>, body: Option<Value>| {
+        let mut request = client.post(format!("{url}/tg/api/{path}"));
+        if let Some(value) = header {
+            request = request.header("X-Telegram-Init-Data", value);
+        }
+        if let Some(body) = body {
+            request = request.json(&body);
+        }
+        async move { request.send().await.unwrap() }
+    };
+    let read = call("settings", Some(&signed), None)
+        .await
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_eq!(read["schedules"][0]["name"], "morning");
+    assert_eq!(read["connectors"], json!(["telegram"]));
+    let evening = json!({"name": "evening", "at": "17:00", "until": "20:00", "days": ["mon"], "window": "late"});
+    for (name, header, body, status) in [
+        ("unsigned save", None, json!({"schedules": [evening]}), 401),
+        (
+            "short window",
+            Some(&signed),
+            json!({"schedules": [{"name": "x", "at": "11:55"}]}),
+            400,
+        ),
+        (
+            "duplicate names",
+            Some(&signed),
+            json!({"schedules": [evening, evening]}),
+            400,
+        ),
+        (
+            "unknown field",
+            Some(&signed),
+            json!({"schedules": [], "colour": 1}),
+            400,
+        ),
+    ] {
+        let res = call("settings/save", header.map(String::as_str), Some(body)).await;
+        assert_eq!(res.status(), status, "{name}");
+    }
+    assert_eq!(
+        std::fs::read_to_string(&settings_file).unwrap(),
+        r#"{"keep": 1}"#,
+        "refused saves write nothing"
+    );
+    let saved = call(
+        "settings/save",
+        Some(&signed),
+        Some(json!({"schedules": [evening]})),
+    )
+    .await;
+    assert_eq!(saved.status(), 200);
+    let written: Value =
+        serde_json::from_str(&std::fs::read_to_string(&settings_file).unwrap()).unwrap();
+    assert_eq!(
+        (
+            written["keep"].clone(),
+            written["due"]["schedules"][0]["name"].clone()
+        ),
+        (json!(1), json!("evening"))
+    );
+    assert_eq!(
+        std::fs::metadata(&settings_file)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
 }
