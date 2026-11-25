@@ -669,7 +669,7 @@ export function TermCards(
       {sections.map(({ key, project, repo, xs }) => (
         <section key={key} className={`flex flex-col ${gap}`}>
           {grouping !== "none" && (
-            <div className={`group/head relative flex items-center gap-1.5 px-2 pb-1 ${SECTION_LABEL}`}>
+            <div className={`group/head relative mb-0.5 flex items-center gap-1.5 rounded-md bg-well px-2 py-1 ${SECTION_LABEL}`}>
               <button
                 type="button"
                 className="group/fold flex min-w-0 flex-1 items-center gap-1.5 text-left hover:text-ink-soft"
