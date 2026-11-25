@@ -1934,7 +1934,7 @@ async fn connector_setup_and_scheduled_due_digest_send_once() {
         digests[0]["text"]
             .as_str()
             .unwrap()
-            .contains("trame://page/pg-1")
+            .contains("▸ Acme notes\n    2d late · renew cert")
     );
     assert!(scratch.0.join("state/trame/due-allday-telegram").exists());
 

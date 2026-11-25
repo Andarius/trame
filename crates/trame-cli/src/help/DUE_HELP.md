@@ -24,7 +24,7 @@ Delivery (on a schedule, through connectors — see `tramecli connector`):
   tramecli due --send [--to telegram] [--now <schedule>] [--dry-run]
   tramecli due schedule list
   tramecli due schedule add|set <name> [--at HH:MM] [--until HH:MM] [--days mon-fri]
-                                       [--window late|today|week|N] [--to telegram|all]
+                                       [--window late|today|week|N] [--to telegram|all] [--max N]
   tramecli due schedule rm <name>
   tramecli due install [--uninstall]
 
@@ -37,5 +37,6 @@ retries. --now forces one
 schedule now; --dry-run prints what would go where and the next run, sending
 nothing. Schedules live in settings.json under due.schedules; with none, one
 "morning" schedule runs 08:30–12:00 every day, window today (late or due today).
+A message lists the worst --max todos (default 20), one line each, and counts the rest.
 `install` writes and enables the trame-due.timer systemd user timer, which runs
 `due --send` every 5 minutes; editing a schedule needs no reinstall.

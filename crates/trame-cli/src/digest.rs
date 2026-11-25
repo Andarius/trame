@@ -7,7 +7,7 @@ use anyhow::{Context, Result, bail};
 use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, Weekday};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{collections::BTreeMap, env, fs, path::PathBuf, process::Command};
+use std::{env, fs, path::PathBuf, process::Command};
 
 const DAYS: [&str; 7] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
@@ -28,6 +28,9 @@ pub struct Schedule {
     /// connector names; empty = every set-up connector
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub to: Vec<String>,
+    /// most todos listed; the rest are counted
+    #[serde(default = "default_max")]
+    pub max: usize,
 }
 
 fn default_at() -> String {
@@ -38,6 +41,9 @@ fn default_until() -> String {
 }
 fn all_days() -> Vec<String> {
     DAYS.map(String::from).to_vec()
+}
+fn default_max() -> usize {
+    20
 }
 fn default_window() -> Value {
     json!("today")
@@ -52,6 +58,7 @@ impl Schedule {
             days: all_days(),
             window: default_window(),
             to: Vec::new(),
+            max: default_max(),
         }
     }
 
@@ -254,64 +261,82 @@ fn stamp(schedule: &str, connector: &str, failed: bool, today: NaiveDate) -> Res
 
 // Digest
 
-/// Due rows (from `due::rows`) as a message grouped by project, then card or page.
-pub fn digest(rows: &[Value]) -> Message {
+/// One line on a phone: cut at a word boundary.
+fn short(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_owned();
+    }
+    let cut: String = text.chars().take(max).collect();
+    let cut = cut.rsplit_once(' ').map_or(cut.as_str(), |(head, _)| head);
+    format!("{}…", cut.trim_end_matches([',', ';', ':', '(']))
+}
+
+fn when_short(days: i64) -> String {
+    match days {
+        d if d < 0 => format!("{}d late", -d),
+        0 => "today".into(),
+        d => format!("in {d}d"),
+    }
+}
+
+/// Due rows (from `due::rows`) as a message: worst first, grouped by project then card,
+/// at most `max` todos (the rest counted), each todo cut to one line.
+pub fn digest(rows: &[Value], max: usize) -> Message {
     let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
-    let late = rows
-        .iter()
-        .filter(|r| r["days"].as_i64().unwrap_or(0) < 0)
-        .count();
-    let mut counts = Vec::new();
-    if late > 0 {
-        counts.push(format!("{late} late"));
-    }
-    let today = rows.iter().filter(|r| r["days"] == 0).count();
-    if today > 0 {
-        counts.push(format!("{today} due today"));
-    }
+    let days = |r: &Value| r["days"].as_i64().unwrap_or(0);
+    let late = rows.iter().filter(|r| days(r) < 0).count();
+    let today = rows.iter().filter(|r| days(r) == 0).count();
     let ahead = rows.len() - late - today;
-    if ahead > 0 {
-        counts.push(format!("{ahead} coming up"));
-    }
-    let mut projects: BTreeMap<String, BTreeMap<String, Entry>> = BTreeMap::new();
-    for r in rows {
+    let counts: Vec<String> = [(late, "late"), (today, "due today"), (ahead, "coming up")]
+        .into_iter()
+        .filter(|(n, _)| *n > 0)
+        .map(|(n, what)| format!("{n} {what}"))
+        .collect();
+    let mut sorted: Vec<&Value> = rows.iter().collect();
+    sorted.sort_by_key(|r| days(r));
+    let mut groups: Vec<Group> = Vec::new();
+    for r in sorted.iter().take(max) {
         let project = r["project"].as_str().unwrap_or("No project").to_owned();
-        let (label, link) = match r["card_title"].as_str() {
-            Some(title) => (
-                format!("[{}] {title}", s(&r["status"])),
-                format!("trame://card/{}", s(&r["card_id"])),
-            ),
-            None => (
-                s(&r["page_title"]),
-                format!("trame://page/{}", s(&r["page_id"])),
-            ),
+        let label = match r["card_title"].as_str() {
+            Some(title) => match r["status"].as_str() {
+                Some(st @ ("paused" | "blocked" | "done")) => format!("{title} · {st}"),
+                _ => title.to_owned(),
+            },
+            None => s(&r["page_title"]),
         };
-        projects
-            .entry(project)
-            .or_default()
-            .entry(link.clone())
-            .or_insert_with(|| Entry {
-                label,
-                link: Some(link),
+        if !groups.iter().any(|g| g.heading == project) {
+            groups.push(Group {
+                heading: project.clone(),
+                entries: Vec::new(),
+            });
+        }
+        let group = groups
+            .iter_mut()
+            .find(|g| g.heading == project)
+            .expect("pushed above");
+        if !group.entries.iter().any(|e| e.label == label) {
+            group.entries.push(Entry {
+                label: label.clone(),
+                link: None,
                 lines: Vec::new(),
-            })
-            .lines
-            .push(format!(
-                "⚑ {} ({})",
-                s(&r["text"]),
-                due::when(r["days"].as_i64().unwrap_or(0))
-            ));
+            });
+        }
+        let entry = group
+            .entries
+            .iter_mut()
+            .find(|e| e.label == label)
+            .expect("pushed above");
+        entry.lines.push(format!(
+            "{} · {}",
+            when_short(days(r)),
+            short(&s(&r["text"]), 70)
+        ));
     }
+    let more = rows.len().saturating_sub(max);
     Message {
         title: format!("Trame · {}", counts.join(", ")),
-        body: None,
-        groups: projects
-            .into_iter()
-            .map(|(heading, cards)| Group {
-                heading,
-                entries: cards.into_values().collect(),
-            })
-            .collect(),
+        body: (more > 0).then(|| format!("Worst {max} below; {more} more in the DUE view.")),
+        groups,
     }
 }
 
@@ -433,7 +458,7 @@ async fn send(args: &[String]) -> Result<()> {
                 }
                 continue;
             }
-            Ok(rows) => digest(&rows),
+            Ok(rows) => digest(&rows, schedule.max),
             Err(e) => {
                 let message = failure(&format!("{e:#}"));
                 if dry {
@@ -549,6 +574,11 @@ fn schedule_cmd(args: &[String]) -> Result<()> {
             if let Some(v) = flag(args, "--window") {
                 s.window = v.parse::<u64>().map_or(json!(v), |n| json!(n));
             }
+            if let Some(v) = flag(args, "--max") {
+                s.max = v
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("--max needs a number, got {v}"))?;
+            }
             if let Some(v) = flag(args, "--to") {
                 s.to = if v == "all" {
                     Vec::new()
@@ -648,6 +678,7 @@ mod tests {
 
     #[test]
     fn schedules_default_parse_and_reject() {
+        assert_eq!(Schedule::morning().max, 20);
         assert_eq!(
             schedules_from(&json!({})).unwrap(),
             vec![Schedule::morning()]
@@ -707,17 +738,31 @@ mod tests {
     }
 
     #[test]
-    fn digest_groups_by_project_then_card() {
+    fn digest_is_worst_first_short_and_capped() {
+        let row = |days: i64, text: &str, project: Option<&str>, card: Option<(&str, &str)>| {
+            json!({"days": days, "text": text, "project": project, "card_id": card.map(|_| "c"),
+                   "card_title": card.map(|c| c.0), "status": card.map(|c| c.1), "page_id": "pg", "page_title": "Notes"})
+        };
         let rows = vec![
-            json!({"days": -2, "text": "rotate", "project": "Soren", "card_id": "c-1", "card_title": "Rotate keys", "status": "active", "page_id": "s-1", "page_title": "x"}),
-            json!({"days": 0, "text": "renew", "project": "Soren", "card_id": "c-1", "card_title": "Rotate keys", "status": "active", "page_id": "s-1", "page_title": "x"}),
-            json!({"days": 0, "text": "post", "project": null, "card_id": null, "card_title": null, "status": null, "page_id": "pg-1", "page_title": "Notes"}),
+            row(-2, "rotate", Some("Soren"), Some(("Rotate keys", "active"))),
+            row(
+                0,
+                "renew the certificate before the old one expires and tell the team about the new fingerprint",
+                Some("Soren"),
+                Some(("Rotate keys", "active")),
+            ),
+            row(-5, "restart", Some("Soren"), Some(("Alerts", "paused"))),
+            row(0, "post", None, None),
         ];
-        let m = digest(&rows);
-        assert_eq!(m.title, "Trame · 1 late, 2 due today");
+        let m = digest(&rows, 3);
+        assert_eq!(m.title, "Trame · 2 late, 2 due today");
+        assert_eq!(
+            m.body.as_deref(),
+            Some("Worst 3 below; 1 more in the DUE view.")
+        );
         assert_eq!(
             plain(&m),
-            "Trame · 1 late, 2 due today\n\nNo project\n  Notes — trame://page/pg-1\n    ⚑ post (today)\n\nSoren\n  [active] Rotate keys — trame://card/c-1\n    ⚑ rotate (2 days late)\n    ⚑ renew (today)"
+            "Trame · 2 late, 2 due today\nWorst 3 below; 1 more in the DUE view.\n\nSoren\n  Alerts · paused\n    5d late · restart\n  Rotate keys\n    2d late · rotate\n    today · renew the certificate before the old one expires and tell the team…"
         );
     }
 }
