@@ -27,9 +27,9 @@ use run::Run;
 pub const CLOSE_AUTH: u16 = 4401;
 pub const CLOSE_GONE: u16 = 4404;
 
-/// The structured agent view is a development feature until it can answer the agent's questions.
+/// The structured agent view; the app offers it as an opt-in setting, `TRAME_AGENT_VIEW=0` turns it off.
 pub fn enabled() -> bool {
-    std::env::var("TRAME_AGENT_VIEW").is_ok_and(|v| v == "1")
+    std::env::var("TRAME_AGENT_VIEW").map_or(true, |v| v != "0")
 }
 
 fn runs() -> &'static Mutex<HashMap<String, Arc<Run>>> {
@@ -56,7 +56,7 @@ pub async fn serve(req: Request<Body>) -> Response {
     if !enabled() {
         return json_response(
             404,
-            json!({"error":"agent view is off (TRAME_AGENT_VIEW=1)"}),
+            json!({"error":"agent view is off (TRAME_AGENT_VIEW=0)"}),
         );
     }
     let path = req.uri().path().to_owned();
@@ -137,9 +137,16 @@ fn start(body: &Value) -> Response {
     {
         return json_response(400, json!({"error":"resume must be a session id"}));
     }
+    let mode = body["mode"].as_str().map(str::to_owned);
+    if mode
+        .as_deref()
+        .is_some_and(|m| !["default", "acceptEdits", "plan"].contains(&m))
+    {
+        return json_response(400, json!({"error":"unknown permission mode"}));
+    }
     let bin = std::env::var("TRAME_CLAUDE_BIN").unwrap_or_else(|_| "claude".into());
     let id = uuid::Uuid::new_v4().simple().to_string();
-    match Run::start(id.clone(), cwd, bin, resume) {
+    match Run::start(id.clone(), cwd, bin, resume, mode) {
         Ok(run) => {
             let summary = run.summary();
             runs().lock().unwrap().insert(id, run);

@@ -1,3 +1,4 @@
+import { AgentViewSettings } from "../agents/AgentViewSettings";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   type AgentPresenceSettings,
@@ -163,6 +164,7 @@ function PathList(
 const SECTIONS = [
   ["general", "General"],
   ["presence", "Agent presence"],
+  ["agentview", "Agent view"],
   ["hub", "Sync hub"],
   ["plugins", "Plugins"],
   ["embeds", "Embeds"],
@@ -525,6 +527,7 @@ export function Settings(
             <DemoLauncher className="self-start" />
         </>
       )}
+      {section === "agentview" && <AgentViewSettings />}
       {section === "presence" && (
         <>
         {presence
