@@ -1,0 +1,26 @@
+# Telegram Mini App of due todos: `tramecli miniapp serve` behind Traefik at /tg/
+services:
+  miniapp:
+    image: ubuntu:24.04 # glibc 2.39, like the host that builds tramecli
+    restart: unless-stopped
+    environment:
+      HOME: /home/trame
+    volumes:
+      - ${HOME}/.local/bin/tramecli:/usr/local/bin/tramecli:ro
+      # the folder, not the file: setup replaces connectors.env atomically (new inode)
+      - ${HOME}/.config/trame:/home/trame/.config/trame:ro
+      # settings.json (hubApi + hubApiToken) and certs/ca.crt
+      - ${HOME}/.local/share/trame:/home/trame/.local/share/trame:ro
+    command: ["tramecli", "miniapp", "serve", "--addr", "0.0.0.0:8790"]
+    networks:
+      - proxy
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: proxy
+      traefik.http.routers.trame-miniapp.rule: PathPrefix(`/tg/`)
+      traefik.http.routers.trame-miniapp.entrypoints: web
+      traefik.http.services.trame-miniapp.loadbalancer.server.port: "8790"
+
+networks:
+  proxy:
+    external: true

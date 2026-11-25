@@ -2021,3 +2021,87 @@ async fn emptying_a_written_page_needs_force() {
         }
     }
 }
+
+#[tokio::test]
+async fn miniapp_serves_page_and_due_rows_only_to_the_signed_user() {
+    use hmac::{Hmac, KeyInit, Mac};
+    use sha2::Sha256;
+    let (base, state, _server) = server().await;
+    let port = base.rsplit(':').next().unwrap().parse::<u16>().unwrap();
+    let today = chrono::Local::now().date_naive();
+    state.lock().unwrap().due_rows = Some(json!([
+        {"due": (today - chrono::Days::new(2)).to_string(), "text": "rotate", "card_id": null,
+         "page_id": "pg-1", "page_title": "Notes", "block_id": "b1"},
+        {"due": (today + chrono::Days::new(30)).to_string(), "text": "far", "card_id": null,
+         "page_id": "pg-1", "page_title": "Notes", "block_id": "b2"},
+    ]));
+    let scratch = Scratch::new();
+    let mut cmd = scratch.command(Some(port));
+    cmd.env("TELEGRAM_BOT_TOKEN", "123:TOKEN")
+        .env("TELEGRAM_CHAT_ID", "42")
+        .args(["miniapp", "serve", "--addr", "127.0.0.1:0"])
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    let mut child = cmd.spawn().unwrap();
+    let mut lines = BufReader::new(child.stderr.take().unwrap()).lines();
+    let listening = timeout(Duration::from_secs(10), lines.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let url = listening
+        .split_whitespace()
+        .last()
+        .unwrap()
+        .trim_end_matches("/tg/")
+        .to_owned();
+    let client = reqwest::Client::new();
+    let init_data = |user: &str, token: &str| {
+        let auth_date = chrono::Utc::now().timestamp().to_string();
+        let check = format!("auth_date={auth_date}\nuser={user}");
+        let mut secret = Hmac::<Sha256>::new_from_slice(b"WebAppData").unwrap();
+        secret.update(token.as_bytes());
+        let mut mac = Hmac::<Sha256>::new_from_slice(&secret.finalize().into_bytes()).unwrap();
+        mac.update(check.as_bytes());
+        let encoded = user
+            .replace('{', "%7B")
+            .replace('}', "%7D")
+            .replace('"', "%22")
+            .replace(':', "%3A");
+        format!(
+            "auth_date={auth_date}&user={encoded}&hash={}",
+            hex::encode(mac.finalize().into_bytes())
+        )
+    };
+    let post = |header: Option<String>| {
+        let mut request = client.post(format!("{url}/tg/api/due"));
+        if let Some(value) = header {
+            request = request.header("X-Telegram-Init-Data", value);
+        }
+        async move { request.send().await.unwrap() }
+    };
+
+    let page = client.get(format!("{url}/tg/")).send().await.unwrap();
+    assert_eq!(page.status(), 200);
+    assert!(page.text().await.unwrap().contains("telegram-web-app.js"));
+    let missing = client.get(format!("{url}/other")).send().await.unwrap();
+    assert_eq!(missing.status(), 404);
+
+    for (name, header) in [
+        ("no header", None),
+        ("garbage", Some("hash=00".to_owned())),
+        ("other user", Some(init_data(r#"{"id":7}"#, "123:TOKEN"))),
+        ("other token", Some(init_data(r#"{"id":42}"#, "9:OTHER"))),
+    ] {
+        assert_eq!(post(header).await.status(), 401, "{name}");
+    }
+    let ok = post(Some(init_data(r#"{"id":42}"#, "123:TOKEN"))).await;
+    assert_eq!(ok.status(), 200);
+    let body = ok.json::<Value>().await.unwrap();
+    assert!(body["icons"].is_object());
+    let rows = &body["rows"];
+    assert_eq!(rows.as_array().unwrap().len(), 1);
+    assert_eq!(rows[0]["text"], "rotate");
+    assert_eq!(rows[0]["days"], -2);
+    assert!(rows[0].get("card_id").is_none() && rows[0].get("url").is_none());
+}
