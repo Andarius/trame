@@ -1,6 +1,6 @@
 use crate::{
-    board, claude_hook, comment, connectors, db, digest, due, help, mcp, open, page, plugin_cmd,
-    plugins, presence, setup,
+    board, claude_hook, comment, connectors, db, digest, due, help, mcp, miniapp, open, page,
+    plugin_cmd, plugins, presence, setup,
     target::{self, resolve_target},
     track, watch,
 };
@@ -116,6 +116,7 @@ pub async fn run(args: &[String]) -> Result<i32> {
         "list" => Some("LIST_HELP"),
         "due" => Some("DUE_HELP"),
         "connector" => Some("CONNECTOR_HELP"),
+        "miniapp" => Some("MINIAPP_HELP"),
         "stories" => Some("STORIES_HELP"),
         "convert" => Some("CONVERT_HELP"),
         "archive" => Some("ARCHIVE_HELP"),
@@ -160,6 +161,7 @@ pub async fn run(args: &[String]) -> Result<i32> {
             "list" => Some("LIST_HELP"),
             "due" => Some("DUE_HELP"),
             "connector" => Some("CONNECTOR_HELP"),
+            "miniapp" => Some("MINIAPP_HELP"),
             "stories" => Some("STORIES_HELP"),
             "convert" => Some("CONVERT_HELP"),
             "archive" => Some("ARCHIVE_HELP"),
@@ -220,6 +222,7 @@ pub async fn run(args: &[String]) -> Result<i32> {
             None => due::main(&rest, json_out, &resolve_target().await?).await?,
         },
         "connector" => connectors::main(&rest).await?,
+        "miniapp" => miniapp::main(&rest).await?,
         "stories" => board::stories(&rest, json_out, &resolve_target().await?).await?,
         "convert" => board::convert(&rest, json_out, &resolve_target().await?).await?,
         "archive" => board::archive(&rest, json_out, &resolve_target().await?).await?,

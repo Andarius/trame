@@ -14,6 +14,7 @@ Commands:
   due        open todos that are late or due soon, with their card and project;
              `due --send` delivers them on a schedule through connectors
   connector  set up where Trame sends messages (Telegram), test and list them
+  miniapp    serve the read-only Telegram Mini App of due todos (`miniapp serve`)
   stories    open stories similar to a topic (pick one before tracking)
   convert    turn a page into a session card whose specs are that page
   archive    fold a page or user story away (--restore brings it back)

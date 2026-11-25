@@ -15,6 +15,7 @@ pub mod digest;
 pub mod due;
 pub mod help;
 pub mod mcp;
+pub mod miniapp;
 pub mod open;
 pub mod page;
 pub mod plugin_cmd;

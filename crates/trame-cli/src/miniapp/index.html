@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Due</title>
+<script src="https://telegram.org/js/telegram-web-app.js?65"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #fff);
+    --text: var(--tg-theme-text-color, #111);
+    --hint: var(--tg-theme-hint-color, #777);
+    --section: var(--tg-theme-section-bg-color, #f4f4f5);
+    --accent: var(--tg-theme-accent-text-color, #2481cc);
+    --late: #d64545;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.4 system-ui, -apple-system, sans-serif;
+    padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+      max(16px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  }
+  h1 { font-size: 1.25rem; margin: 4px 0 12px; }
+  h2 {
+    font-size: .8rem; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--hint); margin: 20px 4px 6px;
+  }
+  .card { background: var(--section); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; }
+  .card-title { font-weight: 600; color: var(--accent); overflow-wrap: anywhere; }
+  .status { font-weight: 400; color: var(--hint); font-size: .8rem; margin-left: 6px; }
+  .todo { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; border-top: 1px solid rgba(127,127,127,.2); }
+  .todo:first-of-type { border-top: 0; }
+  .when { flex: none; min-width: 5.2em; font-size: .85rem; color: var(--hint); font-variant-numeric: tabular-nums; }
+  .when.late { color: var(--late); font-weight: 600; }
+  .when.today { color: var(--accent); font-weight: 600; }
+  .text { overflow-wrap: anywhere; }
+  details > summary { cursor: pointer; color: var(--hint); margin: 20px 4px 6px; }
+  .msg { color: var(--hint); text-align: center; margin: 40px 0; }
+  .msg.error { color: var(--late); }
+</style>
+</head>
+<body>
+<h1>Due</h1>
+<div id="root" class="msg">Loading…</div>
+<script>
+(function () {
+  var tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) { tg.ready(); tg.expand(); }
+  var root = document.getElementById('root');
+  var FOLDED = ['paused', 'done', 'blocked'];
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function when(days) {
+    if (days < 0) return -days + 'd late';
+    if (days === 0) return 'today';
+    return 'in ' + days + 'd';
+  }
+  function worst(todos) {
+    return Math.min.apply(null, todos.map(function (t) { return t.days; }));
+  }
+  function showMessage(text, error) {
+    root.className = 'msg' + (error ? ' error' : '');
+    root.textContent = text;
+  }
+  function todoRow(t) {
+    var row = el('div', 'todo');
+    var cls = t.days < 0 ? ' late' : t.days === 0 ? ' today' : '';
+    row.appendChild(el('span', 'when' + cls, when(t.days)));
+    row.appendChild(el('span', 'text', t.text));
+    return row;
+  }
+  // rows -> [{project, cards: [{title, status, todos}]}], worst first
+  function group(rows) {
+    var projects = {};
+    rows.forEach(function (r) {
+      var p = projects[r.project || 'No project'] ||= {};
+      var key = r.card_title || r.page_title || 'Untitled';
+      var card = p[key] ||= { title: key, status: r.card_title ? r.status : null, todos: [] };
+      card.todos.push(r);
+    });
+    return Object.keys(projects).map(function (name) {
+      var cards = Object.values(projects[name]);
+      cards.forEach(function (c) { c.todos.sort(function (a, b) { return a.days - b.days; }); });
+      cards.sort(function (a, b) { return worst(a.todos) - worst(b.todos); });
+      return { name: name, cards: cards };
+    }).sort(function (a, b) {
+      return worst(a.cards[0].todos) - worst(b.cards[0].todos);
+    });
+  }
+  function cardEl(c) {
+    var box = el('div', 'card');
+    var title = el('div', 'card-title', c.title);
+    if (c.status) title.appendChild(el('span', 'status', c.status));
+    box.appendChild(title);
+    c.todos.forEach(function (t) { box.appendChild(todoRow(t)); });
+    return box;
+  }
+  function render(rows) {
+    if (!rows.length) { showMessage('Nothing due this week.'); return; }
+    var active = rows.filter(function (r) { return FOLDED.indexOf(r.status) < 0; });
+    var folded = rows.filter(function (r) { return FOLDED.indexOf(r.status) >= 0; });
+    var frag = document.createDocumentFragment();
+    group(active).forEach(function (p) {
+      frag.appendChild(el('h2', null, p.name));
+      p.cards.forEach(function (c) { frag.appendChild(cardEl(c)); });
+    });
+    if (folded.length) {
+      var details = el('details');
+      details.appendChild(el('summary', null, 'Paused, done and blocked (' + folded.length + ')'));
+      group(folded).forEach(function (p) {
+        details.appendChild(el('h2', null, p.name));
+        p.cards.forEach(function (c) { details.appendChild(cardEl(c)); });
+      });
+      frag.appendChild(details);
+    }
+    root.className = '';
+    root.textContent = '';
+    root.appendChild(frag);
+  }
+
+  fetch('/tg/api/due', {
+    method: 'POST',
+    headers: { 'X-Telegram-Init-Data': tg ? tg.initData : '' }
+  }).then(function (res) {
+    if (res.status === 401) throw new Error('Not authorized. Open this from your Telegram bot.');
+    if (!res.ok) throw new Error('Server error (' + res.status + '). Try again later.');
+    return res.json();
+  }).then(render).catch(function (e) {
+    showMessage(e.message || 'Network error.', true);
+  });
+})();
+</script>
+</body>
+</html>
