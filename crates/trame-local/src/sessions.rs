@@ -179,9 +179,23 @@ fn route(db: &mut Db, method: &str, path: &str, query: &str, body: &Value) -> Re
 
 /// Move a card to a board status.
 pub fn set_status(db: &mut Db, id: &str, status: &Value) -> Result<()> {
+    let before =
+        first(db, "select status from sessions where id=$1", &[json!(id)])?["status"].clone();
     db.query(
         "update sessions set status=$2, origin=$3, updated_at=clock_timestamp() where id=$1",
         &[json!(id), status.clone(), origin(db)],
+    )?;
+    log_reopen(db, id, &before)
+}
+
+/// Logs a `status` event when a card leaves a done column, so reopened cards can be counted.
+pub(crate) fn log_reopen(db: &mut Db, id: &str, before: &Value) -> Result<()> {
+    db.query(
+        "insert into session_events(session_id,summary,kind,origin)
+         select s.id,'Reopened','status',$3 from sessions s
+          where s.id=$1 and $2::text in (select key from statuses where terminal and not deleted)
+            and s.status not in (select key from statuses where terminal and not deleted)",
+        &[json!(id), before.clone(), origin(db)],
     )?;
     Ok(())
 }

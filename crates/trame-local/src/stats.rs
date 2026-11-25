@@ -128,6 +128,8 @@ struct Counts {
     done: u64,
     prs: u64,
     merged: u64,
+    // cards moved out of a done column
+    reopened: u64,
 }
 
 // date, project id, repo name (when no project), agent, model
@@ -233,7 +235,7 @@ fn stats(state: &Native) -> Result<Value> {
         .into_iter()
         .map(|((d, p, r, a, m), c)| {
             let t = c.split;
-            json!({"d":d,"p":p,"r":r,"a":a,"m":m,"prompts":c.prompts,"entries":c.entries,"tokens":c.tokens,"done":c.done,"prs":c.prs,"merged":c.merged,
+            json!({"d":d,"p":p,"r":r,"a":a,"m":m,"prompts":c.prompts,"entries":c.entries,"tokens":c.tokens,"done":c.done,"prs":c.prs,"merged":c.merged,"reopened":c.reopened,
                    "out":t.output,"cached":t.cached,"written":t.written})
         })
         .collect();
@@ -398,9 +400,10 @@ fn repo_name(path: &str) -> String {
 fn db_rows(db: &mut Db, from: NaiveDate, rows: &mut BTreeMap<Key, Counts>) -> Result<Owners> {
     let since = json!(from.to_string());
     for e in db.query(
-        "select extract(epoch from e.at)::float8 t, s.client_id::text p, s.repo_path r, e.agent a, e.model m
+        "select extract(epoch from e.at)::float8 t, s.client_id::text p, s.repo_path r, e.agent a, e.model m, e.kind k
            from session_events e join sessions s on s.id = e.session_id
-          where not e.deleted and not s.deleted and e.kind in ('track','log') and e.at >= $1::date",
+          where not e.deleted and not s.deleted and e.at >= $1::date
+            and (e.kind in ('track','log') or e.kind = 'status' and e.summary = 'Reopened')",
         std::slice::from_ref(&since),
     )? {
         let Some(d) = e["t"].as_f64().and_then(local_date) else {
@@ -411,6 +414,10 @@ fn db_rows(db: &mut Db, from: NaiveDate, rows: &mut BTreeMap<Key, Counts>) -> Re
             .is_none()
             .then(|| e["r"].as_str().map(repo_name))
             .flatten();
+        if e["k"] == "status" {
+            rows.entry((d, project, repo, "you".into(), None)).or_default().reopened += 1;
+            continue;
+        }
         let agent = e["a"].as_str().unwrap_or("you").to_owned();
         let model = e["m"].as_str().map(str::to_owned);
         rows.entry((d, project, repo, agent, model)).or_default().entries += 1;

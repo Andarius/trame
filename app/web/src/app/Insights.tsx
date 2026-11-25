@@ -26,8 +26,16 @@ function shift(today: string, n: number): string {
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
 }
 
-type Totals = { prompts: number; tokens: number; entries: number; done: number; prs: number; merged: number };
-const ZERO: Totals = { prompts: 0, tokens: 0, entries: 0, done: 0, prs: 0, merged: 0 };
+type Totals = {
+  prompts: number;
+  tokens: number;
+  entries: number;
+  done: number;
+  prs: number;
+  merged: number;
+  reopened: number;
+};
+const ZERO: Totals = { prompts: 0, tokens: 0, entries: 0, done: 0, prs: 0, merged: 0, reopened: 0 };
 const sum = (rows: StatsRow[]) =>
   rows.reduce<Totals>(
     (t, r) => ({
@@ -37,6 +45,7 @@ const sum = (rows: StatsRow[]) =>
       done: t.done + r.done,
       prs: t.prs + r.prs,
       merged: t.merged + r.merged,
+      reopened: t.reopened + (r.reopened ?? 0),
     }),
     ZERO,
   );
@@ -497,7 +506,8 @@ function Tiles({ view, pick, prsLoading }: { view: View; pick: TileKey[]; prsLoa
       value: view.totals.done,
       prev: prev(view.prev.done),
       judge: "up",
-      hint: "cards in a done column, by the day they were closed",
+      hint: "cards in a done column, by the day they were closed; reopened: cards moved back out of one",
+      note: `${view.totals.reopened} reopened`,
     },
     merged: {
       label: "PRS MERGED",

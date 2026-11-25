@@ -1031,6 +1031,7 @@ export type StatsRow = {
   done: number;
   prs: number;
   merged: number;
+  reopened: number; // cards moved out of a done column
   // this machine's split of `tokens` (zero on other devices' rows): output, cache reads, cache writes
   out: number;
   cached: number;
