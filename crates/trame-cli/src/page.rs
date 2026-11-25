@@ -82,6 +82,15 @@ fn markdown(input: &Value) -> Result<String> {
     }
     Ok(field(input, "markdown").unwrap_or("").into())
 }
+/// Text, heading and todo blocks that say something.
+fn written(blocks: &[Value]) -> usize {
+    blocks
+        .iter()
+        .filter(|b| {
+            block_id(b).is_some() && b["text"].as_str().is_some_and(|t| !t.trim().is_empty())
+        })
+        .count()
+}
 fn block_id(v: &Value) -> Option<&str> {
     if matches!(v["type"].as_str(), Some("text" | "heading" | "todo")) {
         v["id"].as_str()
@@ -120,6 +129,13 @@ pub async fn write_page(input: &Value, target: &Target) -> Result<Value> {
         let merged = merge_page_blocks(&old, &parsed);
         let day = Local::now().format("%Y-%m-%d").to_string();
         let content = stamp_todo_marks(&merged, &day);
+        // an empty markdown once wiped a card's spec through the hub (2026-11-24)
+        if written(&old) >= 3 && written(&content) <= 1 && input["force"] != true {
+            bail!(
+                "refusing to replace page {id} ({} written blocks) with an empty one; pass \"force\": true to really clear it",
+                written(&old)
+            );
+        }
         let old_ids: HashSet<_> = old.iter().filter_map(block_id).collect();
         let kept = content
             .iter()

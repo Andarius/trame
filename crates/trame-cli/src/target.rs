@@ -196,6 +196,16 @@ impl Target {
         let status = response.status();
         if !status.is_success() {
             let text = response.text().await.unwrap_or_default();
+            if self.hub && text.contains("protocol mismatch") {
+                bail!(
+                    "{} — this tramecli ({}) is older or newer than the hub: install the hub's release, https://github.com/Andarius/trame/releases",
+                    serde_json::from_str::<Value>(&text)
+                        .ok()
+                        .and_then(|v| v["error"].as_str().map(str::to_owned))
+                        .unwrap_or(text),
+                    crate::help::version()
+                );
+            }
             return Err(RequestFailure::Http {
                 path: path.into(),
                 status: status.as_u16(),
