@@ -681,7 +681,7 @@ export type UpdateInfo = {
   // plugins.json repos this build lacks (a stock release installed over a plugin build)
   missing?: string[];
   // a rebuild in progress: the phase its log reached and its last line
-  building?: { phase: string; line: string; elapsedSecs: number };
+  building?: { phase: string; line: string; elapsedSecs: number; lastSecs?: number | null };
 };
 /** What an update brings: a Trame release, or only plugin releases for a local plugin build. */
 export const updateLabel = (u: UpdateInfo) =>

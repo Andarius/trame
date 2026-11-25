@@ -527,11 +527,19 @@ fn progress(log: &str) -> (&'static str, String) {
     (phase, last.chars().take(200).collect())
 }
 
-/// `{phase, line, elapsedSecs}` of the running rebuild, from the tail of its log.
+/// How long the last successful rebuild took, kept next to its log.
+fn last_secs_file(log: &Path) -> std::path::PathBuf {
+    log.with_extension("secs")
+}
+
+/// `{phase, line, elapsedSecs, lastSecs}` of the running rebuild, from the tail of its log.
 fn build_progress(log: &Path, since: Instant) -> Value {
     let text = std::fs::read(log).unwrap_or_default();
     let (phase, line) = progress(&String::from_utf8_lossy(&text));
-    json!({"phase": phase, "line": line, "elapsedSecs": since.elapsed().as_secs()})
+    let last: Option<u64> = std::fs::read_to_string(last_secs_file(log))
+        .ok()
+        .and_then(|s| s.trim().parse().ok());
+    json!({"phase": phase, "line": line, "elapsedSecs": since.elapsed().as_secs(), "lastSecs": last})
 }
 
 /// Rebuilds this `AppImage` with its plugins at Trame's latest release and swaps it in place.
@@ -555,7 +563,10 @@ async fn rebuild(image: &Path, root: &Path, latest: Option<String>) -> Value {
     // its own task: a dropped request (a page reload) must not skip the bookkeeping below
     let task = tokio::spawn(async move {
         let result = run_build(&cli, &image, &log).await;
-        *building_since() = None;
+        let took = building_since().take().map(|t| t.elapsed().as_secs());
+        if let (Ok(()), Some(secs)) = (&result, took) {
+            let _ = std::fs::write(last_secs_file(&log), secs.to_string());
+        }
         match result {
             Ok(()) => {
                 let mut updater = UPDATER.lock().await;
@@ -740,6 +751,18 @@ mod tests {
         ] {
             assert_eq!(progress(log), (phase, line.to_owned()), "{log:?}");
         }
+    }
+    #[test]
+    fn rebuild_progress_carries_the_last_rebuild_time() {
+        let dir = std::env::temp_dir().join(format!("trame-eta-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("plugins-build.log");
+        std::fs::write(&log, "bun install\n").unwrap();
+        let before = build_progress(&log, Instant::now())["lastSecs"].clone();
+        std::fs::write(last_secs_file(&log), "312\n").unwrap();
+        let after = build_progress(&log, Instant::now())["lastSecs"].clone();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!((before, after), (Value::Null, json!(312)));
     }
     #[test]
     fn versions() {
