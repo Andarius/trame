@@ -66,6 +66,7 @@ import { DatabaseView } from "../udb/DatabaseTable";
 import { buildClock } from "../build-info";
 import { resumeInTerminals } from "../term/resume-cards";
 import { TermCards } from "../term/TermCards";
+import { openLink } from "../term/open-link";
 import { projectFolders } from "../term/NewTerminalDialog";
 import { FIND_TERMINAL, openTerminal, restoreTerminals, setDockMax, setDockOpen, useTermDock, watchPopouts } from "../term/term-api";
 // d3-force/zoom only load when the graph tab opens
@@ -433,6 +434,12 @@ export function App() {
       setGroup(g === "story" || g === "project" ? g : "none");
     }
   };
+  // a link opened from outside (trame://, tramecli open): its own tab, like a terminal's links
+  useEffect(() => {
+    const w = window as { __trameOpen?: (query: string) => void };
+    w.__trameOpen = (query) => openLink(`${location.origin}/?${query}`);
+    return () => void delete w.__trameOpen;
+  }, []);
   useEffect(() => {
     const off = onWorkspaceNavigate((search) => {
       const u = new URL(location.href);

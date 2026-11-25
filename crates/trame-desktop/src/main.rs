@@ -185,7 +185,7 @@ fn main() -> anyhow::Result<()> {
                     }
                 });
             }).build()?;
-        // POST /api/open and trame:// links: navigate in-page (App.tsx handles popstate) and raise
+        // POST /api/open and trame:// links: open in the page (App.tsx) and raise
         let (open_window, open_pending) = (window.clone(), pending.clone());
         open_runtime.spawn(async move {
             while let Some(query) = open_rx.recv().await {
@@ -193,7 +193,9 @@ fn main() -> anyhow::Result<()> {
                     *open_pending.lock().unwrap() = Some(query);
                     continue;
                 }
-                let _ = open_window.eval(format!("history.pushState(null,'','/?{query}');dispatchEvent(new PopStateEvent('popstate'))"));
+                // in a tab of its own (App's __trameOpen), else in place
+                let q = serde_json::to_string(&query).unwrap_or_default();
+                let _ = open_window.eval(format!("window.__trameOpen?window.__trameOpen({q}):(history.pushState(null,'','/?'+{q}),dispatchEvent(new PopStateEvent('popstate')))"));
                 let _ = open_window.unminimize();
                 let _ = open_window.show();
                 let _ = open_window.set_focus();
