@@ -1065,7 +1065,7 @@ export function App() {
           : view === "terminals"
           ? null // the dock is the view (below)
           : view === "insights"
-          ? <Insights board={board} />
+          ? <Insights board={board} onOpenSession={(id) => openSession(id)} />
           : view === "timeline"
           ? <Timeline board={board} onOpenSession={(id) => openSession(id)} />
           : view === "agents"
