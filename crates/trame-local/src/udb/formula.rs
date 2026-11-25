@@ -1,8 +1,77 @@
 use crate::db::Db;
 use anyhow::{Context, Result, bail};
-use postgres::{Client, NoTls};
+use postgres::{Client, Config, NoTls};
 use serde_json::{Value, json};
-use std::{collections::HashMap, path::Path, time::Duration};
+use std::{
+    collections::HashMap,
+    path::Path,
+    sync::{Arc, Condvar, Mutex, PoisonError},
+    time::Duration,
+};
+
+const ROLE: &str = "trame_formula";
+
+#[derive(Clone)]
+pub struct Executor(Connection);
+
+#[derive(Clone)]
+enum Connection {
+    Local,
+    Disabled,
+    Hub(Arc<HubConnection>),
+}
+
+struct HubConnection {
+    config: Config,
+    active: Mutex<usize>,
+    available: Condvar,
+}
+
+impl HubConnection {
+    fn acquire(&self) -> HubSlot<'_> {
+        let active = self.active.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut active = self
+            .available
+            .wait_while(active, |active| *active >= 2)
+            .unwrap_or_else(PoisonError::into_inner);
+        *active += 1;
+        HubSlot(self)
+    }
+}
+
+struct HubSlot<'a>(&'a HubConnection);
+
+impl Drop for HubSlot<'_> {
+    fn drop(&mut self) {
+        *self.0.active.lock().unwrap_or_else(PoisonError::into_inner) -= 1;
+        self.0.available.notify_one();
+    }
+}
+
+impl Executor {
+    pub(crate) const fn local() -> Self {
+        Self(Connection::Local)
+    }
+
+    /// Provision a separate login for formula SQL when a hub password is configured.
+    pub fn for_hub(owner: &mut Client, database: &Config, password: Option<&str>) -> Result<Self> {
+        let Some(password) = password.filter(|password| !password.is_empty()) else {
+            return Ok(Self(Connection::Disabled));
+        };
+        ensure_restricted_role(owner, Some(password))?;
+
+        let mut config = database.clone();
+        if let Some(dbname) = database.get_dbname().or_else(|| database.get_user()) {
+            config.dbname(dbname);
+        }
+        config.user(ROLE).password(password).options("");
+        Ok(Self(Connection::Hub(Arc::new(HubConnection {
+            config,
+            active: Mutex::new(0),
+            available: Condvar::new(),
+        }))))
+    }
+}
 
 const SQL_WORDS: &[&str] = &[
     "case",
@@ -148,9 +217,13 @@ fn error(error: postgres::Error) -> anyhow::Error {
 }
 
 pub(crate) fn ensure_role(db: &mut Db) -> Result<()> {
-    db.client
-        .batch_execute(
-            r"
+    ensure_restricted_role(&mut db.client, None)
+}
+
+fn ensure_restricted_role(owner: &mut Client, password: Option<&str>) -> Result<()> {
+    let mut tx = owner.transaction().map_err(error)?;
+    tx.batch_execute(
+        r"
         do $$ begin
           if not exists (select from pg_roles where rolname='trame_formula') then
             create role trame_formula login;
@@ -167,7 +240,7 @@ pub(crate) fn ensure_role(db: &mut Db) -> Result<()> {
         end $$;
         revoke all on all tables in schema public from trame_formula;
         grant usage on schema public to trame_formula;
-        grant select on udb_rows to trame_formula;
+        grant select on public.udb_rows to trame_formula;
         alter role trame_formula set statement_timeout='2s';
         alter role trame_formula set default_transaction_read_only=on;
         do $$ declare f regprocedure; begin
@@ -178,14 +251,23 @@ pub(crate) fn ensure_role(db: &mut Db) -> Result<()> {
           end loop;
         end $$;
     ",
-        )
-        .map_err(error)?;
-    Ok(())
+    )
+    .map_err(error)?;
+    if let Some(password) = password {
+        let sql: String = tx
+            .query_one(
+                "select format('alter role trame_formula password %L', $1::text)",
+                &[&password],
+            )
+            .map_err(error)?
+            .get(0);
+        tx.batch_execute(&sql).map_err(error)?;
+    }
+    tx.commit().map_err(error)
 }
 
-fn client(db: &mut Db) -> Result<Client> {
+fn local_client(db: &mut Client) -> Result<Client> {
     let data: String = db
-        .client
         .query_one("show data_directory", &[])
         .map_err(error)?
         .get(0);
@@ -199,15 +281,30 @@ fn client(db: &mut Db) -> Result<Client> {
     config
         .host_path(root.join("socket"))
         .port(crate::pg::PORT)
-        .user("trame_formula")
+        .user(ROLE)
         .dbname("postgres")
         .connect_timeout(Duration::from_secs(1));
     config.connect(NoTls).map_err(error)
 }
 
 fn run(db: &mut Db, sql: &str, id: Option<&str>) -> Result<Vec<Value>> {
-    let mut client = client(db)?;
-    let mut tx = client.transaction().map_err(error)?;
+    match &db.formula.0 {
+        Connection::Local => query(&mut local_client(&mut db.client)?, sql, id),
+        Connection::Disabled => bail!("formulas are not evaluated on this hub"),
+        Connection::Hub(hub) => {
+            let _slot = hub.acquire();
+            let mut client = hub.config.connect(NoTls).map_err(error)?;
+            query(&mut client, sql, id)
+        }
+    }
+}
+
+fn query(client: &mut Client, sql: &str, id: Option<&str>) -> Result<Vec<Value>> {
+    let mut tx = client
+        .build_transaction()
+        .read_only(true)
+        .start()
+        .map_err(error)?;
     let result = if let Some(id) = id {
         let id = uuid::Uuid::parse_str(id)?;
         tx.query(sql, &[&id]).map_err(error)?
@@ -221,12 +318,13 @@ fn run(db: &mut Db, sql: &str, id: Option<&str>) -> Result<Vec<Value>> {
             if col.name() == "id" {
                 data.insert(
                     "id".into(),
-                    json!(row.get::<_, uuid::Uuid>(index).to_string()),
+                    json!(row.try_get::<_, uuid::Uuid>(index)?.to_string()),
                 );
             } else if col.name() == "val" {
                 data.insert(
                     "val".into(),
-                    row.get::<_, Option<Value>>(index).unwrap_or(Value::Null),
+                    row.try_get::<_, Option<Value>>(index)?
+                        .unwrap_or(Value::Null),
                 );
             }
         }
@@ -234,7 +332,7 @@ fn run(db: &mut Db, sql: &str, id: Option<&str>) -> Result<Vec<Value>> {
             .columns()
             .iter()
             .any(|column| column.name() == "value_type")
-            && row.get::<_, String>("value_type") == "numeric"
+            && row.try_get::<_, String>("value_type")? == "numeric"
             && data["val"].is_number()
         {
             data.insert("val".into(), json!(data["val"].to_string()));
@@ -262,7 +360,7 @@ pub(crate) fn values(
     let expr = prop["config"]["expr"].as_str().unwrap_or("");
     let rewritten = rewrite(expr, props)?;
     let sql = format!(
-        "select id, to_jsonb(val) as val, pg_typeof(val)::text as value_type from (select id, ({rewritten}) as val from udb_rows r where db_id=$1 and not deleted) q"
+        "select id, to_jsonb(val) as val, pg_typeof(val)::text as value_type from (select id, ({rewritten}) as val from public.udb_rows r where db_id=$1 and not deleted) q"
     );
     Ok(run(db, &sql, Some(id))?
         .into_iter()

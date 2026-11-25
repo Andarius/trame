@@ -6,7 +6,7 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value, json};
 use std::collections::{HashMap, HashSet};
 
-pub(crate) mod formula;
+pub mod formula;
 
 fn first(db: &mut Db, sql: &str, params: &[Value]) -> Result<Value> {
     Ok(db
