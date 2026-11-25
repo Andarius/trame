@@ -193,21 +193,25 @@ export function Modal(
 const popoverStack: symbol[] = [];
 
 export function Popover(
-  { onClose, children, className, style, portal = false }: {
+  { onClose, children, className, style, portal = false, point }: {
     onClose: () => void;
     children: ReactNode;
     className?: string;
     style?: CSSProperties;
     portal?: boolean; // rendered on body, below its anchor: escapes a scrolling (clipping) parent
+    point?: { x: number; y: number }; // with portal: open there (a right-click), not below the anchor
   },
 ) {
   const ref = useRef<HTMLDivElement>(null);
   const anchor = useRef<HTMLSpanElement>(null);
   const [at, setAt] = useState<{ left: number; top: number } | null>(null);
+  const px = point?.x, py = point?.y;
   useEffect(() => {
     if (!portal) return;
     const place = () => {
-      const r = anchor.current?.parentElement?.getBoundingClientRect();
+      const r = px !== undefined && py !== undefined
+        ? { left: px, top: py, bottom: py }
+        : anchor.current?.parentElement?.getBoundingClientRect();
       if (!r) return;
       const w = ref.current?.offsetWidth ?? 0, h = ref.current?.offsetHeight ?? 0;
       // flips above the anchor when it would run off the bottom
@@ -221,7 +225,7 @@ export function Popover(
       removeEventListener("scroll", place, true);
       removeEventListener("resize", place);
     };
-  }, [portal]);
+  }, [portal, px, py]);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   useEffect(() => {
