@@ -2,6 +2,8 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
 import { TermPopout } from "./term/TermPopout";
+import { TermGroupPopout } from "./term/TermGroupPopout";
+import { GROUP_POPOUT } from "./term/term-api";
 import { registerRuntimePlugins } from "./plugins";
 import { loadRuntimePlugins } from "./plugins/runtime";
 import { applyScale, getScale } from "./ui/scale";
@@ -26,7 +28,7 @@ const popout = new URLSearchParams(location.search).get("popout");
 if (popout) {
   root.render(
     <React.StrictMode>
-      <TermPopout id={popout} />
+      {popout.startsWith(GROUP_POPOUT) ? <TermGroupPopout project={popout.slice(GROUP_POPOUT.length)} /> : <TermPopout id={popout} />}
     </React.StrictMode>,
   );
 } else {

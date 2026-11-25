@@ -131,7 +131,8 @@ type DockState = {
   max: boolean;
   drag: TermDrag | null;
 };
-type Origin = { tab: string; near: string | null };
+// `group`: the project whose agents' window holds it (TermGroupPopout), else a window of its own
+type Origin = { tab: string; near: string | null; group?: string };
 let state: DockState = { terms: {}, out: {}, tabs: [], active: null, open: false, max: false, drag: null };
 const listeners = new Set<() => void>();
 const LAYOUT_KEY = "trame:termLayout";
@@ -175,7 +176,9 @@ export async function restoreTerminals() {
   if (!list.length) return;
   const terms = Object.fromEntries(list.map((t) => [t.id, t]));
   // shells still open in their own window (this page reloaded) stay out of the dock
-  const out = Object.fromEntries([...await openPopouts()].filter((id) => terms[id]).map((id) => [id, { tab: "", near: null }]));
+  const out = Object.fromEntries(
+    [...await openPopouts()].filter(([id]) => terms[id]).map(([id, group]) => [id, { tab: "", near: null, group }]),
+  );
   let saved: PaneNode[] = [];
   try {
     saved = JSON.parse(readStore(LAYOUT_KEY) ?? "[]");
@@ -239,6 +242,16 @@ export async function openTerminalAt(opts: TermOpts, at?: { tab: string; term: s
 
 // a new shell next to the focused one, in the same folder
 // the folder a shell is in now (it may have cd'd since it started), else the one it started in
+// every live shell, for a window without the dock's state (TermGroupPopout)
+export const listTerms = () => call("/api/term") as Promise<TermInfo[]>;
+
+// a repo's name from a path inside it; a worktree counts as its repo
+export const repoName = (path: string | null) => {
+  if (!path) return null;
+  const root = path.replace(/\/+$/, "").replace(/\/(\.scratch|\.worktrees|\.claude\/worktrees)\/[^/]+$/, "");
+  return root.split("/").pop() || null;
+};
+
 export type TermNow = { cwd: string | null; process: string | null };
 // the folder a shell is in now and what runs in its foreground (the shell itself when idle)
 export const termNow = async (id: string) =>
@@ -490,19 +503,19 @@ export async function linkTermCard(id: string, card: string | null) {
 
 // Popouts: a shell in a window of its own. The windows and the dock talk over a BroadcastChannel; the desktop
 // app (trame-desktop main.rs) opens `/?popout=<id>` as a window and posts `close` when one is shut.
-export type PopoutMsg = { open: string } | { close: string } | { exit: string } | { ping: true };
+export type PopoutMsg = { open: string; group?: string } | { close: string } | { exit: string } | { ping: true };
 export const POPOUT_CHANNEL = "trame:term-popout";
 export const popoutUrl = (id: string) => `/?popout=${encodeURIComponent(id)}`;
 const popoutName = (id: string) => `trame-term-${id}`;
 const windows = new Map<string, Window>();
 
-// the shells some window shows now, from their answers to a ping
+// the shells some window shows now (with the project of a group window), from their answers to a ping
 const openPopouts = () =>
-  new Promise<Set<string>>((resolve) => {
-    if (typeof BroadcastChannel === "undefined") return resolve(new Set());
+  new Promise<Map<string, string | undefined>>((resolve) => {
+    if (typeof BroadcastChannel === "undefined") return resolve(new Map());
     const ch = new BroadcastChannel(POPOUT_CHANNEL);
-    const seen = new Set<string>();
-    ch.onmessage = (e: MessageEvent<PopoutMsg>) => "open" in e.data && seen.add(e.data.open);
+    const seen = new Map<string, string | undefined>();
+    ch.onmessage = (e: MessageEvent<PopoutMsg>) => "open" in e.data && seen.set(e.data.open, e.data.group);
     ch.postMessage({ ping: true } satisfies PopoutMsg);
     setTimeout(() => {
       ch.close();
@@ -527,6 +540,28 @@ export function popOut(id: string) {
   showPopout(id);
 }
 
+// a project's agents in one window (`/?popout=g-<project>`): their shells leave the dock, closing it brings them back
+export const GROUP_POPOUT = "g-";
+export function popOutGroup(project: string, ids: string[]) {
+  for (const id of ids) {
+    if (state.out[id] || !state.terms[id]) continue;
+    const t = state.tabs.find((x) => leaves(x.root).includes(id));
+    set({ ...unplace(id), out: { ...state.out, [id]: { tab: t?.id ?? "", near: null, group: project } } });
+  }
+  showPopout(`${GROUP_POPOUT}${project}`);
+}
+export const showGroupPopout = (project: string) => showPopout(`${GROUP_POPOUT}${project}`);
+
+// a group window closed: its shells come back together, in one tab
+function popInGroup(project: string) {
+  const ids = Object.entries(state.out).filter(([, o]) => o.group === project).map(([id]) => id);
+  const out = Object.fromEntries(Object.entries(state.out).filter(([id]) => !ids.includes(id)));
+  const live = ids.filter((id) => state.terms[id]);
+  if (!live.length) return set({ out });
+  const own = tab(group(live));
+  set({ out, tabs: [...state.tabs, own], active: own.id, open: true });
+}
+
 // back from its window: into the pane it left when that is still there, else a tab of its own
 export function popIn(id: string) {
   const from = state.out[id];
@@ -549,11 +584,15 @@ export function watchPopouts() {
   const ch = new BroadcastChannel(POPOUT_CHANNEL);
   ch.onmessage = (e: MessageEvent<PopoutMsg>) => {
     const m = e.data;
-    if ("close" in m) popIn(m.close);
+    if ("close" in m && m.close.startsWith(GROUP_POPOUT)) {
+      const project = m.close.slice(GROUP_POPOUT.length);
+      windows.delete(m.close);
+      popInGroup(project);
+    } else if ("close" in m) popIn(m.close);
     else if ("exit" in m) void closeTerminal(m.exit);
     else if ("open" in m && !state.out[m.open] && state.terms[m.open]) {
       const t = state.tabs.find((x) => leaves(x.root).includes(m.open));
-      set({ ...unplace(m.open), out: { ...state.out, [m.open]: { tab: t?.id ?? "", near: null } } });
+      set({ ...unplace(m.open), out: { ...state.out, [m.open]: { tab: t?.id ?? "", near: null, group: m.group } } });
     }
   };
   return () => ch.close();
