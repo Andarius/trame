@@ -686,14 +686,16 @@ export function App() {
   const terminals = view === "terminals";
   // no bottom dock: a shell opened or revealed from another view shows in the Agents view
   const shown = termDock.tabs.find((t) => t.id === termDock.active)?.focus ?? null;
+  const shownCard = shown ? termDock.terms[shown]?.card ?? null : null;
   useEffect(() => {
     if (!termDock.open || !restored.current) return;
     setDockOpen(false);
     if (terminals || !shown) return;
-    setTermSel(`term:${shown}`);
+    // a card's shell opens on its card, so the card can show on the right
+    setTermSel(shownCard ?? `term:${shown}`);
     setOpenId(null);
     setView("terminals");
-  }, [termDock.open, shown, terminals]);
+  }, [termDock.open, shown, shownCard, terminals]);
   // the sidebar column Explore and AI Sessions render their list into
   const [columnSlot, setColumnSlot] = useState<HTMLDivElement | null>(null);
   const pluginColumn = !!FRONTEND_PLUGINS.find((p) => p.id === pluginId)?.column;
