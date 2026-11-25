@@ -80,6 +80,8 @@ if [[ "$platform" == Darwin/arm64 ]]; then
         [[ -f "$f" ]] && cp "$f" "$pg/usr/share/doc/postgresql/"
     done
     triple=aarch64-apple-darwin
+    # tauri builds with tauri.macos.conf.json's minimumSystemVersion; the same value keeps C deps cached across both builds
+    export MACOSX_DEPLOYMENT_TARGET=12.0
     [[ "$(rustc -vV | sed -n 's/^host: //p')" == "$triple" ]]
     if [[ "$mode" == prepare ]]; then
         cargo build -p trame-cli --locked
