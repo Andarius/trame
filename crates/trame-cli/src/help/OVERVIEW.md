@@ -20,6 +20,7 @@ Commands:
   archive    fold a page or user story away (--restore brings it back)
   move       reparent a page under another page (or --top)
   open       show a page or card in the desktop app (or its trame:// link)
+  agent      list or message the agent-view runs (hooks, run to run)
   setup      install the agent skills embedded in this binary
   plugins    build Trame with native plugins from their GitHub repos
   <plugin>   a plugin's own commands (`tramecli k8s` lists them); needs the app

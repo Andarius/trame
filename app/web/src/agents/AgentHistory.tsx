@@ -185,6 +185,7 @@ export const TurnView = memo(function TurnView({ turn, results, working }: TurnP
       {prompt?.kind === "user" && (
         <div className="-mx-2 whitespace-pre-wrap rounded bg-card px-2 py-1 text-ink">
           <span className="mr-2 text-copper">&gt;</span>
+          {prompt.from && <span className="mr-2 font-sans text-[11px] text-ink-faint">↘ {prompt.from}</span>}
           {prompt.text}
           {prompt.truncated && <span className="text-ink-faint"> …</span>}
         </div>

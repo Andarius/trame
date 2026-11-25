@@ -749,3 +749,140 @@ fn codex_runs_turns_approvals_questions_and_resumes_its_thread() {
     });
     let _ = std::fs::remove_file(&log);
 }
+
+#[test]
+fn inbox_takes_hooks_and_other_runs_and_waits_for_an_idle_moment() {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fake-claude.py");
+    let log = trame_local::workspace().join(format!(
+        ".scratch/agent-inbox-{}.log",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let t = TestDb::with_env(&[
+        ("TRAME_CLAUDE_BIN", fake),
+        ("FAKE_LOG", log.to_str().unwrap()),
+    ]);
+    let base = t.base_url();
+    let cwd = t.root.to_str().unwrap().to_owned();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let http = reqwest::Client::new();
+        let token = reqwest::get(format!("{base}/api/term/token"))
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap()["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let (run, epoch, mut w) = ready_run(&base, &token, json!({"cwd":cwd})).await;
+        let inbox = format!("{base}/api/agent/runs/{run}/inbox");
+        let hook: Value = http
+            .get(format!("{base}/api/agent/runs/{run}/hook?token={token}"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let secret = hook["token"].as_str().unwrap().to_owned();
+
+        // only the app token or this run's own hook secret opens its inbox
+        for (headers, want) in [(vec![], 401), (vec![("x-trame-hook", "wrong")], 401)] {
+            let mut req = http.post(&inbox).json(&json!({"text":"ping"}));
+            for (k, v) in headers {
+                req = req.header(k, v);
+            }
+            assert_eq!(req.send().await.unwrap().status(), want);
+        }
+
+        // idle: a hook's message starts a turn at once, labelled with its sender
+        let sent = http
+            .post(&inbox)
+            .header("x-trame-hook", &secret)
+            .json(&json!({"text":"ping"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(sent.status(), 202);
+        let turn = until(&mut w, kind("turn.finished")).await;
+        let user = turn
+            .iter()
+            .find(|v| v["payload"]["kind"] == "user")
+            .unwrap();
+        assert_eq!(
+            (
+                user["payload"]["text"].clone(),
+                user["payload"]["from"].clone()
+            ),
+            (json!("ping"), json!("a hook"))
+        );
+        assert_eq!(
+            assistant_texts(&turn),
+            ["echo: Message from a hook:\n\nping"]
+        );
+
+        // busy: messages wait, then go one per idle moment, in order
+        command(&mut w, "h1", &epoch, "prompt", "hang").await;
+        until(&mut w, kind("turn.started")).await;
+        let (other, _, _) = ready_run(&base, &token, json!({"cwd":cwd})).await;
+        for (text, from) in [("first", other.as_str()), ("second", "ci")] {
+            let r = http
+                .post(&inbox)
+                .json(&json!({"token":token,"text":text,"from":from}))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(r.status(), 202);
+        }
+        let snap: Value = http
+            .get(format!("{base}/api/agent/runs/{run}?token={token}"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(snap["state"]["queued"], 2);
+        send(&mut w, "i1", &epoch, "interrupt", json!({})).await;
+        until(&mut w, kind("turn.finished")).await;
+        let first = until(&mut w, kind("turn.finished")).await;
+        let from = first
+            .iter()
+            .find(|v| v["payload"]["kind"] == "user")
+            .unwrap()["payload"]["from"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(from.starts_with(&format!("run {other} (")), "{from}");
+        let second = until(&mut w, kind("turn.finished")).await;
+        assert_eq!(
+            assistant_texts(&second),
+            ["echo: Message from ci:\n\nsecond"]
+        );
+
+        // a full inbox refuses more rather than growing without bound
+        command(&mut w, "h2", &epoch, "prompt", "hang").await;
+        until(&mut w, kind("turn.started")).await;
+        let mut statuses = Vec::new();
+        for n in 0..21 {
+            let r = http
+                .post(&inbox)
+                .json(&json!({"token":token,"text":format!("m{n}")}))
+                .send()
+                .await
+                .unwrap();
+            statuses.push(r.status().as_u16());
+        }
+        assert_eq!((statuses[19], statuses[20]), (202, 429));
+
+        // the agent knows its own run, to sign what it sends
+        let runs: Vec<Value> = std::fs::read_to_string(&log)
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        assert_eq!(runs[0]["run"], json!(run));
+    });
+    let _ = std::fs::remove_file(&log);
+}

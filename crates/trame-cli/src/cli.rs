@@ -1,6 +1,6 @@
 use crate::{
-    board, claude_hook, comment, connectors, db, digest, due, help, mcp, miniapp, open, page,
-    plugin_cmd, plugins, presence, setup,
+    agent, board, claude_hook, comment, connectors, db, digest, due, help, mcp, miniapp, open,
+    page, plugin_cmd, plugins, presence, setup,
     target::{self, resolve_target},
     track, watch,
 };
@@ -122,6 +122,7 @@ pub async fn run(args: &[String]) -> Result<i32> {
         "archive" => Some("ARCHIVE_HELP"),
         "move" => Some("MOVE_HELP"),
         "open" => Some("OPEN_HELP"),
+        "agent" => Some("AGENT_HELP"),
         "setup" => Some("SETUP_HELP"),
         "plugins" => Some("PLUGINS_HELP"),
         "db" => Some("UDB_CONTRACT"),
@@ -167,6 +168,7 @@ pub async fn run(args: &[String]) -> Result<i32> {
             "archive" => Some("ARCHIVE_HELP"),
             "move" => Some("MOVE_HELP"),
             "open" => Some("OPEN_HELP"),
+            "agent" => Some("AGENT_HELP"),
             "setup" => Some("SETUP_HELP"),
             "plugins" => Some("PLUGINS_HELP"),
             "db" => Some("UDB_CONTRACT"),
@@ -229,6 +231,7 @@ pub async fn run(args: &[String]) -> Result<i32> {
         "move" => board::move_page(&rest, json_out, &resolve_target().await?).await?,
         "db" => db::main(&rest, json_out, &resolve_target().await?).await?,
         "open" => return open::main(&rest).await,
+        "agent" => return agent::main(&rest, json_out).await,
         "setup" => return setup::run(&rest),
         "plugins" => return plugins::main(&rest),
         "mcp" => mcp::serve().await?,

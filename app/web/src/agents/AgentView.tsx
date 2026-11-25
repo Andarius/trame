@@ -9,6 +9,7 @@ import {
   modeOf,
   type Reply,
   restartRun,
+  runHook,
   runToTerminal,
   type RunState,
   type RunStatus,
@@ -92,6 +93,14 @@ export function AgentView(
   const modes = state.capabilities?.modes ?? true;
   const toTerminal = () => runToTerminal(runId).then((r) => onTerminal(r.term), (e: Error) => setNotice(e.message));
   const resume = () => restartRun(runId).catch((e: Error) => setNotice(e.message));
+  const copyHook = () =>
+    runHook(runId).then(
+      (h) =>
+        navigator.clipboard.writeText(
+          `curl -X POST ${h.url} -H '${h.header}: ${h.token}' -H 'content-type: application/json' -d '{"text":"…","from":"my-hook"}'`,
+        ).then(() => setNotice("hook command copied")),
+      (e: Error) => setNotice(e.message),
+    );
   const bar = (
     <RunBar
       state={state}
@@ -104,6 +113,7 @@ export function AgentView(
         ...(!busy && state.interactions.length === 0
           ? [{ key: "terminal", label: "Continue in terminal", hint: "stop this run and resume it in a Trame shell", run: toTerminal }]
           : []),
+        { key: "hook", label: "Copy hook command", hint: "a curl a cron, CI or script can wake this run with", run: copyHook },
       ]}
     />
   );
@@ -495,6 +505,7 @@ function RunBar(
         <AgentIcon a={{ harness: state.provider ?? "claude", icon: null }} />
         <span className="truncate text-ink-soft">{folder}</span>
         {state.status !== "ready" && <span className={status.tone}>· {status.label}</span>}
+        {(state.queued ?? 0) > 0 && <span className="text-wait" title="messages waiting for an idle moment">· {state.queued} queued</span>}
         {!connected && <span className="text-wait">· reconnecting…</span>}
       </span>
       <span className="ml-auto" />

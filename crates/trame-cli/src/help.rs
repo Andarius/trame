@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::LazyLock};
 
 // `%%NAME%%` in a topic inlines another topic (or the version), so shared text has one source
 const SOURCES: &[(&str, &str)] = &[
+    ("AGENT_HELP", include_str!("help/AGENT_HELP.md")),
     ("ARCHIVE_HELP", include_str!("help/ARCHIVE_HELP.md")),
     ("CAPABILITIES", include_str!("help/CAPABILITIES.md")),
     ("COMMENT_HELP", include_str!("help/COMMENT_HELP.md")),

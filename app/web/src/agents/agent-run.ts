@@ -28,6 +28,8 @@ export const terminalToRun = (term: string) =>
   call<RunSummary>("/api/agent/handoff", { method: "POST", body: JSON.stringify({ term }) });
 // the run already holding a conversation, from a refused start
 export const heldBy = (e: unknown) => ((e as { body?: { run?: string } }).body?.run) ?? null;
+// how a hook posts into a run's inbox: its URL and the run's own secret
+export const runHook = (id: string) => call<{ url: string; token: string; header: string }>(`/api/agent/runs/${id}/hook`);
 export const deleteRun = (id: string) => call<{ ok: boolean }>(`/api/agent/runs/${id}`, { method: "DELETE" });
 
 type Frame =

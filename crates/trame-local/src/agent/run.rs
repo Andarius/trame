@@ -25,6 +25,8 @@ const MAX_LINE: usize = 16 << 20;
 const STDERR_LINES: usize = 40;
 const SEEN_COMMANDS: usize = 256;
 const STDIN_QUEUE: usize = 64;
+/// Messages a run holds for its next idle moment; more are refused.
+const INBOX: usize = 20;
 /// Permission modes a client may switch to; bypassing every check is left to the terminal.
 const MODES: &[&str] = &["auto", "manual", "default", "acceptEdits", "plan"];
 
@@ -109,6 +111,9 @@ struct Inner {
     modes: HashMap<String, String>,
     /// our `set_model` requests still waiting for the CLI's answer
     model_reqs: HashSet<String>,
+    /// messages from outside waiting for an idle moment, and the secret hooks post them with
+    inbox: VecDeque<(String, String)>,
+    hook: String,
     /// Codex: our JSON-RPC requests in flight, the turn running and file changes by item
     rpc: HashMap<u64, Rpc>,
     rpc_next: u64,
@@ -129,6 +134,7 @@ struct State {
     effort: Option<String>,
     /// what the provider offers: `{value, label, description, efforts}`
     models: Vec<Value>,
+    queued: u64,
     turn: u64,
     items: VecDeque<Value>,
     dropped: u64,
@@ -152,6 +158,7 @@ impl State {
             "mode": self.mode,
             "effort": self.effort,
             "models": self.models,
+            "queued": self.queued,
             "turn": self.turn,
             "items": self.items,
             "droppedItems": self.dropped,
@@ -181,10 +188,11 @@ impl Run {
         provider: Provider,
         resume: Option<String>,
         launch: Launch,
+        hook: Option<String>,
         history: Vec<Value>,
     ) -> std::io::Result<Arc<Self>> {
         let resumed = resume.is_some();
-        let run = Self::new(id, cwd, provider, resume, launch, history);
+        let run = Self::new(id, cwd, provider, resume, launch, hook, history);
         run.spawn(resumed)?;
         Ok(run)
     }
@@ -196,6 +204,7 @@ impl Run {
         provider: Provider,
         resume: Option<String>,
         launch: Launch,
+        hook: Option<String>,
         history: Vec<Value>,
     ) -> Arc<Self> {
         let (tx, _) = broadcast::channel(1024);
@@ -235,6 +244,8 @@ impl Run {
                 pending: HashMap::new(),
                 modes: HashMap::new(),
                 model_reqs: HashSet::new(),
+                inbox: VecDeque::new(),
+                hook: hook.unwrap_or_else(|| uuid::Uuid::new_v4().simple().to_string()),
                 rpc: HashMap::new(),
                 rpc_next: 0,
                 codex_turn: None,
@@ -289,6 +300,8 @@ impl Run {
                 None => cmd.env_remove(key),
             };
         }
+        // lets the agent name itself when it messages another run (`tramecli agent send`)
+        cmd.env("TRAME_AGENT_RUN", &self.id);
         let mut child = cmd.spawn()?;
         let (stdin_tx, stdin_rx) = mpsc::channel(STDIN_QUEUE);
         {
@@ -368,6 +381,80 @@ impl Run {
             inner.ring.pop_front();
         }
         let _ = self.tx.send(event);
+        let idle =
+            kind == "turn.finished" || (kind == "run.state" && inner.state.status == "ready");
+        drop(inner);
+        if idle {
+            self.pump();
+        }
+    }
+
+    /// Start a turn with `text`; `from` names who sent it when it came through the inbox.
+    fn send_prompt(&self, text: &str, from: Option<&str>) -> Reply {
+        // the agent sees who wrote: a hook, another run, a relayed agent
+        let said = match from {
+            Some(from) => format!("Message from {from}:\n\n{text}"),
+            None => text.to_owned(),
+        };
+        let line = match self.provider {
+            Provider::Claude => claude::user_message(&said),
+            Provider::Codex => {
+                // a model or effort picked since the last turn applies from this one
+                let (model, effort) = {
+                    let st = &self.inner.lock().unwrap().state;
+                    (st.model.clone(), st.effort.clone())
+                };
+                let params = json!({
+                    "threadId":self.session(),"input":codex::user_input(&said),"model":model,"effort":effort,
+                });
+                codex::request(self.rpc(Rpc::Turn), "turn/start", &params)
+            }
+        };
+        if !self.send(&line) {
+            return Err("input queue full");
+        }
+        self.publish("turn.started", json!({}));
+        self.publish(
+            "item.completed",
+            json!({"kind":"user","text":text,"truncated":false,"ts":now(),"from":from}),
+        );
+        Ok(())
+    }
+
+    /// Queue a message from outside (a hook, another run, the relay) for this run's next idle moment.
+    pub fn deliver(&self, from: &str, text: &str) -> Result<usize, &'static str> {
+        let queued = {
+            let mut inner = self.inner.lock().unwrap();
+            if inner.inbox.len() >= INBOX {
+                return Err("inbox full");
+            }
+            inner.inbox.push_back((from.to_owned(), text.to_owned()));
+            inner.inbox.len()
+        };
+        self.publish("inbox.queued", json!({"from":from,"text":text}));
+        self.pump();
+        Ok(queued)
+    }
+
+    /// Start the next queued message when the run is idle: never mid-turn, never over a pending decision.
+    fn pump(&self) {
+        let next = {
+            let mut inner = self.inner.lock().unwrap();
+            let idle =
+                inner.state.status == "ready" && inner.stdin.is_some() && inner.pending.is_empty();
+            if idle { inner.inbox.pop_front() } else { None }
+        };
+        if let Some((from, text)) = next {
+            self.publish("inbox.delivered", json!({"from":from}));
+            if self.send_prompt(&text, Some(&from)).is_err() {
+                self.inner.lock().unwrap().inbox.push_front((from, text));
+            }
+        }
+    }
+
+    /// The secret a hook presents to post into this run's inbox.
+    pub fn hook_token(&self) -> String {
+        self.inner.lock().unwrap().hook.clone()
     }
 
     fn status(&self, status: &'static str) {
@@ -461,28 +548,7 @@ impl Run {
                 if text.trim().is_empty() {
                     return Err("empty prompt");
                 }
-                let line = match self.provider {
-                    Provider::Claude => claude::user_message(&text),
-                    Provider::Codex => {
-                        // a model or effort picked since the last turn applies from this one
-                        let (model, effort) = {
-                            let st = &self.inner.lock().unwrap().state;
-                            (st.model.clone(), st.effort.clone())
-                        };
-                        let params = json!({
-                            "threadId":self.session(),"input":codex::user_input(&text),"model":model,"effort":effort,
-                        });
-                        codex::request(self.rpc(Rpc::Turn), "turn/start", &params)
-                    }
-                };
-                if !self.send(&line) {
-                    return Err("input queue full");
-                }
-                self.publish("turn.started", json!({}));
-                self.publish(
-                    "item.completed",
-                    json!({"kind":"user","text":text,"truncated":false,"ts":now()}),
-                );
+                self.send_prompt(&text, None)?;
             }
             Some("interrupt") => {
                 let line = match self.provider {
@@ -685,7 +751,7 @@ impl Run {
         let inner = self.inner.lock().unwrap();
         json!({
             "id":self.id,"provider":self.provider.name(),"cwd":self.cwd,"sessionId":inner.state.session,
-            "mode":inner.state.mode,"model":inner.state.model,"effort":inner.state.effort,
+            "mode":inner.state.mode,"model":inner.state.model,"effort":inner.state.effort,"hook":inner.hook,
         })
     }
 
@@ -1183,6 +1249,8 @@ fn apply(state: &mut State, kind: &str, p: &Value) {
             state.partial.clear();
         }
         "interaction.requested" => state.interactions.push(p.clone()),
+        "inbox.queued" => state.queued += 1,
+        "inbox.delivered" => state.queued = state.queued.saturating_sub(1),
         "interaction.resolved" | "interaction.cancelled" => {
             state
                 .interactions

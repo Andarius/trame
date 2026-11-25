@@ -984,7 +984,8 @@ export const transcriptTail = (source: string, id: string) =>
 export type HistoryItem =
   & { ts?: string }
   & (
-    | { kind: "user" | "assistant" | "thinking"; text: string; truncated: boolean }
+    // `from`: who sent a prompt through a run's inbox (a hook, another run)
+    | { kind: "user" | "assistant" | "thinking"; text: string; truncated: boolean; from?: string | null }
     | { kind: "note"; text: string }
     | { kind: "tool"; id: string; name: string; input: Record<string, unknown> }
     | { kind: "result"; toolId: string; text: string; error: boolean; truncated: boolean }

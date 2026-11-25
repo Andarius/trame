@@ -20,6 +20,8 @@ export type RunState = {
   mode: string | null;
   effort?: string | null;
   models?: ModelChoice[];
+  // messages from outside waiting for an idle moment
+  queued?: number;
   turn: number;
   items: HistoryItem[];
   droppedItems: number;
@@ -79,6 +81,10 @@ export function applyEvent(s: RunState, kind: string, p: P): RunState {
       return { ...s, partial: s.partial + (typeof p.text === "string" ? p.text : "") };
     case "item.completed":
       return { ...s, items: [...s.items, p as HistoryItem], partial: p.kind === "assistant" ? "" : s.partial };
+    case "inbox.queued":
+      return { ...s, queued: (s.queued ?? 0) + 1 };
+    case "inbox.delivered":
+      return { ...s, queued: Math.max(0, (s.queued ?? 0) - 1) };
     case "interaction.requested":
       return { ...s, interactions: [...s.interactions, p as Interaction] };
     case "interaction.resolved":
