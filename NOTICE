@@ -11,3 +11,13 @@ The agent and model-provider logos embedded in app/web/src/agents/agents.tsx
 (Anthropic, OpenAI, Mistral AI, Google). They are used only to identify those
 products, are not covered by the MIT or Apache-2.0 licenses of this project,
 and no rights in them are granted.
+
+Libraries bundled in the Linux AppImage
+
+The AppImage bundles LGPL-licensed system libraries (GTK, WebKitGTK,
+JavaScriptCoreGTK, libsoup and their dependencies), taken unmodified from
+Ubuntu 24.04 and dynamically linked. Their copyright files are shipped under
+usr/share/doc, and the source of the listed versions is available from the
+Ubuntu archive. For three years after each release, the complete corresponding
+source of any such library is also provided on request through an issue at
+https://github.com/Andarius/trame/issues.

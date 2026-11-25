@@ -17,6 +17,7 @@
       "../../.scratch/package/pg/usr/lib/postgresql/18/": "postgres/lib/postgresql/18/",
       "../../.scratch/package/pg/usr/share/postgresql/18/": "postgres/share/postgresql/18/",
       "../../.scratch/package/pg/usr/share/doc/": "postgres/doc/",
+      "../../.scratch/package/licenses/": "licenses/",
       "../../app/web/dist/": "web/"
     },
     "linux": {
