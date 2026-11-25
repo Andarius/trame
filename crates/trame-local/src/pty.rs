@@ -75,6 +75,8 @@ pub struct Term {
     buf: Mutex<Buf>,
     tx: broadcast::Sender<Event>,
     kick: Mutex<Option<oneshot::Sender<()>>>,
+    /// A restored agent not resumed yet: it starts when the shell is first shown.
+    asleep: Mutex<Option<SavedAgent>>,
 }
 
 /// What a new attachment replays before streaming live output.
@@ -172,6 +174,15 @@ impl Term {
             if group > 1 {
                 unsafe { libc::kill(-group, sig) };
             }
+        }
+    }
+
+    /// Resumes a restored agent, sized to the pane that just attached; a no-op once done.
+    fn wake(&self) {
+        let agent = self.asleep.lock().unwrap().take();
+        // a leading space keeps it out of the shell's history (HIST_IGNORE_SPACE)
+        if let Some(command) = agent.as_ref().and_then(resume_command) {
+            self.write(format!(" {command}\r").as_bytes());
         }
     }
 
@@ -273,6 +284,7 @@ pub fn spawn(
         }),
         tx,
         kick: Mutex::new(None),
+        asleep: Mutex::new(None),
     });
     let (drained_tx, drained) = mpsc::channel::<()>();
     let out = term.clone();
@@ -1097,6 +1109,9 @@ struct Running {
     agent: &'static str,
     #[serde(flatten)]
     session: AgentSession,
+    /// Restored but not resumed yet: it starts when its shell is first shown.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    asleep: bool,
 }
 
 /// Claude sessions alive now anywhere on this machine (a terminal, the background daemon), by transcript id:
@@ -1309,22 +1324,53 @@ fn parse_claude_session(file: &Value) -> Option<AgentSession> {
 }
 
 async fn running_in_shells() -> Vec<Running> {
-    let shells: Vec<(String, u32)> = {
+    let (shells, asleep): (Vec<(String, u32)>, Vec<Running>) = {
         let terms = registry().terms.lock().unwrap();
-        terms
-            .values()
-            .filter(|t| !t.exited())
+        let live = || terms.values().filter(|t| !t.exited());
+        let shells = live()
             .filter_map(|t| Some((t.id.clone(), u32::try_from(t.pid?).ok()?)))
-            .collect()
+            .collect();
+        let asleep = live()
+            .filter_map(|t| asleep_agent(&t.id, t.asleep.lock().unwrap().as_ref()?))
+            .collect();
+        (shells, asleep)
     };
-    crate::blocking::spawn(move || {
+    let mut running = crate::blocking::spawn(move || {
         let dir = claude_dir();
         running_agents(&crate::diagnostics::processes(), &shells, |pid| {
             claude_session(dir.as_deref()?, pid)
         })
     })
     .await
-    .unwrap_or_default()
+    .unwrap_or_default();
+    running.extend(asleep);
+    running
+}
+
+/// A restored agent waiting for its shell to be shown, listed like a running one.
+fn asleep_agent(term: &str, agent: &SavedAgent) -> Option<Running> {
+    let kind = match agent.kind.as_str() {
+        "claude" => "claude",
+        "codex" => "codex",
+        _ => return None,
+    };
+    Some(Running {
+        term: term.to_owned(),
+        pid: 0,
+        agent: kind,
+        session: AgentSession {
+            id: agent.session.clone(),
+            name: agent.name.clone(),
+            named: agent.named,
+            busy: false,
+            waiting: None,
+            started_at: None,
+            updated_at: None,
+            done: false,
+            follow_ups: None,
+        },
+        asleep: true,
+    })
 }
 
 /// The Claude (by `session_of`) and `codex resume` runs under each shell.
@@ -1362,6 +1408,7 @@ fn running_agents(
                     pid: p.pid,
                     agent,
                     session,
+                    asleep: false,
                 });
             }
         }
@@ -1394,10 +1441,15 @@ struct Saved {
     agent: Option<SavedAgent>,
 }
 
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct SavedAgent {
     kind: String,
     session: String,
+    /// Its name while it ran, to label it before it resumes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    #[serde(default)]
+    named: bool,
 }
 
 /// What the live shells would reopen as.
@@ -1432,10 +1484,14 @@ fn snapshot() -> Vec<Saved> {
                 cwd,
                 card: t.card.lock().unwrap().clone(),
                 project: t.project.clone(),
-                agent: agent.map(|r| SavedAgent {
-                    kind: r.agent.to_owned(),
-                    session: r.session.id.clone(),
-                }),
+                agent: agent
+                    .map(|r| SavedAgent {
+                        kind: r.agent.to_owned(),
+                        session: r.session.id.clone(),
+                        name: r.session.name.clone(),
+                        named: r.session.named,
+                    })
+                    .or_else(|| t.asleep.lock().unwrap().clone()),
             }
         })
         .collect()
@@ -1496,11 +1552,11 @@ fn resume_command(agent: &SavedAgent) -> Option<String> {
     }
 }
 
-/// A shell to reopen: (id, folder, command, title, card, project).
+/// A shell to reopen: (id, folder, agent to resume, title, card, project).
 type Reopen = (
     Option<String>,
     String,
-    Option<String>,
+    Option<SavedAgent>,
     String,
     Option<String>,
     Option<String>,
@@ -1514,11 +1570,11 @@ fn reopen_plan(saved: Vec<Saved>, home: &Path, folders: &[(String, String)]) -> 
         .take(MAX_TERMS)
         .filter_map(|s| {
             let cwd = resolve_cwd(&s.cwd, home, folders)?;
-            let command = s.agent.as_ref().and_then(resume_command);
+            let agent = s.agent.filter(|a| resume_command(a).is_some());
             Some((
                 uuid(Some(s.id)),
                 cwd,
-                command,
+                agent,
                 trame_core::trim(&s.title).to_owned(),
                 uuid(s.card),
                 uuid(s.project),
@@ -1527,7 +1583,7 @@ fn reopen_plan(saved: Vec<Saved>, home: &Path, folders: &[(String, String)]) -> 
         .collect()
 }
 
-/// Reopens the shells `terms.json` saved, resuming their agents; returns how many.
+/// Reopens the shells `terms.json` saved; each agent resumes once its shell is first shown.
 pub fn restore(root: &Path) -> usize {
     let Ok(raw) = std::fs::read(saved_file(root)) else {
         return 0;
@@ -1538,16 +1594,10 @@ pub fn restore(root: &Path) -> usize {
         .unwrap_or_default();
     reopen_plan(saved, &home, &load_folders(root))
         .into_iter()
-        .filter(|(id, cwd, command, title, card, project)| {
-            spawn(
-                id.clone(),
-                cwd,
-                command.as_deref(),
-                title,
-                card.clone(),
-                project.clone(),
-            )
-            .is_ok()
+        .filter_map(|(id, cwd, agent, title, card, project)| {
+            let t = spawn(id, &cwd, None, &title, card, project).ok()?;
+            *t.asleep.lock().unwrap() = agent;
+            Some(())
         })
         .count()
 }
@@ -1688,6 +1738,7 @@ async fn session(mut ws: WebSocket, id: String) {
             .unwrap_or(0)
     };
     term.resize(dim("cols"), dim("rows"));
+    term.wake();
     let (kick_tx, mut kicked) = oneshot::channel();
     if let Some(previous) = term.kick.lock().unwrap().replace(kick_tx) {
         let _ = previous.send(());
@@ -2176,6 +2227,8 @@ mod tests {
             agent: agent.map(|(kind, session)| SavedAgent {
                 kind: kind.into(),
                 session: session.into(),
+                name: None,
+                named: false,
             }),
         };
         let plan = reopen_plan(
@@ -2189,11 +2242,19 @@ mod tests {
             Path::new("/nonexistent-home"),
             &[],
         );
-        let shell = |id: Option<&str>, command: Option<String>, card: Option<&str>| {
+        let agent = |kind: &str| {
+            Some(SavedAgent {
+                kind: kind.into(),
+                session: s1.into(),
+                name: None,
+                named: false,
+            })
+        };
+        let shell = |id: Option<&str>, agent: Option<SavedAgent>, card: Option<&str>| {
             (
                 id.map(Into::into),
                 cwd.clone(),
-                command,
+                agent,
                 "api".to_owned(),
                 card.map(Into::into),
                 None,
@@ -2202,8 +2263,8 @@ mod tests {
         assert_eq!(
             plan,
             vec![
-                shell(Some(t1), Some(format!("claude --resume {s1}")), Some(card)),
-                shell(None, Some(format!("codex resume {s1}")), None),
+                shell(Some(t1), agent("claude"), Some(card)),
+                shell(None, agent("codex"), None),
                 shell(Some(t1), None, None),
                 shell(Some(t1), None, None),
             ]

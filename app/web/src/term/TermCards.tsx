@@ -906,6 +906,8 @@ function AgentLine({ l, x, fu = [], repo }: { l?: Live; x?: TermSession; fu?: Fo
           {model && `${model} · `}
           {waiting
             ? <span className="text-wait">needs you</span>
+            : x?.asleep
+            ? <span title="restored at launch: opening its tab resumes it">not resumed</span>
             : working
             ? "working"
             : done

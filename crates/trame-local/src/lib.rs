@@ -318,7 +318,7 @@ pub async fn run(
     }
     plugins::load_wasm(&native.root).await;
     let plugin_tasks = plugins::start_all(&native);
-    // the shells open when Trame last stopped, their agents resumed, before the UI asks for them
+    // the shells open when Trame last stopped, before the UI asks for them; agents resume when shown
     if !config.demo {
         let root = native.root.clone();
         let n = blocking::spawn(move || pty::restore(&root))

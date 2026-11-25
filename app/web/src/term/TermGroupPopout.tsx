@@ -88,7 +88,7 @@ export function TermGroupPopout({ project }: { project: string }) {
           {mine.length === 0 && <p className="px-2 py-1 text-[11.5px] text-ink-muted">No agent running in this project.</p>}
           {mine.map((x) => {
             const t = terms[x.term];
-            const state = x.waiting ? "waiting" : x.busy ? "working" : x.done ? "done" : "idle";
+            const state = x.waiting ? "waiting" : x.asleep ? "not resumed" : x.busy ? "working" : x.done ? "done" : "idle";
             return (
               <button
                 key={x.term}
