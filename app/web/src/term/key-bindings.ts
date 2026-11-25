@@ -5,7 +5,11 @@ const KEY = "trame:termKeyBindings";
 
 export type KeyBinding = { keys: string; send: string };
 
-export const DEFAULT_BINDINGS: readonly KeyBinding[] = [{ keys: "Ctrl+Shift+U", send: "^U" }];
+// Ctrl+Enter: Claude Code's "send now" chord, as xterm.js sends Ctrl+Enter as a plain Enter
+export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
+  { keys: "Ctrl+Shift+U", send: "^U" },
+  { keys: "Ctrl+Enter", send: "^X^S" },
+];
 
 let cache: KeyBinding[] | null = null;
 
