@@ -275,10 +275,10 @@ const Composer = memo(function Composer(
             <button
               type="button"
               title="stop this turn (Esc)"
-              className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-ink text-[10px] text-canvas hover:opacity-80"
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-ink-soft hover:bg-hover hover:text-blocked"
               onClick={onInterrupt}
             >
-              ■
+              <span className="h-2.5 w-2.5 rounded-[2px] bg-current" />
             </button>
           )
           : (
