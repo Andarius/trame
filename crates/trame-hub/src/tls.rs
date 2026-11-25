@@ -2,18 +2,18 @@ use anyhow::{Context, Result};
 use axum::Router;
 use hyper::server::conn::http1;
 use hyper_util::{rt::TokioIo, service::TowerToHyperService};
-use std::{env, fs::File, io::BufReader, sync::Arc, time::Duration};
+use std::{env, fs::File, io::BufReader, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{net::TcpListener, time::timeout};
 use tokio_rustls::TlsAcceptor;
 
 fn pem(var: &str, default: &str) -> Result<BufReader<File>> {
-    let path = env::var_os(var).unwrap_or_else(|| default.into());
-    Ok(BufReader::new(
-        File::open(&path).with_context(|| format!("opening {var} ({path:?})"))?,
-    ))
+    let path = PathBuf::from(env::var_os(var).unwrap_or_else(|| default.into()));
+    Ok(BufReader::new(File::open(&path).with_context(|| {
+        format!("opening {var} ({})", path.display())
+    })?))
 }
 
-pub(crate) async fn serve(router: Router) -> Result<()> {
+pub(crate) async fn serve(router: &Router) -> Result<()> {
     let certs = rustls_pemfile::certs(&mut pem("TRACKER_API_CERT", "/certs/server.crt")?)
         .collect::<std::io::Result<_>>()?;
     let key = rustls_pemfile::private_key(&mut pem("TRACKER_API_KEY", "/certs/server.key")?)?

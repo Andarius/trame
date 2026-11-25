@@ -56,3 +56,25 @@ pub(crate) fn mint(client: &mut Client, node: &str, explicit_user: Option<&str>)
     tx.commit()?;
     Ok(token)
 }
+
+pub(crate) struct Caller {
+    pub(crate) node: String,
+    pub(crate) member: Option<String>,
+}
+
+pub(crate) fn lookup(client: &mut Client, token: &str) -> Result<Option<Caller>> {
+    Ok(client
+        .query_opt(
+            "SELECT t.node_id, u.id::text
+           FROM api_tokens t
+           LEFT JOIN LATERAL (SELECT user_id FROM devices
+             WHERE node_id=t.node_id AND NOT deleted LIMIT 1) d ON true
+           LEFT JOIN users u ON u.id=d.user_id AND u.role='member' AND NOT u.deleted
+          WHERE t.token_hash=$1 AND NOT t.revoked",
+            &[&token::hash(token)],
+        )?
+        .map(|row| Caller {
+            node: row.get(0),
+            member: row.get(1),
+        }))
+}

@@ -1,10 +1,9 @@
+mod api;
 mod auth;
 mod tls;
 
 use anyhow::{Result, bail};
-use axum::{Json, Router, routing::get};
 use postgres::{Config, NoTls};
-use serde_json::json;
 use std::{
     env,
     io::{self, Write as _},
@@ -32,14 +31,13 @@ fn main() -> Result<()> {
             Ok(())
         }
         [] | ["serve"] => {
-            drop(client);
-            let router = Router::new().route(
-                "/health",
-                get(async || {
-                    Json(json!({"ok": true, "protocol": trame_protocol::registry().version}))
-                }),
-            );
-            tokio::runtime::Runtime::new()?.block_on(tls::serve(router))
+            let formula = trame_local::udb::formula::Executor::for_hub(
+                &mut client,
+                &config,
+                env::var("TRACKER_FORMULA_PASSWORD").ok().as_deref(),
+            )?;
+            let router = api::router(config, client, formula);
+            tokio::runtime::Runtime::new()?.block_on(tls::serve(&router))
         }
         _ => bail!("usage: trame-hub [serve | token mint <node-id> [user-id]]"),
     }
