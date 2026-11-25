@@ -18,3 +18,27 @@ the page title when no card owns the page), then the todo text and a link to it.
 page_title, block_id, url}); days is negative when late.
 
 Reads from the running Trame app, or the hub when no app runs; writes nothing.
+
+Delivery (on a schedule, through connectors — see `tramecli connector`):
+
+  tramecli due --send [--to telegram] [--now <schedule>] [--dry-run]
+  tramecli due schedule list
+  tramecli due schedule add|set <name> [--at HH:MM] [--until HH:MM] [--days mon-fri]
+                                       [--window late|today|week|N] [--to telegram|all] [--max N]
+  tramecli due schedule rm <name>
+  tramecli due install [--uninstall]
+
+--send sends each schedule whose window is open now (a run day, from `at` until
+`until`, host local time) to its connectors, once per day per connector; a stamp
+in ~/.local/state/trame (TRAME_STATE_DIR) records the day. Nothing is sent when
+nothing is due. If the app or hub cannot be read, each connector gets one
+"failed" message that day and the next --send (5 minutes later under the timer)
+retries. --now forces one
+schedule now; --dry-run prints what would go where and the next run, sending
+nothing. Schedules live in settings.json under due.schedules; with none, one
+"morning" schedule runs 08:30–12:00 every day, window today (late or due today).
+One message per project, worst first: a banner from the project's PNG icon, counts,
+one collapsible section per active card (the worst open, --max per project, default
+10) and one section for paused, blocked or done cards. Telegram gets it as a rich message.
+`install` writes and enables the trame-due.timer systemd user timer, which runs
+`due --send` every 5 minutes; editing a schedule needs no reinstall.

@@ -30,6 +30,7 @@ struct Hit {
     query: String,
     headers: HeaderMap,
     body: Value,
+    raw: String,
 }
 #[derive(Default)]
 struct State {
@@ -47,6 +48,9 @@ struct State {
     specs_page_missing_id: bool,
     redirect_to: Option<String>,
     card_faces: bool,
+    due_rows: Option<Value>,
+    page_full: bool,
+    telegram_updates: Value,
 }
 async fn fixture(
     request: Request<Body>,
@@ -67,6 +71,7 @@ async fn fixture(
         query: query.clone(),
         headers: request_headers,
         body: body.clone(),
+        raw: String::from_utf8_lossy(&bytes).into_owned(),
     });
     let value = match (method.as_str(), path.as_str()) {
         ("GET", "/api/status") => json!({"version":env!("CARGO_PKG_VERSION"),"ok":true}),
@@ -79,6 +84,13 @@ async fn fixture(
             {"id":"page1","title":"Release plan","parent_id":null},
             {"id":"parent","title":"Project","parent_id":null}
         ]),
+        ("GET", "/api/pages/page1") if state.page_full => {
+            json!({"id":"page1","title":"Spec","content":[
+                {"id":"a0000001","type":"heading","text":"Goal"},
+                {"id":"a0000002","type":"text","text":"Ship it."},
+                {"id":"a0000003","type":"todo","text":"Write tests","done":false}
+            ]})
+        }
         ("GET", "/api/pages/page1") if state.page_writer => {
             json!({"id":"page1","title":"Release plan","content":[
                 {"id":"keep0001","type":"heading","text":"Checklist"},
@@ -110,6 +122,14 @@ async fn fixture(
             json!({"s1":{"name":"Carlo Rossi","avatar":null}})
         }
         ("GET", "/api/stories/similar") => json!([]),
+        ("GET", "/api/due") => state.due_rows.clone().unwrap_or_else(|| json!([])),
+        ("POST", p) if p.ends_with("/getMe") => json!({"ok":true,"result":{"username":"TestBot"}}),
+        ("POST", p) if p.ends_with("/getUpdates") => {
+            json!({"ok":true,"result":state.telegram_updates.clone()})
+        }
+        ("POST", p) if p.ends_with("/sendMessage") || p.ends_with("/sendRichMessage") => {
+            json!({"ok":true,"result":{}})
+        }
         ("POST", "/api/presence") => json!({"ok":true}),
         ("GET", "/api/comments/inbox") => {
             state.inbox_polls += 1;
@@ -201,6 +221,12 @@ impl Scratch {
             .env("TRACKER_OUTBOX", self.0.join("outbox.jsonl"))
             .env("TRACKER_HUB_API", "")
             .env("TRACKER_HUB_API_TOKEN", "")
+            .env("XDG_CONFIG_HOME", self.0.join("config"))
+            .env("XDG_STATE_HOME", self.0.join("state"))
+            .env_remove("TRAME_CONNECTORS_ENV")
+            .env_remove("TRAME_STATE_DIR")
+            .env_remove("TELEGRAM_BOT_TOKEN")
+            .env_remove("TELEGRAM_CHAT_ID")
             .env_remove("TRAME_OFFLINE")
             .env_remove("CODEX_THREAD_ID")
             .env_remove("CLAUDE_CODE_SESSION_ID");
@@ -1792,5 +1818,206 @@ async fn open_without_app_prints_the_link_and_exits_1() {
             .unwrap();
         assert_eq!(output.status.code(), Some(1), "{input}");
         assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), url);
+    }
+}
+
+#[tokio::test]
+async fn connector_setup_and_scheduled_due_digest_send_once() {
+    use std::os::unix::fs::PermissionsExt;
+    let (base, state, _server) = server().await;
+    let port = base.rsplit(':').next().unwrap().parse::<u16>().unwrap();
+    let scratch = Scratch::new();
+    let sends = |state: &Arc<Mutex<State>>| {
+        state
+            .lock()
+            .unwrap()
+            .hits
+            .iter()
+            .filter(|h| h.path.ends_with("/sendRichMessage"))
+            .map(|h| h.raw.clone())
+            .collect::<Vec<_>>()
+    };
+    let run = |args: &[&str], stdin: Option<&str>| {
+        let mut cmd = scratch.command(Some(port));
+        cmd.env("TRAME_TELEGRAM_API", &base).args(args);
+        let input = stdin.map(str::to_owned);
+        async move {
+            cmd.stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
+            let mut child = cmd.spawn().unwrap();
+            let mut pipe = child.stdin.take().unwrap();
+            pipe.write_all(input.unwrap_or_default().as_bytes())
+                .await
+                .unwrap();
+            drop(pipe);
+            child.wait_with_output().await.unwrap()
+        }
+    };
+
+    // setup without /start fails and writes nothing
+    state.lock().unwrap().telegram_updates = json!([]);
+    let out = run(
+        &["connector", "setup", "telegram"],
+        Some("123:SECRETTOKEN\n"),
+    )
+    .await;
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("send /start"));
+    let env_file = scratch.0.join("config/trame/connectors.env");
+    assert!(!env_file.exists());
+
+    // two people messaged the bot: setup refuses to pick one
+    state.lock().unwrap().telegram_updates = json!([
+        {"message": {"chat": {"id": 90, "type": "private", "first_name": "Ju"}}},
+        {"message": {"chat": {"id": 91, "type": "private", "username": "stranger"}}}
+    ]);
+    let out = run(
+        &["connector", "setup", "telegram"],
+        Some("123:SECRETTOKEN\n"),
+    )
+    .await;
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("91 (@stranger)"));
+    assert!(!env_file.exists());
+
+    // after /start: chat id from the last private message, file 0600, test sent, token never printed
+    state.lock().unwrap().telegram_updates = json!([
+        {"message": {"chat": {"id": -5, "type": "group"}}},
+        {"message": {"chat": {"id": 90, "type": "private"}}}
+    ]);
+    let out = run(
+        &["connector", "setup", "telegram"],
+        Some("123:SECRETTOKEN\n"),
+    )
+    .await;
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let printed = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(!printed.contains("SECRETTOKEN"));
+    let saved = std::fs::read_to_string(&env_file).unwrap();
+    assert!(
+        saved.contains("TELEGRAM_BOT_TOKEN=123:SECRETTOKEN")
+            && saved.contains("TELEGRAM_CHAT_ID=90")
+    );
+    assert_eq!(
+        std::fs::metadata(&env_file).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(sends(&state).len(), 1);
+    assert!(sends(&state)[0].contains("name=\"chat_id\"\r\n\r\n90\r\n"));
+    let listed = run(&["connector", "list"], None).await;
+    assert!(!String::from_utf8_lossy(&listed.stdout).contains("SECRETTOKEN"));
+
+    // settings.json carries the hub token: a schedule edit keeps it owner-only
+    let settings = scratch.0.join("settings.json");
+    std::fs::set_permissions(&settings, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+    // an all-day schedule sends once per day, then stays quiet
+    let out = run(
+        &[
+            "due", "schedule", "add", "allday", "--at", "00:00", "--until", "23:59", "--window",
+            "late",
+        ],
+        None,
+    )
+    .await;
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let late = (chrono::Local::now().date_naive() - chrono::Duration::days(2)).to_string();
+    state.lock().unwrap().due_rows = Some(json!([
+        {"due": late, "text": "renew cert", "card_id": null, "page_id": "pg-1", "page_title": "Acme notes", "block_id": "b1"}
+    ]));
+    for _ in 0..2 {
+        let out = run(&["due", "--send", "--to", "telegram"], None).await;
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    let sent = sends(&state);
+    let digests: Vec<_> = sent.iter().filter(|b| b.contains("renew cert")).collect();
+    assert_eq!(digests.len(), 1, "{sent:?}");
+    assert!(digests[0].contains("<h3>No project</h3>"), "{}", digests[0]);
+    assert!(
+        digests[0].contains("<li>2d late · renew cert"),
+        "{}",
+        digests[0]
+    );
+    assert!(scratch.0.join("state/trame/due-allday-telegram").exists());
+    assert_eq!(
+        std::fs::metadata(&settings).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+
+    // an unreadable hub reports once per day and fails the run each time
+    let out = run(
+        &[
+            "due", "schedule", "add", "broken", "--at", "00:00", "--until", "23:59",
+        ],
+        None,
+    )
+    .await;
+    assert!(out.status.success());
+    std::fs::remove_file(scratch.0.join("port.json")).unwrap();
+    for _ in 0..2 {
+        let mut cmd = scratch.command(None);
+        let out = cmd
+            .env("TRAME_TELEGRAM_API", &base)
+            .args(["due", "--send"])
+            .output()
+            .await
+            .unwrap();
+        assert!(!out.status.success());
+    }
+    let failures = sends(&state)
+        .iter()
+        .filter(|b| b.contains("Trame due digest failed"))
+        .count();
+    // allday already went out today, so only the new schedule reports, once
+    assert_eq!(failures, 1);
+}
+
+#[tokio::test]
+async fn emptying_a_written_page_needs_force() {
+    let (base, state, _server) = server().await;
+    state.lock().unwrap().page_full = true;
+    let target = Target::local(base);
+    for (input, refused) in [
+        (json!({"page_id": "page1", "markdown": ""}), true),
+        (json!({"page_id": "page1", "markdown": "Only this."}), true),
+        (
+            json!({"page_id": "page1", "markdown": "## Goal\n\nShip it.\n\nThen more."}),
+            false,
+        ),
+        (
+            json!({"page_id": "page1", "markdown": "", "force": true}),
+            false,
+        ),
+    ] {
+        state.lock().unwrap().hits.clear();
+        let result = page::write_page(&input, &target).await;
+        let posted = state
+            .lock()
+            .unwrap()
+            .hits
+            .iter()
+            .any(|h| h.method == "POST");
+        assert_eq!(result.is_err(), refused, "{input}");
+        assert_eq!(posted, !refused, "{input}");
+        if refused {
+            assert!(result.unwrap_err().to_string().contains("force"));
+        }
     }
 }

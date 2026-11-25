@@ -4,11 +4,14 @@
     reason = "CLI output is the product; stderr is the app log"
 )]
 
+pub mod banner;
 pub mod board;
 pub mod claude_hook;
 pub mod cli;
 pub mod comment;
+pub mod connectors;
 pub mod db;
+pub mod digest;
 pub mod due;
 pub mod help;
 pub mod mcp;
