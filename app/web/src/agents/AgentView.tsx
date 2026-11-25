@@ -241,8 +241,7 @@ const Composer = memo(function Composer(
   };
   return (
     <div className="px-4 pb-3 pt-2">
-      <div className="flex items-center gap-2 rounded-xl border border-chipline bg-panel py-1.5 pl-[7px] pr-1.5 font-mono text-[12px] focus-within:border-copper/60">
-        <span className="text-copper">&gt;</span>
+      <div className="flex items-center gap-2 rounded-xl border border-chipline bg-panel py-1.5 pl-3 pr-1.5 font-mono text-[12px] focus-within:border-copper/60">
         <textarea
           ref={box}
           rows={Math.min(8, Math.max(1, text.split("\n").length))}
