@@ -135,11 +135,12 @@ type DockState = {
 type Origin = { tab: string; near: string | null; group?: string };
 let state: DockState = { terms: {}, out: {}, tabs: [], active: null, open: false, max: false, drag: null };
 const listeners = new Set<() => void>();
-const LAYOUT_KEY = "trame:termLayout";
+// a group window saves its own layout (adoptTerminals), never over the dock's
+let layoutKey = "trame:termLayout";
 const set = (next: Partial<DockState>) => {
   if (next.tabs) next = { ...next, tabs: next.tabs.map((t) => ({ ...t, root: activate(t.root, t.focus) })) };
   state = { ...state, ...next };
-  if (next.tabs) writeStore(LAYOUT_KEY, JSON.stringify(state.tabs.map((t) => t.root)));
+  if (next.tabs) writeStore(layoutKey, JSON.stringify(state.tabs.map((t) => t.root)));
   listeners.forEach((l) => l());
 };
 const subscribe = (l: () => void) => {
@@ -179,18 +180,48 @@ export async function restoreTerminals() {
   const out = Object.fromEntries(
     [...await openPopouts()].filter(([id]) => terms[id]).map(([id, group]) => [id, { tab: "", near: null, group }]),
   );
+  const tabs = savedTabs(list.filter((t) => !out[t.id]).map((t) => t.id));
+  set({ terms, out, tabs, active: tabs[0]?.id ?? null });
+}
+
+// `ids` laid out as the saved layout left them, a tab each for the others
+function savedTabs(ids: string[]) {
   let saved: PaneNode[] = [];
   try {
-    saved = JSON.parse(readStore(LAYOUT_KEY) ?? "[]");
+    saved = JSON.parse(readStore(layoutKey) ?? "[]");
   } catch { /* corrupt layout: one tab per shell */ }
   const placed = new Set<string>();
   const tabs: TermTab[] = [];
   for (const root of Array.isArray(saved) ? saved : []) {
-    const kept = prune(root, (id) => !!terms[id] && !out[id] && !placed.has(id) && !!placed.add(id));
+    const kept = prune(root, (id) => ids.includes(id) && !placed.has(id) && !!placed.add(id));
     if (kept) tabs.push(tab(kept));
   }
-  for (const t of list) if (!placed.has(t.id) && !out[t.id]) tabs.push(tab(group([t.id])));
-  set({ terms, out, tabs, active: tabs[0]?.id ?? null });
+  for (const id of ids) if (!placed.has(id)) tabs.push(tab(group([id])));
+  return tabs;
+}
+
+// the shells a layout saved under `key` holds
+export function savedShells(key: string) {
+  try {
+    const saved = JSON.parse(readStore(key) ?? "[]");
+    return Array.isArray(saved) ? saved.flatMap((root: PaneNode) => leaves(root)) : [];
+  } catch {
+    return [];
+  }
+}
+
+// a group window's dock: its shells in the layout it saved under `key`, later ones in tabs of their own
+export function adoptTerminals(key: string, list: TermInfo[]) {
+  layoutKey = key;
+  const fresh = list.filter((t) => !state.terms[t.id]);
+  if (!fresh.length) return;
+  const terms = { ...state.terms, ...Object.fromEntries(fresh.map((t) => [t.id, t])) };
+  if (!state.tabs.length) {
+    const tabs = savedTabs(fresh.map((t) => t.id));
+    return set({ terms, tabs, active: tabs[0]?.id ?? null });
+  }
+  const own = fresh.map((t) => tab(group([t.id])));
+  set({ terms, tabs: [...state.tabs, ...own], active: state.active ?? own[0]?.id ?? null });
 }
 
 const create = async (opts: TermOpts) => {
@@ -593,6 +624,15 @@ export function watchPopouts() {
     else if ("open" in m && !state.out[m.open] && state.terms[m.open]) {
       const t = state.tabs.find((x) => leaves(x.root).includes(m.open));
       set({ ...unplace(m.open), out: { ...state.out, [m.open]: { tab: t?.id ?? "", near: null, group: m.group } } });
+    } else if ("open" in m && m.group && !state.terms[m.open]) {
+      // opened in a group window: known here, so closing that window brings it to the dock
+      const id = m.open, group = m.group;
+      void listTerms().then((l) => {
+        const info = l.find((t) => t.id === id && !t.exited);
+        if (info && !state.terms[id]) {
+          set({ terms: { ...state.terms, [id]: info }, out: { ...state.out, [id]: { tab: "", near: null, group } } });
+        }
+      }, () => {});
     }
   };
   return () => ch.close();
