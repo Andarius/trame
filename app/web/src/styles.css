@@ -154,6 +154,10 @@ body,
   scrollbar-width: thin;
   scrollbar-color: var(--color-chipline) transparent;
 }
+/* WebKitGTK paints overlay scrollbars above every layer, popovers included */
+html.popover-open * {
+  scrollbar-color: transparent transparent;
+}
 
 body {
   margin: 0;

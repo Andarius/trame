@@ -231,6 +231,7 @@ export function Popover(
   useEffect(() => {
     const id = Symbol();
     popoverStack.push(id);
+    document.documentElement.classList.add("popover-open");
     const isTop = () => popoverStack[popoverStack.length - 1] === id;
     const h = (e: MouseEvent) => {
       if (isTop() && ref.current && !ref.current.contains(e.target as Node)) onCloseRef.current();
@@ -245,6 +246,7 @@ export function Popover(
     document.addEventListener("keydown", k, true);
     return () => {
       popoverStack.splice(popoverStack.indexOf(id), 1);
+      if (!popoverStack.length) document.documentElement.classList.remove("popover-open");
       document.removeEventListener("mousedown", h);
       document.removeEventListener("keydown", k, true);
     };
