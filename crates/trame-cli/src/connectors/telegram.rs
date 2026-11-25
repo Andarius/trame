@@ -145,7 +145,7 @@ fn inline(s: &str) -> String {
 }
 
 /// A rich message (Bot API 10.2 `html` field): heading, body paragraphs, one
-/// collapsible section per group, todos as checkboxes.
+/// collapsible section per group, todos as plain list items (a checkbox cannot tick Trame).
 pub fn render(message: &Message, image: Option<&str>) -> String {
     let mut html = Vec::new();
     if let Some(id) = image {
@@ -164,11 +164,7 @@ pub fn render(message: &Message, image: Option<&str>) -> String {
         );
         for entry in &group.entries {
             if entry.lines.is_empty() {
-                let _ = write!(
-                    block,
-                    "<li><input type=\"checkbox\">{}</li>",
-                    inline(&entry.label)
-                );
+                let _ = write!(block, "<li>{}</li>", inline(&entry.label));
             } else {
                 let lines = entry.lines.iter().fold(String::new(), |mut out, l| {
                     let _ = write!(out, "<li>{}</li>", inline(l));
@@ -254,7 +250,7 @@ mod tests {
     use crate::connectors::{Entry, Group};
 
     #[test]
-    fn render_rich_sections_checkboxes_and_code() {
+    fn render_rich_sections_and_code() {
         let message = Message {
             title: "Soren <ops>".into(),
             body: Some("🔴 2 late\n+1 more cards".into()),
@@ -283,7 +279,7 @@ mod tests {
         assert_eq!(
             render(&message, Some("banner")),
             "<img src=\"tg://photo?id=banner\"/>\n<h3>Soren &lt;ops&gt;</h3>\n<p>🔴 2 late</p>\n<p>+1 more cards</p>\n\
-             <details open><summary>🔴 Rotate keys · 2 late</summary><ul><li><input type=\"checkbox\">2d late · run <code>just rotate</code> &amp; check</li></ul></details>\n\
+             <details open><summary>🔴 Rotate keys · 2 late</summary><ul><li>2d late · run <code>just rotate</code> &amp; check</li></ul></details>\n\
              <details><summary>⏸ Paused or done · 1 cards</summary><ul><li><b>Alerts (paused)</b><ul><li>restart `the watch</li></ul></li></ul></details>"
         );
     }

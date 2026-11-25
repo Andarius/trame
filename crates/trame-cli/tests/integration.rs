@@ -1933,7 +1933,7 @@ async fn connector_setup_and_scheduled_due_digest_send_once() {
     assert_eq!(digests.len(), 1, "{sent:?}");
     assert!(digests[0].contains("<h3>No project</h3>"), "{}", digests[0]);
     assert!(
-        digests[0].contains("<input type=\\\"checkbox\\\">2d late · renew cert"),
+        digests[0].contains("<li>2d late · renew cert"),
         "{}",
         digests[0]
     );
