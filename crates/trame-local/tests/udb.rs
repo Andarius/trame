@@ -257,6 +257,26 @@ fn hub_formula_executor_is_opt_in_and_uses_the_restricted_login() {
     let expr =
         "current_setting('transaction_read_only') || ':' || current_setting('statement_timeout')";
     let formula = prop(&mut t, &id, "Settings", "formula", json!({"expr":expr}));
+    let values = [
+        (
+            "Exact numeric",
+            "12345678901234567890.123456789012345678900::numeric",
+            json!("12345678901234567890.123456789012345678900"),
+        ),
+        (
+            "Exact bigint",
+            "9007199254740993::bigint",
+            json!("9007199254740993"),
+        ),
+        ("Integer", "42::int", json!(42)),
+        ("Null numeric", "null::numeric", Value::Null),
+    ]
+    .map(|(name, expr, expected)| {
+        (
+            prop(&mut t, &id, name, "formula", json!({"expr":expr})),
+            expected,
+        )
+    });
     let mut config = Config::new();
     config
         .host_path(t.root.join("socket"))
@@ -307,6 +327,9 @@ fn hub_formula_executor_is_opt_in_and_uses_the_restricted_login() {
         .unwrap();
     assert_eq!(status, 200);
     assert_eq!(body["rows"][0]["derived"][&formula], "on:2s");
+    for (id, expected) in values {
+        assert_eq!(body["rows"][0]["derived"][&id], expected);
+    }
     let (status, body) = udb::handle(
         &mut db,
         "POST",

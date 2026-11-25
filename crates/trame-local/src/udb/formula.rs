@@ -359,8 +359,14 @@ pub(crate) fn values(
 ) -> Result<HashMap<String, Value>> {
     let expr = prop["config"]["expr"].as_str().unwrap_or("");
     let rewritten = rewrite(expr, props)?;
+    let projection = if matches!(db.formula.0, Connection::Hub(_)) {
+        "case when pg_typeof(val) in ('numeric'::regtype, 'bigint'::regtype)
+             then to_jsonb(val::text) else to_jsonb(val) end as val"
+    } else {
+        "to_jsonb(val) as val, pg_typeof(val)::text as value_type"
+    };
     let sql = format!(
-        "select id, to_jsonb(val) as val, pg_typeof(val)::text as value_type from (select id, ({rewritten}) as val from public.udb_rows r where db_id=$1 and not deleted) q"
+        "select id, {projection} from (select id, ({rewritten}) as val from public.udb_rows r where db_id=$1 and not deleted) q"
     );
     Ok(run(db, &sql, Some(id))?
         .into_iter()
