@@ -67,62 +67,94 @@ export function RecentSession(
   };
   const btn = "rounded-md border border-line px-3 py-1.5 text-[12.5px] text-ink-soft hover:text-ink";
 
+  const title = <h2 className="text-[18px] font-semibold text-ink">{session.title}</h2>;
+  const facts = [
+    <span key="agent" className="flex items-center gap-1.5">
+      <AgentIcon a={{ harness: agent, icon: null }} />
+      {agentLabel(agent)}
+    </span>,
+    session.repoPath && <span key="repo">{short(session.repoPath)}</span>,
+    session.branch && <span key="branch">⎇ {session.branch}</span>,
+    <span key="active">last active {timeAgo(session.lastActive)}</span>,
+    session.live && (
+      <span key="live" className="text-live" title={agentCmd(session)}>
+        ● {session.live.kind === "bg" ? "running in the background" : "open in another terminal"}
+      </span>
+    ),
+    card && (
+      <button key="card" type="button" className="text-left text-ink-muted hover:text-ink" onClick={() => onOpenSession(card.id)}>
+        card: {card.title} ↗
+      </button>
+    ),
+  ];
+  const actions = (
+    <>
+      {session.repoPath && (
+        <button type="button" className={`${btn} border-copper/60 bg-copper/10 text-ink`} onClick={() => void resume()}>
+          {session.live?.kind === "bg" ? "↻ Attach in a tab" : elsewhere ? "↘ Move into Trame" : "↻ Resume in a tab"}
+        </button>
+      )}
+      <ResumeButton session={session} card={card?.id} onCopied={() => setCopied(true)} modePick={modePick} />
+      <button type="button" className={btn} onClick={() => void copy()}>{copied ? "Copied" : "Copy command"}</button>
+    </>
+  );
+  const views = (
+    <div className="flex gap-1 text-[11.5px]">
+      {(["summary", "history"] as const).map((v) => (
+        <button
+          key={v}
+          type="button"
+          className={`rounded-md px-2 py-0.5 ${view === v ? "bg-copper/15 text-ink" : "text-ink-muted hover:text-ink"}`}
+          onClick={() => setView(v)}
+        >
+          {v === "summary" ? "Summary" : "Full history"}
+        </button>
+      ))}
+    </div>
+  );
+
+  // the whole conversation fills the page; the session's facts move to the rail beside it
+  if (view === "history") {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-6 py-3">
+          {title}
+          {views}
+          <div className="ml-auto flex flex-wrap gap-2">{actions}</div>
+        </div>
+        {error && <p className="px-6 pt-2 text-[12.5px] text-ink-muted">{error}</p>}
+        <AgentHistory
+          source={session.source}
+          id={session.claudeId}
+          live={!!session.live}
+          className="flex-1"
+          side={
+            <section className="flex flex-col gap-1.5 text-ink-faint">
+              <div className={SECTION_LABEL}>SESSION</div>
+              {facts}
+              <code className="mt-1 break-all font-mono text-[10.5px] text-ink-muted" title="resume command">{resumeCmd(session)}</code>
+            </section>
+          }
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-[860px] flex-col gap-4 px-8 py-7">
       <div className="flex flex-col gap-1.5">
-        <h2 className="text-[18px] font-semibold text-ink">{session.title}</h2>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-faint">
-          <span className="flex items-center gap-1.5">
-            <AgentIcon a={{ harness: agent, icon: null }} />
-            {agentLabel(agent)}
-          </span>
-          {session.repoPath && <span>{short(session.repoPath)}</span>}
-          {session.branch && <span>⎇ {session.branch}</span>}
-          <span>last active {timeAgo(session.lastActive)}</span>
-          {session.live && (
-            <span className="text-live" title={agentCmd(session)}>
-              ● {session.live.kind === "bg" ? "running in the background" : "open in another terminal"}
-            </span>
-          )}
-          {card && (
-            <button type="button" className="text-ink-muted hover:text-ink" onClick={() => onOpenSession(card.id)}>
-              card: {card.title} ↗
-            </button>
-          )}
-        </div>
+        {title}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-faint">{facts}</div>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {session.repoPath && (
-          <button type="button" className={`${btn} border-copper/60 bg-copper/10 text-ink`} onClick={() => void resume()}>
-            {session.live?.kind === "bg" ? "↻ Attach in a tab" : elsewhere ? "↘ Move into Trame" : "↻ Resume in a tab"}
-          </button>
-        )}
-        <ResumeButton session={session} card={card?.id} onCopied={() => setCopied(true)} modePick={modePick} />
-        <button type="button" className={btn} onClick={() => void copy()}>{copied ? "Copied" : "Copy command"}</button>
-      </div>
+      <div className="flex flex-wrap items-center gap-2">{actions}</div>
       <section className="flex flex-col gap-2">
         <div className="flex items-center gap-3">
-          <div className={SECTION_LABEL}>{view === "history" ? "CONVERSATION" : "WHERE YOU LEFT OFF"}</div>
-          <div className="ml-auto flex gap-1 text-[11.5px]">
-            {(["summary", "history"] as const).map((v) => (
-              <button
-                key={v}
-                type="button"
-                className={`rounded-md px-2 py-0.5 ${view === v ? "bg-copper/15 text-ink" : "text-ink-muted hover:text-ink"}`}
-                onClick={() => setView(v)}
-              >
-                {v === "summary" ? "Summary" : "Full history"}
-              </button>
-            ))}
-          </div>
+          <div className={SECTION_LABEL}>WHERE YOU LEFT OFF</div>
+          <div className="ml-auto">{views}</div>
         </div>
-        {view === "history" ? <AgentHistory source={session.source} id={session.claudeId} className="h-[460px]" /> : (
-          <>
-            {error && <p className="text-[12.5px] text-ink-muted">{error}</p>}
-            {!error && !tail && <p className="text-[12.5px] text-ink-faint">reading the transcript…</p>}
-            {tail && <ReplayTerminal text={replay(tail)} className="h-[460px] border border-line" />}
-          </>
-        )}
+        {error && <p className="text-[12.5px] text-ink-muted">{error}</p>}
+        {!error && !tail && <p className="text-[12.5px] text-ink-faint">reading the transcript…</p>}
+        {tail && <ReplayTerminal text={replay(tail)} className="h-[460px] border border-line" />}
       </section>
       <section className="flex flex-col gap-1 rounded-lg border border-line px-4 py-3">
         <div className={SECTION_LABEL}>COMMAND</div>
