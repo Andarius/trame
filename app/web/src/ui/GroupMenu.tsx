@@ -68,7 +68,7 @@ export function GroupMenu<T extends string>(
       <IconButton
         tone="close"
         className="px-1"
-        title={`group by: ${options[value].toLowerCase()}`}
+        title={open ? undefined : `group by: ${options[value].toLowerCase()}`}
         aria-label="Grouping"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}

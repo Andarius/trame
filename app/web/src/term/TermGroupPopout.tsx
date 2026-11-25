@@ -5,7 +5,7 @@ import { EntityIcon, IconButton } from "../ui/ui";
 import { DockIcon } from "../ui/icons";
 import { TerminalView } from "./TerminalView";
 import { POPOUT_CLOSE } from "./TermPopout";
-import { GROUP_POPOUT, listTerms, POPOUT_CHANNEL, type PopoutMsg, repoName, sessionLabel, type TermInfo, useTermSessions } from "./term-api";
+import { GROUP_POPOUT, listTerms, POPOUT_CHANNEL, type PopoutMsg, repoName, sessionLabel, type TermInfo, type TermSession, useTermSessions } from "./term-api";
 
 const POLL_MS = 3000;
 
@@ -27,10 +27,18 @@ export function TermGroupPopout({ project }: { project: string }) {
   // its agents: a card's project, else the project its shell was opened for
   const cardProject = new Map(board?.sessions.map((s) => [s.id, s.client_id]));
   const projectOf = (t: TermInfo | undefined) => (t?.card && cardProject.get(t.card)) || t?.project || null;
-  const mine = sessions.filter((x) => terms[x.term] && projectOf(terms[x.term]) === project);
+  // as the sidebar: those waiting on you first, then the latest active
+  const seen = (x: TermSession) => x.updated_at ?? x.started_at ?? 0;
+  const mine = sessions
+    .filter((x) => terms[x.term] && projectOf(terms[x.term]) === project)
+    .sort((a, b) => Number(!!b.waiting) - Number(!!a.waiting) || seen(b) - seen(a));
   const ids = mine.map((x) => x.term);
   const key = ids.join(",");
   const current = selected && ids.includes(selected) ? selected : ids[0] ?? null;
+  // pin the shown shell, so a reorder does not switch it
+  useEffect(() => {
+    if (current && current !== selected) setSelected(current);
+  }, [current, selected]);
 
   // tell the dock which shells this window holds, now and whenever it asks
   const self = `${GROUP_POPOUT}${project}`;
