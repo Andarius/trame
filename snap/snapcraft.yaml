@@ -4,7 +4,7 @@ summary: Local-first session tracker for Claude Code work
 description: |
   Trame tracks parallel coding sessions as a kanban board and keeps local data
   in a supervised PostgreSQL 18 cluster.
-license: MIT
+license: MIT OR Apache-2.0
 grade: stable
 confinement: classic
 base: core24

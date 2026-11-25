@@ -40,6 +40,11 @@ jobs:
           TRAME_PG_BIN: ${{ github.workspace }}/.scratch/package/pg/usr/lib/postgresql/18/bin
         run: cargo fmt --all -- --check && cargo clippy --workspace --all-targets --locked -- -D warnings && cargo test --workspace --locked
 
+      - name: Dependency licenses are on the allow list
+        uses: EmbarkStudios/cargo-deny-action@81891abc19297b21343b15ef67dc61e4aea74fda # v2.1.4
+        with:
+          command: check licenses
+
       - name: Builds without the WebAssembly plugin runtime
         run: cargo clippy -p trame-local -p trame-desktop --no-default-features --all-targets --locked -- -D warnings
 

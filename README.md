@@ -345,3 +345,7 @@ disables both.
 
 See [native runtime and migration](crates/trame-local/README.md) for data paths, backup and
 rollback instructions, isolated tests, and package requirements.
+
+## License
+
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT) at your option. Third-party brand marks are excluded; see [NOTICE](NOTICE). Contributions are covered by the same terms ([CONTRIBUTING.md](CONTRIBUTING.md)).
