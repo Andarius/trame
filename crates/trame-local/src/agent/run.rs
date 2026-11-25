@@ -114,6 +114,8 @@ struct Inner {
     /// messages from outside waiting for an idle moment, and the secret hooks post them with
     inbox: VecDeque<(String, String)>,
     hook: String,
+    /// this run takes the messages other machines' agents send over the agent relay
+    relay: bool,
     /// Codex: our JSON-RPC requests in flight, the turn running and file changes by item
     rpc: HashMap<u64, Rpc>,
     rpc_next: u64,
@@ -135,6 +137,8 @@ struct State {
     /// what the provider offers: `{value, label, description, efforts}`
     models: Vec<Value>,
     queued: u64,
+    relay: bool,
+    relay_error: Option<String>,
     turn: u64,
     items: VecDeque<Value>,
     dropped: u64,
@@ -159,6 +163,8 @@ impl State {
             "effort": self.effort,
             "models": self.models,
             "queued": self.queued,
+            "relay": self.relay,
+            "relayError": self.relay_error,
             "turn": self.turn,
             "items": self.items,
             "droppedItems": self.dropped,
@@ -246,6 +252,7 @@ impl Run {
                 model_reqs: HashSet::new(),
                 inbox: VecDeque::new(),
                 hook: hook.unwrap_or_else(|| uuid::Uuid::new_v4().simple().to_string()),
+                relay: false,
                 rpc: HashMap::new(),
                 rpc_next: 0,
                 codex_turn: None,
@@ -450,6 +457,29 @@ impl Run {
                 self.inner.lock().unwrap().inbox.push_front((from, text));
             }
         }
+    }
+
+    /// Take or give up the agent relay's incoming messages.
+    pub fn set_relay(&self, on: bool) {
+        self.inner.lock().unwrap().relay = on;
+        self.publish("relay.state", json!({"on":on}));
+    }
+
+    pub fn relay(&self) -> bool {
+        self.inner.lock().unwrap().relay
+    }
+
+    /// Show why the relay can't be read, once per change.
+    pub fn relay_error(&self, error: Option<&str>) {
+        let changed = self.inner.lock().unwrap().state.relay_error.as_deref() != error;
+        if changed {
+            self.publish("relay.state", json!({"on":self.relay(),"error":error}));
+        }
+    }
+
+    /// How many more messages the inbox takes, so the relay is never read past it.
+    pub fn room(&self) -> usize {
+        INBOX.saturating_sub(self.inner.lock().unwrap().inbox.len())
     }
 
     /// The secret a hook presents to post into this run's inbox.
@@ -751,7 +781,7 @@ impl Run {
         let inner = self.inner.lock().unwrap();
         json!({
             "id":self.id,"provider":self.provider.name(),"cwd":self.cwd,"sessionId":inner.state.session,
-            "mode":inner.state.mode,"model":inner.state.model,"effort":inner.state.effort,"hook":inner.hook,
+            "mode":inner.state.mode,"model":inner.state.model,"effort":inner.state.effort,"hook":inner.hook,"relay":inner.relay,
         })
     }
 
@@ -1250,6 +1280,10 @@ fn apply(state: &mut State, kind: &str, p: &Value) {
         }
         "interaction.requested" => state.interactions.push(p.clone()),
         "inbox.queued" => state.queued += 1,
+        "relay.state" => {
+            state.relay = p["on"] == true;
+            state.relay_error = p["error"].as_str().map(str::to_owned);
+        }
         "inbox.delivered" => state.queued = state.queued.saturating_sub(1),
         "interaction.resolved" | "interaction.cancelled" => {
             state

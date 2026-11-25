@@ -9,6 +9,7 @@ import {
   modeOf,
   type Reply,
   restartRun,
+  listenOnRelay,
   runHook,
   runToTerminal,
   type RunState,
@@ -114,6 +115,14 @@ export function AgentView(
           ? [{ key: "terminal", label: "Continue in terminal", hint: "stop this run and resume it in a Trame shell", run: toTerminal }]
           : []),
         { key: "hook", label: "Copy hook command", hint: "a curl a cron, CI or script can wake this run with", run: copyHook },
+        {
+          key: "relay",
+          label: state.relay ? "Stop listening on the agent relay" : "Listen on the agent relay",
+          hint: state.relay
+            ? "other machines' agents no longer reach this run"
+            : "messages your relay peers send arrive here (one run listens at a time)",
+          run: () => void listenOnRelay(runId, !state.relay).catch((e: Error) => setNotice(e.message)),
+        },
       ]}
     />
   );
@@ -506,6 +515,11 @@ function RunBar(
         <span className="truncate text-ink-soft">{folder}</span>
         {state.status !== "ready" && <span className={status.tone}>· {status.label}</span>}
         {(state.queued ?? 0) > 0 && <span className="text-wait" title="messages waiting for an idle moment">· {state.queued} queued</span>}
+        {state.relay && (
+          <span className={state.relayError ? "text-blocked" : "text-ink-faint"} title={state.relayError ?? "listening on the agent relay"}>
+            · relay{state.relayError ? " ✕" : ""}
+          </span>
+        )}
         {!connected && <span className="text-wait">· reconnecting…</span>}
       </span>
       <span className="ml-auto" />

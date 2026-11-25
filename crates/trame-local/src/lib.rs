@@ -335,6 +335,7 @@ pub async fn run(
         if n > 0 {
             eprintln!("agent view: restored {n} runs");
         }
+        tokio::spawn(agent::bridge());
     }
     let term_saver = (!config.demo).then(|| tokio::spawn(pty::keep_saved(native.root.clone())));
     let router = proxy::router(proxy::Proxy { port, native });
