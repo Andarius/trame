@@ -5,6 +5,7 @@
 #   Idempotent: re-running redeploys the files and restarts the stack; the
 #   existing .env and data volume are kept. schema.sql is re-applied (idempotently)
 #   on every deploy once the db is healthy — the hub's migration mechanism.
+#   Also installs this checkout's tramecli in ~/.local/bin (TRAME_SKIP_CLI=1 skips it).
 # USAGE: hub/deploy.sh [ssh-host]   (default: $TRACKER_HUB_HOST or 'hub')
 # EXAMPLES:
 #   just db-deploy
@@ -25,6 +26,14 @@ scp -q "$HERE/api/"*.ts "$HERE/api/package.json" "$HERE/api/bun.lock" "$HOST:$DI
 scp -q "$HERE/../protocol/"*.ts "$HOST:$DIR/protocol/"
 scp -q "$HERE/../core/"*.ts "$HOST:$DIR/core/"
 ssh "$HOST" "chmod +x ~/$DIR/gen-certs.sh"
+
+# tramecli from this same checkout, so its protocol matches the hub (`due --send` runs there)
+if [ "${TRAME_SKIP_CLI:-}" != 1 ]; then
+  (cd "$HERE/.." && cargo build --release --locked -p trame-cli)
+  ssh "$HOST" "mkdir -p ~/.local/bin"
+  scp -q "$HERE/../target/release/tramecli" "$HOST:.local/bin/tramecli.new"
+  ssh "$HOST" "mv ~/.local/bin/tramecli.new ~/.local/bin/tramecli && ~/.local/bin/tramecli --version"
+fi
 
 ssh "$HOST" bash -s "$DIR" <<'REMOTE'
 set -euo pipefail

@@ -1,6 +1,6 @@
 use crate::{
-    board, claude_hook, comment, db, due, help, mcp, open, page, plugin_cmd, plugins, presence,
-    setup,
+    board, claude_hook, comment, connectors, db, digest, due, help, mcp, open, page, plugin_cmd,
+    plugins, presence, setup,
     target::{self, resolve_target},
     track, watch,
 };
@@ -115,6 +115,7 @@ pub async fn run(args: &[String]) -> Result<i32> {
         "show" => Some("SHOW_HELP"),
         "list" => Some("LIST_HELP"),
         "due" => Some("DUE_HELP"),
+        "connector" => Some("CONNECTOR_HELP"),
         "stories" => Some("STORIES_HELP"),
         "convert" => Some("CONVERT_HELP"),
         "archive" => Some("ARCHIVE_HELP"),
@@ -158,6 +159,7 @@ pub async fn run(args: &[String]) -> Result<i32> {
             "show" => Some("SHOW_HELP"),
             "list" => Some("LIST_HELP"),
             "due" => Some("DUE_HELP"),
+            "connector" => Some("CONNECTOR_HELP"),
             "stories" => Some("STORIES_HELP"),
             "convert" => Some("CONVERT_HELP"),
             "archive" => Some("ARCHIVE_HELP"),
@@ -213,7 +215,11 @@ pub async fn run(args: &[String]) -> Result<i32> {
         "watch" => watch::watch_main(&rest).await?,
         "answer" => watch::answer_main(&rest).await?,
         "list" => board::list(&rest, json_out, &resolve_target().await?).await?,
-        "due" => due::main(&rest, json_out, &resolve_target().await?).await?,
+        "due" => match digest::dispatch(&rest).await {
+            Some(result) => result?,
+            None => due::main(&rest, json_out, &resolve_target().await?).await?,
+        },
+        "connector" => connectors::main(&rest).await?,
         "stories" => board::stories(&rest, json_out, &resolve_target().await?).await?,
         "convert" => board::convert(&rest, json_out, &resolve_target().await?).await?,
         "archive" => board::archive(&rest, json_out, &resolve_target().await?).await?,
