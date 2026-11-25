@@ -201,10 +201,28 @@ fn restored_agent_resumes_only_once_its_shell_is_shown() {
         "6f0a2c1e-0000-4000-8000-0000000000aa",
     );
     let dir = std::env::temp_dir();
+    // a stand-in `claude` that prints what it was resumed with; HOME there too, so no ~/.profile puts the real one first
+    let bin = dir.join(format!(
+        "trame-fake-agent-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(bin.join("claude"), "#!/bin/sh\necho \"resumed:$1:$2\"\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(bin.join("claude"), std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+    }
+    let path = format!("{}:/usr/bin:/bin", bin.display());
     let saved = json!([{"id":term,"title":"api","cwd":dir,"card":null,"project":null,
         "agent":{"kind":"claude","session":session,"name":"billing-docs","named":true}}]);
     let t = TestDb::with_files(
-        &[("SHELL", "/bin/sh")],
+        &[
+            ("SHELL", "/bin/sh"),
+            ("PATH", &path),
+            ("HOME", bin.to_str().unwrap()),
+        ],
         &[("terms.json", saved.to_string().as_bytes())],
     );
     let base = t.base_url();
@@ -240,8 +258,9 @@ fn restored_agent_resumes_only_once_its_shell_is_shown() {
         assert_eq!(before[0]["asleep"], true);
 
         let mut ws = attach(&base, term, &token, None).await;
-        let frames = read_until(&mut ws, |f| has(f, &format!("claude --resume {session}"))).await;
-        assert!(has(&frames, session));
+        let resumed = format!("resumed:--resume:{session}");
+        read_until(&mut ws, |f| has(f, &resumed)).await;
         assert_eq!(sessions().await, json!([]));
     });
+    let _ = std::fs::remove_dir_all(&bin);
 }
