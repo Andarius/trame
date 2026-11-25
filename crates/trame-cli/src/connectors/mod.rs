@@ -22,11 +22,15 @@ pub struct Message {
     pub title: String,
     pub body: Option<String>,
     pub groups: Vec<Group>,
+    /// a banner image (PNG) shown above the title, where the connector can
+    pub image: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Group {
     pub heading: String,
+    /// shown expanded where the connector folds groups
+    pub open: bool,
     pub entries: Vec<Entry>,
 }
 
@@ -173,6 +177,7 @@ pub fn test_message() -> Message {
         title: "Trame test".into(),
         body: Some("This connector works.".into()),
         groups: Vec::new(),
+        image: None,
     }
 }
 

@@ -7,7 +7,7 @@ use anyhow::{Context, Result, bail};
 use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, Weekday};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{env, fs, path::PathBuf, process::Command};
+use std::{collections::BTreeMap, env, fmt::Write as _, fs, path::PathBuf, process::Command};
 
 const DAYS: [&str; 7] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
@@ -28,7 +28,7 @@ pub struct Schedule {
     /// connector names; empty = every set-up connector
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub to: Vec<String>,
-    /// most cards listed; the rest are counted
+    /// most active cards listed per project; the rest are counted
     #[serde(default = "default_max")]
     pub max: usize,
 }
@@ -289,10 +289,50 @@ fn counts(late: usize, today: usize, ahead: usize) -> String {
         .join(", ")
 }
 
-/// Due rows (from `due::rows`) as alert-style blocks, one per card, worst card first:
-/// emoji and title, "project · counts", then its first todos. At most `max` cards.
-pub fn digest(rows: &[Value], max: usize) -> Message {
-    const PREVIEW: usize = 2;
+fn late_label(days: i64) -> String {
+    match days {
+        d if d < 0 => format!("{}d late", -d),
+        0 => "today".into(),
+        d => format!("in {d}d"),
+    }
+}
+
+/// Markdown links become their label, so a cut never lands inside a URL.
+fn unlink(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(open) = rest.find('[') {
+        let tail = &rest[open + 1..];
+        let parsed = tail.find("](").and_then(|mid| {
+            let after = &tail[mid + 2..];
+            after
+                .find(')')
+                .map(|close| (&tail[..mid], &after[close + 1..]))
+        });
+        match parsed {
+            Some((label, next)) if !label.contains('[') => {
+                out.push_str(&rest[..open]);
+                out.push_str(label);
+                rest = next;
+            }
+            _ => {
+                out.push_str(&rest[..=open]);
+                rest = tail;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// A project's cards (card or page id, its todos), worst first.
+type Cards<'a> = Vec<(String, Vec<&'a Value>)>;
+
+/// Due rows (from `due::rows`) as one message per project, worst project first:
+/// a banner from the project icon, counts, one section per active card (the worst
+/// open, at most `max`), paused/blocked/done cards folded into one last section.
+pub fn digests(rows: &[Value], max: usize, icons: &BTreeMap<String, String>) -> Vec<Message> {
+    const PARKED: [&str; 3] = ["paused", "blocked", "done"];
     let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
     let days = |r: &Value| r["days"].as_i64().unwrap_or(0);
     let tally = |todos: &[&Value]| {
@@ -302,62 +342,100 @@ pub fn digest(rows: &[Value], max: usize) -> Message {
     };
     let mut sorted: Vec<&Value> = rows.iter().collect();
     sorted.sort_by_key(|r| days(r));
-    let mut cards: Vec<(String, Vec<&Value>)> = Vec::new();
-    for r in &sorted {
-        let key = r["card_id"]
+    let mut projects: Vec<(String, Cards)> = Vec::new();
+    for r in sorted {
+        let project = r["project"].as_str().unwrap_or("No project").to_owned();
+        let card = r["card_id"]
             .as_str()
             .map_or_else(|| s(&r["page_id"]), str::to_owned);
-        match cards.iter_mut().find(|(k, _)| *k == key) {
+        if !projects.iter().any(|(p, _)| *p == project) {
+            projects.push((project.clone(), Vec::new()));
+        }
+        let cards = &mut projects
+            .iter_mut()
+            .find(|(p, _)| *p == project)
+            .expect("pushed above")
+            .1;
+        match cards.iter_mut().find(|(k, _)| *k == card) {
             Some((_, todos)) => todos.push(r),
-            None => cards.push((key, vec![r])),
+            None => cards.push((card, vec![r])),
         }
     }
-    let more = cards.len().saturating_sub(max);
-    let groups = cards
-        .iter()
-        .take(max)
-        .map(|(_, todos)| {
-            let first = todos[0];
-            let title = match first["card_title"].as_str() {
-                Some(t) => match first["status"].as_str() {
-                    Some(st @ ("paused" | "blocked" | "done")) => format!("{t} · {st}"),
-                    _ => t.to_owned(),
-                },
-                None => s(&first["page_title"]),
+    projects
+        .into_iter()
+        .map(|(project, cards)| {
+            let title_of = |r: &Value| {
+                r["card_title"]
+                    .as_str()
+                    .map_or_else(|| s(&r["page_title"]), str::to_owned)
             };
-            let worst = days(first);
-            let worst_note = if worst < 0 {
-                format!(", worst {}d", -worst)
-            } else {
-                String::new()
-            };
-            let mut lines: Vec<String> = todos
+            let parked = |r: &Value| r["status"].as_str().is_some_and(|st| PARKED.contains(&st));
+            let all: Vec<&Value> = cards.iter().flat_map(|(_, t)| t.iter().copied()).collect();
+            let (active, folded): (Vec<_>, Vec<_>) = cards.iter().partition(|(_, t)| !parked(t[0]));
+            let mut groups: Vec<Group> = active
                 .iter()
-                .take(PREVIEW)
-                .map(|r| format!("→ {}", short(&s(&r["text"]), 60)))
-                .collect();
-            if todos.len() > PREVIEW {
-                lines.push(format!("+{} more", todos.len() - PREVIEW));
-            }
-            Group {
-                heading: format!("{} {title}", emoji(worst)),
-                entries: vec![Entry {
-                    label: format!(
-                        "{} · {}{worst_note}",
-                        first["project"].as_str().unwrap_or("No project"),
+                .take(max)
+                .enumerate()
+                .map(|(i, (_, todos))| Group {
+                    heading: format!(
+                        "{} {} · {}",
+                        emoji(days(todos[0])),
+                        title_of(todos[0]),
                         tally(todos)
                     ),
-                    link: None,
-                    lines,
-                }],
+                    open: i == 0,
+                    entries: todos
+                        .iter()
+                        .map(|r| Entry {
+                            label: format!(
+                                "{} · {}",
+                                late_label(days(r)),
+                                short(&unlink(&s(&r["text"])), 100)
+                            ),
+                            link: None,
+                            lines: Vec::new(),
+                        })
+                        .collect(),
+                })
+                .collect();
+            if !folded.is_empty() {
+                groups.push(Group {
+                    heading: format!("⏸ Paused or done · {} cards", folded.len()),
+                    open: false,
+                    entries: folded
+                        .iter()
+                        .map(|(_, todos)| Entry {
+                            label: format!(
+                                "{} {} ({}) · {}",
+                                emoji(days(todos[0])),
+                                title_of(todos[0]),
+                                s(&todos[0]["status"]),
+                                tally(todos)
+                            ),
+                            link: None,
+                            lines: todos
+                                .iter()
+                                .map(|r| short(&unlink(&s(&r["text"])), 80))
+                                .collect(),
+                        })
+                        .collect(),
+                });
+            }
+            let hidden = active.len().saturating_sub(max);
+            let mut body = format!("{} {}", emoji(days(all[0])), tally(&all));
+            if hidden > 0 {
+                let _ = write!(body, "\n+{hidden} more cards in Trame");
+            }
+            Message {
+                image: icons
+                    .get(&project)
+                    .and_then(|icon| crate::banner::from_icon(icon)),
+                title: project,
+                body: Some(body),
+                groups,
             }
         })
-        .collect();
-    Message {
-        title: format!("⏰ Trame · {}", tally(&sorted)),
-        body: (more > 0).then(|| format!("{more} more cards in the DUE view.")),
-        groups,
-    }
+        .collect()
 }
 
 fn failure(reason: &str) -> Message {
@@ -367,20 +445,46 @@ fn failure(reason: &str) -> Message {
             "{reason}\nIt retries every 5 minutes until the schedule closes."
         )),
         groups: Vec::new(),
+        image: None,
     }
 }
 
 fn plain(message: &Message) -> String {
     let mut out = vec![message.title.clone()];
     out.extend(message.body.clone());
+    if message.image.is_some() {
+        out.push("[banner]".into());
+    }
     for g in &message.groups {
-        out.push(format!("\n{}", g.heading));
+        out.push(format!(
+            "\n{} {}",
+            if g.open { "▾" } else { "▸" },
+            g.heading
+        ));
         for e in &g.entries {
-            out.push(e.label.clone());
-            out.extend(e.lines.iter().cloned());
+            out.push(format!("  {}", e.label));
+            out.extend(e.lines.iter().map(|l| format!("    {l}")));
         }
     }
     out.join("\n")
+}
+
+/// Project name → icon data URL, from the board; empty when unreadable.
+async fn project_icons(target: &crate::target::Target) -> BTreeMap<String, String> {
+    let Ok(board) = target.get("/api/board").await else {
+        return BTreeMap::new();
+    };
+    board["projects"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|p| {
+            Some((
+                p["name"].as_str()?.to_owned(),
+                p["icon"].as_str()?.to_owned(),
+            ))
+        })
+        .collect()
 }
 
 // Commands
@@ -456,11 +560,12 @@ async fn send(args: &[String]) -> Result<()> {
             window: schedule.window()?,
             query: None,
         };
-        let rows = match resolve_target().await {
-            Ok(target) => due::load(&options, &target).await,
-            Err(e) => Err(e),
+        let target = resolve_target().await;
+        let rows = match &target {
+            Ok(target) => due::load(&options, target).await,
+            Err(e) => Err(anyhow::anyhow!("{e:#}")),
         };
-        let message = match rows {
+        let messages = match rows {
             Ok(rows) if rows.is_empty() => {
                 if dry {
                     println!("  nothing due: no message");
@@ -471,7 +576,13 @@ async fn send(args: &[String]) -> Result<()> {
                 }
                 continue;
             }
-            Ok(rows) => digest(&rows, schedule.max),
+            Ok(rows) => {
+                let icons = match &target {
+                    Ok(target) => project_icons(target).await,
+                    Err(_) => BTreeMap::new(),
+                };
+                digests(&rows, schedule.max, &icons)
+            }
             Err(e) => {
                 let message = failure(&format!("{e:#}"));
                 if dry {
@@ -491,11 +602,20 @@ async fn send(args: &[String]) -> Result<()> {
             }
         };
         if dry {
-            println!("{}\n", plain(&message));
+            for message in &messages {
+                println!("{}\n", plain(message));
+            }
             continue;
         }
         for c in &pending {
-            match c.send(&client, &message).await {
+            let mut sent = Ok(());
+            for message in &messages {
+                sent = c.send(&client, message).await;
+                if sent.is_err() {
+                    break;
+                }
+            }
+            match sent {
                 Ok(()) => {
                     stamp(&schedule.name, c.name(), false, today)?;
                     println!("{}: sent to {}", schedule.name, c.name());
@@ -751,7 +871,7 @@ mod tests {
     }
 
     #[test]
-    fn digest_is_one_block_per_card_worst_first() {
+    fn digests_one_message_per_project_with_parked_cards_folded() {
         let row = |days: i64, text: &str, project: Option<&str>, card: Option<(&str, &str)>| {
             json!({"days": days, "text": text, "project": project, "card_id": card.map(|c| c.0),
                    "card_title": card.map(|c| c.0), "status": card.map(|c| c.1), "page_id": "pg", "page_title": "Notes"})
@@ -759,25 +879,33 @@ mod tests {
         let rows = vec![
             row(
                 0,
-                "renew the certificate before the old one expires and tell the team",
+                "see [the CI run](https://ci.example/1) then `just deploy` and tell the team about it",
                 Some("Soren"),
                 Some(("Rotate keys", "active")),
             ),
             row(-2, "rotate", Some("Soren"), Some(("Rotate keys", "active"))),
             row(-5, "restart", Some("Soren"), Some(("Alerts", "paused"))),
             row(0, "post", None, None),
-            row(-1, "third", Some("Soren"), Some(("Rotate keys", "active"))),
+            row(-1, "draft", Some("Soren"), Some(("Copy", "todo"))),
         ];
-        let m = digest(&rows, 3);
-        assert_eq!(m.body, None);
+        let icons = BTreeMap::from([(
+            "Soren".to_owned(),
+            "data:image/svg+xml;base64,PHN2Zy8+".to_owned(),
+        )]);
+        let messages = digests(&rows, 1, &icons);
         assert_eq!(
-            plain(&m),
-            "⏰ Trame · 3 late, 2 due today\n\n🔴 Alerts · paused\nSoren · 1 late, worst 5d\n→ restart\n\n🟠 Rotate keys\nSoren · 2 late, 1 due today, worst 2d\n→ rotate\n→ third\n+1 more\n\n🟡 Notes\nNo project · 1 due today\n→ post"
+            messages
+                .iter()
+                .map(|m| m.title.as_str())
+                .collect::<Vec<_>>(),
+            ["Soren", "No project"]
         );
         assert_eq!(
-            digest(&rows, 1).body.as_deref(),
-            Some("2 more cards in the DUE view.")
+            plain(&messages[0]),
+            "Soren\n🔴 3 late, 1 due today\n+1 more cards in Trame\n\n▾ 🟠 Rotate keys · 1 late, 1 due today\n  2d late · rotate\n  today · see the CI run then `just deploy` and tell the team about it\n\n▸ ⏸ Paused or done · 1 cards\n  🔴 Alerts (paused) · 1 late\n    restart"
         );
+        assert_eq!(messages[0].image, None, "an SVG icon has no banner");
+        assert_eq!(unlink("a [b](http://x) c [d e"), "a b c [d e");
         assert_eq!(
             short("renew the certificate before the old one expires", 20),
             "renew the…"

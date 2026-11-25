@@ -37,7 +37,8 @@ retries. --now forces one
 schedule now; --dry-run prints what would go where and the next run, sending
 nothing. Schedules live in settings.json under due.schedules; with none, one
 "morning" schedule runs 08:30–12:00 every day, window today (late or due today).
-A message has one block per card, worst first: status emoji and title, project and
-counts, then its first two todos. It lists --max cards (default 10) and counts the rest.
+One message per project, worst first: a banner from the project's PNG icon, counts,
+one collapsible section per active card (the worst open, --max per project, default
+10) and one section for paused, blocked or done cards. Telegram gets it as a rich message.
 `install` writes and enables the trame-due.timer systemd user timer, which runs
 `due --send` every 5 minutes; editing a schedule needs no reinstall.

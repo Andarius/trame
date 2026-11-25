@@ -30,6 +30,7 @@ struct Hit {
     query: String,
     headers: HeaderMap,
     body: Value,
+    raw: String,
 }
 #[derive(Default)]
 struct State {
@@ -70,6 +71,7 @@ async fn fixture(
         query: query.clone(),
         headers: request_headers,
         body: body.clone(),
+        raw: String::from_utf8_lossy(&bytes).into_owned(),
     });
     let value = match (method.as_str(), path.as_str()) {
         ("GET", "/api/status") => json!({"version":env!("CARGO_PKG_VERSION"),"ok":true}),
@@ -125,7 +127,9 @@ async fn fixture(
         ("POST", p) if p.ends_with("/getUpdates") => {
             json!({"ok":true,"result":state.telegram_updates.clone()})
         }
-        ("POST", p) if p.ends_with("/sendMessage") => json!({"ok":true,"result":{}}),
+        ("POST", p) if p.ends_with("/sendMessage") || p.ends_with("/sendRichMessage") => {
+            json!({"ok":true,"result":{}})
+        }
         ("POST", "/api/presence") => json!({"ok":true}),
         ("GET", "/api/comments/inbox") => {
             state.inbox_polls += 1;
@@ -1829,8 +1833,8 @@ async fn connector_setup_and_scheduled_due_digest_send_once() {
             .unwrap()
             .hits
             .iter()
-            .filter(|h| h.path.ends_with("/sendMessage"))
-            .map(|h| h.body.clone())
+            .filter(|h| h.path.ends_with("/sendRichMessage"))
+            .map(|h| h.raw.clone())
             .collect::<Vec<_>>()
     };
     let run = |args: &[&str], stdin: Option<&str>| {
@@ -1894,7 +1898,7 @@ async fn connector_setup_and_scheduled_due_digest_send_once() {
         0o600
     );
     assert_eq!(sends(&state).len(), 1);
-    assert_eq!(sends(&state)[0]["chat_id"], "90");
+    assert!(sends(&state)[0].contains("name=\"chat_id\"\r\n\r\n90\r\n"));
     let listed = run(&["connector", "list"], None).await;
     assert!(!String::from_utf8_lossy(&listed.stdout).contains("SECRETTOKEN"));
 
@@ -1925,16 +1929,13 @@ async fn connector_setup_and_scheduled_due_digest_send_once() {
         );
     }
     let sent = sends(&state);
-    let digests: Vec<_> = sent
-        .iter()
-        .filter(|b| b["text"].as_str().unwrap().contains("renew cert"))
-        .collect();
+    let digests: Vec<_> = sent.iter().filter(|b| b.contains("renew cert")).collect();
     assert_eq!(digests.len(), 1, "{sent:?}");
+    assert!(digests[0].contains("<h3>No project</h3>"), "{}", digests[0]);
     assert!(
-        digests[0]["text"]
-            .as_str()
-            .unwrap()
-            .contains("<b>🟠 Acme notes</b>\nNo project · 1 late, worst 2d\n→ renew cert")
+        digests[0].contains("<input type=\\\"checkbox\\\">2d late · renew cert"),
+        "{}",
+        digests[0]
     );
     assert!(scratch.0.join("state/trame/due-allday-telegram").exists());
 
@@ -1960,7 +1961,7 @@ async fn connector_setup_and_scheduled_due_digest_send_once() {
     }
     let failures = sends(&state)
         .iter()
-        .filter(|b| b["text"].as_str().unwrap().contains("failed"))
+        .filter(|b| b.contains("Trame due digest failed"))
         .count();
     // allday already went out today, so only the new schedule reports, once
     assert_eq!(failures, 1);
