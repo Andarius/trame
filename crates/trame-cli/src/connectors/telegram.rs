@@ -131,8 +131,8 @@ pub fn render(message: &Message) -> Vec<String> {
                 Some(l) => format!(" <code>{}</code>", esc(l)),
                 None => String::new(),
             };
-            lines.push(format!("▸ {}{link}", esc(&entry.label)));
-            lines.extend(entry.lines.iter().map(|l| format!("    {}", esc(l))));
+            lines.push(format!("{}{link}", esc(&entry.label)));
+            lines.extend(entry.lines.iter().map(|l| esc(l)));
         }
     }
     let mut chunks = vec![String::new()];
@@ -195,7 +195,7 @@ mod tests {
         assert_eq!(
             render(&message),
             vec![
-                "<b>Due &lt;today&gt;</b>\n\n<b>Soren</b>\n▸ [active] Rotate &amp; renew <code>trame://card/c-1</code>\n    ⚑ rotate (2 days late)"
+                "<b>Due &lt;today&gt;</b>\n\n<b>Soren</b>\n[active] Rotate &amp; renew <code>trame://card/c-1</code>\n⚑ rotate (2 days late)"
             ]
         );
         let long = Message {

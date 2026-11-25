@@ -28,7 +28,7 @@ pub struct Schedule {
     /// connector names; empty = every set-up connector
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub to: Vec<String>,
-    /// most todos listed; the rest are counted
+    /// most cards listed; the rest are counted
     #[serde(default = "default_max")]
     pub max: usize,
 }
@@ -43,7 +43,7 @@ fn all_days() -> Vec<String> {
     DAYS.map(String::from).to_vec()
 }
 fn default_max() -> usize {
-    20
+    10
 }
 fn default_window() -> Value {
     json!("today")
@@ -271,71 +271,91 @@ fn short(text: &str, max: usize) -> String {
     format!("{}…", cut.trim_end_matches([',', ';', ':', '(']))
 }
 
-fn when_short(days: i64) -> String {
-    match days {
-        d if d < 0 => format!("{}d late", -d),
-        0 => "today".into(),
-        d => format!("in {d}d"),
+fn emoji(worst: i64) -> &'static str {
+    match worst {
+        d if d <= -3 => "🔴",
+        d if d < 0 => "🟠",
+        0 => "🟡",
+        _ => "🔵",
     }
 }
 
-/// Due rows (from `due::rows`) as a message: worst first, grouped by project then card,
-/// at most `max` todos (the rest counted), each todo cut to one line.
-pub fn digest(rows: &[Value], max: usize) -> Message {
-    let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
-    let days = |r: &Value| r["days"].as_i64().unwrap_or(0);
-    let late = rows.iter().filter(|r| days(r) < 0).count();
-    let today = rows.iter().filter(|r| days(r) == 0).count();
-    let ahead = rows.len() - late - today;
-    let counts: Vec<String> = [(late, "late"), (today, "due today"), (ahead, "coming up")]
+fn counts(late: usize, today: usize, ahead: usize) -> String {
+    [(late, "late"), (today, "due today"), (ahead, "coming up")]
         .into_iter()
         .filter(|(n, _)| *n > 0)
         .map(|(n, what)| format!("{n} {what}"))
-        .collect();
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Due rows (from `due::rows`) as alert-style blocks, one per card, worst card first:
+/// emoji and title, "project · counts", then its first todos. At most `max` cards.
+pub fn digest(rows: &[Value], max: usize) -> Message {
+    const PREVIEW: usize = 2;
+    let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
+    let days = |r: &Value| r["days"].as_i64().unwrap_or(0);
+    let tally = |todos: &[&Value]| {
+        let late = todos.iter().filter(|r| days(r) < 0).count();
+        let today = todos.iter().filter(|r| days(r) == 0).count();
+        counts(late, today, todos.len() - late - today)
+    };
     let mut sorted: Vec<&Value> = rows.iter().collect();
     sorted.sort_by_key(|r| days(r));
-    let mut groups: Vec<Group> = Vec::new();
-    for r in sorted.iter().take(max) {
-        let project = r["project"].as_str().unwrap_or("No project").to_owned();
-        let label = match r["card_title"].as_str() {
-            Some(title) => match r["status"].as_str() {
-                Some(st @ ("paused" | "blocked" | "done")) => format!("{title} · {st}"),
-                _ => title.to_owned(),
-            },
-            None => s(&r["page_title"]),
-        };
-        if !groups.iter().any(|g| g.heading == project) {
-            groups.push(Group {
-                heading: project.clone(),
-                entries: Vec::new(),
-            });
+    let mut cards: Vec<(String, Vec<&Value>)> = Vec::new();
+    for r in &sorted {
+        let key = r["card_id"]
+            .as_str()
+            .map_or_else(|| s(&r["page_id"]), str::to_owned);
+        match cards.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, todos)) => todos.push(r),
+            None => cards.push((key, vec![r])),
         }
-        let group = groups
-            .iter_mut()
-            .find(|g| g.heading == project)
-            .expect("pushed above");
-        if !group.entries.iter().any(|e| e.label == label) {
-            group.entries.push(Entry {
-                label: label.clone(),
-                link: None,
-                lines: Vec::new(),
-            });
-        }
-        let entry = group
-            .entries
-            .iter_mut()
-            .find(|e| e.label == label)
-            .expect("pushed above");
-        entry.lines.push(format!(
-            "{} · {}",
-            when_short(days(r)),
-            short(&s(&r["text"]), 70)
-        ));
     }
-    let more = rows.len().saturating_sub(max);
+    let more = cards.len().saturating_sub(max);
+    let groups = cards
+        .iter()
+        .take(max)
+        .map(|(_, todos)| {
+            let first = todos[0];
+            let title = match first["card_title"].as_str() {
+                Some(t) => match first["status"].as_str() {
+                    Some(st @ ("paused" | "blocked" | "done")) => format!("{t} · {st}"),
+                    _ => t.to_owned(),
+                },
+                None => s(&first["page_title"]),
+            };
+            let worst = days(first);
+            let worst_note = if worst < 0 {
+                format!(", worst {}d", -worst)
+            } else {
+                String::new()
+            };
+            let mut lines: Vec<String> = todos
+                .iter()
+                .take(PREVIEW)
+                .map(|r| format!("→ {}", short(&s(&r["text"]), 60)))
+                .collect();
+            if todos.len() > PREVIEW {
+                lines.push(format!("+{} more", todos.len() - PREVIEW));
+            }
+            Group {
+                heading: format!("{} {title}", emoji(worst)),
+                entries: vec![Entry {
+                    label: format!(
+                        "{} · {}{worst_note}",
+                        first["project"].as_str().unwrap_or("No project"),
+                        tally(todos)
+                    ),
+                    link: None,
+                    lines,
+                }],
+            }
+        })
+        .collect();
     Message {
-        title: format!("Trame · {}", counts.join(", ")),
-        body: (more > 0).then(|| format!("Worst {max} below; {more} more in the DUE view.")),
+        title: format!("⏰ Trame · {}", tally(&sorted)),
+        body: (more > 0).then(|| format!("{more} more cards in the DUE view.")),
         groups,
     }
 }
@@ -356,15 +376,8 @@ fn plain(message: &Message) -> String {
     for g in &message.groups {
         out.push(format!("\n{}", g.heading));
         for e in &g.entries {
-            out.push(format!(
-                "  {}{}",
-                e.label,
-                e.link
-                    .as_ref()
-                    .map(|l| format!(" — {l}"))
-                    .unwrap_or_default()
-            ));
-            out.extend(e.lines.iter().map(|l| format!("    {l}")));
+            out.push(e.label.clone());
+            out.extend(e.lines.iter().cloned());
         }
     }
     out.join("\n")
@@ -678,7 +691,7 @@ mod tests {
 
     #[test]
     fn schedules_default_parse_and_reject() {
-        assert_eq!(Schedule::morning().max, 20);
+        assert_eq!(Schedule::morning().max, 10);
         assert_eq!(
             schedules_from(&json!({})).unwrap(),
             vec![Schedule::morning()]
@@ -738,31 +751,36 @@ mod tests {
     }
 
     #[test]
-    fn digest_is_worst_first_short_and_capped() {
+    fn digest_is_one_block_per_card_worst_first() {
         let row = |days: i64, text: &str, project: Option<&str>, card: Option<(&str, &str)>| {
-            json!({"days": days, "text": text, "project": project, "card_id": card.map(|_| "c"),
+            json!({"days": days, "text": text, "project": project, "card_id": card.map(|c| c.0),
                    "card_title": card.map(|c| c.0), "status": card.map(|c| c.1), "page_id": "pg", "page_title": "Notes"})
         };
         let rows = vec![
-            row(-2, "rotate", Some("Soren"), Some(("Rotate keys", "active"))),
             row(
                 0,
-                "renew the certificate before the old one expires and tell the team about the new fingerprint",
+                "renew the certificate before the old one expires and tell the team",
                 Some("Soren"),
                 Some(("Rotate keys", "active")),
             ),
+            row(-2, "rotate", Some("Soren"), Some(("Rotate keys", "active"))),
             row(-5, "restart", Some("Soren"), Some(("Alerts", "paused"))),
             row(0, "post", None, None),
+            row(-1, "third", Some("Soren"), Some(("Rotate keys", "active"))),
         ];
         let m = digest(&rows, 3);
-        assert_eq!(m.title, "Trame · 2 late, 2 due today");
-        assert_eq!(
-            m.body.as_deref(),
-            Some("Worst 3 below; 1 more in the DUE view.")
-        );
+        assert_eq!(m.body, None);
         assert_eq!(
             plain(&m),
-            "Trame · 2 late, 2 due today\nWorst 3 below; 1 more in the DUE view.\n\nSoren\n  Alerts · paused\n    5d late · restart\n  Rotate keys\n    2d late · rotate\n    today · renew the certificate before the old one expires and tell the team…"
+            "⏰ Trame · 3 late, 2 due today\n\n🔴 Alerts · paused\nSoren · 1 late, worst 5d\n→ restart\n\n🟠 Rotate keys\nSoren · 2 late, 1 due today, worst 2d\n→ rotate\n→ third\n+1 more\n\n🟡 Notes\nNo project · 1 due today\n→ post"
+        );
+        assert_eq!(
+            digest(&rows, 1).body.as_deref(),
+            Some("2 more cards in the DUE view.")
+        );
+        assert_eq!(
+            short("renew the certificate before the old one expires", 20),
+            "renew the…"
         );
     }
 }
