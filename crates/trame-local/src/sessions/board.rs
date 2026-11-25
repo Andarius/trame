@@ -5,25 +5,40 @@ use serde_json::{Value, json};
 
 pub(super) fn board(db: &mut Db, deleted: bool) -> Result<Value> {
     let mut projects = db.query("select id,title as name,color,icon from pages where kind='project' and not deleted order by title", &[])?;
-    let mut repos = crate::repos::by_project(db)?;
-    let any_repos = !repos.is_empty();
-    for p in &mut projects {
-        let id = p["id"].as_str().unwrap_or_default().to_owned();
-        p["repos"] = json!(repos.remove(&id).unwrap_or_default());
-    }
-    let stories = db.query("select *,null::text as mark_role from pages where kind='story' and not deleted order by title", &[])?;
+    let mark_role = mark_role_col(db);
+    let stories = db.query(
+        &format!(
+            "select *,{mark_role} from pages where kind='story' and not deleted order by title"
+        ),
+        &[],
+    )?;
     let mut sessions = db.query(
         "select * from sessions where deleted=$1 order by last_touched desc",
         &[json!(deleted)],
     )?;
-    if any_repos {
-        crate::repos::fill_cards(db, &mut sessions)?;
+    if !db.is_hub() {
+        let mut repos = crate::repos::by_project(db)?;
+        if !repos.is_empty() {
+            crate::repos::fill_cards(db, &mut sessions)?;
+        }
+        for p in &mut projects {
+            let id = p["id"].as_str().unwrap_or_default();
+            p["repos"] = json!(repos.remove(id).unwrap_or_default());
+        }
     }
-    let pages = db.query("select id,parent_id,kind,title,icon,client_id,color,tags,null::text as mark_role from pages where not deleted order by title", &[])?;
+    let pages = db.query(&format!("select id,parent_id,kind,title,icon,client_id,color,tags,{mark_role} from pages where not deleted order by title"), &[])?;
     let statuses = db.query("select id,key,label,color,terminal,sort_key from statuses where not deleted order by sort_key", &[])?;
     Ok(
         json!({"projects":projects,"stories":stories,"sessions":sessions,"pages":pages,"statuses":statuses}),
     )
+}
+
+fn mark_role_col(db: &Db) -> String {
+    if db.is_hub() {
+        crate::pages::mark_role_col()
+    } else {
+        "null::text as mark_role".into()
+    }
 }
 
 pub fn search(db: &mut Db, q: &str) -> Result<Value> {
@@ -39,19 +54,20 @@ pub fn search(db: &mut Db, q: &str) -> Result<Value> {
     let id = q.trim().to_ascii_lowercase();
     let id_pat = (id.len() >= 6 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-'))
         .then(|| format!("{id}%"));
-    Ok(json!(db.query("select * from (
+    let mark_role = mark_role_col(db);
+    Ok(json!(db.query(&format!("select * from (
        select 'session' as kind,id::text as id,title,coalesce(summary,'') as sub,
               '' as icon,status as meta,'' as color,last_touched as at,null::text as mark_role
          from sessions where not deleted and (title ilike $1 or summary ilike $1 or coalesce(next_step,'') ilike $1
            or id::text like $2 or claude_id::text like $2)
        union all
        select case when kind='project' then 'client' else 'page' end,id::text,title,
-              coalesce(brief,''),coalesce(icon,''),kind,coalesce(color,''),updated_at,null::text
+              coalesce(brief,''),coalesce(icon,''),kind,coalesce(color,''),updated_at,{mark_role}
          from pages where not deleted and (title ilike $1 or brief ilike $1 or content::text ilike $1 or id::text like $2)
        union all
        select 'database',id::text,name,'',coalesce(icon,''),'database','',updated_at,null::text
          from udb_databases where not deleted and (name ilike $1 or id::text like $2)
-     ) hits order by at desc limit 20", &[json!(pat), json!(id_pat)])?))
+     ) hits order by at desc limit 20"), &[json!(pat), json!(id_pat)])?))
 }
 
 pub(super) fn list_events(db: &mut Db, id: &str, limit: Option<i64>) -> Result<Value> {

@@ -2,7 +2,7 @@ mod common;
 
 use common::TestDb;
 use serde_json::{Value, json};
-use trame_local::pages;
+use trame_local::{db::Db, pages, pg, routes::hub_handle, udb::formula::Executor};
 
 #[allow(
     clippy::needless_pass_by_value,
@@ -66,6 +66,53 @@ fn roles() {
             },
         ]);
     });
+}
+
+#[test]
+fn hub_lists_apply_the_page_mark_roles() {
+    roles();
+    let mut t = TestDb::new();
+    let marked: Vec<_> = [
+        ("{{trame:tracker_ref=GEN-1}}", json!("ticket")),
+        ("{{trame:tracker_us=US-1}}", json!("linked-story")),
+        (
+            "{{trame:tracker_us=US-2}} {{trame:tracker_ref=GEN-2}}",
+            json!("ticket"),
+        ),
+        ("unmarked", Value::Null),
+    ]
+    .into_iter()
+    .map(|(text, role)| {
+        let id = create(
+            &mut t,
+            json!({
+                "title":"Mark role sample",
+                "kind":"story",
+                "content":[{"type":"text","id":"sample","text":text}],
+            }),
+        );
+        (id, role)
+    })
+    .collect();
+
+    let mut client = pg::connect(&t.root).unwrap();
+    let formula = Executor::for_hub(&mut client, &postgres::Config::new(), None).unwrap();
+    let mut hub = Db::for_hub(client, "hub-test".into(), formula);
+    let mut get = |path, query| {
+        let (status, result) = hub_handle(&mut hub, "GET", path, query, &Value::Null).unwrap();
+        assert_eq!(status, 200, "{path}");
+        result
+    };
+    let pages = get("/api/pages", "");
+    let board = get("/api/board", "");
+    let hits = get("/api/search", "q=Mark+role+sample");
+    for list in [&pages, &board["pages"], &board["stories"], &hits] {
+        let rows = list.as_array().unwrap();
+        for (id, expected) in &marked {
+            let row = rows.iter().find(|row| row["id"] == *id).unwrap();
+            assert_eq!(row.get("mark_role"), Some(expected));
+        }
+    }
 }
 
 #[test]

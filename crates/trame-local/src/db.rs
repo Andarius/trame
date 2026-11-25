@@ -130,6 +130,10 @@ impl Db {
         }
     }
 
+    pub(crate) fn is_hub(&self) -> bool {
+        self.gate.is_none()
+    }
+
     /// Keep multi-query local operations and sync scans from interleaving.
     pub fn exclusive<T>(&mut self, work: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
         if self.in_operation {
