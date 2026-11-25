@@ -1,7 +1,15 @@
 use serde_json::{Value, json};
 
+/// How a run starts: each `None` leaves the user's own Claude Code default.
+#[derive(Clone, Debug, Default)]
+pub struct Launch {
+    pub mode: Option<String>,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+}
+
 /// Arguments for a Claude Code child speaking NDJSON on stdio, resuming `resume` or starting `session`.
-pub(crate) fn args(resume: Option<&str>, session: &str, mode: Option<&str>) -> Vec<String> {
+pub(crate) fn args(resume: Option<&str>, session: &str, launch: &Launch) -> Vec<String> {
     let mut out: Vec<String> = [
         "-p",
         "--verbose",
@@ -16,7 +24,15 @@ pub(crate) fn args(resume: Option<&str>, session: &str, mode: Option<&str>) -> V
     .map(str::to_owned)
     .to_vec();
     // a resumed run states its mode: the CLI does not restore plan mode by itself
-    out.extend(["--permission-mode".into(), mode.unwrap_or("default").into()]);
+    for (flag, value) in [
+        ("--permission-mode", &launch.mode),
+        ("--model", &launch.model),
+        ("--effort", &launch.effort),
+    ] {
+        if let Some(value) = value {
+            out.extend([flag.into(), value.clone()]);
+        }
+    }
     match resume {
         Some(id) => out.extend(["--resume".into(), id.into()]),
         None => out.extend(["--session-id".into(), session.into()]),
@@ -34,6 +50,10 @@ pub(crate) fn interrupt(request_id: &str) -> Value {
 
 pub(crate) fn set_mode(request_id: &str, mode: &str) -> Value {
     json!({"type":"control_request","request_id":request_id,"request":{"subtype":"set_permission_mode","mode":mode}})
+}
+
+pub(crate) fn set_model(request_id: &str, model: &str) -> Value {
+    json!({"type":"control_request","request_id":request_id,"request":{"subtype":"set_model","model":model}})
 }
 
 pub(crate) fn user_message(text: &str) -> Value {
@@ -81,6 +101,7 @@ pub(crate) enum Frame {
     Response {
         id: String,
         error: Option<String>,
+        body: Value,
     },
     Cancel(String),
     /// valid JSON this adapter does not model
@@ -126,6 +147,7 @@ pub(crate) fn decode(line: &str) -> Option<Frame> {
             Frame::Response {
                 id: s(&r["request_id"]).unwrap_or_default(),
                 error: (r["subtype"] == "error").then(|| s(&r["error"]).unwrap_or_default()),
+                body: r["response"].clone(),
             }
         }
         "control_cancel_request" => Frame::Cancel(s(&v["request_id"]).unwrap_or_default()),
@@ -165,6 +187,7 @@ mod tests {
                 Some(Frame::Response {
                     id: "r1".into(),
                     error: Some("no".into()),
+                    body: Value::Null,
                 }),
             ),
             (

@@ -323,6 +323,32 @@ fn decisions_reach_the_cli_once_and_expire_with_it() {
         until(&mut w, |v| v["kind"] == "run.info" && v["payload"]["mode"] == "acceptEdits").await;
         assert_eq!(send(&mut w, "m2", &epoch, "setMode", json!({"mode":"bypassPermissions"})).await["reason"], "unknown mode");
 
+        // the CLI's models arrive with initialize; a switch waits for its answer
+        let snap: Value = reqwest::Client::new()
+            .get(format!("{base}/api/agent/runs/{run}"))
+            .header(TOKEN_HEADER, &token)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(snap["state"]["models"][1]["value"], "sonnet");
+        assert_eq!(snap["state"]["models"][0]["efforts"], json!(["low", "high", "max"]));
+        send(&mut w, "md1", &epoch, "setModel", json!({"model":"sonnet"})).await;
+        until(&mut w, |v| v["kind"] == "run.info" && v["payload"]["model"] == "claude-sonnet").await;
+        assert_eq!(send(&mut w, "md2", &epoch, "setModel", json!({"model":"a b"})).await["reason"], "unknown model");
+
+        // effort is a launch flag: setting it resumes the same conversation with it
+        assert_eq!(send(&mut w, "e1", &epoch, "setEffort", json!({"effort":"high"})).await["accepted"], true);
+        let restarted = until(&mut w, |v| v["type"] == "snapshot").await;
+        let epoch = restarted.last().unwrap()["epoch"].as_str().unwrap().to_owned();
+        until(&mut w, status("ready")).await;
+        let last = std::fs::read_to_string(&log).unwrap().lines().last().unwrap().to_owned();
+        for flag in [r#""--effort", "high""#, r#""--model", "claude-sonnet""#, r#""--resume""#] {
+            assert!(last.contains(flag), "{flag} in {last}");
+        }
+
         // a withdrawn request can't be answered late
         command(&mut w, "p5", &epoch, "prompt", "cancelme").await;
         let turn = until(&mut w, kind("turn.finished")).await;
@@ -647,6 +673,41 @@ fn codex_runs_turns_approvals_questions_and_resumes_its_thread() {
         let r = send(&mut w, "m1", &epoch, "setMode", json!({"mode":"plan"})).await;
         assert_eq!(r["reason"], "Codex has no permission modes to switch");
 
+        // models come from model/list (hidden ones left out); a pick applies from the next turn
+        let snap: Value = reqwest::Client::new()
+            .get(format!("{base}/api/agent/runs/{run}"))
+            .header(TOKEN_HEADER, &token)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(
+            (
+                snap["state"]["models"].as_array().unwrap().len(),
+                snap["state"]["effort"].clone()
+            ),
+            (1, json!("low"))
+        );
+        assert_eq!(
+            send(
+                &mut w,
+                "md1",
+                &epoch,
+                "setModel",
+                json!({"model":"gpt-other"})
+            )
+            .await["accepted"],
+            true
+        );
+        assert_eq!(
+            send(&mut w, "e1", &epoch, "setEffort", json!({"effort":"high"})).await["accepted"],
+            true
+        );
+        command(&mut w, "c6", &epoch, "prompt", "again").await;
+        until(&mut w, kind("turn.finished")).await;
+
         // stopped and resumed: the same thread, through thread/resume
         send(&mut w, "s1", &epoch, "stop", json!({})).await;
         until(&mut w, status("stopped")).await;
@@ -668,6 +729,18 @@ fn codex_runs_turns_approvals_questions_and_resumes_its_thread() {
             .find(|c| c["method"] == "thread/resume")
             .unwrap();
         assert_eq!(resumed["params"]["threadId"], thread);
+        let last_turn = calls
+            .iter()
+            .rev()
+            .find(|c| c["method"] == "turn/start")
+            .unwrap();
+        assert_eq!(
+            (
+                last_turn["params"]["model"].clone(),
+                last_turn["params"]["effort"].clone()
+            ),
+            (json!("gpt-other"), json!("high"))
+        );
         let interrupt = calls
             .iter()
             .find(|c| c["method"] == "turn/interrupt")

@@ -12,12 +12,14 @@ export type Interaction = {
 export type RunState = {
   status: RunStatus;
   provider?: Provider;
-  // what the provider's view offers; Codex has no permission modes to switch
-  capabilities?: { modes: boolean };
+  // what the provider's view offers: Codex has no permission modes; Claude restarts to change effort
+  capabilities?: { modes: boolean; effortRestarts?: boolean };
   cwd: string;
   sessionId: string;
   model: string | null;
   mode: string | null;
+  effort?: string | null;
+  models?: ModelChoice[];
   turn: number;
   items: HistoryItem[];
   droppedItems: number;
@@ -27,11 +29,23 @@ export type RunState = {
 };
 export type RunSummary = { id: string; cwd: string; epoch: string; status: RunStatus; sessionId: string; provider?: Provider };
 export type Reply = { accepted: boolean; reason?: string };
+// a model the provider offers: `value` is what to ask for, `resolved` what it runs as
+export type ModelChoice = { value: string; resolved?: string | null; label: string; description?: string | null; efforts?: string[] | null };
+// Claude Code's permission modes, as its own picker words them; bypassing checks stays in the terminal
 export const MODES = [
-  { mode: "default", label: "Ask" },
-  { mode: "acceptEdits", label: "Accept edits" },
-  { mode: "plan", label: "Plan" },
+  { mode: "auto", label: "Auto", hint: "Claude handles permission decisions" },
+  { mode: "manual", label: "Manual", hint: "Always ask before making changes" },
+  { mode: "acceptEdits", label: "Accept edits", hint: "Automatically accept all file edits" },
+  { mode: "plan", label: "Plan", hint: "Create a plan before making changes" },
 ] as const;
+// the CLI reports Manual by its older name
+export const modeOf = (mode: string | null) => MODES.find((m) => m.mode === (mode === "default" ? "manual" : mode)) ?? null;
+// the offered model a run's model id stands for
+export const modelOf = (s: Pick<RunState, "model" | "models">) =>
+  s.models?.find((m) => m.value === s.model) ??
+    // a resolved id names its model rather than the "default" alias pointing at it
+    s.models?.find((m) => m.resolved === s.model && m.value !== "default") ??
+    s.models?.find((m) => m.resolved === s.model) ?? null;
 
 export type P = Record<string, unknown>;
 const STATUSES: RunStatus[] = ["starting", "ready", "busy", "interrupting", "stopped", "failed"];
@@ -49,6 +63,8 @@ export function applyEvent(s: RunState, kind: string, p: P): RunState {
         sessionId: typeof p.sessionId === "string" ? p.sessionId : s.sessionId,
         model: typeof p.model === "string" ? p.model : s.model,
         mode: typeof p.mode === "string" ? p.mode : s.mode,
+        effort: typeof p.effort === "string" ? p.effort : s.effort,
+        models: Array.isArray(p.models) ? p.models as ModelChoice[] : s.models,
       };
     case "turn.started":
       return { ...s, turn: s.turn + 1, status: "busy", partial: "" };

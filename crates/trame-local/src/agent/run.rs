@@ -12,7 +12,7 @@ use tokio::{
     sync::{broadcast, mpsc},
 };
 
-use super::claude::{self, Frame};
+use super::claude::{self, Frame, Launch};
 use super::codex::{self, Msg};
 use crate::imports::history::claude_items;
 
@@ -26,7 +26,7 @@ const STDERR_LINES: usize = 40;
 const SEEN_COMMANDS: usize = 256;
 const STDIN_QUEUE: usize = 64;
 /// Permission modes a client may switch to; bypassing every check is left to the terminal.
-const MODES: &[&str] = &["default", "acceptEdits", "plan"];
+const MODES: &[&str] = &["auto", "manual", "default", "acceptEdits", "plan"];
 
 /// The agent CLI a run drives, each with its own protocol on stdio.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,6 +75,7 @@ impl Provider {
 enum Rpc {
     Initialize,
     Thread,
+    Models,
     Turn,
     Other,
 }
@@ -106,6 +107,8 @@ struct Inner {
     pending: HashMap<String, Value>,
     /// our own control requests still waiting for the CLI's answer: the mode asked for
     modes: HashMap<String, String>,
+    /// our `set_model` requests still waiting for the CLI's answer
+    model_reqs: HashSet<String>,
     /// Codex: our JSON-RPC requests in flight, the turn running and file changes by item
     rpc: HashMap<u64, Rpc>,
     rpc_next: u64,
@@ -123,6 +126,9 @@ struct State {
     session: String,
     model: Option<String>,
     mode: Option<String>,
+    effort: Option<String>,
+    /// what the provider offers: `{value, label, description, efforts}`
+    models: Vec<Value>,
     turn: u64,
     items: VecDeque<Value>,
     dropped: u64,
@@ -137,12 +143,15 @@ impl State {
         json!({
             "status": self.status,
             "provider": self.provider,
-            // what this provider's view can offer: Codex has no permission modes to switch
-            "capabilities": {"modes": self.provider == "claude"},
+            // what this provider's view can offer: Codex has no permission modes to switch, and
+            // Claude only takes a new effort at launch, so changing it restarts an idle run
+            "capabilities": {"modes": self.provider == "claude", "effortRestarts": self.provider == "claude"},
             "cwd": self.cwd,
             "sessionId": self.session,
             "model": self.model,
             "mode": self.mode,
+            "effort": self.effort,
+            "models": self.models,
             "turn": self.turn,
             "items": self.items,
             "droppedItems": self.dropped,
@@ -171,11 +180,11 @@ impl Run {
         cwd: PathBuf,
         provider: Provider,
         resume: Option<String>,
-        mode: Option<String>,
+        launch: Launch,
         history: Vec<Value>,
     ) -> std::io::Result<Arc<Self>> {
         let resumed = resume.is_some();
-        let run = Self::new(id, cwd, provider, resume, mode, history);
+        let run = Self::new(id, cwd, provider, resume, launch, history);
         run.spawn(resumed)?;
         Ok(run)
     }
@@ -186,7 +195,7 @@ impl Run {
         cwd: PathBuf,
         provider: Provider,
         resume: Option<String>,
-        mode: Option<String>,
+        launch: Launch,
         history: Vec<Value>,
     ) -> Arc<Self> {
         let (tx, _) = broadcast::channel(1024);
@@ -209,7 +218,9 @@ impl Run {
                     provider: provider.name(),
                     cwd: shown,
                     session,
-                    mode,
+                    mode: launch.mode,
+                    model: launch.model,
+                    effort: launch.effort,
                     items,
                     ..State::default()
                 },
@@ -223,6 +234,7 @@ impl Run {
                 stopping: false,
                 pending: HashMap::new(),
                 modes: HashMap::new(),
+                model_reqs: HashSet::new(),
                 rpc: HashMap::new(),
                 rpc_next: 0,
                 codex_turn: None,
@@ -241,16 +253,22 @@ impl Run {
     }
 
     fn spawn(self: &Arc<Self>, resume: bool) -> std::io::Result<()> {
-        let (session, mode) = {
+        let (session, launch) = {
             let inner = self.inner.lock().unwrap();
-            (inner.state.session.clone(), inner.state.mode.clone())
+            let st = &inner.state;
+            let launch = Launch {
+                mode: st.mode.clone(),
+                model: st.model.clone(),
+                effort: st.effort.clone(),
+            };
+            (st.session.clone(), launch)
         };
         let mut cmd = Command::new(self.provider.bin());
         match self.provider {
             Provider::Claude => cmd.args(claude::args(
                 resume.then_some(session.as_str()),
                 &session,
-                mode.as_deref(),
+                &launch,
             )),
             Provider::Codex => cmd.arg("app-server"),
         };
@@ -395,7 +413,7 @@ impl Run {
     }
 
     /// Check and run one client command; `lease` is the sender's writer lease.
-    pub fn command(&self, lease: u64, cmd: &Value) -> Reply {
+    pub fn command(self: &Arc<Self>, lease: u64, cmd: &Value) -> Reply {
         let id = cmd["commandId"]
             .as_str()
             .ok_or("commandId required")?
@@ -427,8 +445,10 @@ impl Run {
                 (Some("interrupt"), "busy") => {}
                 (Some("interrupt"), _) => return Err("nothing to interrupt"),
                 (Some("stop" | "answer"), _) => {}
-                (Some("setMode"), "ready" | "busy") => {}
-                (Some("setMode"), _) => return Err("not ready"),
+                (Some("setMode" | "setModel"), "ready" | "busy") => {}
+                (Some("setMode" | "setModel"), _) => return Err("not ready"),
+                (Some("setEffort"), "ready") => {}
+                (Some("setEffort"), _) => return Err("finish the turn first"),
                 _ => return Err("unknown command"),
             }
             text = cmd["payload"]["text"]
@@ -444,8 +464,14 @@ impl Run {
                 let line = match self.provider {
                     Provider::Claude => claude::user_message(&text),
                     Provider::Codex => {
-                        let params =
-                            json!({"threadId":self.session(),"input":codex::user_input(&text)});
+                        // a model or effort picked since the last turn applies from this one
+                        let (model, effort) = {
+                            let st = &self.inner.lock().unwrap().state;
+                            (st.model.clone(), st.effort.clone())
+                        };
+                        let params = json!({
+                            "threadId":self.session(),"input":codex::user_input(&text),"model":model,"effort":effort,
+                        });
                         codex::request(self.rpc(Rpc::Turn), "turn/start", &params)
                     }
                 };
@@ -490,6 +516,38 @@ impl Run {
                     .insert(id.clone(), mode.to_owned());
                 if !self.send(&claude::set_mode(&id, mode)) {
                     return Err("input queue full");
+                }
+            }
+            Some("setModel") => {
+                let model = cmd["payload"]["model"].as_str().unwrap_or_default();
+                if !valid_choice(model) {
+                    return Err("unknown model");
+                }
+                match self.provider {
+                    Provider::Claude => {
+                        let id = self.next_request();
+                        self.inner.lock().unwrap().model_reqs.insert(id.clone());
+                        if !self.send(&claude::set_model(&id, model)) {
+                            return Err("input queue full");
+                        }
+                    }
+                    Provider::Codex => self.publish("run.info", json!({"model":model})),
+                }
+            }
+            Some("setEffort") => {
+                let effort = cmd["payload"]["effort"].as_str().unwrap_or_default();
+                if !valid_choice(effort) {
+                    return Err("unknown effort");
+                }
+                self.publish("run.info", json!({"effort":effort}));
+                // Claude takes effort only at launch: resume the same conversation with it
+                if self.provider == Provider::Claude {
+                    let run = self.clone();
+                    tokio::spawn(async move {
+                        if run.stop_and_wait(Duration::from_secs(6)).await {
+                            let _ = run.spawn(true);
+                        }
+                    });
                 }
             }
             _ => self.stop(),
@@ -625,7 +683,10 @@ impl Run {
     /// What survives a restart: enough to resume the conversation in its folder and mode.
     pub fn record(&self) -> Value {
         let inner = self.inner.lock().unwrap();
-        json!({"id":self.id,"provider":self.provider.name(),"cwd":self.cwd,"sessionId":inner.state.session,"mode":inner.state.mode})
+        json!({
+            "id":self.id,"provider":self.provider.name(),"cwd":self.cwd,"sessionId":inner.state.session,
+            "mode":inner.state.mode,"model":inner.state.model,"effort":inner.state.effort,
+        })
     }
 
     pub fn session(&self) -> String {
@@ -818,17 +879,38 @@ impl Run {
                     json!({"requestId":id,"subtype":subtype,"tool":body["tool_name"]}),
                 );
             }
-            Frame::Response { id, error } => {
+            Frame::Response { id, error, body } => {
                 // taken out of the lock first: publish locks it again
-                let mode = self.inner.lock().unwrap().modes.remove(&id);
+                let (mode, model) = {
+                    let mut inner = self.inner.lock().unwrap();
+                    (inner.modes.remove(&id), inner.model_reqs.remove(&id))
+                };
                 if init_id.as_deref() == Some(id.as_str()) {
                     *init_id = None;
                     match error {
-                        None => self.status("ready"),
+                        None => {
+                            // the CLI says which mode it starts in and which models it offers
+                            let models: Vec<Value> = body["models"]
+                                .as_array()
+                                .into_iter()
+                                .flatten()
+                                .map(|m| json!({
+                                    "value": m["value"], "resolved": m["resolvedModel"], "label": m["displayName"], "description": m["description"],
+                                    "efforts": m["supportedEffortLevels"],
+                                }))
+                                .collect();
+                            self.publish(
+                                "run.info",
+                                json!({"mode":body["current_permission_mode"],"models":models}),
+                            );
+                            self.status("ready");
+                        }
                         Some(e) => self.publish("run.state", json!({"status":"failed","error":e})),
                     }
                 } else if let Some(mode) = mode.filter(|_| error.is_none()) {
                     self.publish("run.info", json!({"mode":mode}));
+                } else if model && error.is_none() {
+                    self.publish("run.info", json!({"model":body["model"]}));
                 } else if let Some(e) = error {
                     self.publish("run.warning", json!({"text":e,"requestId":id}));
                 }
@@ -879,9 +961,33 @@ impl Run {
                         }
                         self.publish(
                             "run.info",
-                            json!({"sessionId":thread,"model":result["model"]}),
+                            json!({"sessionId":thread,"model":result["model"],"effort":result["reasoningEffort"]}),
                         );
                         self.status("ready");
+                        // the models and efforts offered, for the pickers
+                        self.send(&codex::request(
+                            self.rpc(Rpc::Models),
+                            "model/list",
+                            &json!({}),
+                        ));
+                    }
+                    (Some(Rpc::Models), None) => {
+                        let models: Vec<Value> = result["data"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter(|m| m["hidden"] != true)
+                            .map(|m| {
+                                let efforts: Vec<Value> = m["supportedReasoningEfforts"]
+                                    .as_array()
+                                    .into_iter()
+                                    .flatten()
+                                    .map(|e| e["reasoningEffort"].clone())
+                                    .collect();
+                                json!({"value":m["model"],"label":m["displayName"],"description":m["description"],"efforts":efforts})
+                            })
+                            .collect();
+                        self.publish("run.info", json!({"models":models}));
                     }
                     (Some(Rpc::Initialize | Rpc::Thread), Some(e)) => {
                         self.publish("run.state", json!({"status":"failed","error":e}));
@@ -1009,6 +1115,14 @@ impl Run {
     }
 }
 
+/// A model or effort name as the CLIs spell them: `claude-opus-5-5`, `gpt-6.2`, `xhigh`.
+pub(crate) fn valid_choice(v: &str) -> bool {
+    !v.is_empty()
+        && v.len() <= 80
+        && v.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_.:[]".contains(c))
+}
+
 /// A JSON-RPC id as the string key clients answer by.
 fn request_key(id: &Value) -> String {
     id.as_str().map_or_else(|| id.to_string(), str::to_owned)
@@ -1049,6 +1163,12 @@ fn apply(state: &mut State, kind: &str, p: &Value) {
                 .map(str::to_owned)
                 .or(state.model.take());
             state.mode = p["mode"].as_str().map(str::to_owned).or(state.mode.take());
+            if let Some(e) = p["effort"].as_str() {
+                state.effort = Some(e.to_owned());
+            }
+            if let Some(models) = p["models"].as_array() {
+                models.clone_into(&mut state.models);
+            }
         }
         "turn.started" => {
             state.turn += 1;

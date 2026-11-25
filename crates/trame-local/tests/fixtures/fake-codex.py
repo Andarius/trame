@@ -89,8 +89,13 @@ for line in sys.stdin:
         out({"id": rid, "result": {"userAgent": "fake", "codexHome": "/tmp", "platformFamily": "unix", "platformOs": "linux"}})
     elif method in ("thread/start", "thread/resume"):
         thread = params.get("threadId") or str(uuid.uuid4())
-        out({"id": rid, "result": {"thread": {"id": thread}, "model": "fake-codex", "cwd": params.get("cwd")}})
+        out({"id": rid, "result": {"thread": {"id": thread}, "model": "gpt-fake", "reasoningEffort": "low", "cwd": params.get("cwd")}})
         note("thread/started", {"thread": {"id": thread}})
+    elif method == "model/list":
+        out({"id": rid, "result": {"data": [
+            {"model": "gpt-fake", "displayName": "GPT Fake", "description": "default", "hidden": False,
+             "supportedReasoningEfforts": [{"reasoningEffort": "low"}, {"reasoningEffort": "high"}]},
+            {"model": "gpt-hidden", "displayName": "Hidden", "description": "", "hidden": True, "supportedReasoningEfforts": []}]}})
     elif method == "turn/start":
         turns += 1
         turn = f"turn-{turns}"

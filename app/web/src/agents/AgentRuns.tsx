@@ -1,5 +1,5 @@
 import { SECTION_LABEL } from "../ui/ui";
-import { type RunStatus, useAgentDest, useAgentRuns } from "./agent-run";
+import { deleteRun, type RunStatus, useAgentDest, useAgentRuns } from "./agent-run";
 import { AgentIcon } from "./agents";
 
 const MARK: Record<RunStatus, { mark: string; tone: string }> = {
@@ -21,11 +21,11 @@ export function AgentRuns({ selected, onSelect }: { selected: string | null; onS
     <section className="flex flex-col gap-0.5">
       <div className={`px-2 pb-1 ${SECTION_LABEL}`}>AGENT VIEW</div>
       {runs.map((r) => (
+        <div key={r.id} className="group/run relative">
         <button
-          key={r.id}
           type="button"
           title={`${r.cwd}\n${r.sessionId}`}
-          className={`flex items-start gap-1.5 rounded-md px-2 py-1 text-left text-[12.5px] ${selected === r.id ? "bg-active-row text-ink" : "text-ink-muted hover:text-ink-soft"}`}
+          className={`flex w-full items-start gap-1.5 rounded-md px-2 py-1 text-left text-[12.5px] ${selected === r.id ? "bg-active-row text-ink" : "text-ink-muted hover:text-ink-soft"}`}
           onClick={() => onSelect(r.id)}
         >
           {/* the agent's logo, its run state as a dot in the corner */}
@@ -42,6 +42,17 @@ export function AgentRuns({ selected, onSelect }: { selected: string | null; onS
             </span>
           </span>
         </button>
+        {/* stops the run and drops it; the conversation stays resumable from Recent */}
+        <button
+          type="button"
+          title="close this run"
+          aria-label="close this run"
+          className="absolute right-1.5 top-1.5 hidden rounded px-1 text-[11px] text-ink-faint hover:bg-hover hover:text-ink group-hover/run:block"
+          onClick={() => void deleteRun(r.id).catch(() => {})}
+        >
+          ✕
+        </button>
+        </div>
       ))}
     </section>
   );

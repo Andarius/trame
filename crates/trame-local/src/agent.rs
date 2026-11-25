@@ -25,11 +25,12 @@ pub mod claude;
 pub mod codex;
 pub mod run;
 
-use run::{Provider, Run};
+use claude::Launch;
+use run::{Provider, Run, valid_choice as valid};
 
 pub const CLOSE_AUTH: u16 = 4401;
 pub const CLOSE_GONE: u16 = 4404;
-const MODES: &[&str] = &["default", "acceptEdits", "plan"];
+const MODES: &[&str] = &["auto", "manual", "default", "acceptEdits", "plan"];
 
 /// The structured agent view; the app offers it as an opt-in setting, `TRAME_AGENT_VIEW=0` turns it off.
 pub fn enabled() -> bool {
@@ -93,16 +94,18 @@ pub async fn restore(native: &Native) -> usize {
             .and_then(Provider::parse)
             .unwrap_or(Provider::Claude);
         let history = history(native, provider, session).await;
-        let mode = r["mode"]
-            .as_str()
-            .filter(|m| MODES.contains(m))
-            .map(str::to_owned);
+        let text = |k: &str| r[k].as_str().filter(|v| valid(v)).map(str::to_owned);
+        let launch = Launch {
+            mode: text("mode").filter(|m| MODES.contains(&m.as_str())),
+            model: text("model"),
+            effort: text("effort"),
+        };
         let run = Run::new(
             id.to_owned(),
             cwd.into(),
             provider,
             Some(session.to_owned()),
-            mode,
+            launch,
             history,
         );
         runs().lock().unwrap().insert(id.to_owned(), run);
@@ -273,25 +276,34 @@ async fn start(native: &Native, body: &Value) -> Response {
     {
         return json_response(400, json!({"error":"unknown permission mode"}));
     }
+    let (model, effort) = (body["model"].as_str(), body["effort"].as_str());
+    if model.into_iter().chain(effort).any(|v| !valid(v)) {
+        return json_response(400, json!({"error":"unknown model or effort"}));
+    }
+    let launch = Launch {
+        mode,
+        model: model.map(str::to_owned),
+        effort: effort.map(str::to_owned),
+    };
     if let Some(taken) = resume.as_deref().and_then(|s| owner(provider, s)) {
         return json_response(409, taken);
     }
-    launch(native, provider, cwd, resume, mode).await
+    start_run(native, provider, cwd, resume, launch).await
 }
 
-async fn launch(
+async fn start_run(
     native: &Native,
     provider: Provider,
     cwd: PathBuf,
     resume: Option<String>,
-    mode: Option<String>,
+    launch: Launch,
 ) -> Response {
     let history = match &resume {
         Some(session) => history(native, provider, session).await,
         None => Vec::new(),
     };
     let id = uuid::Uuid::new_v4().simple().to_string();
-    match Run::start(id.clone(), cwd, provider, resume, mode, history) {
+    match Run::start(id.clone(), cwd, provider, resume, launch, history) {
         Ok(run) => {
             let summary = run.summary();
             runs().lock().unwrap().insert(id, run);
@@ -346,7 +358,14 @@ async fn from_terminal(native: &Native, body: &Value) -> Response {
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    launch(native, Provider::Claude, cwd, Some(agent.id), None).await
+    start_run(
+        native,
+        Provider::Claude,
+        cwd,
+        Some(agent.id),
+        Launch::default(),
+    )
+    .await
 }
 
 /// Move an idle run back to a Trame shell: stop it, then resume the same conversation there.

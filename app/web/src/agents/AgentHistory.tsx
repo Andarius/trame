@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { type HistoryPage, transcriptHistory } from "../api";
-import { SECTION_LABEL } from "../ui/ui";
+import { BOOL_CODEC, SECTION_LABEL, useLocalStorage } from "../ui/ui";
 import {
   type FileDiff,
   fileChanges,
@@ -342,8 +342,22 @@ export function HistoryRail(
 ) {
   const changes = useMemo(() => fileChanges(items), [items]);
   const prompts = turns.filter((t) => t.prompt);
+  // hidden to a thin strip, for more room; remembered across views
+  const [shown, setShown] = useLocalStorage("trame:historyRail", true, BOOL_CODEC);
+  const toggle = (
+    <button
+      type="button"
+      title={shown ? "hide the side panel" : "show the side panel"}
+      className="grid h-6 w-6 place-items-center rounded-md text-ink-faint hover:bg-hover hover:text-ink"
+      onClick={() => setShown(!shown)}
+    >
+      {shown ? "»" : "«"}
+    </button>
+  );
+  if (!shown) return <aside className="flex w-9 shrink-0 flex-col items-center border-l border-line py-3">{toggle}</aside>;
   return (
-    <aside className="flex w-60 shrink-0 flex-col gap-5 overflow-y-auto border-l border-line px-4 py-4 text-[12px]">
+    <aside className="relative flex w-60 shrink-0 flex-col gap-5 overflow-y-auto border-l border-line px-4 py-4 text-[12px]">
+      <div className="absolute right-2 top-2.5">{toggle}</div>
       {side}
       <section className="flex flex-col gap-1.5">
         <div className={SECTION_LABEL}>CHANGES{more ? " · LOADED" : ""}</div>
