@@ -86,6 +86,11 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Build deb
         run: bash scripts/rust-package.sh deb
+      - name: Build snap
+        # the snap only unpacks the deb: pack it on the runner (core24 = ubuntu-24.04) instead of in an LXD VM
+        run: |
+          sudo snap install snapcraft --classic
+          sudo snapcraft pack --destructive-mode
       - name: Build AppImage (best effort)
         continue-on-error: true
         run: TRAME_BUNDLE_ONLY=1 bash scripts/rust-package.sh appimage
@@ -96,7 +101,8 @@ jobs:
         run: |
           cp dist/linux/trame.deb "trame-${RELEASE_TAG}-linux-x64.deb"
           cp target/release/tramecli "tramecli-${RELEASE_TAG}-linux-x64"
-          gh release upload "${RELEASE_TAG}" "trame-${RELEASE_TAG}-linux-x64.deb" "tramecli-${RELEASE_TAG}-linux-x64" --repo "${GH_REPO}" --clobber
+          gh release upload "${RELEASE_TAG}" "trame-${RELEASE_TAG}-linux-x64.deb" "tramecli-${RELEASE_TAG}-linux-x64" \
+            trame_*_amd64.snap --repo "${GH_REPO}" --clobber
           if [[ -f dist/linux/Trame.AppImage ]]; then
             cp dist/linux/Trame.AppImage "Trame-${RELEASE_TAG}-native-x64.AppImage"
             gh release upload "${RELEASE_TAG}" "Trame-${RELEASE_TAG}-native-x64.AppImage" --repo "${GH_REPO}" --clobber
@@ -128,34 +134,8 @@ jobs:
           cp dist/macos/tramecli "tramecli-${RELEASE_TAG}-macos-arm64"
           gh release upload "${RELEASE_TAG}" "Trame-${RELEASE_TAG}-native-arm64.dmg" "tramecli-${RELEASE_TAG}-macos-arm64" --repo "${GH_REPO}" --clobber
 
-  snap:
-    needs: [prepare, build]
-    runs-on: ubuntu-24.04
-    env:
-      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.prepare.outputs.commit }}
-      - name: Download deb
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          mkdir -p dist/linux
-          gh release download "${RELEASE_TAG}" --repo "${GH_REPO}" --pattern "trame-${RELEASE_TAG}-linux-x64.deb" --dir dist/linux
-          mv "dist/linux/trame-${RELEASE_TAG}-linux-x64.deb" dist/linux/trame.deb
-      - name: Build snap
-        uses: snapcore/action-build@3bdaa03e1ba6bf59a65f84a751d943d549a54e79 # v1.3.0
-        id: snapcraft
-      - name: Upload snap
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: gh release upload "${RELEASE_TAG}" "${{ steps.snapcraft.outputs.snap }}" --repo "${GH_REPO}" --clobber
-
   publish:
-    needs: [prepare, verify, build, build-macos, snap]
+    needs: [prepare, verify, build, build-macos]
     runs-on: ubuntu-24.04
     steps:
       - name: Publish draft release
