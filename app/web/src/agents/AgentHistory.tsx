@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { type HistoryPage, transcriptHistory } from "../api";
 import { BOOL_CODEC, SECTION_LABEL, useLocalStorage } from "../ui/ui";
 import {
@@ -160,7 +160,16 @@ export function AgentHistory(
   );
 }
 
-export function TurnView({ turn, results, working }: { turn: Turn; results: Map<string, Result>; working: boolean }) {
+type TurnProps = { turn: Turn; results: Map<string, Result>; working: boolean };
+
+// A turn re-renders only when its own items or the results of its calls change: streaming
+// elsewhere in the conversation, or a new turn below it, leaves it alone
+const sameTurn = (a: TurnProps, b: TurnProps) =>
+  a.working === b.working && a.turn.key === b.turn.key && a.turn.prompt?.item === b.turn.prompt?.item &&
+  a.turn.body.length === b.turn.body.length && a.turn.body.every((k, i) => k.item === b.turn.body[i].item) &&
+  a.turn.body.every(({ item }) => item.kind !== "tool" || a.results.get(item.id) === b.results.get(item.id));
+
+export const TurnView = memo(function TurnView({ turn, results, working }: TurnProps) {
   const reply = finalReply(turn);
   const work = turn.body.filter((k) => k !== reply);
   const tools = work.flatMap((k) => (k.item.kind === "tool" ? [k.item] : []));
@@ -171,7 +180,8 @@ export function TurnView({ turn, results, working }: { turn: Turn; results: Map<
   const span = turnSpan(turn, working ? Date.now() : undefined);
   const prompt = turn.prompt?.item;
   return (
-    <div data-turn={turn.key} className="flex flex-col gap-1 pb-3">
+    // off-screen turns skip layout and paint: long conversations scroll without laying everything out
+    <div data-turn={turn.key} className="flex flex-col gap-1 pb-3 [contain-intrinsic-size:auto_80px] [content-visibility:auto]">
       {prompt?.kind === "user" && (
         <div className="-mx-2 whitespace-pre-wrap rounded bg-card px-2 py-1 text-ink">
           <span className="mr-2 text-copper">&gt;</span>
@@ -206,7 +216,7 @@ export function TurnView({ turn, results, working }: { turn: Turn; results: Map<
       {reply?.item.kind === "assistant" && <Reply text={reply.item.text} truncated={reply.item.truncated} strong />}
     </div>
   );
-}
+}, sameTurn);
 
 // a turn's work in order; reads and searches in a row fold into one line
 function Body({ items, results }: { items: Keyed[]; results: Map<string, Result> }) {
@@ -359,9 +369,9 @@ export function HistoryRail(
     <aside className="relative flex w-60 shrink-0 flex-col gap-5 overflow-y-auto border-l border-line px-4 py-4 text-[12px]">
       <div className="absolute right-2 top-2.5">{toggle}</div>
       {side}
+      {changes.length > 0 && (
       <section className="flex flex-col gap-1.5">
         <div className={SECTION_LABEL}>CHANGES{more ? " · LOADED" : ""}</div>
-        {!changes.length && <p className="text-ink-faint">No edits yet.</p>}
         {changes.map((c) => (
           <div key={c.file} className="flex gap-2 font-mono text-[11px]" title={c.file}>
             <span className="min-w-0 flex-1 truncate text-ink-soft">{c.file.split("/").pop()}</span>
@@ -370,6 +380,7 @@ export function HistoryRail(
           </div>
         ))}
       </section>
+      )}
       <section className="flex flex-col gap-0.5">
         <div className={`${SECTION_LABEL} mb-1`}>PROMPTS</div>
         {more && <p className="px-1.5 text-ink-faint">earlier ones above ↑</p>}

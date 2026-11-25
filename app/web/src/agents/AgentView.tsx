@@ -192,21 +192,6 @@ export function AgentView(
             pinned.current = false;
             scroller.current?.querySelector(`[data-turn="${key}"]`)?.scrollIntoView({ block: "start" });
           }}
-          side={
-            <section className="flex flex-col gap-1.5 text-ink-faint">
-              <div className={SECTION_LABEL}>RUN</div>
-              <span className="flex items-center gap-1.5">
-                <AgentIcon a={{ harness: state.provider ?? "claude", icon: null }} />
-                {who === "Codex" ? "Codex" : "Claude Code"}
-                {modelOf(state) ? ` · ${modelOf(state)!.label}` : state.model ? ` · ${state.model}` : ""}
-              </span>
-              <span className="break-all">{state.cwd.replace(/^\/(home|Users)\/[^/]+/, "~")}</span>
-              {modes && <span>mode: {modeOf(state.mode)?.label ?? state.mode ?? "Auto"}</span>}
-              {state.effort && <span>effort: {state.effort}</span>}
-              <span>turns: {state.turn}</span>
-              <code className="break-all font-mono text-[10.5px] text-ink-muted" title="the provider's session id">{state.sessionId}</code>
-            </section>
-          }
         />
       </div>
     </div>
