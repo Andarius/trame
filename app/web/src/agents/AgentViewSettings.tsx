@@ -2,7 +2,7 @@ import { type AgentDest, type Provider, useAgentDest } from "./agent-run";
 
 const PROVIDERS: { p: Provider; label: string; ready: boolean }[] = [
   { p: "claude", label: "Claude Code", ready: true },
-  { p: "codex", label: "Codex", ready: false },
+  { p: "codex", label: "Codex", ready: true },
 ];
 
 // Per-provider choice of where new and resumed sessions open; absent means the terminal.

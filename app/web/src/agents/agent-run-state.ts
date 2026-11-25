@@ -11,6 +11,9 @@ export type Interaction = {
 };
 export type RunState = {
   status: RunStatus;
+  provider?: Provider;
+  // what the provider's view offers; Codex has no permission modes to switch
+  capabilities?: { modes: boolean };
   cwd: string;
   sessionId: string;
   model: string | null;

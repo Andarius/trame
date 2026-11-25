@@ -22,9 +22,10 @@ use crate::routes::Native;
 use crate::routes::json_response;
 
 pub mod claude;
+pub mod codex;
 pub mod run;
 
-use run::Run;
+use run::{Provider, Run};
 
 pub const CLOSE_AUTH: u16 = 4401;
 pub const CLOSE_GONE: u16 = 4404;
@@ -42,10 +43,6 @@ fn runs() -> &'static Mutex<HashMap<String, Arc<Run>>> {
 
 fn get(id: &str) -> Option<Arc<Run>> {
     runs().lock().unwrap().get(id).cloned()
-}
-
-fn bin() -> String {
-    std::env::var("TRAME_CLAUDE_BIN").unwrap_or_else(|_| "claude".into())
 }
 
 // Runs that survive a restart
@@ -91,7 +88,11 @@ pub async fn restore(native: &Native) -> usize {
         else {
             continue;
         };
-        let history = history(native, session).await;
+        let provider = r["provider"]
+            .as_str()
+            .and_then(Provider::parse)
+            .unwrap_or(Provider::Claude);
+        let history = history(native, provider, session).await;
         let mode = r["mode"]
             .as_str()
             .filter(|m| MODES.contains(m))
@@ -99,7 +100,7 @@ pub async fn restore(native: &Native) -> usize {
         let run = Run::new(
             id.to_owned(),
             cwd.into(),
-            bin(),
+            provider,
             Some(session.to_owned()),
             mode,
             history,
@@ -111,7 +112,7 @@ pub async fn restore(native: &Native) -> usize {
 }
 
 /// The latest page of a conversation's transcript, shown above what a resumed run adds.
-async fn history(native: &Native, session: &str) -> Vec<Value> {
+async fn history(native: &Native, provider: Provider, session: &str) -> Vec<Value> {
     let (native, session) = (native.clone(), session.to_owned());
     crate::blocking::spawn(move || {
         let db = Db::connect(
@@ -120,9 +121,9 @@ async fn history(native: &Native, session: &str) -> Vec<Value> {
             Some(native.settings),
         )
         .ok()?;
-        let path = crate::imports::transcript_path(&db, "claude", &session).ok()??;
+        let path = crate::imports::transcript_path(&db, provider.name(), &session).ok()??;
         Some(
-            crate::imports::history::before(&path, None, false)
+            crate::imports::history::before(&path, None, provider == Provider::Codex)
                 .ok()?
                 .items,
         )
@@ -142,7 +143,7 @@ pub fn shutdown() {
 }
 
 /// Who else is writing to conversation `session`, if anyone: one writer per conversation.
-fn owner(session: &str) -> Option<Value> {
+fn owner(provider: Provider, session: &str) -> Option<Value> {
     if let Some(run) = runs()
         .lock()
         .unwrap()
@@ -153,8 +154,8 @@ fn owner(session: &str) -> Option<Value> {
             json!({"error":"this conversation is already open in the agent view","run":run.id}),
         );
     }
-    crate::pty::live_claude_sessions()
-        .contains_key(session)
+    // only Claude says which conversations its processes hold
+    (provider == Provider::Claude && crate::pty::live_claude_sessions().contains_key(session))
         .then(|| json!({"error":"this conversation is running in another terminal: close it there first"}))
 }
 
@@ -211,7 +212,10 @@ pub async fn serve(native: Native, req: Request<Body>) -> Response {
             let Some(run) = get(id) else {
                 return json_response(404, json!({"error":"no such run"}));
             };
-            if let Some(taken) = (!run.running()).then(|| owner(&run.session())).flatten() {
+            if let Some(taken) = (!run.running())
+                .then(|| owner(run.provider, &run.session()))
+                .flatten()
+            {
                 return json_response(409, taken);
             }
             match run.restart() {
@@ -238,8 +242,12 @@ pub async fn serve(native: Native, req: Request<Body>) -> Response {
     }
 }
 
-/// `{cwd, resume?, mode?}`: start Claude Code in an existing directory, fresh or resuming a conversation.
+/// `{cwd, provider?, resume?, mode?}`: start Claude Code or Codex in an existing directory, fresh or
+/// resuming a conversation.
 async fn start(native: &Native, body: &Value) -> Response {
+    let Some(provider) = Provider::parse(body["provider"].as_str().unwrap_or("claude")) else {
+        return json_response(400, json!({"error":"unknown provider"}));
+    };
     let Some(cwd) = body["cwd"]
         .as_str()
         .map(PathBuf::from)
@@ -258,27 +266,32 @@ async fn start(native: &Native, body: &Value) -> Response {
         return json_response(400, json!({"error":"resume must be a session id"}));
     }
     let mode = body["mode"].as_str().map(str::to_owned);
-    if mode.as_deref().is_some_and(|m| !MODES.contains(&m)) {
+    // Codex has no permission modes to start in
+    if mode
+        .as_deref()
+        .is_some_and(|m| !MODES.contains(&m) || provider == Provider::Codex)
+    {
         return json_response(400, json!({"error":"unknown permission mode"}));
     }
-    if let Some(taken) = resume.as_deref().and_then(owner) {
+    if let Some(taken) = resume.as_deref().and_then(|s| owner(provider, s)) {
         return json_response(409, taken);
     }
-    launch(native, cwd, resume, mode).await
+    launch(native, provider, cwd, resume, mode).await
 }
 
 async fn launch(
     native: &Native,
+    provider: Provider,
     cwd: PathBuf,
     resume: Option<String>,
     mode: Option<String>,
 ) -> Response {
     let history = match &resume {
-        Some(session) => history(native, session).await,
+        Some(session) => history(native, provider, session).await,
         None => Vec::new(),
     };
     let id = uuid::Uuid::new_v4().simple().to_string();
-    match Run::start(id.clone(), cwd, bin(), resume, mode, history) {
+    match Run::start(id.clone(), cwd, provider, resume, mode, history) {
         Ok(run) => {
             let summary = run.summary();
             runs().lock().unwrap().insert(id, run);
@@ -333,7 +346,7 @@ async fn from_terminal(native: &Native, body: &Value) -> Response {
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    launch(native, cwd, Some(agent.id), None).await
+    launch(native, Provider::Claude, cwd, Some(agent.id), None).await
 }
 
 /// Move an idle run back to a Trame shell: stop it, then resume the same conversation there.
@@ -354,9 +367,14 @@ async fn to_terminal(id: &str) -> Response {
     save();
     let session = run.session();
     let cwd = run.cwd.display().to_string();
-    let command = format!("claude --resume {session}");
+    let command = run.provider.resume_command(&session);
+    let title = if run.provider == Provider::Codex {
+        "Codex"
+    } else {
+        "Claude"
+    };
     match crate::blocking::spawn(move || {
-        crate::pty::spawn(None, &cwd, Some(&command), "Claude", None, None)
+        crate::pty::spawn(None, &cwd, Some(&command), title, None, None)
     })
     .await
     {

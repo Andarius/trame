@@ -55,6 +55,8 @@ export function AgentView(
   const busy = state.status === "busy" || state.status === "interrupting";
   const ended = state.status === "stopped" || state.status === "failed";
   const folder = state.cwd.split("/").pop() || state.cwd;
+  const who = state.provider === "codex" ? "Codex" : "Claude";
+  const modes = state.capabilities?.modes ?? true;
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-6 py-3">
@@ -62,6 +64,7 @@ export function AgentView(
         <span className={`text-[12px] ${STATUS[state.status].tone}`}>● {STATUS[state.status].label}</span>
         {!run.connected && <span className="text-[12px] text-wait">reconnecting…</span>}
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          {modes && (
           <select
             aria-label="permission mode"
             className="rounded-md border border-line bg-transparent px-2 py-1 text-[12px] text-ink-soft"
@@ -71,6 +74,7 @@ export function AgentView(
           >
             {MODES.map((m) => <option key={m.mode} value={m.mode}>{m.label}</option>)}
           </select>
+          )}
           {busy && (
             <button type="button" className={btn} disabled={!run.writer} onClick={() => void send("interrupt")}>
               ■ Interrupt
@@ -145,11 +149,12 @@ export function AgentView(
               </div>
             )}
             {state.interactions.map((x) => (
-              <InteractionCard key={x.requestId} x={x} disabled={!run.writer} send={send} />
+              <InteractionCard key={x.requestId} x={x} who={who} disabled={!run.writer} send={send} />
             ))}
           </div>
           {notice && <div className="px-6 pb-1 text-[11.5px] text-blocked">{notice}</div>}
           <Composer
+            who={who}
             ready={state.status === "ready" && run.writer}
             busy={busy}
             onSend={(text) => send("prompt", { text })}
@@ -167,9 +172,9 @@ export function AgentView(
           side={
             <section className="flex flex-col gap-1.5 text-ink-faint">
               <div className={SECTION_LABEL}>RUN</div>
-              <span>✳ Claude Code{state.model ? ` · ${state.model}` : ""}</span>
+              <span>{who === "Codex" ? "◎ Codex" : "✳ Claude Code"}{state.model ? ` · ${state.model}` : ""}</span>
               <span className="break-all">{state.cwd.replace(/^\/(home|Users)\/[^/]+/, "~")}</span>
-              <span>mode: {MODES.find((m) => m.mode === state.mode)?.label ?? state.mode ?? "default"}</span>
+              {modes && <span>mode: {MODES.find((m) => m.mode === state.mode)?.label ?? state.mode ?? "default"}</span>}
               <span>turns: {state.turn}</span>
               <code className="break-all font-mono text-[10.5px] text-ink-muted" title="the provider's session id">{state.sessionId}</code>
             </section>
@@ -182,7 +187,8 @@ export function AgentView(
 
 // The textarea keeps its own state so streaming renders never touch what is being typed.
 const Composer = memo(function Composer(
-  { ready, busy, onSend, onInterrupt }: {
+  { who, ready, busy, onSend, onInterrupt }: {
+    who: string;
     ready: boolean;
     busy: boolean;
     onSend: (text: string) => Promise<Reply>;
@@ -210,7 +216,7 @@ const Composer = memo(function Composer(
           ref={box}
           rows={Math.min(8, Math.max(1, text.split("\n").length))}
           className="min-w-0 flex-1 resize-none bg-transparent text-ink outline-none placeholder:text-ink-faint"
-          placeholder={ready ? "Message Claude…" : busy ? "Claude is working · Esc to interrupt" : "waiting for the agent"}
+          placeholder={ready ? `Message ${who}…` : busy ? `${who} is working · Esc to interrupt` : "waiting for the agent"}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
@@ -233,7 +239,7 @@ type Send = (kind: string, payload?: Record<string, unknown>) => Promise<Reply>;
 const card = "my-2 flex flex-col gap-2 rounded-lg border border-copper/50 bg-copper/5 px-4 py-3 font-sans text-[12.5px] text-ink";
 
 // A request the agent is blocked on: a tool to allow, questions to answer or a plan to review.
-function InteractionCard({ x, disabled, send }: { x: Interaction; disabled: boolean; send: Send }) {
+function InteractionCard({ x, who, disabled, send }: { x: Interaction; who: string; disabled: boolean; send: Send }) {
   const [message, setMessage] = useState("");
   const answer = (decision: string, extra: Record<string, unknown> = {}) =>
     void send("answer", { requestId: x.requestId, decision, message, ...extra });
@@ -266,7 +272,7 @@ function InteractionCard({ x, disabled, send }: { x: Interaction; disabled: bool
   return (
     <div className={card}>
       <div>
-        Claude wants to use <span className="font-mono font-bold">{x.tool}</span>
+        {who} wants to use <span className="font-mono font-bold">{x.tool}</span>
         {toolArg(tool) && <span className="font-mono">({toolArg(tool)})</span>}
       </div>
       <div className="font-mono text-[11.5px]">{diffs ? <Diffs diffs={diffs} /> : <ToolInput tool={tool} />}</div>

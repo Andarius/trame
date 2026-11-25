@@ -510,3 +510,169 @@ fn runs_come_back_stopped_with_their_history_and_hand_off_to_a_terminal() {
     });
     let _ = std::fs::remove_file(&log);
 }
+
+#[test]
+fn codex_runs_turns_approvals_questions_and_resumes_its_thread() {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fake-codex.py");
+    let log = trame_local::workspace().join(format!(
+        ".scratch/agent-codex-{}.log",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let t = TestDb::with_env(&[
+        ("TRAME_CODEX_BIN", fake),
+        ("FAKE_LOG", log.to_str().unwrap()),
+    ]);
+    let base = t.base_url();
+    let cwd = t.root.to_str().unwrap().to_owned();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let token = reqwest::get(format!("{base}/api/term/token"))
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap()["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let bad = reqwest::Client::new()
+            .post(format!("{base}/api/agent/runs"))
+            .header(TOKEN_HEADER, &token)
+            .json(&json!({"cwd":cwd,"provider":"codex","mode":"plan"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(bad.status(), 400, "Codex has no permission modes");
+        let created: Value = reqwest::Client::new()
+            .post(format!("{base}/api/agent/runs"))
+            .header(TOKEN_HEADER, &token)
+            .json(&json!({"cwd":cwd,"provider":"codex"}))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let run = created["id"].as_str().unwrap().to_owned();
+        assert_eq!(created["provider"], "codex");
+        let mut w = attach(
+            &base,
+            &run,
+            json!({"type":"attach","token":token,"role":"writer"}),
+        )
+        .await;
+        let hello = until(&mut w, status("ready")).await;
+        let epoch = hello.iter().find(|v| v["type"] == "snapshot").unwrap()["epoch"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let thread =
+            hello.iter().find(|v| v["kind"] == "run.info").unwrap()["payload"]["sessionId"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+        assert_eq!(hello[1]["state"]["capabilities"]["modes"], false);
+
+        command(&mut w, "c1", &epoch, "prompt", "hello").await;
+        let turn = until(&mut w, kind("turn.finished")).await;
+        assert!(turn.iter().any(|v| v["kind"] == "item.delta"));
+        assert_eq!(assistant_texts(&turn), ["echo: hello"]);
+
+        // a command approval, allowed: its output lands as a tool result
+        let req = ask(&mut w, &epoch, "c2", "run", "permission").await;
+        send(
+            &mut w,
+            "a1",
+            &epoch,
+            "answer",
+            json!({"requestId":req,"decision":"allow"}),
+        )
+        .await;
+        let turn = until(&mut w, kind("turn.finished")).await;
+        let result = turn
+            .iter()
+            .find(|v| v["payload"]["kind"] == "result")
+            .unwrap();
+        assert_eq!(result["payload"]["text"], "PASS 14 tests");
+        assert_eq!(assistant_texts(&turn), ["ran tests"]);
+
+        // a file change shows its diff in the approval; declined
+        command(&mut w, "c3", &epoch, "prompt", "edit").await;
+        let asked = until(&mut w, kind("interaction.requested")).await;
+        let p = &asked.last().unwrap()["payload"];
+        assert_eq!(
+            p["input"]["input"],
+            "*** Update File: src/a.ts\n-old\n+new\n"
+        );
+        send(
+            &mut w,
+            "a2",
+            &epoch,
+            "answer",
+            json!({"requestId":p["requestId"],"decision":"deny"}),
+        )
+        .await;
+        assert_eq!(
+            assistant_texts(&until(&mut w, kind("turn.finished")).await),
+            ["declined decline"]
+        );
+
+        // questions are answered by their Codex ids
+        let req = ask(&mut w, &epoch, "c4", "ask", "question").await;
+        send(
+            &mut w,
+            "a3",
+            &epoch,
+            "answer",
+            json!({"requestId":req,"decision":"answer","answers":{"Which db?":"pg"}}),
+        )
+        .await;
+        assert_eq!(
+            assistant_texts(&until(&mut w, kind("turn.finished")).await),
+            [r#"answered {"q1": {"answers": ["pg"]}}"#]
+        );
+
+        // interrupt names the running turn; there are no modes to switch
+        command(&mut w, "c5", &epoch, "prompt", "hang").await;
+        until(&mut w, kind("turn.started")).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(
+            send(&mut w, "i1", &epoch, "interrupt", json!({})).await["accepted"],
+            true
+        );
+        assert_eq!(
+            until(&mut w, kind("turn.finished")).await.last().unwrap()["payload"]["outcome"],
+            "interrupted"
+        );
+        let r = send(&mut w, "m1", &epoch, "setMode", json!({"mode":"plan"})).await;
+        assert_eq!(r["reason"], "Codex has no permission modes to switch");
+
+        // stopped and resumed: the same thread, through thread/resume
+        send(&mut w, "s1", &epoch, "stop", json!({})).await;
+        until(&mut w, status("stopped")).await;
+        let restarted = reqwest::Client::new()
+            .post(format!("{base}/api/agent/runs/{run}/restart"))
+            .header(TOKEN_HEADER, &token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(restarted.status(), 200);
+        until(&mut w, status("ready")).await;
+        let calls: Vec<Value> = std::fs::read_to_string(&log)
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        let resumed = calls
+            .iter()
+            .find(|c| c["method"] == "thread/resume")
+            .unwrap();
+        assert_eq!(resumed["params"]["threadId"], thread);
+        let interrupt = calls
+            .iter()
+            .find(|c| c["method"] == "turn/interrupt")
+            .unwrap();
+        assert_eq!(interrupt["params"]["turnId"], "turn-5");
+    });
+    let _ = std::fs::remove_file(&log);
+}
