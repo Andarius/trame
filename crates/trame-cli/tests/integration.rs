@@ -2097,7 +2097,9 @@ async fn miniapp_serves_page_and_due_rows_only_to_the_signed_user() {
     }
     let ok = post(Some(init_data(r#"{"id":42}"#, "123:TOKEN"))).await;
     assert_eq!(ok.status(), 200);
-    let rows = ok.json::<Value>().await.unwrap();
+    let body = ok.json::<Value>().await.unwrap();
+    assert!(body["icons"].is_object());
+    let rows = &body["rows"];
     assert_eq!(rows.as_array().unwrap().len(), 1);
     assert_eq!(rows[0]["text"], "rotate");
     assert_eq!(rows[0]["days"], -2);

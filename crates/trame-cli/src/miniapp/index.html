@@ -6,51 +6,78 @@
 <title>Due</title>
 <script src="https://telegram.org/js/telegram-web-app.js?65"></script>
 <style>
+  /* Telegram theme, with TelegramUI's light defaults outside Telegram */
   :root {
     --bg: var(--tg-theme-bg-color, #fff);
-    --text: var(--tg-theme-text-color, #111);
-    --hint: var(--tg-theme-hint-color, #777);
-    --section: var(--tg-theme-section-bg-color, #f4f4f5);
-    --accent: var(--tg-theme-accent-text-color, #2481cc);
-    --late: #d64545;
+    --text: var(--tg-theme-text-color, #000);
+    --hint: var(--tg-theme-hint-color, #707579);
+    --link: var(--tg-theme-link-color, #007aff);
+    --button: var(--tg-theme-button-color, #007aff);
+    --button-text: var(--tg-theme-button-text-color, #fff);
+    --page: var(--tg-theme-secondary-bg-color, #efeff4);
+    --section: var(--tg-theme-section-bg-color, #fff);
+    --section-header: var(--tg-theme-section-header-text-color, #707579);
+    --subtitle: var(--tg-theme-subtitle-text-color, #707579);
+    --separator: var(--tg-theme-section-separator-color, rgba(127, 127, 127, .3));
+    --red: var(--tg-theme-destructive-text-color, #e53935);
+    --orange: #f5a623;
+    --track: rgba(127, 127, 127, .18);
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font: 16px/1.4 system-ui, -apple-system, sans-serif;
-    padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
-      max(16px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+    margin: 0; background: var(--page); color: var(--text);
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Roboto", "Helvetica Neue", sans-serif;
+    padding: max(8px, env(safe-area-inset-top)) 0 max(20px, env(safe-area-inset-bottom));
+    -webkit-tap-highlight-color: transparent;
   }
-  h1 { font-size: 1.25rem; margin: 4px 0 12px; }
-  h2 {
-    font-size: .8rem; text-transform: uppercase; letter-spacing: .04em;
-    color: var(--hint); margin: 20px 4px 6px;
-  }
-  .card { background: var(--section); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; }
-  .card-title { font-weight: 600; color: var(--accent); overflow-wrap: anywhere; }
-  .status { font-weight: 400; color: var(--hint); font-size: .8rem; margin-left: 6px; }
-  .todo { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; border-top: 1px solid rgba(127,127,127,.2); }
-  .todo:first-of-type { border-top: 0; }
-  .when { flex: none; min-width: 5.2em; font-size: .85rem; color: var(--hint); font-variant-numeric: tabular-nums; }
-  .when.late { color: var(--late); font-weight: 600; }
-  .when.today { color: var(--accent); font-weight: 600; }
-  .text { overflow-wrap: anywhere; }
-  details > summary { cursor: pointer; color: var(--hint); margin: 20px 4px 6px; }
-  .msg { color: var(--hint); text-align: center; margin: 40px 0; }
-  .msg.error { color: var(--late); }
+  .sec { margin: 0 16px 12px; border-radius: 12px; background: var(--section); overflow: hidden; }
+  .tile { padding: 14px 16px; cursor: pointer; }
+  .tile:active, .cell.tap:active { background: var(--track); }
+  .row { display: flex; align-items: center; gap: 12px; }
+  .grow { flex: 1; min-width: 0; }
+  .t { font-size: 17px; line-height: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .t.b { font-weight: 600; }
+  .st { font-size: 15px; line-height: 20px; color: var(--subtitle); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cap { font-size: 13px; line-height: 16px; color: var(--hint); }
+  .chev { color: var(--hint); font-size: 20px; }
+  .bar { height: 6px; border-radius: 3px; background: var(--track); margin: 12px 0 10px; overflow: hidden; }
+  .bar > div { height: 100%; background: var(--red); }
+  .av { width: 40px; height: 40px; border-radius: 50%; flex: none; overflow: hidden; display: flex;
+        align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 16px; }
+  .av.big { width: 56px; height: 56px; font-size: 22px; }
+  .av img { width: 100%; height: 100%; object-fit: cover; }
+  .head { padding: 8px 16px 16px; }
+  .title { font-size: 22px; line-height: 28px; font-weight: 700; }
+  .sh { padding: 4px 32px 8px; font-size: 13px; line-height: 16px; text-transform: uppercase; color: var(--section-header); }
+  .cell { display: flex; align-items: center; gap: 12px; padding: 0 16px; }
+  .cell .mid { flex: 1; min-width: 0; padding: 11px 0; }
+  .cell + .cell .mid { border-top: .5px solid var(--separator); }
+  .wrap { white-space: normal; overflow-wrap: anywhere; font-size: 16px; line-height: 22px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .badge { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; color: #fff; font-size: 13px;
+           font-weight: 600; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+  .red { color: var(--red); } .orange { color: var(--orange); } .blue { color: var(--link); }
+  .bg-red { background: var(--red); } .bg-orange { background: var(--orange); } .bg-blue { background: var(--button); }
+  .msg { color: var(--hint); text-align: center; margin: 48px 24px; font-size: 15px; }
+  .msg.error { color: var(--red); }
 </style>
 </head>
 <body>
-<h1>Due</h1>
-<div id="root" class="msg">Loading…</div>
+<div id="root"><div class="msg">Loading…</div></div>
 <script>
 (function () {
   var tg = window.Telegram && window.Telegram.WebApp;
-  if (tg) { tg.ready(); tg.expand(); }
   var root = document.getElementById('root');
-  var FOLDED = ['paused', 'done', 'blocked'];
+  var PARKED = ['paused', 'blocked', 'done'];
+  var data = { rows: [], icons: {} };
+  var stack = [];
+
+  if (tg) {
+    tg.ready();
+    tg.expand();
+    try { tg.setHeaderColor('secondary_bg_color'); tg.setBackgroundColor('secondary_bg_color'); } catch (e) {}
+    tg.BackButton.onClick(back);
+  }
 
   function el(tag, cls, text) {
     var e = document.createElement(tag);
@@ -58,84 +85,133 @@
     if (text != null) e.textContent = text;
     return e;
   }
-  function when(days) {
-    if (days < 0) return -days + 'd late';
-    if (days === 0) return 'today';
-    return 'in ' + days + 'd';
-  }
-  function worst(todos) {
-    return Math.min.apply(null, todos.map(function (t) { return t.days; }));
-  }
-  function showMessage(text, error) {
-    root.className = 'msg' + (error ? ' error' : '');
-    root.textContent = text;
-  }
-  function todoRow(t) {
-    var row = el('div', 'todo');
-    var cls = t.days < 0 ? ' late' : t.days === 0 ? ' today' : '';
-    row.appendChild(el('span', 'when' + cls, when(t.days)));
-    row.appendChild(el('span', 'text', t.text));
-    return row;
-  }
-  // rows -> [{project, cards: [{title, status, todos}]}], worst first
-  function group(rows) {
-    var projects = {};
-    rows.forEach(function (r) {
-      var p = projects[r.project || 'No project'] ||= {};
-      var key = r.card_title || r.page_title || 'Untitled';
-      var card = p[key] ||= { title: key, status: r.card_title ? r.status : null, todos: [] };
-      card.todos.push(r);
-    });
-    return Object.keys(projects).map(function (name) {
-      var cards = Object.values(projects[name]);
-      cards.forEach(function (c) { c.todos.sort(function (a, b) { return a.days - b.days; }); });
-      cards.sort(function (a, b) { return worst(a.todos) - worst(b.todos); });
-      return { name: name, cards: cards };
-    }).sort(function (a, b) {
-      return worst(a.cards[0].todos) - worst(b.cards[0].todos);
-    });
-  }
-  function cardEl(c) {
-    var box = el('div', 'card');
-    var title = el('div', 'card-title', c.title);
-    if (c.status) title.appendChild(el('span', 'status', c.status));
-    box.appendChild(title);
-    c.todos.forEach(function (t) { box.appendChild(todoRow(t)); });
-    return box;
-  }
-  function render(rows) {
-    if (!rows.length) { showMessage('Nothing due this week.'); return; }
-    var active = rows.filter(function (r) { return FOLDED.indexOf(r.status) < 0; });
-    var folded = rows.filter(function (r) { return FOLDED.indexOf(r.status) >= 0; });
-    var frag = document.createDocumentFragment();
-    group(active).forEach(function (p) {
-      frag.appendChild(el('h2', null, p.name));
-      p.cards.forEach(function (c) { frag.appendChild(cardEl(c)); });
-    });
-    if (folded.length) {
-      var details = el('details');
-      details.appendChild(el('summary', null, 'Paused, done and blocked (' + folded.length + ')'));
-      group(folded).forEach(function (p) {
-        details.appendChild(el('h2', null, p.name));
-        p.cards.forEach(function (c) { details.appendChild(cardEl(c)); });
-      });
-      frag.appendChild(details);
+  function add(parent) { for (var i = 1; i < arguments.length; i++) if (arguments[i]) parent.appendChild(arguments[i]); return parent; }
+  function plain(s) { return String(s || '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/`/g, ''); }
+  function late(d) { return d < 0 ? (-d) + 'd late' : d === 0 ? 'today' : 'in ' + d + 'd'; }
+  function sev(d) { return d <= -3 ? 'red' : d < 0 ? 'orange' : 'blue'; }
+  function hue(s) { var h = 7; for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360; return h; }
+  function tap() { if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light'); }
+
+  function avatar(project, big) {
+    var a = el('div', 'av' + (big ? ' big' : ''));
+    var icon = data.icons[project];
+    if (typeof icon === 'string' && icon.indexOf('data:image/') === 0) {
+      var img = el('img'); img.alt = ''; img.src = icon; a.appendChild(img);
+    } else {
+      a.style.background = 'hsl(' + hue(project) + ' 55% 55%)';
+      a.textContent = project.charAt(0).toUpperCase();
     }
-    root.className = '';
+    return a;
+  }
+  function counts(todos) {
+    var l = todos.filter(function (r) { return r.days < 0; }).length;
+    var t = todos.filter(function (r) { return r.days === 0; }).length;
+    var parts = [];
+    if (l) parts.push(l + ' late');
+    if (t) parts.push(t + ' today');
+    if (!parts.length) parts.push(todos.length + ' coming up');
+    return parts.join(' · ');
+  }
+  function group(list, key) {
+    var out = [], idx = {};
+    list.forEach(function (r) {
+      var k = key(r);
+      if (!(k in idx)) { idx[k] = out.length; out.push({ key: k, todos: [] }); }
+      out[idx[k]].todos.push(r);
+    });
+    return out;
+  }
+  function cardsOf(project) {
+    return group(data.rows.filter(function (r) { return r.project === project; }), function (r) { return r.card; })
+      .map(function (c) { var f = c.todos[0]; return { title: c.key, todos: c.todos, status: f.status, worst: f.days, project: project }; });
+  }
+  function parked(c) { return PARKED.indexOf(c.status) >= 0; }
+
+  function show(view) {
     root.textContent = '';
-    root.appendChild(frag);
+    root.appendChild(view);
+    window.scrollTo(0, 0);
+    if (tg) { if (stack.length) tg.BackButton.show(); else tg.BackButton.hide(); }
+  }
+  function go(render) { stack.push(render); show(render()); tap(); }
+  function back() { stack.pop(); show(stack.length ? stack[stack.length - 1]() : home()); }
+
+  // 1 · project tiles
+  function home() {
+    var view = el('div');
+    var projects = group(data.rows, function (r) { return r.project; });
+    if (!projects.length) return add(view, el('div', 'msg', 'Nothing late or due this week.'));
+    projects.forEach(function (p) {
+      var todos = p.todos;
+      var cards = cardsOf(p.key);
+      var worst = cards.filter(function (c) { return !parked(c); })[0] || cards[0];
+      var lateN = todos.filter(function (r) { return r.days < 0; }).length;
+      var tile = el('div', 'sec tile');
+      var head = add(el('div', 'row'), avatar(p.key),
+        add(el('div', 'grow'), el('div', 't b', p.key), el('div', 'st', counts(todos))), el('span', 'chev', '›'));
+      var bar = el('div', 'bar'); var fill = el('div'); fill.style.width = Math.round(100 * lateN / todos.length) + '%'; bar.appendChild(fill);
+      var note = el('div', 'cap', 'Worst: ' + worst.title + ' · ');
+      note.appendChild(el('span', sev(worst.worst), late(worst.worst)));
+      add(tile, head, bar, note);
+      tile.onclick = function () { go(function () { return project(p.key); }); };
+      view.appendChild(tile);
+    });
+    return view;
   }
 
-  fetch('/tg/api/due', {
-    method: 'POST',
-    headers: { 'X-Telegram-Init-Data': tg ? tg.initData : '' }
-  }).then(function (res) {
-    if (res.status === 401) throw new Error('Not authorized. Open this from your Telegram bot.');
-    if (!res.ok) throw new Error('Server error (' + res.status + '). Try again later.');
-    return res.json();
-  }).then(render).catch(function (e) {
-    showMessage(e.message || 'Network error.', true);
-  });
+  // 2 · a project's cards
+  function project(name) {
+    var view = el('div');
+    var all = data.rows.filter(function (r) { return r.project === name; });
+    add(view, add(el('div', 'head row'), avatar(name, true),
+      add(el('div', 'grow'), el('div', 'title', name), el('div', 'st', counts(all)))));
+    var cards = cardsOf(name);
+    [['Active', cards.filter(function (c) { return !parked(c); })], ['Paused or done', cards.filter(parked)]].forEach(function (s) {
+      if (!s[1].length) return;
+      view.appendChild(el('div', 'sh', s[0]));
+      var sec = el('div', 'sec');
+      s[1].forEach(function (c) {
+        var title = c.title + (parked(c) ? ' · ' + c.status : '');
+        var badge = el('span', 'badge bg-' + sev(c.worst), String(c.todos.length));
+        var cell = add(el('div', 'cell tap'), add(el('span', 'dot bg-' + sev(c.worst))),
+          add(el('div', 'mid'), el('div', 't', title), el('div', 'st', late(c.worst) + ' · ' + plain(c.todos[0].text))), badge);
+        cell.onclick = function () { go(function () { return card(c); }); };
+        sec.appendChild(cell);
+      });
+      view.appendChild(sec);
+    });
+    return view;
+  }
+
+  // 3 · a card's todos
+  function card(c) {
+    var view = el('div');
+    add(view, add(el('div', 'head'), el('div', 'cap', c.project + (parked(c) ? ' · ' + c.status : '')), el('div', 'title', c.title)));
+    view.appendChild(el('div', 'sh', c.todos.length + (c.todos.length > 1 ? ' todos' : ' todo')));
+    var sec = el('div', 'sec');
+    c.todos.forEach(function (r) {
+      sec.appendChild(add(el('div', 'cell'), add(el('div', 'mid'), el('div', 'wrap', plain(r.text)), el('div', 'cap ' + sev(r.days), late(r.days) + ' · due ' + r.due))));
+    });
+    return add(view, sec);
+  }
+
+  function fail(text) { root.textContent = ''; root.appendChild(el('div', 'msg error', text)); }
+
+  fetch('/tg/api/due', { method: 'POST', headers: { 'X-Telegram-Init-Data': tg ? tg.initData : '' } })
+    .then(function (res) {
+      if (res.status === 401) throw new Error('Open this from the Trame bot in Telegram.');
+      if (!res.ok) throw new Error('Trame is unreachable right now (' + res.status + ').');
+      return res.json();
+    })
+    .then(function (body) {
+      data.icons = body.icons || {};
+      data.rows = (body.rows || []).map(function (r) {
+        return { project: r.project || 'No project', card: r.card_title || r.page_title || 'Untitled',
+                 status: r.status, text: r.text, days: r.days, due: r.due };
+      }).sort(function (a, b) { return a.days - b.days; });
+      show(home());
+    })
+    .catch(function (e) { fail(e.message); });
 })();
 </script>
 </body>

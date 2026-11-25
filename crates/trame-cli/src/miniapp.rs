@@ -140,9 +140,26 @@ async fn api_due(State(config): State<Arc<Config>>, headers: HeaderMap) -> Respo
         window: Window::Within(DUE_WITHIN_DAYS),
         query: None,
     };
-    let loaded = async { due::load(&options, &resolve_target().await?).await }.await;
+    let loaded = async {
+        let target = resolve_target().await?;
+        let rows = due::load(&options, &target).await?;
+        anyhow::Ok((rows, crate::digest::project_icons(&target).await))
+    }
+    .await;
     match loaded {
-        Ok(rows) => Json(rows.iter().map(pick).collect::<Vec<_>>()).into_response(),
+        Ok((rows, icons)) => {
+            // only the icons of projects on screen, and only inline images
+            let icons: serde_json::Map<String, Value> = icons
+                .into_iter()
+                .filter(|(name, icon)| {
+                    icon.starts_with("data:image/")
+                        && rows.iter().any(|r| r["project"] == name.as_str())
+                })
+                .map(|(name, icon)| (name, Value::String(icon)))
+                .collect();
+            Json(json!({"rows": rows.iter().map(pick).collect::<Vec<_>>(), "icons": icons}))
+                .into_response()
+        }
         Err(error) => {
             eprintln!("miniapp: loading due todos failed: {error}");
             (

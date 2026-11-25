@@ -525,7 +525,7 @@ fn plain(message: &Message) -> String {
 }
 
 /// Project name → icon data URL, from the board; empty when unreadable.
-async fn project_icons(target: &crate::target::Target) -> BTreeMap<String, String> {
+pub(crate) async fn project_icons(target: &crate::target::Target) -> BTreeMap<String, String> {
     let Ok(board) = target.get("/api/board").await else {
         return BTreeMap::new();
     };
