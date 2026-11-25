@@ -7,7 +7,10 @@ use anyhow::{Context, Result, bail};
 use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, Weekday};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{collections::BTreeMap, env, fmt::Write as _, fs, path::PathBuf, process::Command};
+use std::{
+    collections::BTreeMap, env, fmt::Write as _, fs, os::unix::fs::PermissionsExt, path::PathBuf,
+    process::Command,
+};
 
 const DAYS: [&str; 7] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
@@ -98,9 +101,10 @@ impl Schedule {
             Self::time(&self.at, "at", &self.name)?,
             Self::time(&self.until, "until", &self.name)?,
         );
-        if at >= until {
+        // the timer ticks every 5 minutes: a shorter window could fall between two ticks
+        if until - at < chrono::TimeDelta::minutes(10) {
             bail!(
-                "schedule {}: until ({}) must be after at ({})",
+                "schedule {}: until ({}) must be at least 10 minutes after at ({})",
                 self.name,
                 self.until,
                 self.at
@@ -218,13 +222,13 @@ fn write_schedules(list: &[Schedule]) -> Result<()> {
     }
     settings["due"]["schedules"] = serde_json::to_value(list)?;
     let path = settings_path();
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
-    }
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, serde_json::to_string_pretty(&settings)? + "\n")?;
-    fs::rename(tmp, path)?;
-    Ok(())
+    // settings.json holds hubApiToken: keep its mode, owner-only when new
+    let mode = fs::metadata(&path).map_or(0o600, |m| m.permissions().mode() & 0o777);
+    connectors::write_private(
+        &path,
+        (serde_json::to_string_pretty(&settings)? + "\n").as_bytes(),
+        mode,
+    )
 }
 
 // Stamps: the day a schedule last reached a connector (and the day it last reported a failure)
@@ -251,6 +255,28 @@ fn stamp_path(schedule: &str, connector: &str, failed: bool) -> PathBuf {
 fn stamped(schedule: &str, connector: &str, failed: bool, today: NaiveDate) -> bool {
     fs::read_to_string(stamp_path(schedule, connector, failed))
         .is_ok_and(|s| s.trim() == today.to_string())
+}
+
+/// Projects a schedule already delivered to a connector today, so a retry after a
+/// partial failure sends only the rest.
+fn sent_today(schedule: &str, connector: &str, today: NaiveDate) -> Vec<String> {
+    let path = stamp_path(schedule, connector, false).with_extension("sent");
+    let text = fs::read_to_string(path).unwrap_or_default();
+    let mut lines = text.lines();
+    if lines.next() != Some(today.to_string().as_str()) {
+        return Vec::new();
+    }
+    lines.map(str::to_owned).collect()
+}
+
+fn record_sent(schedule: &str, connector: &str, today: NaiveDate, sent: &[String]) -> Result<()> {
+    fs::create_dir_all(state_dir())?;
+    let path = stamp_path(schedule, connector, false).with_extension("sent");
+    fs::write(
+        path,
+        [vec![today.to_string()], sent.to_vec()].concat().join("\n"),
+    )?;
+    Ok(())
 }
 
 fn stamp(schedule: &str, connector: &str, failed: bool, today: NaiveDate) -> Result<()> {
@@ -325,6 +351,26 @@ fn unlink(text: &str) -> String {
     out
 }
 
+// Telegram rich messages allow 500 blocks: 10 cards × 25 todos + 20 parked × 6 stays under it
+const TODOS_PER_CARD: usize = 25;
+const PARKED_CARDS: usize = 20;
+const LINES_PER_PARKED: usize = 5;
+
+/// At most `max` entries, then one "+N more <what>" entry.
+fn capped(entries: impl Iterator<Item = Entry>, max: usize, what: &str) -> Vec<Entry> {
+    let mut all: Vec<Entry> = entries.collect();
+    if all.len() > max {
+        let more = all.len() - max;
+        all.truncate(max);
+        all.push(Entry {
+            label: format!("+{more} more {what} in Trame"),
+            link: None,
+            lines: Vec::new(),
+        });
+    }
+    all
+}
+
 /// A project's cards (card or page id, its todos), worst first.
 type Cards<'a> = Vec<(String, Vec<&'a Value>)>;
 
@@ -384,9 +430,8 @@ pub fn digests(rows: &[Value], max: usize, icons: &BTreeMap<String, String>) -> 
                         tally(todos)
                     ),
                     open: i == 0,
-                    entries: todos
-                        .iter()
-                        .map(|r| Entry {
+                    entries: capped(
+                        todos.iter().map(|r| Entry {
                             label: format!(
                                 "{} · {}",
                                 late_label(days(r)),
@@ -394,17 +439,18 @@ pub fn digests(rows: &[Value], max: usize, icons: &BTreeMap<String, String>) -> 
                             ),
                             link: None,
                             lines: Vec::new(),
-                        })
-                        .collect(),
+                        }),
+                        TODOS_PER_CARD,
+                        "todos",
+                    ),
                 })
                 .collect();
             if !folded.is_empty() {
                 groups.push(Group {
                     heading: format!("⏸ Paused or done · {} cards", folded.len()),
                     open: false,
-                    entries: folded
-                        .iter()
-                        .map(|(_, todos)| Entry {
+                    entries: capped(
+                        folded.iter().map(|(_, todos)| Entry {
                             label: format!(
                                 "{} {} ({}) · {}",
                                 emoji(days(todos[0])),
@@ -413,12 +459,21 @@ pub fn digests(rows: &[Value], max: usize, icons: &BTreeMap<String, String>) -> 
                                 tally(todos)
                             ),
                             link: None,
-                            lines: todos
-                                .iter()
-                                .map(|r| short(&unlink(&s(&r["text"])), 80))
-                                .collect(),
-                        })
-                        .collect(),
+                            lines: {
+                                let mut lines: Vec<String> = todos
+                                    .iter()
+                                    .take(LINES_PER_PARKED)
+                                    .map(|r| short(&unlink(&s(&r["text"])), 80))
+                                    .collect();
+                                if todos.len() > LINES_PER_PARKED {
+                                    lines.push(format!("+{} more", todos.len() - LINES_PER_PARKED));
+                                }
+                                lines
+                            },
+                        }),
+                        PARKED_CARDS,
+                        "cards",
+                    ),
                 });
             }
             let hidden = active.len().saturating_sub(max);
@@ -608,12 +663,18 @@ async fn send(args: &[String]) -> Result<()> {
             continue;
         }
         for c in &pending {
+            let mut done = sent_today(&schedule.name, c.name(), today);
             let mut sent = Ok(());
             for message in &messages {
+                if done.contains(&message.title) {
+                    continue;
+                }
                 sent = c.send(&client, message).await;
                 if sent.is_err() {
                     break;
                 }
+                done.push(message.title.clone());
+                record_sent(&schedule.name, c.name(), today, &done)?;
             }
             match sent {
                 Ok(()) => {
@@ -743,6 +804,16 @@ fn schedule_cmd(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// One systemd command-line word: quoted, with `\\`, `"` and the `%` specifier escaped.
+fn systemd_quote(word: &str) -> String {
+    format!(
+        "\"{}\"",
+        word.replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('%', "%%")
+    )
+}
+
 fn install(args: &[String]) -> Result<()> {
     let dir = env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
@@ -774,7 +845,7 @@ fn install(args: &[String]) -> Result<()> {
         dir.join("trame-due.service"),
         format!(
             "[Unit]\nDescription=Trame due digest (tramecli due --send)\n\n[Service]\nType=oneshot\nExecStart={} due --send\n",
-            exe.display()
+            systemd_quote(&exe.to_string_lossy())
         ),
     )?;
     fs::write(
@@ -826,7 +897,11 @@ mod tests {
             (json!({"name": "m", "at": "8h30"}), "at must be HH:MM"),
             (
                 json!({"name": "m", "at": "13:00"}),
-                "until (12:00) must be after",
+                "at least 10 minutes after",
+            ),
+            (
+                json!({"name": "m", "at": "11:55"}),
+                "at least 10 minutes after",
             ),
             (json!({"name": "m", "days": ["lun"]}), "unknown day"),
             (json!({"name": "m", "window": "soon"}), "window must be"),
@@ -906,6 +981,18 @@ mod tests {
         );
         assert_eq!(messages[0].image, None, "an SVG icon has no banner");
         assert_eq!(unlink("a [b](http://x) c [d e"), "a b c [d e");
+        let many: Vec<Value> = (0..30)
+            .map(|i| row(-1, &format!("t{i}"), Some("Big"), Some(("Card", "active"))))
+            .collect();
+        let big = &digests(&many, 10, &BTreeMap::new())[0].groups[0].entries;
+        assert_eq!(
+            (big.len(), big[TODOS_PER_CARD].label.as_str()),
+            (TODOS_PER_CARD + 1, "+5 more todos in Trame")
+        );
+        assert_eq!(
+            systemd_quote("/opt/my tools/50%\"x"),
+            "\"/opt/my tools/50%%\\\"x\""
+        );
         assert_eq!(
             short("renew the certificate before the old one expires", 20),
             "renew the…"

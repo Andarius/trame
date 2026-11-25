@@ -32,7 +32,9 @@ if [ "${TRAME_SKIP_CLI:-}" != 1 ]; then
   (cd "$HERE/.." && cargo build --release --locked -p trame-cli)
   ssh "$HOST" "mkdir -p ~/.local/bin"
   scp -q "$HERE/../target/release/tramecli" "$HOST:.local/bin/tramecli.new"
-  ssh "$HOST" "mv ~/.local/bin/tramecli.new ~/.local/bin/tramecli && ~/.local/bin/tramecli --version"
+  # run the staged binary there first: a build for another arch or libc must not replace a working one
+  ssh "$HOST" "~/.local/bin/tramecli.new --version && mv ~/.local/bin/tramecli.new ~/.local/bin/tramecli" ||
+    { echo "tramecli built here does not run on $HOST; kept its current tramecli" >&2; exit 1; }
 fi
 
 ssh "$HOST" bash -s "$DIR" <<'REMOTE'

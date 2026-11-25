@@ -7,8 +7,8 @@ use std::{
     env, fs,
     future::Future,
     io::{BufRead, IsTerminal, Write},
-    os::unix::fs::OpenOptionsExt,
-    path::PathBuf,
+    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    path::{Path, PathBuf},
     pin::Pin,
     process::{Command, Stdio},
     time::Duration,
@@ -123,37 +123,41 @@ pub fn load_values() -> Values {
     values
 }
 
-/// Writes the env file owner-only (0600), atomically.
-pub fn save_values(values: &Values) -> Result<()> {
-    let path = env_path();
+/// Writes `data` atomically through a fresh temporary file created with `mode`, so a
+/// leftover or pre-existing file can never lend its looser permissions to a secret.
+pub(crate) fn write_private(path: &Path, data: &[u8], mode: u32) -> Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
-    let tmp = path.with_extension("env.tmp");
+    let tmp = path.with_extension(format!("tmp-{}", uuid::Uuid::new_v4().simple()));
     let mut file = fs::OpenOptions::new()
         .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
+        .create_new(true)
+        .mode(mode)
         .open(&tmp)
         .with_context(|| format!("writing {}", tmp.display()))?;
+    let written = file
+        .write_all(data)
+        .and_then(|()| file.sync_all())
+        .and_then(|()| fs::set_permissions(&tmp, fs::Permissions::from_mode(mode)))
+        .and_then(|()| fs::rename(&tmp, path));
+    if written.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    Ok(written?)
+}
+
+/// Writes the env file owner-only (0600), atomically.
+pub fn save_values(values: &Values) -> Result<()> {
     let body: String = values
         .iter()
-        .map(|(k, v)| {
-            [
-                k.as_str(),
-                "=",
-                v,
-                "
-",
-            ]
-            .concat()
-        })
+        .map(|(k, v)| [k.as_str(), "=", v, "\n"].concat())
         .collect();
-    file.write_all(format!("# written by `tramecli connector setup`\n{body}").as_bytes())?;
-    file.sync_all()?;
-    fs::rename(&tmp, &path)?;
-    Ok(())
+    write_private(
+        &env_path(),
+        format!("# written by `tramecli connector setup`\n{body}").as_bytes(),
+        0o600,
+    )
 }
 
 /// Connectors whose required values are all present.

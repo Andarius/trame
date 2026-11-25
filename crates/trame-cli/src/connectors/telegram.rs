@@ -99,19 +99,42 @@ fn complete<'a>(client: &'a Client, values: &'a mut Values) -> BoxFuture<'a, Res
             return Ok(());
         }
         let updates = call(client, &token, "getUpdates", &json!({})).await?;
-        let chat = updates
+        let mut chats: Vec<(i64, String)> = Vec::new();
+        for chat in updates
             .as_array()
             .into_iter()
             .flatten()
-            .rev()
             .map(|u| &u["message"]["chat"])
-            .find(|c| c["type"] == "private")
-            .and_then(|c| c["id"].as_i64());
-        let Some(chat) = chat else {
-            bail!(
-                "no private message to @{bot} yet: open it in Telegram, send /start, then rerun (or pass --chat-id)"
+        {
+            if chat["type"] != "private" {
+                continue;
+            }
+            let Some(id) = chat["id"].as_i64() else {
+                continue;
+            };
+            let who = chat["username"].as_str().map_or_else(
+                || chat["first_name"].as_str().unwrap_or("?").to_owned(),
+                |u| format!("@{u}"),
             );
+            if !chats.iter().any(|(c, _)| *c == id) {
+                chats.push((id, who));
+            }
+        }
+        // anyone can message a bot: never pick one of several people silently
+        let (chat, who) = match chats.as_slice() {
+            [] => bail!(
+                "no private message to @{bot} yet: open it in Telegram, send /start, then rerun (or pass --chat-id)"
+            ),
+            [one] => one.clone(),
+            many => bail!(
+                "several people messaged @{bot}: {} — rerun with --chat-id <id> for yours",
+                many.iter()
+                    .map(|(id, who)| format!("{id} ({who})"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
         };
+        eprintln!("telegram: sending to chat {chat} ({who})");
         values.insert(CHAT.into(), chat.to_string());
         Ok(())
     })

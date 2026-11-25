@@ -1867,6 +1867,20 @@ async fn connector_setup_and_scheduled_due_digest_send_once() {
     let env_file = scratch.0.join("config/trame/connectors.env");
     assert!(!env_file.exists());
 
+    // two people messaged the bot: setup refuses to pick one
+    state.lock().unwrap().telegram_updates = json!([
+        {"message": {"chat": {"id": 90, "type": "private", "first_name": "Ju"}}},
+        {"message": {"chat": {"id": 91, "type": "private", "username": "stranger"}}}
+    ]);
+    let out = run(
+        &["connector", "setup", "telegram"],
+        Some("123:SECRETTOKEN\n"),
+    )
+    .await;
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("91 (@stranger)"));
+    assert!(!env_file.exists());
+
     // after /start: chat id from the last private message, file 0600, test sent, token never printed
     state.lock().unwrap().telegram_updates = json!([
         {"message": {"chat": {"id": -5, "type": "group"}}},
@@ -1901,6 +1915,10 @@ async fn connector_setup_and_scheduled_due_digest_send_once() {
     assert!(sends(&state)[0].contains("name=\"chat_id\"\r\n\r\n90\r\n"));
     let listed = run(&["connector", "list"], None).await;
     assert!(!String::from_utf8_lossy(&listed.stdout).contains("SECRETTOKEN"));
+
+    // settings.json carries the hub token: a schedule edit keeps it owner-only
+    let settings = scratch.0.join("settings.json");
+    std::fs::set_permissions(&settings, std::fs::Permissions::from_mode(0o600)).unwrap();
 
     // an all-day schedule sends once per day, then stays quiet
     let out = run(
@@ -1938,6 +1956,10 @@ async fn connector_setup_and_scheduled_due_digest_send_once() {
         digests[0]
     );
     assert!(scratch.0.join("state/trame/due-allday-telegram").exists());
+    assert_eq!(
+        std::fs::metadata(&settings).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
 
     // an unreadable hub reports once per day and fails the run each time
     let out = run(

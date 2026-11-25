@@ -10,6 +10,10 @@ const ICON: u32 = 96;
 /// square icon would fill the screen. None for SVG or unreadable icons.
 pub fn from_icon(icon: &str) -> Option<Vec<u8>> {
     let data = icon.strip_prefix("data:image/png;base64,")?;
+    // icons are small logos: refuse anything that could make decoding expensive
+    if data.len() > 2 << 20 {
+        return None;
+    }
     let png = base64::engine::general_purpose::STANDARD
         .decode(data)
         .ok()?;
@@ -42,11 +46,16 @@ pub fn from_icon(icon: &str) -> Option<Vec<u8>> {
 
 /// Any 8-bit PNG as RGBA.
 fn decode(png: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
-    let mut decoder = png::Decoder::new(Cursor::new(png));
+    let mut decoder =
+        png::Decoder::new_with_limits(Cursor::new(png), png::Limits { bytes: 16 << 20 });
     decoder.set_transformations(
         png::Transformations::normalize_to_color8() | png::Transformations::ALPHA,
     );
     let mut reader = decoder.read_info().ok()?;
+    let (w, h) = (reader.info().width, reader.info().height);
+    if w > 4096 || h > 4096 {
+        return None;
+    }
     let mut buf = vec![0; reader.output_buffer_size()?];
     let info = reader.next_frame(&mut buf).ok()?;
     let pixels = &buf[..info.buffer_size()];
