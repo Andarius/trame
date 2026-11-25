@@ -715,8 +715,12 @@ export function Drawer(
                   <p className="whitespace-pre-wrap text-xs leading-relaxed text-ink-soft">{renderInline(e.summary)}</p>
                 )}
                 {/* the entry's own agent wins; older track/import rows predate the
-                    column and fall back to the session's agent. Manual logs stay bare. */}
-                <EventMeta e={e} agent={e.agent ?? (e.kind !== "log" ? session.agent : null)} when={timeAgo(e.at)} />
+                    column and fall back to the session's agent. Manual logs and status changes stay bare. */}
+                <EventMeta
+                  e={e}
+                  agent={e.agent ?? (e.kind === "log" || e.kind === "status" ? null : session.agent)}
+                  when={timeAgo(e.at)}
+                />
               </>
             )}
         </div>

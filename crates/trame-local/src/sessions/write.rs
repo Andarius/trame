@@ -512,6 +512,7 @@ fn upsert_mut(db: &mut Db, raw: &mut Value, note: Option<&mut String>) -> Result
     let status = status_key(db, &get(&s, "status"))?;
     let from = origin(db);
     db.query("insert into sessions(id,title,status,client_id,page_id,repo_path,branch,next_step,pr_url,summary,claude_id,agent,last_touched,origin,updated_at,tags,branches) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$12,$13,clock_timestamp(),$11,clock_timestamp(),$16::jsonb,$17) on conflict(id) do update set title=$2,status=$3,client_id=$4,repo_path=$6,branch=$7,branches=$17,page_id=case when $14 then $5 else sessions.page_id end,tags=case when $15 then excluded.tags else sessions.tags end,next_step=$8,pr_url=$9,summary=$10,claude_id=coalesce($12,sessions.claude_id),agent=coalesce($13,sessions.agent),last_touched=clock_timestamp(),origin=$11,updated_at=clock_timestamp()",&[json!(id),get(&s,"title"),status,get(&s,"client_id"),get(&s,"page_id"),get(&s,"repo_path"),get(&s,"branch"),get(&s,"next_step"),get(&s,"pr_url"),s.get("summary").cloned().filter(|v|!v.is_null()).unwrap_or(json!("")),from,get(&s,"claude_id"),get(&s,"agent"),json!(s.contains_key("page_id")),json!(s.contains_key("tags")),json!(s.get("tags").cloned().unwrap_or(json!([])).to_string()),json!(branches)])?;
+    super::log_reopen(db, &id, &cur["status"])?;
     // the card's repo, so other machines can group it without seeing its folder
     if let Some(path) = get(&s, "repo_path").as_str() {
         if let Some(repo) = crate::repos::repo_for(db, path, &get(&s, "client_id"))? {

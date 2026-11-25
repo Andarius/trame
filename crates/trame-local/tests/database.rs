@@ -156,6 +156,51 @@ fn a_rehearsal_rolls_back_and_refuses_to_nest() {
 }
 
 #[test]
+fn leaving_a_done_column_logs_a_reopen() {
+    const ID: &str = "00000000-0000-4000-8000-00000000d0e2";
+    let mut t = TestDb::new();
+    t.request(
+        "POST",
+        "/api/sessions",
+        json!({"id":ID,"title":"card","status":"active"}),
+    );
+    let status = format!("/api/sessions/{ID}/status");
+    // each step: the request, then reopen events so far
+    let steps = [
+        ("closing", status.as_str(), json!({"status":"done"}), 0),
+        ("reopening", status.as_str(), json!({"status":"active"}), 1),
+        (
+            "moving between open columns",
+            status.as_str(),
+            json!({"status":"paused"}),
+            1,
+        ),
+        (
+            "closing again",
+            status.as_str(),
+            json!({"status":"done"}),
+            1,
+        ),
+        (
+            "reopening through a card upsert",
+            "/api/sessions",
+            json!({"id":ID,"title":"card","status":"active"}),
+            2,
+        ),
+    ];
+    for (name, path, body, want) in steps {
+        t.request("POST", path, body);
+        let n = t.db.query(
+            "select count(*)::int n from session_events where session_id=$1 and kind='status' and summary='Reopened'",
+            &[json!(ID)],
+        )
+        .unwrap()[0]["n"]
+            .clone();
+        assert_eq!(n, json!(want), "{name}");
+    }
+}
+
+#[test]
 fn done_at_follows_a_card_into_and_out_of_a_terminal_status() {
     const ID: &str = "00000000-0000-4000-8000-00000000d0e1";
     fn done_at(t: &mut TestDb) -> Value {
