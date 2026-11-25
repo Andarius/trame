@@ -198,10 +198,11 @@ export function AgentView(
               <span className="flex items-center gap-1.5">
                 <AgentIcon a={{ harness: state.provider ?? "claude", icon: null }} />
                 {who === "Codex" ? "Codex" : "Claude Code"}
-                {state.model ? ` · ${state.model}` : ""}
+                {modelOf(state) ? ` · ${modelOf(state)!.label}` : state.model ? ` · ${state.model}` : ""}
               </span>
               <span className="break-all">{state.cwd.replace(/^\/(home|Users)\/[^/]+/, "~")}</span>
-              {modes && <span>mode: {MODES.find((m) => m.mode === state.mode)?.label ?? state.mode ?? "default"}</span>}
+              {modes && <span>mode: {modeOf(state.mode)?.label ?? state.mode ?? "Auto"}</span>}
+              {state.effort && <span>effort: {state.effort}</span>}
               <span>turns: {state.turn}</span>
               <code className="break-all font-mono text-[10.5px] text-ink-muted" title="the provider's session id">{state.sessionId}</code>
             </section>
@@ -515,7 +516,7 @@ function RunBar(
       <span className="ml-auto" />
       {models.length > 0 && chip("model", model?.label ?? state.model ?? "Model", !writer || ended)}
       {efforts.length > 0 &&
-        chip("effort", state.effort ? state.effort[0].toUpperCase() + state.effort.slice(1) : "Effort", !writer || state.status !== "ready")}
+        chip("effort", state.effort ? state.effort[0].toUpperCase() + state.effort.slice(1) : "Default effort", !writer || state.status !== "ready")}
       {(state.capabilities?.modes ?? true) && chip("mode", mode?.label ?? state.mode ?? "Mode", !writer || ended)}
       {actions.length > 0 && chip("more", "⋯", !writer)}
     </>

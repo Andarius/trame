@@ -899,9 +899,12 @@ impl Run {
                                     "efforts": m["supportedEffortLevels"],
                                 }))
                                 .collect();
+                            // the CLI doesn't say its effort: it starts at the one its settings give
+                            let effort = self.inner.lock().unwrap().state.effort.clone();
+                            let effort = effort.or_else(|| claude::default_effort(&self.cwd));
                             self.publish(
                                 "run.info",
-                                json!({"mode":body["current_permission_mode"],"models":models}),
+                                json!({"mode":body["current_permission_mode"],"models":models,"effort":effort}),
                             );
                             self.status("ready");
                         }

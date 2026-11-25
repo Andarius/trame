@@ -281,7 +281,8 @@ async fn start(native: &Native, body: &Value) -> Response {
         return json_response(400, json!({"error":"unknown model or effort"}));
     }
     let launch = Launch {
-        mode,
+        // Claude starts in Auto unless asked otherwise
+        mode: mode.or_else(|| (provider == Provider::Claude).then(|| "auto".to_owned())),
         model: model.map(str::to_owned),
         effort: effort.map(str::to_owned),
     };

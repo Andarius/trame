@@ -1,4 +1,5 @@
 use serde_json::{Value, json};
+use std::path::{Path, PathBuf};
 
 /// How a run starts: each `None` leaves the user's own Claude Code default.
 #[derive(Clone, Debug, Default)]
@@ -38,6 +39,22 @@ pub(crate) fn args(resume: Option<&str>, session: &str, launch: &Launch) -> Vec<
         None => out.extend(["--session-id".into(), session.into()]),
     }
     out
+}
+
+/// The effort Claude Code starts at when none is passed: `effortLevel` from its settings, the folder's winning.
+pub(crate) fn default_effort(cwd: &Path) -> Option<String> {
+    let user = PathBuf::from(std::env::var_os("HOME")?).join(".claude/settings.json");
+    [
+        user,
+        cwd.join(".claude/settings.json"),
+        cwd.join(".claude/settings.local.json"),
+    ]
+    .iter()
+    .rev()
+    .find_map(|p| {
+        let v: Value = serde_json::from_slice(&std::fs::read(p).ok()?).ok()?;
+        v["effortLevel"].as_str().map(str::to_owned)
+    })
 }
 
 pub(crate) fn initialize(request_id: &str) -> Value {
