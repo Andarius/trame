@@ -7,7 +7,8 @@ services:
       HOME: /home/trame
     volumes:
       - ${HOME}/.local/bin/tramecli:/usr/local/bin/tramecli:ro
-      - ${HOME}/.config/trame/connectors.env:/home/trame/.config/trame/connectors.env:ro
+      # the folder, not the file: setup replaces connectors.env atomically (new inode)
+      - ${HOME}/.config/trame:/home/trame/.config/trame:ro
       # settings.json (hubApi + hubApiToken) and certs/ca.crt
       - ${HOME}/.local/share/trame:/home/trame/.local/share/trame:ro
     command: ["tramecli", "miniapp", "serve", "--addr", "0.0.0.0:8790"]

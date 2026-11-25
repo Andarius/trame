@@ -6,7 +6,7 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use axum::{
     Json, Router,
-    extract::{DefaultBodyLimit, Request, State},
+    extract::{DefaultBodyLimit, Request},
     http::{HeaderMap, StatusCode, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
@@ -15,10 +15,7 @@ use axum::{
 use hmac::{Hmac, KeyInit, Mac};
 use serde_json::{Value, json};
 use sha2::Sha256;
-use std::{
-    sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::{net::TcpListener, time::timeout};
 
 const PAGE: &str = include_str!("miniapp/index.html");
@@ -41,7 +38,6 @@ pub enum Rejected {
     User,
 }
 
-#[derive(Clone)]
 struct Config {
     token: String,
     chat_id: String,
@@ -125,7 +121,15 @@ fn pick(row: &Value) -> Value {
     })
 }
 
-async fn api_due(State(config): State<Arc<Config>>, headers: HeaderMap) -> Response {
+async fn api_due(headers: HeaderMap) -> Response {
+    // read per request: a removed or rotated connector takes effect at once, and none means closed
+    let Ok(config) = config() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "unavailable"})),
+        )
+            .into_response();
+    };
     let init_data = headers
         .get("x-telegram-init-data")
         .filter(|v| v.len() <= MAX_INIT_DATA_BYTES)
@@ -187,14 +191,13 @@ async fn limit_time(request: Request, next: Next) -> Response {
         .unwrap_or_else(|_| StatusCode::GATEWAY_TIMEOUT.into_response())
 }
 
-fn router(config: Config) -> Router {
+fn router() -> Router {
     Router::new()
         .route("/tg/", get(index))
         .route("/tg/api/due", post(api_due))
         .fallback(|| async { StatusCode::NOT_FOUND })
         .layer(DefaultBodyLimit::max(1024))
         .layer(middleware::from_fn(limit_time))
-        .with_state(Arc::new(config))
 }
 
 fn config() -> Result<Config> {
@@ -220,7 +223,8 @@ pub async fn main(args: &[String]) -> Result<()> {
         [flag, addr] if flag == "--addr" => addr,
         _ => bail!(USAGE),
     };
-    let config = config()?;
+    // fail fast at startup; requests re-read the values
+    config()?;
     let listener = TcpListener::bind(addr)
         .await
         .with_context(|| format!("binding {addr}"))?;
@@ -228,7 +232,7 @@ pub async fn main(args: &[String]) -> Result<()> {
         "miniapp: listening on http://{}/tg/",
         listener.local_addr()?
     );
-    axum::serve(listener, router(config)).await?;
+    axum::serve(listener, router()).await?;
     Ok(())
 }
 
