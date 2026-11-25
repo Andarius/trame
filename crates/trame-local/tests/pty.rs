@@ -193,3 +193,74 @@ fn terminal_requires_token_and_streams_reattaches_and_closes() {
         assert_eq!(again.status(), 404);
     });
 }
+
+#[test]
+fn restored_agent_resumes_only_once_its_shell_is_shown() {
+    let (term, session) = (
+        "6f0a2c1e-0000-4000-8000-000000000001",
+        "6f0a2c1e-0000-4000-8000-0000000000aa",
+    );
+    let dir = std::env::temp_dir();
+    // a stand-in `claude` that prints what it was resumed with; HOME there too, so no ~/.profile puts the real one first
+    let bin = dir.join(format!(
+        "trame-fake-agent-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(bin.join("claude"), "#!/bin/sh\necho \"resumed:$1:$2\"\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(bin.join("claude"), std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+    }
+    let path = format!("{}:/usr/bin:/bin", bin.display());
+    let saved = json!([{"id":term,"title":"api","cwd":dir,"card":null,"project":null,
+        "agent":{"kind":"claude","session":session,"name":"billing-docs","named":true}}]);
+    let t = TestDb::with_files(
+        &[
+            ("SHELL", "/bin/sh"),
+            ("PATH", &path),
+            ("HOME", bin.to_str().unwrap()),
+        ],
+        &[("terms.json", saved.to_string().as_bytes())],
+    );
+    let base = t.base_url();
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let client = reqwest::Client::new();
+        let token = client
+            .get(format!("{base}/api/term/token"))
+            .send()
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap()["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let sessions = || async {
+            client
+                .get(format!("{base}/api/term/sessions"))
+                .header(TOKEN_HEADER, &token)
+                .send()
+                .await
+                .unwrap()
+                .json::<Value>()
+                .await
+                .unwrap()
+        };
+        // listed under its name, not started
+        let before = sessions().await;
+        assert_eq!(before[0]["term"], term);
+        assert_eq!(before[0]["id"], session);
+        assert_eq!(before[0]["name"], "billing-docs");
+        assert_eq!(before[0]["asleep"], true);
+
+        let mut ws = attach(&base, term, &token, None).await;
+        let resumed = format!("resumed:--resume:{session}");
+        read_until(&mut ws, |f| has(f, &resumed)).await;
+        assert_eq!(sessions().await, json!([]));
+    });
+    let _ = std::fs::remove_dir_all(&bin);
+}
