@@ -36,6 +36,7 @@ pub mod startup;
 pub mod stats;
 pub mod sync;
 pub mod terminal;
+pub mod token;
 pub mod udb;
 pub mod update;
 pub mod web;

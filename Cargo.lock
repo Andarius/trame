@@ -5093,6 +5093,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "trame-hub"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "hyper",
+ "hyper-util",
+ "postgres",
+ "rustls",
+ "rustls-pemfile",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+ "trame-local",
+ "trame-protocol",
+]
+
+[[package]]
 name = "trame-local"
 version = "0.35.4"
 dependencies = [
