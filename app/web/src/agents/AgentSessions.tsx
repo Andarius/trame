@@ -440,7 +440,7 @@ export function AgentSessions(
   const { live } = useAgents();
   const [days, setDays] = useState(7);
   const scan = useSyncExternalStore(subscribeScans, () => cachedScan(days));
-  const [statusFilter, setStatusFilter] = useState<"active" | "paused" | "starred" | "all">(
+  const [statusFilter, setStatusFilter] = useState<"active" | "paused" | "starred" | "parked" | "all">(
     "all",
   );
   const [sourceFilter, setSourceFilter] = useState("all");
@@ -493,7 +493,12 @@ export function AgentSessions(
   // board query syntax: bare words hit repo/title/branch, `-word` hides, repo:/title:/branch: scope
   const { terms } = parseQuery(q);
   const isVisible = (s: ClaudeSession, repoName: string) =>
-    (statusFilter === "all" || (statusFilter === "starred" ? !!s.starred : s.suggestedStatus === statusFilter)) &&
+    (statusFilter === "all" ||
+      (statusFilter === "starred"
+        ? !!s.starred
+        : statusFilter === "parked"
+        ? isParked(s)
+        : s.suggestedStatus === statusFilter)) &&
     (sourceFilter === "all" || s.source === sourceFilter) &&
     matchQuery(terms, (key) => {
       const repo = repoName.toLowerCase(), title = s.title.toLowerCase(), branch = (s.branch ?? "").toLowerCase();
@@ -506,6 +511,12 @@ export function AgentSessions(
     board.sessions.find((row) =>
       row.id === s.claudeId || row.claude_id === s.claudeId
     );
+
+  // its card carries the `parked` tag (set by /park) and is not done
+  const isParked = (s: ClaudeSession) => {
+    const card = cardFor(s);
+    return !!card && card.status !== "done" && card.tags.includes("parked");
+  };
 
   // tracked project's color when the repo name matches one, hash fallback otherwise
   const repoColor = (repoName: string) =>
@@ -564,7 +575,7 @@ export function AgentSessions(
           </button>
         ))}
         <div className="ml-1 flex rounded-[7px] bg-panel p-[3px]">
-          {(["all", "starred", "active", "paused"] as const).map((f) => (
+          {(["all", "starred", "active", "paused", "parked"] as const).map((f) => (
             <button
               type="button"
               key={f}
@@ -575,6 +586,8 @@ export function AgentSessions(
                 ? "Sessions touched in the last 48 h"
                 : f === "paused"
                 ? "Sessions idle for more than 48 h"
+                : f === "parked"
+                ? "Sessions whose card is parked (tag:parked), to resume them"
                 : undefined}
               className={`rounded-[5px] px-2.5 py-[3px] text-[11px] ${
                 statusFilter === f
@@ -582,7 +595,7 @@ export function AgentSessions(
                   : "text-ink-muted hover:text-ink-soft"
               }`}
             >
-              {f === "all" ? "all" : f === "starred" ? "★ starred" : f === "active" ? "current" : "past"}
+              {f === "all" ? "all" : f === "starred" ? "★ starred" : f === "active" ? "current" : f === "paused" ? "past" : "parked"}
             </button>
           ))}
         </div>
