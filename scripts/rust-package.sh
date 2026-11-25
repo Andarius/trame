@@ -65,7 +65,8 @@ gen_licenses() {
 
 package="$PWD/.scratch/package"
 pg="$package/pg"
-mkdir -p "$package"
+# tauri-build requires every resource dir to exist, even for test builds after `prepare`
+mkdir -p "$package/licenses"
 if [[ "$platform" == Darwin/arm64 ]]; then
     # relocatable build: bin/, lib/ and share/ must stay siblings
     name=postgresql-18.6.0-aarch64-apple-darwin
