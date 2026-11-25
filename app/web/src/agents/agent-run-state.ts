@@ -41,7 +41,12 @@ export const MODES = [
 // the CLI reports Manual by its older name
 export const modeOf = (mode: string | null) => MODES.find((m) => m.mode === (mode === "default" ? "manual" : mode)) ?? null;
 // the offered model a run's model id stands for
-export const modelOf = (s: Pick<RunState, "model" | "models">) =>
+export const modelOf = (s: Pick<RunState, "model" | "models">): ModelChoice | null => {
+  // before its first turn a run hasn't said its model: it runs the provider's default
+  const model = s.model ?? s.models?.find((m) => m.value === "default")?.resolved ?? null;
+  return model ? findModel({ model, models: s.models }) : null;
+};
+const findModel = (s: Pick<RunState, "model" | "models">) =>
   s.models?.find((m) => m.value === s.model) ??
     // a resolved id names its model rather than the "default" alias pointing at it
     s.models?.find((m) => m.resolved === s.model && m.value !== "default") ??
