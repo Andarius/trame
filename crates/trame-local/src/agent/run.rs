@@ -101,19 +101,38 @@ pub struct Attached {
 pub type Reply = Result<(), &'static str>;
 
 impl Run {
-    /// Start a run in `cwd`: a fresh conversation, or `resume` an existing one by its provider ID.
+    /// Start a run in `cwd`: a fresh conversation, or `resume` an existing one by its provider ID,
+    /// showing `history` (its transcript's latest items) above what this run adds.
     pub fn start(
         id: String,
         cwd: PathBuf,
         bin: String,
         resume: Option<String>,
         mode: Option<String>,
+        history: Vec<Value>,
     ) -> std::io::Result<Arc<Self>> {
+        let resumed = resume.is_some();
+        let run = Self::new(id, cwd, bin, resume, mode, history);
+        run.spawn(resumed)?;
+        Ok(run)
+    }
+
+    /// A run with no child yet: restored after a restart, it waits for the user to resume it.
+    pub fn new(
+        id: String,
+        cwd: PathBuf,
+        bin: String,
+        resume: Option<String>,
+        mode: Option<String>,
+        history: Vec<Value>,
+    ) -> Arc<Self> {
         let (tx, _) = broadcast::channel(1024);
         let shown = cwd.display().to_string();
-        let resumed = resume.is_some();
         let session = resume.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        let run = Arc::new(Self {
+        let mut items: VecDeque<Value> = history.into();
+        let dropped = items.len().saturating_sub(ITEMS);
+        items.drain(..dropped);
+        Arc::new(Self {
             id,
             cwd,
             bin,
@@ -123,9 +142,11 @@ impl Run {
                 seq: 0,
                 ring: VecDeque::new(),
                 state: State {
+                    status: "stopped",
                     cwd: shown,
                     session,
                     mode,
+                    items,
                     ..State::default()
                 },
                 seen: VecDeque::new(),
@@ -139,9 +160,7 @@ impl Run {
                 pending: HashMap::new(),
                 modes: HashMap::new(),
             }),
-        });
-        run.spawn(resumed)?;
-        Ok(run)
+        })
     }
 
     /// Restart a stopped or failed run, resuming its conversation under a new epoch.
@@ -448,6 +467,39 @@ impl Run {
         }
     }
 
+    /// What survives a restart: enough to resume the conversation in its folder and mode.
+    pub fn record(&self) -> Value {
+        let inner = self.inner.lock().unwrap();
+        json!({"id":self.id,"provider":"claude","cwd":self.cwd,"sessionId":inner.state.session,"mode":inner.state.mode})
+    }
+
+    pub fn session(&self) -> String {
+        self.inner.lock().unwrap().state.session.clone()
+    }
+
+    pub fn running(&self) -> bool {
+        self.inner.lock().unwrap().stdin.is_some()
+    }
+
+    /// Ready for the next prompt with nothing pending: the only state a handoff may leave.
+    pub fn idle(&self) -> bool {
+        let inner = self.inner.lock().unwrap();
+        inner.state.status == "ready" && inner.pending.is_empty()
+    }
+
+    /// Stop the child and wait for it to be reaped, up to `limit`.
+    pub async fn stop_and_wait(&self, limit: Duration) -> bool {
+        self.stop();
+        let deadline = tokio::time::Instant::now() + limit;
+        while self.inner.lock().unwrap().child_pid.is_some() {
+            if tokio::time::Instant::now() > deadline {
+                return false;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        true
+    }
+
     pub fn summary(&self) -> Value {
         let inner = self.inner.lock().unwrap();
         json!({"id":self.id,"cwd":self.cwd,"epoch":inner.epoch,"status":inner.state.status,"sessionId":inner.state.session})
@@ -543,6 +595,14 @@ impl Run {
                 model,
                 mode,
             } => {
+                // a resume must continue the same conversation, not fork a new one
+                let expected = self.inner.lock().unwrap().state.session.clone();
+                if session.as_deref().is_some_and(|got| got != expected) {
+                    self.publish(
+                        "run.warning",
+                        json!({"text":format!("Claude reports session {} instead of {expected}", session.as_deref().unwrap_or_default())}),
+                    );
+                }
                 self.publish(
                     "run.info",
                     json!({"sessionId":session,"model":model,"mode":mode}),

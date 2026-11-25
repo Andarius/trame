@@ -8,7 +8,7 @@ import { agentCmd, ResumeButton, resumeCmd } from "./AgentSessions";
 import { agentLabel, useResumeMode } from "./resume-modes";
 import { ReplayTerminal } from "../term/ReplayTerminal";
 import { AgentHistory } from "./AgentHistory";
-import { startRun, useAgentDest } from "./agent-run";
+import { heldBy, startRun, useAgentDest } from "./agent-run";
 
 const VIEW_CODEC = enumCodec<"summary" | "history">(["summary", "history"]);
 
@@ -71,6 +71,8 @@ export function RecentSession(
       const r = await startRun({ cwd: session.repoPath!, resume: session.claudeId });
       onAgent(r.id);
     } catch (e) {
+      const run = heldBy(e);
+      if (run) return onAgent(run);
       setError(e instanceof Error ? e.message : String(e));
     }
   };

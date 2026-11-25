@@ -16,6 +16,7 @@ with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps({"args": args, "leaked": leaked}) + "\n")
 flag = "--resume" if "--resume" in args else "--session-id"
 session = args[args.index(flag) + 1]
+mode = args[args.index("--permission-mode") + 1] if "--permission-mode" in args else "default"
 pending = {}
 
 QUESTION = {"questions": [{"question": "Which db?", "header": "DB", "multiSelect": False,
@@ -49,7 +50,9 @@ def answered(tool, response):
     if tool == "AskUserQuestion":
         return reply("answered " + json.dumps(response["updatedInput"]["answers"], sort_keys=True))
     if tool == "ExitPlanMode":
-        out({"type": "system", "subtype": "status", "permissionMode": "default"})
+        global mode
+        mode = "default"
+        out({"type": "system", "subtype": "status", "permissionMode": mode})
     reply(f"{tool} allow")
 
 
@@ -57,6 +60,8 @@ for line in sys.stdin:
     msg = json.loads(line)
     if msg["type"] == "control_request":
         kind = msg["request"]["subtype"]
+        if kind == "set_permission_mode":
+            mode = msg["request"]["mode"]
         ok(msg["request_id"], {"commands": []} if kind == "initialize" else None)
         if kind == "interrupt":
             for request_id in list(pending):
@@ -70,7 +75,7 @@ for line in sys.stdin:
         answered(tool, response.get("response", {}))
         continue
     text = msg["message"]["content"][0]["text"]
-    out({"type": "system", "subtype": "init", "session_id": session, "model": "fake-model", "permissionMode": "default"})
+    out({"type": "system", "subtype": "init", "session_id": session, "model": "fake-model", "permissionMode": mode})
     if text in ASKS:
         tool, tool_input = ASKS[text]
         request_id = f"perm-{len(pending)}-{text}"

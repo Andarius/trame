@@ -16,7 +16,9 @@ use std::{
 };
 use tokio::sync::broadcast;
 
+use crate::db::Db;
 use crate::pty::TOKEN_HEADER;
+use crate::routes::Native;
 use crate::routes::json_response;
 
 pub mod claude;
@@ -26,6 +28,7 @@ use run::Run;
 
 pub const CLOSE_AUTH: u16 = 4401;
 pub const CLOSE_GONE: u16 = 4404;
+const MODES: &[&str] = &["default", "acceptEdits", "plan"];
 
 /// The structured agent view; the app offers it as an opt-in setting, `TRAME_AGENT_VIEW=0` turns it off.
 pub fn enabled() -> bool {
@@ -41,18 +44,125 @@ fn get(id: &str) -> Option<Arc<Run>> {
     runs().lock().unwrap().get(id).cloned()
 }
 
-/// Kill every agent child on the way out; their conversations stay resumable.
+fn bin() -> String {
+    std::env::var("TRAME_CLAUDE_BIN").unwrap_or_else(|_| "claude".into())
+}
+
+// Runs that survive a restart
+
+// set once this workspace restored its runs (never the demo's)
+static SAVED: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+/// Write every run's record, atomically, so the next launch lists them stopped.
+fn save() {
+    let Some(path) = SAVED.lock().unwrap().clone() else {
+        return;
+    };
+    let records: Vec<Value> = runs()
+        .lock()
+        .unwrap()
+        .values()
+        .map(|r| r.record())
+        .collect();
+    let tmp = path.with_extension("json.tmp");
+    if std::fs::write(
+        &tmp,
+        serde_json::to_vec_pretty(&records).unwrap_or_default(),
+    )
+    .is_ok()
+    {
+        let _ = std::fs::rename(&tmp, &path);
+    }
+}
+
+/// The runs open when Trame last stopped, back as stopped runs showing their latest history.
+/// Nothing restarts by itself: an old prompt or decision is never sent again.
+pub async fn restore(native: &Native) -> usize {
+    let path = native.root.join("agent-runs.json");
+    *SAVED.lock().unwrap() = Some(path.clone());
+    let records: Vec<Value> = std::fs::read(&path)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    let mut n = 0;
+    for r in records {
+        let (Some(id), Some(cwd), Some(session)) =
+            (r["id"].as_str(), r["cwd"].as_str(), r["sessionId"].as_str())
+        else {
+            continue;
+        };
+        let history = history(native, session).await;
+        let mode = r["mode"]
+            .as_str()
+            .filter(|m| MODES.contains(m))
+            .map(str::to_owned);
+        let run = Run::new(
+            id.to_owned(),
+            cwd.into(),
+            bin(),
+            Some(session.to_owned()),
+            mode,
+            history,
+        );
+        runs().lock().unwrap().insert(id.to_owned(), run);
+        n += 1;
+    }
+    n
+}
+
+/// The latest page of a conversation's transcript, shown above what a resumed run adds.
+async fn history(native: &Native, session: &str) -> Vec<Value> {
+    let (native, session) = (native.clone(), session.to_owned());
+    crate::blocking::spawn(move || {
+        let db = Db::connect(
+            &native.root.join("socket"),
+            &native.origin,
+            Some(native.settings),
+        )
+        .ok()?;
+        let path = crate::imports::transcript_path(&db, "claude", &session).ok()??;
+        Some(
+            crate::imports::history::before(&path, None, false)
+                .ok()?
+                .items,
+        )
+    })
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or_default()
+}
+
+/// Kill every agent child on the way out; their records stay for the next launch.
 pub fn shutdown() {
+    save();
     for run in runs().lock().unwrap().drain().map(|(_, r)| r) {
         run.kill();
     }
+}
+
+/// Who else is writing to conversation `session`, if anyone: one writer per conversation.
+fn owner(session: &str) -> Option<Value> {
+    if let Some(run) = runs()
+        .lock()
+        .unwrap()
+        .values()
+        .find(|r| r.running() && r.session() == session)
+    {
+        return Some(
+            json!({"error":"this conversation is already open in the agent view","run":run.id}),
+        );
+    }
+    crate::pty::live_claude_sessions()
+        .contains_key(session)
+        .then(|| json!({"error":"this conversation is running in another terminal: close it there first"}))
 }
 
 pub fn owns(path: &str) -> bool {
     path == "/api/agent" || path.starts_with("/api/agent/")
 }
 
-pub async fn serve(req: Request<Body>) -> Response {
+pub async fn serve(native: Native, req: Request<Body>) -> Response {
     if !enabled() {
         return json_response(
             404,
@@ -77,6 +187,10 @@ pub async fn serve(req: Request<Body>) -> Response {
         return json_response(401, json!({"error":"terminal token required"}));
     }
     let method = req.method().clone();
+    let body: Value = match to_bytes(req.into_body(), 1 << 20).await {
+        Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_default(),
+        Err(_) => return json_response(400, json!({"error":"body too large"})),
+    };
     match (method, parts.as_slice()) {
         (Method::GET, ["", "api", "agent", "runs"]) => {
             let list: Vec<Value> = runs()
@@ -87,28 +201,34 @@ pub async fn serve(req: Request<Body>) -> Response {
                 .collect();
             json_response(200, Value::Array(list))
         }
-        (Method::POST, ["", "api", "agent", "runs"]) => {
-            let Ok(bytes) = to_bytes(req.into_body(), 1 << 20).await else {
-                return json_response(400, json!({"error":"body too large"}));
-            };
-            let body: Value = serde_json::from_slice(&bytes).unwrap_or_default();
-            start(&body)
-        }
+        (Method::POST, ["", "api", "agent", "runs"]) => start(&native, &body).await,
+        (Method::POST, ["", "api", "agent", "handoff"]) => from_terminal(&native, &body).await,
         (Method::GET, ["", "api", "agent", "runs", id]) => match get(id) {
             Some(run) => json_response(200, run.snapshot()),
             None => json_response(404, json!({"error":"no such run"})),
         },
         (Method::POST, ["", "api", "agent", "runs", id, "restart"]) => {
-            match get(id).map(|r| r.restart()) {
-                Some(Ok(())) => json_response(200, json!({"ok":true})),
-                Some(Err(e)) => json_response(409, json!({"error":e})),
-                None => json_response(404, json!({"error":"no such run"})),
+            let Some(run) = get(id) else {
+                return json_response(404, json!({"error":"no such run"}));
+            };
+            if let Some(taken) = (!run.running()).then(|| owner(&run.session())).flatten() {
+                return json_response(409, taken);
+            }
+            match run.restart() {
+                Ok(()) => {
+                    save();
+                    json_response(200, json!({"ok":true}))
+                }
+                Err(e) => json_response(409, json!({"error":e})),
             }
         }
+        (Method::POST, ["", "api", "agent", "runs", id, "handoff"]) => to_terminal(id).await,
         (Method::DELETE, ["", "api", "agent", "runs", id]) => {
-            match runs().lock().unwrap().remove(*id) {
+            let removed = runs().lock().unwrap().remove(*id);
+            match removed {
                 Some(run) => {
                     run.stop();
+                    save();
                     json_response(200, json!({"ok":true}))
                 }
                 None => json_response(404, json!({"error":"no such run"})),
@@ -118,8 +238,8 @@ pub async fn serve(req: Request<Body>) -> Response {
     }
 }
 
-/// `{cwd, resume?}`: start Claude Code in an existing directory, fresh or resuming a conversation.
-fn start(body: &Value) -> Response {
+/// `{cwd, resume?, mode?}`: start Claude Code in an existing directory, fresh or resuming a conversation.
+async fn start(native: &Native, body: &Value) -> Response {
     let Some(cwd) = body["cwd"]
         .as_str()
         .map(PathBuf::from)
@@ -138,24 +258,110 @@ fn start(body: &Value) -> Response {
         return json_response(400, json!({"error":"resume must be a session id"}));
     }
     let mode = body["mode"].as_str().map(str::to_owned);
-    if mode
-        .as_deref()
-        .is_some_and(|m| !["default", "acceptEdits", "plan"].contains(&m))
-    {
+    if mode.as_deref().is_some_and(|m| !MODES.contains(&m)) {
         return json_response(400, json!({"error":"unknown permission mode"}));
     }
-    let bin = std::env::var("TRAME_CLAUDE_BIN").unwrap_or_else(|_| "claude".into());
+    if let Some(taken) = resume.as_deref().and_then(owner) {
+        return json_response(409, taken);
+    }
+    launch(native, cwd, resume, mode).await
+}
+
+async fn launch(
+    native: &Native,
+    cwd: PathBuf,
+    resume: Option<String>,
+    mode: Option<String>,
+) -> Response {
+    let history = match &resume {
+        Some(session) => history(native, session).await,
+        None => Vec::new(),
+    };
     let id = uuid::Uuid::new_v4().simple().to_string();
-    match Run::start(id.clone(), cwd, bin, resume, mode) {
+    match Run::start(id.clone(), cwd, bin(), resume, mode, history) {
         Ok(run) => {
             let summary = run.summary();
             runs().lock().unwrap().insert(id, run);
+            save();
             json_response(201, summary)
         }
         Err(e) => json_response(
             500,
             json!({"error":format!("could not start the agent: {e}")}),
         ),
+    }
+}
+
+#[allow(unsafe_code, reason = "signal 0 only checks that the pid exists")]
+fn alive(pid: u32) -> bool {
+    i32::try_from(pid).is_ok_and(|p| unsafe { libc::kill(p, 0) } == 0)
+}
+
+/// `{term}`: move the idle Claude conversation of a Trame shell into the agent view. The shell's
+/// Claude exits first (Ctrl+C, as a user would), then the same conversation resumes in its folder.
+async fn from_terminal(native: &Native, body: &Value) -> Response {
+    let Some(term) = body["term"].as_str() else {
+        return json_response(400, json!({"error":"term required"}));
+    };
+    let Some(agent) = crate::pty::claude_in_shell(term).await else {
+        return json_response(
+            404,
+            json!({"error":"no Claude conversation runs in that shell"}),
+        );
+    };
+    if !agent.idle {
+        return json_response(
+            409,
+            json!({"error":"Claude is working or waiting in that shell: let it finish first"}),
+        );
+    }
+    let Some(cwd) = agent.cwd.map(PathBuf::from).filter(|p| p.is_dir()) else {
+        return json_response(409, json!({"error":"the conversation's folder is gone"}));
+    };
+    // the first Ctrl+C clears a draft, the next ones exit an idle prompt
+    for _ in 0..4 {
+        if !alive(agent.pid) {
+            break;
+        }
+        crate::pty::type_into(term, b"\x03");
+        tokio::time::sleep(Duration::from_millis(400)).await;
+    }
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while alive(agent.pid) {
+        if tokio::time::Instant::now() > deadline {
+            return json_response(409, json!({"error":"Claude didn't exit in that shell"}));
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    launch(native, cwd, Some(agent.id), None).await
+}
+
+/// Move an idle run back to a Trame shell: stop it, then resume the same conversation there.
+async fn to_terminal(id: &str) -> Response {
+    let Some(run) = get(id) else {
+        return json_response(404, json!({"error":"no such run"}));
+    };
+    if run.running() && !run.idle() {
+        return json_response(
+            409,
+            json!({"error":"the agent is working or waiting on you: finish that first"}),
+        );
+    }
+    if run.running() && !run.stop_and_wait(Duration::from_secs(6)).await {
+        return json_response(409, json!({"error":"the agent didn't stop"}));
+    }
+    runs().lock().unwrap().remove(id);
+    save();
+    let session = run.session();
+    let cwd = run.cwd.display().to_string();
+    let command = format!("claude --resume {session}");
+    match crate::blocking::spawn(move || {
+        crate::pty::spawn(None, &cwd, Some(&command), "Claude", None, None)
+    })
+    .await
+    {
+        Ok(Ok(term)) => json_response(200, json!({"term":term.summary()["id"]})),
+        _ => json_response(500, json!({"error":"could not open a terminal"})),
     }
 }
 

@@ -359,3 +359,154 @@ fn decisions_reach_the_cli_once_and_expire_with_it() {
     });
     let _ = std::fs::remove_file(&log);
 }
+
+#[test]
+fn runs_come_back_stopped_with_their_history_and_hand_off_to_a_terminal() {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fake-claude.py");
+    let log = trame_local::workspace().join(format!(
+        ".scratch/agent-argv-{}.log",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let session = "5f1c2b9a-7d3e-4c1a-9b2f-0e8d6a4c3b21";
+    let cwd = trame_local::workspace().join(".scratch");
+    let records =
+        json!([{"id":"r1","provider":"claude","cwd":cwd,"sessionId":session,"mode":"plan"}])
+            .to_string();
+    let transcript = [
+        json!({"type":"user","timestamp":"2026-11-25T10:00:00Z","message":{"role":"user","content":"fix the cart"}}),
+        json!({"type":"assistant","timestamp":"2026-11-25T10:00:05Z","message":{"role":"assistant","content":[{"type":"text","text":"Fixed."}]}}),
+    ]
+    .map(|l| l.to_string())
+    .join("\n")
+        + "\n";
+    let transcript_path = format!("claude-projects/-work-acme/{session}.jsonl");
+    let t = TestDb::with_files(
+        &[
+            ("TRAME_CLAUDE_BIN", fake),
+            ("FAKE_LOG", log.to_str().unwrap()),
+            ("SHELL", "/bin/sh"),
+        ],
+        &[
+            ("agent-runs.json", records.as_bytes()),
+            (transcript_path.as_str(), transcript.as_bytes()),
+        ],
+    );
+    let base = t.base_url();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let http = reqwest::Client::new();
+        let token = reqwest::get(format!("{base}/api/term/token"))
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap()["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let get = |path: String| {
+            http.get(format!("{base}{path}"))
+                .header(TOKEN_HEADER, &token)
+                .send()
+        };
+        let post = |path: String, body: Value| {
+            http.post(format!("{base}{path}"))
+                .header(TOKEN_HEADER, &token)
+                .json(&body)
+                .send()
+        };
+
+        // restored, not restarted: stopped, with the transcript's history and nothing spawned
+        let listed: Value = get("/api/agent/runs".into())
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(listed[0]["status"], "stopped");
+        let snap: Value = get("/api/agent/runs/r1".into())
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let texts: Vec<&str> = snap["state"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|i| i["text"].as_str())
+            .collect();
+        assert_eq!(texts, ["fix the cart", "Fixed."]);
+        assert!(!log.exists(), "nothing runs until the user resumes");
+
+        // resuming restores its mode, and a second writer for the same conversation is refused
+        assert_eq!(
+            post("/api/agent/runs/r1/restart".into(), json!({}))
+                .await
+                .unwrap()
+                .status(),
+            200
+        );
+        let mut w = attach(
+            &base,
+            "r1",
+            json!({"type":"attach","token":token,"role":"writer"}),
+        )
+        .await;
+        let hello = until(&mut w, status("ready")).await;
+        let epoch = hello.iter().find(|v| v["type"] == "snapshot").unwrap()["epoch"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let argv = std::fs::read_to_string(&log).unwrap();
+        assert!(
+            argv.contains(&format!(r#""--resume", "{session}""#))
+                && argv.contains(r#""--permission-mode", "plan""#),
+            "{argv}"
+        );
+        let twice = post(
+            "/api/agent/runs".into(),
+            json!({"cwd":cwd,"resume":session}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(twice.status(), 409);
+        assert_eq!(twice.json::<Value>().await.unwrap()["run"], "r1");
+
+        // a busy run stays; an idle one moves to a Trame shell running the same conversation
+        command(&mut w, "h1", &epoch, "prompt", "hang").await;
+        assert_eq!(
+            post("/api/agent/runs/r1/handoff".into(), json!({}))
+                .await
+                .unwrap()
+                .status(),
+            409
+        );
+        send(&mut w, "h2", &epoch, "interrupt", json!({})).await;
+        until(&mut w, kind("turn.finished")).await;
+        let moved = post("/api/agent/runs/r1/handoff".into(), json!({}))
+            .await
+            .unwrap();
+        assert_eq!(moved.status(), 200);
+        let term = moved.json::<Value>().await.unwrap()["term"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(!term.is_empty());
+        assert_eq!(
+            get("/api/agent/runs/r1".into()).await.unwrap().status(),
+            404
+        );
+        let saved: Value =
+            serde_json::from_slice(&std::fs::read(t.root.join("agent-runs.json")).unwrap())
+                .unwrap();
+        assert_eq!(saved, json!([]));
+
+        // a shell without Claude in it has nothing to hand over
+        let none = post("/api/agent/handoff".into(), json!({"term":term}))
+            .await
+            .unwrap();
+        assert_eq!(none.status(), 404);
+    });
+    let _ = std::fs::remove_file(&log);
+}
