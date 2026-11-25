@@ -68,7 +68,7 @@ import { resumeInTerminals } from "../term/resume-cards";
 import { TermCards } from "../term/TermCards";
 import { openLink } from "../term/open-link";
 import { projectFolders } from "../term/NewTerminalDialog";
-import { FIND_TERMINAL, openTerminal, restoreTerminals, setDockMax, setDockOpen, useTermDock, watchPopouts } from "../term/term-api";
+import { FIND_TERMINAL, openTerminal, restoreTerminals, setDockOpen, useTermDock, watchPopouts } from "../term/term-api";
 // d3-force/zoom only load when the graph tab opens
 const Graph = lazy(() => import("../sessions/Graph"));
 const TerminalDock = lazy(() => import("../term/TerminalDock"));
@@ -242,18 +242,22 @@ export function App() {
   const shareFlashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const termDock = useTermDock();
+  // the restored layout must not switch views at launch
+  const restored = useRef(false);
   useEffect(() => {
-    void restoreTerminals();
+    void restoreTerminals().finally(() => {
+      setDockOpen(false);
+      restored.current = true;
+    });
     return watchPopouts();
   }, []);
-  // Ctrl+` toggles the terminal dock (opening a home shell when there is none), Ctrl+Shift+` maximizes it
+  // Ctrl+` shows the Agents view (opening a home shell when there is none)
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (!e.ctrlKey || (e.key !== "`" && e.key !== "~")) return;
       e.preventDefault();
-      if (termDock.tabs.length === 0) void openTerminal({ cwd: null }).then(() => e.shiftKey && setDockMax(true));
-      else if (e.shiftKey) setDockMax(!(termDock.open && termDock.max));
-      else setDockOpen(!termDock.open);
+      if (termDock.tabs.length === 0) void openTerminal({ cwd: null });
+      else setDockOpen(true);
     };
     addEventListener("keydown", h);
     return () => removeEventListener("keydown", h);
@@ -680,6 +684,16 @@ export function App() {
 
   const isSessions = view === "board" || view === "list" || view === "graph" || view === "timeline";
   const terminals = view === "terminals";
+  // no bottom dock: a shell opened or revealed from another view shows in the Agents view
+  const shown = termDock.tabs.find((t) => t.id === termDock.active)?.focus ?? null;
+  useEffect(() => {
+    if (!termDock.open || !restored.current) return;
+    setDockOpen(false);
+    if (terminals || !shown) return;
+    setTermSel(`term:${shown}`);
+    setOpenId(null);
+    setView("terminals");
+  }, [termDock.open, shown, terminals]);
   // the sidebar column Explore and AI Sessions render their list into
   const [columnSlot, setColumnSlot] = useState<HTMLDivElement | null>(null);
   const pluginColumn = !!FRONTEND_PLUGINS.find((p) => p.id === pluginId)?.column;
@@ -941,7 +955,7 @@ export function App() {
         {/* one fixed spot for the dock in every view, so entering Terminals never remounts a shell */}
         <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
-        <div className={`relative min-h-0 flex-1 flex-col ${terminals || (termDock.open && termDock.max) ? "hidden" : "flex"}`}>
+        <div className={`relative min-h-0 flex-1 flex-col ${terminals ? "hidden" : "flex"}`}>
         {!board
           ? <EmptyState page>Loading…</EmptyState>
           : view === "board" && !status?.demo && !welcomeHidden && board.sessions.length === 0
@@ -1099,7 +1113,7 @@ export function App() {
             />
           )}
         </div>
-        {(terminals || termDock.tabs.length > 0 || termDock.open) && (
+        {terminals && (
           <Suspense fallback={null}>
             <TerminalDock
               board={board}
