@@ -3,11 +3,11 @@ import type { BoardData, ClaudeSession } from "../api";
 import { RecentList } from "../agents/RecentList";
 import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
-import { FolderIcon, PinIcon, PlusIcon } from "../ui/icons";
+import { FolderIcon, PinIcon, PlusIcon, PopOutIcon } from "../ui/icons";
 import { appConfirm, BOOL_CODEC, EntityIcon, enumCodec, MenuRow, Popover, SECTION_LABEL, SET_CODEC, useLocalStorage } from "../ui/ui";
 import { LinkCardDialog } from "./LinkCardDialog";
 import { NewTerminalDialog } from "./NewTerminalDialog";
-import { type Advice, closeTerminal, type Fork, interruptTerminal, openTerminal, revealTerminal, type Subagent, termAdvices, termForks, termSubagents, sessionLabel, type TermSession, useTermDock, useTermSessions } from "./term-api";
+import { type Advice, closeTerminal, popOutGroup, repoName, showGroupPopout, type Fork, interruptTerminal, openTerminal, revealTerminal, type Subagent, termAdvices, termForks, termSubagents, sessionLabel, type TermSession, useTermDock, useTermSessions } from "./term-api";
 
 // by project with a folder per repo, by project and repo, by project (the repo on each agent's line), or not at all
 const GROUPINGS = ["tree", "paths", "project", "none"] as const;
@@ -70,7 +70,9 @@ export function TermCards(
     onSelectHistory: () => void;
   },
 ) {
-  const { terms: dockTerms } = useTermDock();
+  const { terms: dockTerms, out } = useTermDock();
+  // projects whose agents are in a window of their own (TermGroupPopout)
+  const popped = new Set(Object.values(out).flatMap((o) => (o.group ? [o.group] : [])));
   const [grouping, setGrouping] = useLocalStorage<Grouping>("trame:termGrouping", "tree", enumCodec(GROUPINGS));
   const [spacing, setSpacing] = useLocalStorage<Spacing>("trame:termSpacing", "comfortable", enumCodec(SPACINGS));
   const [tint, setTint] = useLocalStorage<Tint>("trame:termRunningTint", "live", enumCodec(TINTS));
@@ -166,8 +168,10 @@ export function TermCards(
       const state = !agent ? "started" : isWaiting(agent) ? "waiting" : agent.busy ? "running" : "started";
       return { item, state, term };
     });
-  const asking = termSessions.filter(isWaiting);
-  const running = termSessions.filter((x) => !isWaiting(x)).sort((a, b) => seen(b) - seen(a));
+  // agents in their project's own window are listed there, not here
+  const inWindow = (x: TermSession) => !!out[x.term]?.group;
+  const asking = termSessions.filter((x) => !inWindow(x) && isWaiting(x));
+  const running = termSessions.filter((x) => !inWindow(x) && !isWaiting(x)).sort((a, b) => seen(b) - seen(a));
   const pins = running.filter((x) => pinned.has(x.id));
   // idle agents whose follow-ups have waited over a day, above the groups
   const leftOver = running.filter((x) => !pinned.has(x.id) && !x.busy && liveOf(x)?.state !== "working" && isLeftOver(x, openCount(followUps(x))));
@@ -194,6 +198,14 @@ export function TermCards(
     g.xs.push(x);
     groups.set(key, g);
   }
+  // a project whose agents are in their own window keeps its header, pointing there
+  if (byProject && grouping !== "paths") {
+    for (const project of popped) {
+      const key = `${project}/`;
+      if (!groups.has(key) && knownProjects.has(project)) groups.set(key, { key, project, repo: null, xs: [] });
+    }
+  }
+  const windowed = (project: string) => termSessions.filter((x) => inWindow(x) && out[x.term]?.group === project).length;
   const last = (a: string | null, b: string | null, cmp: (a: string, b: string) => number) =>
     a === b ? 0 : a === null ? 1 : b === null ? -1 : cmp(a, b);
   const sections = [...groups.values()].sort((a, b) =>
@@ -688,8 +700,19 @@ export function TermCards(
                 >
                   {folded.has(gkey(key)) ? "▸" : "▾"}
                 </span>
-                <span className="ml-auto pr-1 tracking-normal tabular-nums text-ink-faint">{xs.length}</span>
+                <span className="ml-auto pr-1 tracking-normal tabular-nums text-ink-faint">{xs.length + (project ? windowed(project) : 0)}</span>
               </button>
+              {project && !popped.has(project) && grouping !== "paths" && (
+                <button
+                  type="button"
+                  onClick={() => popOutGroup(project, termSessions.filter((x) => projectOf(x) === project).map((x) => x.term))}
+                  title="move this project's agents to a window of their own"
+                  aria-label={`Open ${label(project)} in its own window`}
+                  className="-my-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-muted opacity-0 hover:bg-active-row hover:text-ink focus-visible:opacity-100 group-hover/head:opacity-100"
+                >
+                  <PopOutIcon size={12} />
+                </button>
+              )}
               {project && (
                 <button
                   type="button"
@@ -713,7 +736,18 @@ export function TermCards(
               )}
             </div>
           )}
-          {!folded.has(gkey(key)) && (grouping === "tree"
+          {project && popped.has(project) && (
+            <button
+              type="button"
+              onClick={() => showGroupPopout(project)}
+              title="show the window holding this project's agents"
+              className="mx-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11.5px] text-ink-muted hover:bg-active-row hover:text-ink-soft"
+            >
+              <PopOutIcon size={12} />
+              {windowed(project)} in their own window · show
+            </button>
+          )}
+          {!folded.has(gkey(key)) && !(project && popped.has(project)) && (grouping === "tree"
             ? byRepo(xs).map(([r, rs]) =>
               r === null ? rs.map((x) => agentRow(x)) : (
                 <div key={r} className={`flex flex-col ${gap}`}>
@@ -771,11 +805,6 @@ export function TermCards(
 }
 
 // the repo a folder belongs to, by name: a worktree <repo>/.scratch/<wt> (or .worktrees/, .claude/worktrees/) is <repo>
-const repoName = (path: string | null) => {
-  if (!path) return null;
-  const root = path.replace(/\/+$/, "").replace(/\/(\.scratch|\.worktrees|\.claude\/worktrees)\/[^/]+$/, "");
-  return root.split("/").pop() || null;
-};
 
 const FORKS_POLL_MS = 10_000;
 const SUBAGENTS_POLL_MS = 5_000;
