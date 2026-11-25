@@ -4,6 +4,7 @@ import { SECTION_LABEL } from "../ui/ui";
 import { finalReply, type Keyed, type Tool, toolArg, toolDiffs, toTurns } from "./agent-history";
 import { deleteRun, type Interaction, MODES, type Reply, restartRun, runToTerminal, type RunStatus, useAgentRun } from "./agent-run";
 import { Diffs, HistoryRail, resultsOf, ToolInput, TurnView } from "./AgentHistory";
+import { AgentIcon } from "./agents";
 
 const STATUS: Record<RunStatus, { label: string; tone: string }> = {
   starting: { label: "starting", tone: "text-ink-faint" },
@@ -60,6 +61,7 @@ export function AgentView(
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-6 py-3">
+        <AgentIcon a={{ harness: state.provider ?? "claude", icon: null }} size="h-5 w-5" />
         <h2 className="text-[16px] font-semibold text-ink" title={state.cwd}>{folder}</h2>
         <span className={`text-[12px] ${STATUS[state.status].tone}`}>● {STATUS[state.status].label}</span>
         {!run.connected && <span className="text-[12px] text-wait">reconnecting…</span>}
@@ -149,7 +151,7 @@ export function AgentView(
               </div>
             )}
             {state.interactions.map((x) => (
-              <InteractionCard key={x.requestId} x={x} who={who} disabled={!run.writer} send={send} />
+              <InteractionCard key={x.requestId} x={x} who={who} provider={state.provider ?? "claude"} disabled={!run.writer} send={send} />
             ))}
           </div>
           {notice && <div className="px-6 pb-1 text-[11.5px] text-blocked">{notice}</div>}
@@ -172,7 +174,11 @@ export function AgentView(
           side={
             <section className="flex flex-col gap-1.5 text-ink-faint">
               <div className={SECTION_LABEL}>RUN</div>
-              <span>{who === "Codex" ? "◎ Codex" : "✳ Claude Code"}{state.model ? ` · ${state.model}` : ""}</span>
+              <span className="flex items-center gap-1.5">
+                <AgentIcon a={{ harness: state.provider ?? "claude", icon: null }} />
+                {who === "Codex" ? "Codex" : "Claude Code"}
+                {state.model ? ` · ${state.model}` : ""}
+              </span>
               <span className="break-all">{state.cwd.replace(/^\/(home|Users)\/[^/]+/, "~")}</span>
               {modes && <span>mode: {MODES.find((m) => m.mode === state.mode)?.label ?? state.mode ?? "default"}</span>}
               <span>turns: {state.turn}</span>
@@ -239,7 +245,9 @@ type Send = (kind: string, payload?: Record<string, unknown>) => Promise<Reply>;
 const card = "my-2 flex flex-col gap-2 rounded-lg border border-copper/50 bg-copper/5 px-4 py-3 font-sans text-[12.5px] text-ink";
 
 // A request the agent is blocked on: a tool to allow, questions to answer or a plan to review.
-function InteractionCard({ x, who, disabled, send }: { x: Interaction; who: string; disabled: boolean; send: Send }) {
+function InteractionCard(
+  { x, who, provider, disabled, send }: { x: Interaction; who: string; provider: string; disabled: boolean; send: Send },
+) {
   const [message, setMessage] = useState("");
   const answer = (decision: string, extra: Record<string, unknown> = {}) =>
     void send("answer", { requestId: x.requestId, decision, message, ...extra });
@@ -271,7 +279,8 @@ function InteractionCard({ x, who, disabled, send }: { x: Interaction; who: stri
   const diffs = toolDiffs(tool);
   return (
     <div className={card}>
-      <div>
+      <div className="flex items-center gap-1.5">
+        <AgentIcon a={{ harness: provider, icon: null }} />
         {who} wants to use <span className="font-mono font-bold">{x.tool}</span>
         {toolArg(tool) && <span className="font-mono">({toolArg(tool)})</span>}
       </div>
