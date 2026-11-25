@@ -173,7 +173,7 @@ export function TurnView({ turn, results, working }: { turn: Turn; results: Map<
   return (
     <div data-turn={turn.key} className="flex flex-col gap-1 pb-3">
       {prompt?.kind === "user" && (
-        <div className="whitespace-pre-wrap rounded bg-card px-2 py-1 text-ink">
+        <div className="-mx-2 whitespace-pre-wrap rounded bg-card px-2 py-1 text-ink">
           <span className="mr-2 text-copper">&gt;</span>
           {prompt.text}
           {prompt.truncated && <span className="text-ink-faint"> …</span>}

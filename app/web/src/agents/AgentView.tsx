@@ -215,8 +215,8 @@ const Composer = memo(function Composer(
     if (r.accepted) setText("");
   };
   return (
-    <div className="border-t border-line-soft px-6 pb-4 pt-2">
-      <div className="flex items-start gap-2 rounded-lg border border-chipline bg-panel px-3 py-2 font-mono text-[12px] focus-within:border-copper/60">
+    <div className="border-t border-line-soft px-4 pb-4 pt-2">
+      <div className="flex items-start gap-2 rounded-lg border border-chipline bg-panel px-[7px] py-2 font-mono text-[12px] focus-within:border-copper/60">
         <span className="pt-0.5 text-copper">&gt;</span>
         <textarea
           ref={box}
@@ -236,7 +236,7 @@ const Composer = memo(function Composer(
           }}
         />
       </div>
-      <div className="mt-1 text-[10.5px] text-ink-faint">⏎ send · ⇧⏎ newline · Esc interrupt</div>
+      <div className="mt-1 pl-2 text-[10.5px] text-ink-faint">⏎ send · ⇧⏎ newline · Esc interrupt</div>
     </div>
   );
 });
