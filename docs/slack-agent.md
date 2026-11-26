@@ -1,6 +1,6 @@
 # Run bots from Slack
 
-Mention your Slack app in its configured channel to start a fresh run of one of your bots. Trame posts a status card in the thread. **Open in Trame** opens the conversation on the machine named in the card. **Stop** interrupts that turn. When the agent needs a permission or an answer, open the run and respond in Trame.
+Give a bot its own Slack app and mention it as `@ada` in any channel it is invited to, or mention the shared `@Trame` app in its configured channel with the bot's name. Either way a mention starts a fresh run of that bot. Trame posts a status card in the thread. **Open in Trame** opens the conversation on the machine named in the card. **Stop** interrupts that turn. When the agent needs a permission or an answer, open the run and respond in Trame.
 
 ## Create a bot
 
@@ -20,7 +20,22 @@ The bot now appears under **BOTS**. Its page shows its recent runs and figures, 
 
 ![Preview of the Slack thread as a run stops](slack-agent.gif)
 
-## Configure the Slack app
+## Give a bot its own Slack app
+
+A bot with its own Slack app is a Slack user of its own: `@ada fix the flaky test` in any channel it is in starts a run of `ada`, with no name prefix. Its cards are posted as `@ada`.
+
+1. On the bot's page, under **Started by → Slack**, choose **Create in Slack**. Slack opens with an app named after the bot. Pick the workspace, then **Create**.
+2. Optionally choose **Download icon** and upload the PNG in the app's **Basic Information → Display Information**.
+3. In the app's **Basic Information → App-Level Tokens**, generate a token with the `connections:write` scope.
+4. Choose **Install to Workspace**, then copy the **Bot User OAuth Token** from **OAuth & Permissions**.
+5. Back in Trame, paste both tokens. Under **Who may ask**, enter your Slack member ID (**Profile → ⋯ → Copy member ID**), several separated by commas, or choose **anyone in the workspace**. Choose **Connect**.
+6. Invite the bot to a channel with `/invite @ada`.
+
+![Connecting a bot to its own Slack app](bot-slack.gif)
+
+Trame checks both tokens with Slack before it keeps them, and keeps them on this machine only. The card then shows `@ada in <workspace>`. Send `@ada summarize the README` in that channel: a status card appears in the thread. Start with `with codex:` to run that task with another agent. The **Slack** switch pauses the bot's app; **Disconnect** forgets its tokens. A bot's own app listens while Trame runs on this machine; bots of remote runners answer through the shared app.
+
+## Configure the shared Slack app
 
 Create a Slack app using [the manifest](slack-agent-manifest.yaml). Install it in your workspace and invite its bot to the channel. In **Basic Information → App-Level Tokens**, generate an app token with the `connections:write` scope. In **OAuth & Permissions**, retrieve the installed bot token. [Slack Socket Mode setup](https://docs.slack.dev/apis/events-api/using-socket-mode/)
 

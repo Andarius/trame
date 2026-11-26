@@ -441,6 +441,12 @@ pub async fn serve(native: Native, req: Request<Body>) -> Response {
     }
     match (method, parts.as_slice()) {
         (Method::POST, ["", "api", "agent", "relay", "send"]) => send_peer(&body).await,
+        // the shared @Trame app this machine holds, if any
+        (Method::GET, ["", "api", "agent", "slack"]) => {
+            let shared = connector::shared_channel()
+                .map(|channel| json!({"connected":true,"channel":channel}));
+            json_response(200, json!({"shared":shared}))
+        }
         (Method::GET, ["", "api", "agent", "runs"]) => {
             let list: Vec<Value> = runs()
                 .lock()
@@ -757,7 +763,11 @@ async fn bot_route(native: &Native, req: BotRequest<'_>) -> Response {
         (&Method::PATCH, [id]) => {
             let id = (*id).to_owned();
             match with_db(native, move |db| Ok(bots::upsert(db, Some(&id), &body))).await {
-                Ok(Ok(bot)) => json_response(200, bot.summary(&native.root, bot_counts(&bot.id))),
+                Ok(Ok(bot)) => {
+                    // its name or Slack switch may move its own app's listener
+                    slack::own::reconcile().await;
+                    json_response(200, bot.summary(&native.root, bot_counts(&bot.id)))
+                }
                 Ok(Err(r)) => refused(r),
                 Err(_) => db_failed(),
             }
@@ -773,6 +783,7 @@ async fn bot_route(native: &Native, req: BotRequest<'_>) -> Response {
                         }
                     }
                     save();
+                    slack::own::reconcile().await;
                     json_response(200, json!({"ok":true}))
                 }
                 Ok(false) => no_bot(),
@@ -798,6 +809,9 @@ async fn bot_route(native: &Native, req: BotRequest<'_>) -> Response {
                 Ok(None) => no_bot(),
                 Err(_) => db_failed(),
             }
+        }
+        (&(Method::GET | Method::PUT | Method::PATCH | Method::DELETE), [id, "slack"]) => {
+            slack::own::route(native, method, id, &body).await
         }
         (&Method::GET, ["activity"]) => {
             let days = query_int(query, "days", 28, 1..=90);

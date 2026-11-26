@@ -1571,3 +1571,187 @@ fn a_bots_page_keeps_its_look_history_stats_and_image() {
     });
     let _ = std::fs::remove_file(&log);
 }
+
+/// A fake Slack Web API: `xoxb-good` and `xapp-1-A0FIX-1-good` are the only tokens it accepts.
+async fn fake_slack_api() -> std::net::SocketAddr {
+    use axum::{Json, Router, extract::Path, http::HeaderMap, routing::post};
+    let tcp = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = tcp.local_addr().unwrap();
+    let router = Router::new().route(
+        "/api/{method}",
+        post(|Path(method): Path<String>, headers: HeaderMap| async move {
+            let token = headers
+                .get("authorization")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_owned();
+            Json(match (method.as_str(), token.as_str()) {
+                ("auth.test", "Bearer xoxb-good") => {
+                    json!({"ok":true,"team_id":"T0FIX","team":"Fixture","user":"ada","user_id":"U0FIX","bot_id":"B0FIX"})
+                }
+                ("apps.connections.open", "Bearer xapp-1-A0FIX-1-good") => {
+                    json!({"ok":true,"url":"wss://wss.slack.com/link/?ticket=fixture"})
+                }
+                _ => json!({"ok":false,"error":"invalid_auth"}),
+            })
+        }),
+    );
+    tokio::spawn(async move { axum::serve(tcp, router).await.unwrap() });
+    addr
+}
+
+#[test]
+fn a_bot_gets_its_own_slack_app_without_its_tokens_leaking() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let slack = rt.block_on(fake_slack_api());
+    let url = format!("http://{slack}/api/");
+    let mut t = TestDb::with_env(&[("TRAME_SLACK_API_URL", &url)]);
+    let base = t.base_url();
+    rt.block_on(async {
+        let http = reqwest::Client::new();
+        let token = reqwest::get(format!("{base}/api/term/token"))
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap()["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let app = |req: reqwest::RequestBuilder| req.header(TOKEN_HEADER, &token).send();
+        let bots = format!("{base}/api/agent/bots");
+        let mut ids = Vec::new();
+        for name in ["ada", "bob"] {
+            let bot: Value = app(http.post(&bots).json(&json!({"name":name})))
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            ids.push(bot["id"].as_str().unwrap().to_owned());
+        }
+        let slack = format!("{bots}/{}/slack", ids[0]);
+        let good =
+            json!({"appToken":"xapp-1-A0FIX-1-good","botToken":"xoxb-good","allowed":["U1"]});
+        let with = |patch: Value| {
+            let mut body = good.clone();
+            body.as_object_mut()
+                .unwrap()
+                .extend(patch.as_object().unwrap().clone());
+            body
+        };
+
+        let shared: Value = app(http.get(format!("{base}/api/agent/slack")))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(shared, json!({"shared":null}));
+        assert_eq!(
+            http.get(&slack).send().await.unwrap().status(),
+            401,
+            "the app token is required"
+        );
+
+        // shapes, who may ask, then Slack itself vet the tokens
+        for (body, status, error) in [
+            (with(json!({"appToken":"xoxb-good"})), 400, "xapp-"),
+            (with(json!({"botToken":"xoxp-good"})), 400, "xoxb-"),
+            (with(json!({"botToken":"xoxb-bad token"})), 400, "xoxb-"),
+            (with(json!({"allowed":[]})), 400, "who may ask"),
+            (with(json!({"allowed":["julien"]})), 400, "member ID"),
+            (
+                with(json!({"botToken":"xoxb-bad"})),
+                400,
+                "bot token: invalid_auth",
+            ),
+            (
+                with(json!({"appToken":"xapp-1-A0FIX-1-bad"})),
+                400,
+                "app token: invalid_auth",
+            ),
+        ] {
+            let res = app(http.put(&slack).json(&body)).await.unwrap();
+            assert_eq!(res.status(), status, "{body}");
+            let reply: Value = res.json().await.unwrap();
+            assert!(reply["error"].as_str().unwrap().contains(error), "{reply}");
+        }
+        let res = app(http
+            .put(format!("{bots}/{}/slack", uuid::Uuid::new_v4()))
+            .json(&good))
+        .await
+        .unwrap();
+        assert_eq!(res.status(), 404);
+
+        let connected = app(http.put(&slack).json(&good)).await.unwrap();
+        assert_eq!(connected.status(), 200);
+        let shown = app(http.get(&slack)).await.unwrap().text().await.unwrap();
+        for leaked in ["xoxb-good", "xapp-1-A0FIX-1-good"] {
+            assert!(!shown.contains(leaked), "{shown}");
+        }
+        let shown: Value = serde_json::from_str(&shown).unwrap();
+        assert_eq!(
+            (
+                &shown["connected"],
+                &shown["botUser"],
+                &shown["teamName"],
+                &shown["appId"],
+                &shown["allowed"],
+                &shown["botToken"],
+            ),
+            (
+                &json!(true),
+                &json!("U0FIX"),
+                &json!("Fixture"),
+                &json!("A0FIX"),
+                &json!(["U1"]),
+                &json!("xoxb-…good"),
+            )
+        );
+        assert!(
+            shown["manifestUrl"]
+                .as_str()
+                .unwrap()
+                .starts_with("https://api.slack.com/apps?new_app=1&manifest_yaml=")
+        );
+        let listed: Value = app(http.get(&bots)).await.unwrap().json().await.unwrap();
+        assert_eq!(
+            listed[0]["slackApp"],
+            json!({"connected":true,"botUser":"U0FIX","botName":"ada","teamName":"Fixture"})
+        );
+        // the sync client runs its own runtime: off this one
+        let stored: Vec<Value> = std::thread::scope(|s| {
+            s.spawn(|| t.db.query("select bot_token from agent_bot_slack", &[]))
+                .join()
+                .unwrap()
+                .unwrap()
+        });
+        assert_eq!(stored[0]["bot_token"], "xoxb-good");
+
+        // one Slack app answers for one bot
+        let taken = app(http.put(format!("{bots}/{}/slack", ids[1])).json(&good))
+            .await
+            .unwrap();
+        assert_eq!(taken.status(), 409);
+
+        let patched: Value = app(http
+            .patch(&slack)
+            .json(&json!({"anyone":true,"allowed":[]})))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+        assert_eq!(
+            (&patched["anyone"], &patched["allowed"]),
+            (&json!(true), &json!([]))
+        );
+
+        assert_eq!(app(http.delete(&slack)).await.unwrap().status(), 200);
+        let shown: Value = app(http.get(&slack)).await.unwrap().json().await.unwrap();
+        assert_eq!(shown["connected"], false);
+        let listed: Value = app(http.get(&bots)).await.unwrap().json().await.unwrap();
+        assert_eq!(listed[0]["slackApp"], Value::Null);
+    });
+}

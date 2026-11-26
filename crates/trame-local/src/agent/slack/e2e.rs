@@ -54,9 +54,25 @@ fn in_child<F: Future<Output = ()>>(name: &str, exercise: impl FnOnce(PathBuf) -
     assert!(status.unwrap().success());
 }
 
+/// The Slack app a fake Slack serves: its bot user and bot ids, and its app id.
+#[derive(Clone, Copy)]
+struct App {
+    user: &'static str,
+    bot: &'static str,
+    id: &'static str,
+}
+
+const SHARED: App = App {
+    user: "U2",
+    bot: "B1",
+    id: "A1",
+};
+
 struct FakeSlack {
+    app: App,
     addr: SocketAddr,
     socket: WebSocket,
+    /// each post, with the token it came with as `_token`
     posted: mpsc::Receiver<Value>,
     server: JoinHandle<()>,
 }
@@ -83,17 +99,27 @@ impl FakeSlack {
     }
 
     async fn mention(&mut self, event: &str, text: &str) {
-        let mention = json!({"type":"event_callback","team_id":"T1","event_id":event,
+        self.mention_from(event, "U1", "C1", text).await;
+    }
+
+    async fn mention_from(&mut self, event: &str, user: &str, channel: &str, text: &str) {
+        let mention = json!({"type":"event_callback","team_id":"T1","api_app_id":self.app.id,"event_id":event,
             "event_time":SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
-            "event":{"type":"app_mention","channel":"C1","user":"U1","text":format!("<@U2> {text}"),"ts":"1700000000.000000"}});
+            "event":{"type":"app_mention","channel":channel,"user":user,
+                "text":format!("<@{}> {text}", self.app.user),"ts":"1700000000.000000"}});
         self.envelope(event, "events_api", mention).await;
     }
 
     async fn click(&mut self, id: &str, card: &Value) {
+        self.click_from(id, "U1", card).await;
+    }
+
+    async fn click_from(&mut self, id: &str, user: &str, card: &Value) {
         let button = &card["blocks"][2]["elements"][0];
-        let action = json!({"type":"block_actions","team":{"id":"T1"},"user":{"id":"U1"},"channel":{"id":"C1"},
-            "container":{"type":"message","channel_id":"C1","message_ts":MESSAGE},
-            "message":{"bot_id":"B1","ts":MESSAGE},"actions":[button]});
+        let channel = &card["channel"];
+        let action = json!({"type":"block_actions","team":{"id":"T1"},"user":{"id":user},"channel":{"id":channel},
+            "container":{"type":"message","channel_id":channel,"message_ts":MESSAGE},
+            "message":{"bot_id":self.app.bot,"ts":MESSAGE},"actions":[button]});
         self.envelope(id, "interactive", action).await;
     }
 
@@ -108,13 +134,20 @@ impl FakeSlack {
     }
 }
 
-/// Serve a fake Slack and hold its Slack app on `connector` until the socket opens.
-async fn fake_slack(connector: Arc<Connector>) -> (FakeSlack, JoinHandle<()>) {
+/// Serve a fake Slack for `app`; its sockets arrive on the receiver as they open.
+async fn serve(
+    app: App,
+) -> (
+    SocketAddr,
+    mpsc::Receiver<WebSocket>,
+    mpsc::Receiver<Value>,
+    JoinHandle<()>,
+) {
     let tcp = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = tcp.local_addr().unwrap();
-    let (connections, mut incoming) = mpsc::channel(1);
+    let (connections, incoming) = mpsc::channel(1);
     let (posts, posted) = mpsc::channel::<Value>(16);
-    let app = Router::new()
+    let router = Router::new()
         .route(
             "/socket",
             get(move |ws: WebSocketUpgrade| async move {
@@ -126,19 +159,29 @@ async fn fake_slack(connector: Arc<Connector>) -> (FakeSlack, JoinHandle<()>) {
         .route(
             "/api/{method}",
             post(
-                move |RoutePath(method): RoutePath<String>, Json(body): Json<Value>| {
+                move |RoutePath(method): RoutePath<String>,
+                      headers: axum::http::HeaderMap,
+                      Json(mut body): Json<Value>| {
                     let posts = posts.clone();
                     async move {
                         Json(match method.as_str() {
                             "auth.test" => {
-                                json!({"ok":true,"user_id":"U2","bot_id":"B1","team_id":"T1"})
+                                json!({"ok":true,"user_id":app.user,"bot_id":app.bot,"team_id":"T1"})
                             }
                             "apps.connections.open" => {
                                 json!({"ok":true,"url":format!("ws://{addr}/socket")})
                             }
                             "chat.postMessage" | "chat.update" => {
+                                let channel = body["channel"].clone();
+                                let token = headers
+                                    .get("authorization")
+                                    .and_then(|v| v.to_str().ok())
+                                    .and_then(|v| v.strip_prefix("Bearer "))
+                                    .unwrap_or_default()
+                                    .to_owned();
+                                body["_token"] = json!(token);
                                 posts.send(body).await.unwrap();
-                                json!({"ok":true,"channel":"C1","ts":MESSAGE})
+                                json!({"ok":true,"channel":channel,"ts":MESSAGE})
                             }
                             _ => panic!("unexpected method {method}"),
                         })
@@ -147,24 +190,30 @@ async fn fake_slack(connector: Arc<Connector>) -> (FakeSlack, JoinHandle<()>) {
             ),
         );
     let server = tokio::spawn(async move {
-        axum::serve(tcp, app).await.unwrap();
+        axum::serve(tcp, router).await.unwrap();
     });
+    (addr, incoming, posted, server)
+}
+
+/// Serve a fake Slack and hold the shared Slack app on `connector` until the socket opens.
+async fn fake_slack(connector: Arc<Connector>) -> (FakeSlack, JoinHandle<()>) {
+    let (addr, mut incoming, posted, server) = serve(SHARED).await;
     let config = Arc::new(Config {
         app_token: "fixture".into(),
         bot_token: "fixture".into(),
         team: "T1".into(),
-        channel: "C1".into(),
-        user: "U1".into(),
+        access: Access::Channel {
+            channel: "C1".into(),
+            user: "U1".into(),
+        },
     });
-    let api = Arc::new(Api::new(config.clone()).unwrap().with_test_endpoint(addr));
-    let slack = tokio::spawn(connector::hold_slack(
-        api,
-        config,
-        connector,
-        Ledger::memory(),
-    ));
+    let api = Arc::new(Api::new(config).unwrap().with_test_endpoint(addr));
+    let slack = tokio::spawn(async move {
+        connector::hold_slack(api, connector, Ledger::memory(), None).await;
+    });
     let socket = incoming.recv().await.unwrap();
     let fake = FakeSlack {
+        app: SHARED,
         addr,
         socket,
         posted,
@@ -188,6 +237,7 @@ fn bot(name: &str, cwd: &Path) -> bots::Bot {
         face: None,
         hue: None,
         has_image: false,
+        slack_app: None,
     }
 }
 
@@ -380,4 +430,93 @@ fn one_connector_drives_two_machines() {
         }
         crate::agent::shutdown();
     });
+}
+
+#[test]
+fn a_bots_own_app_starts_it_for_its_people_only() {
+    in_child(
+        "a_bots_own_app_starts_it_for_its_people_only",
+        |root| async move {
+            let connector = Arc::new(Connector::new(Timing::default()));
+            let (mut shared, holder) = fake_slack(connector.clone()).await;
+            let ada = bot("ada", &root);
+            let app = App {
+                user: "U9",
+                bot: "B9",
+                id: "A9",
+            };
+            let (addr, mut incoming, posted, server) = serve(app).await;
+            let stored = Arc::new(Mutex::new(vec![own::Stored {
+                bot: ada.id.clone(),
+                name: "ada".into(),
+                slack: true,
+                team: "T1".into(),
+                team_name: "Fixture".into(),
+                app: Some("A9".into()),
+                bot_user: "U9".into(),
+                bot_name: "ada".into(),
+                bot_slack: "B9".into(),
+                app_token: "xapp-own".into(),
+                bot_token: "xoxb-own".into(),
+                allowed: vec!["U5".into()],
+                anyone: false,
+            }]));
+            let load: own::Load = {
+                let stored = stored.clone();
+                Arc::new(move || Ok(stored.lock().unwrap().clone()))
+            };
+            let apps = own::Apps::new(connector.clone(), "Workshop".into(), Ledger::memory(), load)
+                .with_test_endpoint(addr);
+            apps.reconcile().await;
+            let mut own_slack = FakeSlack {
+                app,
+                addr,
+                socket: incoming.recv().await.unwrap(),
+                posted,
+                server,
+            };
+            let runner = tokio::spawn(runner::serve(
+                Arc::new(Local::new(connector.clone(), "Workshop".into())),
+                "Workshop".into(),
+                offering(ada.clone()),
+                (own_slack.addr.port(), root.clone()),
+                runner::RETRY,
+            ));
+            until(|| !connector.inventory().is_empty()).await;
+
+            // a member not allowed is ignored; an allowed one starts ada in any channel, no name needed
+            own_slack.mention_from("Ev1", "U6", "C7", "hang").await;
+            own_slack.mention_from("Ev2", "U5", "C7", "hang").await;
+            own_slack.mention_from("Ev2", "U5", "C7", "hang").await;
+            let card = own_slack.posted.recv().await.unwrap();
+            assert_eq!(
+                (&card["text"], &card["channel"], &card["_token"]),
+                (&json!("ada is starting"), &json!("C7"), &json!("xoxb-own"))
+            );
+            assert!(card.to_string().contains("Asked by <@U5>"));
+            let working = own_slack.posted("ada is working").await;
+            own_slack.click_from("clicked", "U5", &working).await;
+            own_slack.posted("ada stopped").await;
+            assert_eq!(started(&root), 1);
+            assert!(
+                shared.posted.try_recv().is_err(),
+                "the shared app stays quiet"
+            );
+
+            // forgetting the app stops its listener
+            stored.lock().unwrap().clear();
+            apps.reconcile().await;
+            assert!(apps.state(&ada.id).await.is_none());
+            let closed =
+                tokio::time::timeout(Duration::from_secs(5), own_slack.socket.recv()).await;
+            assert!(
+                !matches!(closed, Ok(Some(Ok(Message::Text(_))))),
+                "the socket closes"
+            );
+            for task in [holder, runner, shared.server, own_slack.server] {
+                task.abort();
+            }
+            crate::agent::shutdown();
+        },
+    );
 }

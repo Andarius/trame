@@ -58,7 +58,7 @@ export function BotWiring(
       key: "slack",
       glyph: "slack",
       title: "Slack",
-      sub: bot.slack ? `@Trame ${bot.name}${count("slack")}` : `off${count("slack")}`,
+      sub: `${bot.slackApp ? `@${bot.slackApp.botName || bot.name}` : "not connected"}${count("slack")}`,
       on: bot.slack,
       show: { source: "slack" },
       hint: "show its Slack runs",
