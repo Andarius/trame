@@ -72,8 +72,11 @@
   .day { padding: 6px 10px; border-radius: 14px; font-size: 15px; border: 1px solid var(--separator); color: var(--text); background: none; cursor: pointer; }
   .day.on { background: var(--button); border-color: var(--button); color: var(--button-text); }
   .link { color: var(--link); } .danger { color: var(--red); }
+  .sh.gap { padding-top: 24px; }
   .note { padding: 8px 32px 0; font-size: 13px; color: var(--hint); }
   .err { margin: 8px 16px; color: var(--red); font-size: 15px; }
+  .ic { width: 29px; height: 29px; border-radius: 7px; flex: none; display: flex; align-items: center; justify-content: center; }
+  .ic svg { width: 18px; height: 18px; fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .fallback-save { display: block; margin: 16px; width: calc(100% - 32px); height: 50px; border-radius: 12px; border: 0;
                    background: var(--button); color: var(--button-text); font: inherit; font-weight: 600; font-size: 16px; }
 </style>
@@ -216,6 +219,25 @@
 
 
   // Schedules: read and saved through the signed API; validation is the server's
+  // iOS-settings style glyphs (static markup, never user data)
+  var GLYPHS = {
+    bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21h4"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
+    tag: '<path d="M4 4h7l9 9-7 7-9-9z"/><circle cx="8.5" cy="8.5" r="1"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    flag: '<path d="M5 21V4h12l-2 4 2 4H5"/>',
+    list: '<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>',
+    send: '<path d="M21 3 3 10.5l7 2.5 2.5 7z"/><path d="m10 13 4-4"/>',
+    server: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>'
+  };
+  var TINTS = { bell: '#5856d6', plus: '#34c759', trash: '#ff3b30', tag: '#8e8e93', clock: '#007aff', flag: '#ff9500',
+                list: '#ff2d55', send: '#2aabee', server: '#30b0c7' };
+  function ic(name) {
+    var s = el('span', 'ic'); s.style.background = TINTS[name];
+    s.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + GLYPHS[name] + '</svg>';
+    return s;
+  }
   var DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
   var WINDOWS = [['late', 'Late only'], ['today', 'Late + today'], ['week', 'Late + this week']];
   var settings = null;
@@ -260,20 +282,24 @@
         .catch(function (e) { fail(e.message); });
       return view;
     }
-    add(view, add(el('div', 'head'), el('div', 'title', 'Schedules'),
-      el('div', 'st', 'Runs on ' + settings.runs_on + ' · ' + (settings.connectors.join(', ') || 'no connector set up'))));
+    add(view, add(el('div', 'head'), el('div', 'title', 'Schedules')));
     var sec = el('div', 'sec');
     settings.schedules.forEach(function (sch, i) {
-      var cell = add(el('div', 'cell tap'), add(el('div', 'mid'), el('div', 't', sch.name),
+      var cell = add(el('div', 'cell tap'), ic('bell'), add(el('div', 'mid'), el('div', 't', sch.name),
         el('div', 'st', sch.at + '–' + sch.until + ' · ' + daysLabel(sch.days) + ' · ' + windowLabel(sch.window))), el('span', 'chev', '›'));
       cell.onclick = function () { go(function () { return editView(i); }); };
       sec.appendChild(cell);
     });
-    var addCell = add(el('div', 'cell tap'), add(el('div', 'mid'), el('div', 't link', '+ Add schedule')));
+    var addCell = add(el('div', 'cell tap'), ic('plus'), add(el('div', 'mid'), el('div', 't link', 'Add schedule')));
     addCell.onclick = function () { go(function () { return editView(-1); }); };
     sec.appendChild(addCell);
     view.appendChild(sec);
     view.appendChild(el('div', 'note', 'A schedule sends once a day, between its start and end, to its connectors. The timer checks every 5 minutes.'));
+    view.appendChild(el('div', 'sh gap', 'Where'));
+    add(view, add(el('div', 'sec'),
+      add(el('div', 'cell'), ic('server'), add(el('div', 'mid'), el('div', 't', 'Runs on ' + settings.runs_on), el('div', 'st', 'The always-on server behind this app'))),
+      add(el('div', 'cell'), ic('send'), add(el('div', 'mid'), el('div', 't', 'Sends to ' + (settings.connectors.join(', ') || 'nothing yet')),
+        el('div', 'st', settings.connectors.length ? 'Set up with tramecli connector setup' : 'Run tramecli connector setup on ' + settings.runs_on)))));
     return view;
   }
 
@@ -285,15 +311,15 @@
     add(view, add(el('div', 'head'), el('div', 'title', index >= 0 ? draft.name : 'New schedule')));
     var err = el('div', 'err');
 
-    function input(label, type, value, set) {
+    function input(icon, label, type, value, set) {
       var i = el('input'); i.type = type; i.value = value;
       i.oninput = function () { set(i.value); };
-      return add(el('div', 'field'), el('label', null, label), i);
+      return add(el('div', 'field'), ic(icon), el('label', null, label), i);
     }
     var sec = el('div', 'sec');
-    add(sec, input('Name', 'text', draft.name, function (v) { draft.name = v.trim(); }),
-      input('Starts', 'time', draft.at, function (v) { draft.at = v; }),
-      input('Ends', 'time', draft.until, function (v) { draft.until = v; }));
+    add(sec, input('tag', 'Name', 'text', draft.name, function (v) { draft.name = v.trim(); }),
+      input('clock', 'Starts', 'time', draft.at, function (v) { draft.at = v; }),
+      input('flag', 'Ends', 'time', draft.until, function (v) { draft.until = v; }));
     var sel = el('select');
     WINDOWS.forEach(function (w) { var o = el('option', null, w[1]); o.value = w[0]; sel.appendChild(o); });
     var custom = el('option', null, 'Late + next N days…'); custom.value = 'n'; sel.appendChild(custom);
@@ -303,7 +329,7 @@
       var n = parseInt(window.prompt('Days ahead', '3') || '', 10);
       if (n >= 0) draft.window = n; else sel.value = typeof draft.window === 'number' ? 'n' : draft.window;
     };
-    sec.appendChild(add(el('div', 'field'), el('label', null, 'Lists'), sel));
+    sec.appendChild(add(el('div', 'field'), ic('list'), el('label', null, 'Lists'), sel));
     view.appendChild(sec);
 
     view.appendChild(el('div', 'sh', 'Days'));
@@ -332,11 +358,11 @@
         var list = settings.connectors.filter(function (x) { return x === c ? box.checked : (!draft.to || !draft.to.length || draft.to.indexOf(x) >= 0); });
         draft.to = list.length === settings.connectors.length ? [] : list;
       };
-      to.appendChild(add(el('div', 'field'), el('label', null, c), box));
+      to.appendChild(add(el('div', 'field'), ic('send'), el('label', null, c), box));
     });
     view.appendChild(to);
     var where = el('div', 'sec');
-    where.appendChild(add(el('div', 'field'), el('label', null, 'Runs on'), el('span', 'cap', settings.runs_on)));
+    where.appendChild(add(el('div', 'field'), ic('server'), el('label', null, 'Runs on'), el('span', 'cap', settings.runs_on)));
     view.appendChild(where);
     view.appendChild(err);
 
@@ -358,7 +384,7 @@
       save(list);
     }
     if (index >= 0) {
-      var del = add(el('div', 'sec'), add(el('div', 'cell tap'), add(el('div', 'mid'), el('div', 't danger', 'Delete schedule'))));
+      var del = add(el('div', 'sec'), add(el('div', 'cell tap'), ic('trash'), add(el('div', 'mid'), el('div', 't danger', 'Delete schedule'))));
       del.onclick = function () {
         var remove = function (ok) { if (ok) save(settings.schedules.filter(function (_, i) { return i !== index; })); };
         if (tg && tg.showConfirm) tg.showConfirm('Delete ' + draft.name + '?', remove); else remove(window.confirm('Delete ' + draft.name + '?'));
