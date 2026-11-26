@@ -377,6 +377,7 @@ export function TermCards(
           </ul>
         )}
         {(forksOf.get(x.id) ?? []).sort((a, b) => forkRank(a) - forkRank(b)).map((f) => forkRow(f, x))}
+        {(x.workers ?? []).map((w) => workerRow(w))}
         {(subsOf.get(x.id) ?? []).map((a) => subRow(a, x))}
         {(advicesOf.get(x.id) ?? []).map((a) => adviceRow(a, x))}
         <button
@@ -423,6 +424,21 @@ export function TermCards(
       </button>
     );
   };
+  // a headless agent `x` started (`codex exec` from a script): the folder it works in, its model; it runs until it exits
+  const workerRow = (w: NonNullable<TermSession["workers"]>[number]) => (
+    <div
+      key={`worker:${w.pid}`}
+      title={`${w.agent} worker started by this agent${w.cwd ? ` · ${w.cwd}` : ""}${w.model ? ` · ${w.model}` : ""} · pid ${w.pid}`}
+      className="ml-[11px] flex w-[calc(100%-11px)] items-center gap-1.5 px-2 py-0.5 text-[11.5px] text-ink-muted"
+    >
+      <span aria-hidden="true" className="-mt-2 h-2.5 w-2 shrink-0 rounded-bl-sm border-b border-l border-ink-faint" />
+      <ForkState state="running" />
+      <AgentIcon a={{ harness: w.agent, icon: null }} />
+      <span className="min-w-0 flex-1 truncate">{w.cwd?.split("/").filter(Boolean).pop() ?? w.agent}</span>
+      {w.model && <span className="shrink-0 text-[10.5px] text-ink-faint">{w.model.replace(/^gpt-[\d.]+-/, "")}</span>}
+      <span className="shrink-0 text-[10.5px] text-ink-faint">worker</span>
+    </div>
+  );
   // a subagent of `x`: what it was asked, its type and model on hover; how long it has run, or since it finished
   const subRow = (a: Subagent, x: TermSession) => (
     <div
