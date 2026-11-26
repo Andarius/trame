@@ -632,6 +632,7 @@ export function TermCards(
           {leftOver.map((x) => agentRow(x, true))}
         </section>
       )}
+      <Bots selected={bot} onSelect={onSelectBot} />
       <div className="-mb-1 flex items-center px-2">
         <button
           type="button"
@@ -821,7 +822,6 @@ export function TermCards(
           {handoffError} ✕
         </button>
       )}
-      <Bots selected={bot} onSelect={onSelectBot} />
       <AgentRuns selected={agentRun} onSelect={onSelectAgent} />
       <RecentList board={board} selected={recent} history={history} onSelect={onSelectRecent} onHistory={onSelectHistory} />
       {linkFor && (
