@@ -191,10 +191,11 @@ lint: lint-sql
     cargo fmt --all -- --check
     cargo clippy --workspace --all-targets --locked -- -D warnings
 
-# Lint the SQL schema (sqlfluff, via uvx — no install needed)
+# Lint the SQL schema: sqlfluff, plus squawk for changes that break older replicas (no install needed)
 [group('dev')]
 lint-sql:
     uvx {{ sqlfluff }} lint db/schema.sql
+    npx -y squawk-cli@2.74.0 db/schema.sql
 
 # Format Rust and SQL schema in place
 [group('dev')]

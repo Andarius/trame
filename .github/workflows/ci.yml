@@ -138,6 +138,9 @@ jobs:
       - name: Check SQL schema formatting
         run: pipx run sqlfluff==4.2.2 format - < db/schema.sql | diff -u db/schema.sql - && echo "schema.sql formatted"
 
+      - name: Schema changes stay replica-safe (squawk, pinned)
+        run: npx -y squawk-cli@2.74.0 db/schema.sql
+
   # releases build their own packages; PRs skip this
   package:
     if: github.event_name == 'push'
