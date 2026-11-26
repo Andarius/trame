@@ -13,6 +13,7 @@ fn run(program: &str, args: &[&str], host: Option<&str>) -> Option<String> {
     let mut command = Command::new(program);
     command
         .args(args)
+        .env("PATH", crate::cli::user_path())
         .stdin(Stdio::null())
         .stderr(Stdio::null());
     if let Some(host) = host {
