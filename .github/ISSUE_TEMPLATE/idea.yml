@@ -1,0 +1,21 @@
+name: Idea
+description: A feature, a workflow you wish Trame handled, or a change to an existing one
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do with your agents today, and where it hurts.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What Trame could do about it. Rough is fine.
+  - type: input
+    id: agents
+    attributes:
+      label: Agents you use
+      placeholder: Claude Code, Codex, ...

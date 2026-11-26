@@ -1,0 +1,36 @@
+name: Bug
+description: Something broke or behaves wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead. Screenshots welcome.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: v0.35.4 (tramecli --version)
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options: [Linux deb, Linux snap, Linux AppImage, macOS arm64, Source build]
+    validations:
+      required: true
+  - type: dropdown
+    id: sync
+    attributes:
+      label: Sync
+      options: [Local only (no hub), With a hub]
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Settings › Diagnostics, or the terminal output if you started Trame from one.
+      render: text
