@@ -8,7 +8,7 @@ comment on. Close a session today and **Resume** it next week.
 Local-first: everything runs and is stored on your machine, offline. A self-hosted hub syncs several machines, and it
 is optional.
 
-![Agents in Trame: a Claude session running outside is moved into a Trame tab](docs/move-into-trame.gif)
+![Agents running in Trame; one moves into Needs you when it asks a question](docs-site/public/shots/hero.gif)
 
 - **Agents**: every running agent in one sidebar, grouped by project, with what each is doing, which one is *waiting
   on you*, its forks, subagents and follow-ups. Tabs, split panes, pop-out windows.

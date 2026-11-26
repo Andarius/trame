@@ -1,0 +1,494 @@
+---
+import '@fontsource-variable/bricolage-grotesque';
+import '@fontsource/ibm-plex-sans/400.css';
+import '@fontsource/ibm-plex-sans/600.css';
+import '@fontsource/ibm-plex-mono/400.css';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const shot = (name: string) => `${base}/shots/${name}`;
+const repo = 'https://github.com/Andarius/trame';
+const install = 'curl -fsSL https://raw.githubusercontent.com/Andarius/trame/master/bin/quickstart.sh | bash';
+
+const steps = [
+	{
+		title: 'Start agents, answer the one that waits',
+		body: 'Open Claude Code, Codex, Antigravity, Mistral Vibe or Pi from New terminal. The sidebar groups them by project with the step each is on. When one stops to ask you something, it moves to Needs you with its question while the others keep working.',
+		img: 'agents-sidebar.png',
+		alt: 'The agents sidebar: one agent in Needs you, four others working, grouped by project',
+		tall: true,
+	},
+	{
+		title: 'File the session on the board',
+		body: 'Run /trame-track in the session. It becomes a card with its repo, branch and a note, and moves between Active, Paused, Blocked and Done as the work goes.',
+		img: 'board.gif',
+		alt: 'Cards moving across the board columns',
+	},
+	{
+		title: 'Resume it next week',
+		body: 'The card keeps the session. Resume reopens it in Claude Code or Codex, in the right folder, with the whole conversation.',
+		img: 'resume.gif',
+		alt: 'Resuming a past session from its card',
+	},
+];
+
+const faq = [
+	['Do I need a server or an account?', 'No. Trame runs on one machine, offline. The hub is only for syncing several machines, and you host it yourself.'],
+	['What does it change in my agent setup?', 'tramecli setup adds the Trame skills to ~/.claude/skills and links tramecli into ~/.local/bin. With --presence it also adds hooks to ~/.claude/settings.json and ~/.codex/hooks.json, so Trame knows which agent is working or waiting. SECURITY.md lists everything it touches.'],
+	['Does it send anything anywhere?', 'No telemetry. The only request out of the box is a release check against the GitHub API every 6 hours, and TRACKER_UPDATE_CHECK=0 turns it off.'],
+	['Why a whole PostgreSQL inside a desktop app?', 'The laptop and the hub run the same schema and the same SQL, so offline writes sync without a translation layer. It has no TCP port: only a private Unix socket.'],
+	['What does it not do yet?', 'There is no Windows or Intel Mac build. The hub is built for a home network or a VPN, not the open internet. Trame is pre-1.0 and releases often.'],
+];
+---
+
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Trame: run coding agents in parallel, lose track of none</title>
+		<meta name="description" content="A local-first desktop workspace for Claude Code, Codex and other coding agents: run them side by side, see which one needs you, and file every session on a board." />
+		<link rel="icon" href={`${base}/favicon.svg`} type="image/svg+xml" />
+	</head>
+	<body>
+		<header class="bar wrap">
+			<a class="mark" href={`${base}/`}>trame</a>
+			<nav>
+				<a href={`${base}/overview/`}>Docs</a>
+				<a href={`${repo}/releases`}>Releases</a>
+				<a href={repo}>GitHub</a>
+			</nav>
+		</header>
+
+		<main>
+			<section class="hero wrap">
+				<h1>Run your agents in parallel. Lose track of none.</h1>
+				<p class="lede">
+					Trame is a desktop workspace for coding agents. Start them side by side, see which one is waiting on
+					you, file every session on a board, and pick it up again next week. Local-first and open source.
+				</p>
+				<div class="install">
+					<code>{install}</code>
+					<button type="button" data-copy={install}>Copy</button>
+				</div>
+				<p class="platforms">
+					Linux x64 and macOS arm64. Or download a package from the <a href={`${repo}/releases`}>releases page</a>.
+				</p>
+			</section>
+
+			<div class="stage">
+				<svg class="weft" viewBox="0 0 1600 600" preserveAspectRatio="none" aria-hidden="true">
+					<path d="M0 90 C 300 60, 500 130, 800 95 S 1300 60, 1600 100" />
+					<path d="M0 200 C 280 230, 520 160, 800 205 S 1320 240, 1600 190" />
+					<path d="M0 320 C 320 290, 480 360, 800 315 S 1280 290, 1600 330" />
+					<path d="M0 440 C 260 470, 540 400, 800 445 S 1340 470, 1600 425" />
+					<path d="M0 540 C 300 515, 500 570, 800 535 S 1300 515, 1600 550" />
+				</svg>
+				<figure class="window wrap-wide">
+					<div class="chrome"><span></span><span></span><span></span></div>
+					<img src={shot('hero.gif')} alt="Agents running in Trame; one moves into Needs you when it asks a question" width="1000" height="625" />
+				</figure>
+			</div>
+
+			<section class="day wrap">
+				<h2>A day with Trame</h2>
+				<ol>
+					{steps.map((s) => (
+						<li>
+							<div class="step-text">
+								<h3>{s.title}</h3>
+								<p>{s.body}</p>
+							</div>
+							<img class:list={[{ tall: s.tall }]} src={shot(s.img)} alt={s.alt} loading="lazy" />
+						</li>
+					))}
+				</ol>
+			</section>
+
+			<section class="pages wrap">
+				<div class="step-text">
+					<h2>Plans your agents read and write</h2>
+					<p>
+						Specs, plans and notes are pages with todos. Agents write them through tramecli or MCP, comment on a
+						block, and answer when you reply. When one needs a decision, it asks in the page and reads your answer
+						back.
+					</p>
+					<p>Pages also hold databases, interactive HTML blocks, and read-only share links.</p>
+				</div>
+				<img src={shot('pages.gif')} alt="An agent's question in a page, answered by choosing an option" loading="lazy" />
+			</section>
+
+			<section class="local wrap">
+				<h2>Yours, on your machine</h2>
+				<p>
+					Everything runs and is stored locally, in a bundled PostgreSQL. No account, no cloud, no telemetry. If you
+					work on several machines, run the hub on a server you own: edits reach the others in a couple of seconds.
+					The code is MIT or Apache-2.0, and plugins add panels, blocks and commands.
+				</p>
+			</section>
+
+			<section class="faq wrap">
+				<h2>Questions</h2>
+				{faq.map(([q, a]) => (
+					<details>
+						<summary>{q}</summary>
+						<p>{a}</p>
+					</details>
+				))}
+			</section>
+
+			<section class="end wrap">
+				<h2>Try it on your next session</h2>
+				<div class="install">
+					<code>{install}</code>
+					<button type="button" data-copy={install}>Copy</button>
+				</div>
+				<p class="platforms">
+					Ideas and bugs are welcome in <a href={`${repo}/issues/new/choose`}>issues</a>.{' '}
+					Read the <a href={`${repo}/blob/master/bin/quickstart.sh`}>install script</a> before you run it.
+				</p>
+			</section>
+		</main>
+
+		<footer class="wrap">
+			<span>Trame, MIT or Apache-2.0</span>
+			<a href={`${repo}/blob/master/SECURITY.md`}>Security</a>
+			<a href={`${base}/overview/`}>Docs</a>
+		</footer>
+
+		<script>
+			for (const b of document.querySelectorAll<HTMLButtonElement>('[data-copy]')) {
+				b.addEventListener('click', async () => {
+					await navigator.clipboard.writeText(b.dataset.copy ?? '');
+					b.textContent = 'Copied';
+					setTimeout(() => (b.textContent = 'Copy'), 1600);
+				});
+			}
+		</script>
+	</body>
+</html>
+
+<style is:global>
+	:root {
+		--indigo: #171a33;
+		--indigo-raised: #20244a;
+		--line: #2f3466;
+		--linen: #ece6da;
+		--muted: #a9a8bd;
+		--copper: #c98a63;
+		--display: 'Bricolage Grotesque Variable', system-ui, sans-serif;
+		--body: 'IBM Plex Sans', system-ui, sans-serif;
+		--mono: 'IBM Plex Mono', ui-monospace, monospace;
+		color-scheme: dark;
+	}
+	* {
+		box-sizing: border-box;
+	}
+	html {
+		background: var(--indigo);
+		color: var(--linen);
+		font: 400 1.0625rem/1.6 var(--body);
+		-webkit-font-smoothing: antialiased;
+	}
+	body {
+		margin: 0;
+	}
+	a {
+		color: var(--linen);
+		text-decoration-color: var(--copper);
+		text-underline-offset: 0.2em;
+	}
+	a:hover {
+		color: var(--copper);
+	}
+	:focus-visible {
+		outline: 2px solid var(--copper);
+		outline-offset: 3px;
+	}
+	img {
+		display: block;
+		max-width: 100%;
+		height: auto;
+	}
+	h1,
+	h2,
+	h3 {
+		font-family: var(--display);
+		font-weight: 650;
+		letter-spacing: -0.02em;
+		line-height: 1.05;
+		margin: 0;
+	}
+	h2 {
+		font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+		margin-bottom: 1.5rem;
+	}
+	h3 {
+		font-size: 1.375rem;
+		margin-bottom: 0.5rem;
+	}
+	p {
+		margin: 0 0 1rem;
+	}
+	.wrap {
+		width: min(72rem, 100% - 3rem);
+		margin-inline: auto;
+	}
+	.wrap-wide {
+		width: min(80rem, 100% - 2rem);
+		margin-inline: auto;
+	}
+</style>
+
+<style>
+	.bar {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		padding: 1.5rem 0;
+	}
+	.mark {
+		font: 700 1.5rem/1 var(--display);
+		letter-spacing: -0.03em;
+		text-decoration: none;
+	}
+	nav {
+		display: flex;
+		gap: 1.75rem;
+	}
+	nav a {
+		text-decoration: none;
+		color: var(--muted);
+	}
+	nav a:hover {
+		color: var(--linen);
+	}
+
+	.hero {
+		padding: clamp(3rem, 9vw, 7rem) 0 3rem;
+	}
+	h1 {
+		font-size: clamp(2.75rem, 7.5vw, 6rem);
+		font-weight: 700;
+		font-stretch: 85%;
+		letter-spacing: -0.035em;
+		line-height: 0.95;
+		max-width: 14ch;
+	}
+	.lede {
+		max-width: 38rem;
+		margin-top: 1.75rem;
+		font-size: 1.1875rem;
+		color: var(--muted);
+	}
+	.install {
+		display: flex;
+		align-items: stretch;
+		max-width: 54rem;
+		margin-top: 2rem;
+		border: 1px solid var(--line);
+		border-radius: 0.5rem;
+		background: var(--indigo-raised);
+		overflow: hidden;
+	}
+	.install code {
+		flex: 1;
+		padding: 0.95rem 1.1rem;
+		font: 400 0.875rem/1.5 var(--mono);
+		white-space: nowrap;
+		overflow-x: auto;
+	}
+	.install button {
+		flex: none;
+		padding: 0 1.4rem;
+		border: 0;
+		background: var(--copper);
+		color: var(--indigo);
+		font: 600 0.9375rem var(--body);
+		cursor: pointer;
+	}
+	.install button:hover {
+		background: #dba07a;
+	}
+	.platforms {
+		margin-top: 0.85rem;
+		font-size: 0.9375rem;
+		color: var(--muted);
+	}
+
+	.stage {
+		position: relative;
+		padding: 4rem 0 7rem;
+	}
+	.weft {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+	}
+	.weft path {
+		fill: none;
+		stroke: var(--copper);
+		stroke-width: 1.5;
+		vector-effect: non-scaling-stroke;
+		opacity: 0.7;
+		stroke-dasharray: 2000;
+		stroke-dashoffset: 2000;
+		animation: weave 2.4s cubic-bezier(0.3, 0.6, 0.2, 1) forwards;
+	}
+	.weft path:nth-child(2) {
+		animation-delay: 0.15s;
+		opacity: 0.35;
+	}
+	.weft path:nth-child(3) {
+		animation-delay: 0.3s;
+	}
+	.weft path:nth-child(4) {
+		animation-delay: 0.45s;
+		opacity: 0.35;
+	}
+	.weft path:nth-child(5) {
+		animation-delay: 0.6s;
+	}
+	@keyframes weave {
+		to {
+			stroke-dashoffset: 0;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.weft path {
+			animation: none;
+			stroke-dashoffset: 0;
+		}
+	}
+	.window {
+		position: relative;
+		max-width: 75rem;
+		margin-block: 0;
+		border: 1px solid var(--line);
+		border-radius: 0.75rem;
+		background: #0e1022;
+		overflow: hidden;
+		box-shadow: 0 2.5rem 5rem -1.5rem rgb(5 6 20 / 0.8);
+	}
+	.chrome {
+		display: flex;
+		gap: 0.45rem;
+		padding: 0.7rem 0.9rem;
+		border-bottom: 1px solid var(--line);
+	}
+	.chrome span {
+		width: 0.7rem;
+		height: 0.7rem;
+		border-radius: 50%;
+		background: var(--line);
+	}
+
+	.day {
+		padding: 4rem 0;
+	}
+	.day ol {
+		list-style: none;
+		counter-reset: step;
+		margin: 0;
+		padding: 0;
+	}
+	.day li {
+		counter-increment: step;
+		display: grid;
+		grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+		gap: 3rem;
+		align-items: center;
+		padding: 2.5rem 0;
+		border-top: 1px solid var(--line);
+	}
+	.day .step-text::before {
+		content: counter(step);
+		display: block;
+		margin-bottom: 0.75rem;
+		font: 700 2.5rem/1 var(--display);
+		color: var(--copper);
+	}
+	.step-text p {
+		color: var(--muted);
+		max-width: 34rem;
+	}
+	.day img.tall {
+		justify-self: center;
+		max-height: 34rem;
+		width: auto;
+	}
+	.day img,
+	.pages img {
+		border: 1px solid var(--line);
+		border-radius: 0.5rem;
+	}
+
+	.pages {
+		display: grid;
+		grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+		gap: 3rem;
+		align-items: center;
+		padding: 4rem 0;
+	}
+
+	.local {
+		padding: 4rem 0;
+	}
+	.local p {
+		max-width: 44rem;
+		font-size: 1.25rem;
+		line-height: 1.55;
+		color: var(--muted);
+	}
+
+	.faq {
+		padding: 4rem 0;
+		max-width: 48rem;
+		margin-left: max(1.5rem, (100% - 72rem) / 2);
+	}
+	details {
+		border-top: 1px solid var(--line);
+		padding: 1rem 0;
+	}
+	details:last-of-type {
+		border-bottom: 1px solid var(--line);
+	}
+	summary {
+		cursor: pointer;
+		font-weight: 600;
+	}
+	details p {
+		margin: 0.75rem 0 0.25rem;
+		color: var(--muted);
+	}
+
+	.end {
+		padding: 5rem 0 6rem;
+	}
+
+	footer {
+		display: flex;
+		gap: 1.75rem;
+		padding: 2rem 0 3rem;
+		border-top: 1px solid var(--line);
+		font-size: 0.9375rem;
+		color: var(--muted);
+	}
+	footer span {
+		margin-right: auto;
+	}
+	footer a {
+		color: var(--muted);
+	}
+
+	@media (max-width: 50rem) {
+		.day li,
+		.pages {
+			grid-template-columns: 1fr;
+			gap: 1.25rem;
+		}
+		nav {
+			gap: 1rem;
+		}
+	}
+</style>
