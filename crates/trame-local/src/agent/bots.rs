@@ -18,7 +18,10 @@ use crate::db::Db;
 const MAX_LIVE: usize = 4;
 const MAX_BOTS: i64 = 64;
 const COLUMNS: &str = "id, name, provider, cwd, mode, model, effort, slack, hook, role, face, hue,
-    exists (select 1 from agent_bot_images i where i.bot_id = agent_bots.id) as has_image";
+    exists (select 1 from agent_bot_images i where i.bot_id = agent_bots.id) as has_image,
+    (select json_build_object('botUser', s.bot_user_id, 'botName', s.bot_user_name,
+                              'teamName', s.team_name)
+       from agent_bot_slack s where s.bot_id = agent_bots.id) as slack_app";
 const FACES: &[&str] = &["f1", "f2", "f3", "f4"];
 /// Largest avatar an upload may be.
 pub(crate) const MAX_IMAGE: usize = 256 << 10;
@@ -41,6 +44,8 @@ pub(crate) struct Bot {
     pub face: Option<String>,
     pub hue: Option<i64>,
     pub has_image: bool,
+    /// its own Slack app, `{botUser, teamName}`, when it has one
+    pub slack_app: Option<Value>,
 }
 
 impl Bot {
@@ -52,6 +57,9 @@ impl Bot {
             "mode":self.mode,"model":self.model,"effort":self.effort,"slack":self.slack,"live":live,"working":working,
             "role":self.role,"face":self.face,"hue":self.hue.unwrap_or_else(|| name_hue(&self.name)),
             "hasImage":self.has_image,
+            "slackApp":self.slack_app.as_ref().map(|a| json!({
+                "connected":true,"botUser":a["botUser"],"botName":a["botName"],"teamName":a["teamName"],
+            })),
         })
     }
 
@@ -73,6 +81,7 @@ impl Bot {
             face: text("face"),
             hue: r["hue"].as_i64(),
             has_image: r["has_image"] == true,
+            slack_app: Some(r["slack_app"].clone()).filter(Value::is_object),
         })
     }
 
@@ -331,6 +340,24 @@ pub(crate) fn route(offered: &[String], text: &str) -> Result<Routed, String> {
             names.join(", ")
         )),
     }
+}
+
+/// The task and agent of a mention of bot `name`'s own app: `with <agent>: task` (or `name with
+/// <agent>: task`) picks the agent; a plain `name: task` drops the name.
+pub(crate) fn own_task(name: &str, text: &str) -> (String, Option<Provider>) {
+    if let (Some(n), agent, task) = addressed(text)
+        && n == name
+    {
+        return (task.to_owned(), agent);
+    }
+    if let Some((head, task)) = text.split_once(':')
+        && !task.trim().is_empty()
+        && let ["with", agent] = head.split_whitespace().collect::<Vec<_>>().as_slice()
+        && let Some(agent) = Provider::parse(agent)
+    {
+        return (task.trim().to_owned(), Some(agent));
+    }
+    (text.trim().to_owned(), None)
 }
 
 /// Split `name: task` or `name with <agent>: task` when `name` could be a bot; otherwise the whole
@@ -638,6 +665,22 @@ mod tests {
                 .contains("trame, web")
         );
         assert!(routed(&[], "hi").is_err());
+    }
+
+    #[test]
+    fn a_bots_own_app_takes_the_whole_text_but_an_agent_prefix() {
+        let codex = Some(Provider::Codex);
+        for (text, want) in [
+            ("fix the test", ("fix the test", None)),
+            ("with codex: fix", ("fix", codex)),
+            ("ada with codex: fix", ("fix", codex)),
+            ("ada: fix", ("fix", None)),
+            ("note: keep this", ("note: keep this", None)),
+            ("with gpt: fix", ("with gpt: fix", None)),
+        ] {
+            let (task, agent) = own_task("ada", text);
+            assert_eq!((task.as_str(), agent), want, "{text}");
+        }
     }
 
     #[test]

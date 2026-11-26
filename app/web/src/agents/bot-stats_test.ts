@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { fmtSeconds, heatLevel, runExtras, runLabel, startOptions } from "./bot-stats.ts";
+import { fmtSeconds, heatLevel, memberIds, runExtras, runLabel, startOptions } from "./bot-stats.ts";
 
 describe("runLabel", () => {
   const base = { live: false, needsYou: false, outcome: null, endedAt: null };
@@ -67,4 +67,14 @@ describe("runExtras", () => {
       ["another agent and folder", { agent: "codex", cwd: "/src/web/" }, { agent: "codex", folder: "web" }],
     ] as const
   ) test(id, () => expect(runExtras(bot, run)).toEqual(expected));
+});
+
+describe("memberIds", () => {
+  for (
+    const [id, text, expected] of [
+      ["comma separated", "U1, U2", ["U1", "U2"]],
+      ["spaces and repeats", " U1  U1\nW3 ", ["U1", "W3"]],
+      ["empty", " , ", []],
+    ] as const
+  ) test(id, () => expect(memberIds(text)).toEqual([...expected]));
 });

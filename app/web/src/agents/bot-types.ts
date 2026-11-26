@@ -31,3 +31,23 @@ export type BotStats = {
   lastStartedAt: string | null;
 };
 export type BotActivity = { bot: string; runs: number; success: number; daily: Daily[]; sources: Sources };
+// a bot's own Slack app, as the bot list shows it
+export type BotSlackApp = { connected: true; botUser: string; botName: string; teamName: string };
+// a bot's own Slack app in full; the tokens only masked
+export type BotSlack = {
+  connected: boolean;
+  team?: string;
+  teamName?: string;
+  botUser?: string; // its Slack user id
+  botName?: string; // its Slack user name, the @name people type
+  appId?: string | null;
+  allowed?: string[];
+  anyone?: boolean;
+  appToken?: string;
+  botToken?: string;
+  listening: boolean; // its Socket Mode listener runs on this machine
+  error: string | null; // why Slack stopped it
+  manifestUrl: string; // creates the app in Slack, named after the bot
+};
+// the shared @Trame app this machine holds, if any
+export type SharedSlack = { shared: { connected: boolean; channel: string } | null };

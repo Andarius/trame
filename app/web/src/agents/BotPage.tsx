@@ -39,6 +39,7 @@ import {
   runSeconds,
   startOptions,
 } from "./bot-stats";
+import { BotSlackSetup } from "./BotSlack";
 import { BotWiring } from "./BotWiring";
 
 type Tab = "overview" | "wiring" | "settings";
@@ -481,7 +482,9 @@ function Overview(
           )}
           {runs && !runs.length && !filter && (
             <p className="px-3.5 py-5 text-center text-[12px] text-ink-faint">
-              No runs yet. Start one with Run now{bot.slack ? `, a Slack mention (@Trame ${bot.name}: …)` : ""} or its hook.
+              No runs yet. Start one with Run now
+              {bot.slack ? `, a Slack mention (${bot.slackApp ? `@${bot.slackApp.botName || bot.name} …` : `@Trame ${bot.name}: …`})` : ""}{" "}
+              or its hook.
             </p>
           )}
           {shown.map((r) => {
@@ -569,10 +572,10 @@ function StartedBy({ bot, runs, reload }: { bot: Bot; runs: BotRun[] | null; rel
       <TriggerRow
         glyph="slack"
         title="Slack"
-        off={!bot.slack}
+        off={!bot.slack && !!bot.slackApp?.connected}
         aside={<Switch on={bot.slack} label={bot.slack ? "stop Slack mentions" : "start on Slack mentions"} onChange={toggleSlack} />}
       >
-        <span className="font-mono">@Trame {bot.name}: …</span> in any channel Trame is in
+        <BotSlackSetup bot={bot} reload={reload} />
       </TriggerRow>
       <TriggerRow glyph="hook" title="Hook">
         cron, CI or a script · {lastHook ? `last call ${timeAgo(lastHook.startedAt)}` : "never called"}

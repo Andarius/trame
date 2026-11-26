@@ -407,6 +407,21 @@ create table if not exists slack_events (
   event_id text primary key,
   event_time bigint not null              -- Slack's event_time, seconds; rows past a day are dropped
 );
+-- a bot's own Slack app, its tokens and who may ask it (NOT synced: the tokens stay on this machine)
+create table if not exists agent_bot_slack (
+  bot_id uuid primary key references agent_bots (id) on delete cascade,
+  team_id text not null,
+  team_name text not null,
+  app_id text,                            -- from the app token; null when it does not say
+  bot_user_id text not null,              -- the @name people mention
+  bot_user_name text not null,            -- its user name, as Slack shows it
+  bot_id_slack text not null,
+  app_token text not null,                -- xapp-, Socket Mode
+  bot_token text not null,                -- xoxb-, posts as the bot
+  allowed jsonb not null default '[]',    -- Slack user ids who may ask
+  anyone boolean not null default false,  -- anyone in the workspace but bots may ask
+  created_at timestamptz not null default now()
+);
 
 create or replace function trame_session_done_at() returns trigger
 language plpgsql as $fn$

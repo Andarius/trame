@@ -137,14 +137,15 @@ impl Api {
         None
     }
 
-    pub(in crate::agent) async fn listen(&self, input: &mpsc::Sender<Input>) {
+    /// Hold the Socket Mode connection until Slack refuses a token, which it returns.
+    pub(in crate::agent) async fn listen(&self, input: &mpsc::Sender<Input>) -> &'static str {
         let mut attempt = 0;
         let bot = loop {
             let wait = match self.authenticate().await {
                 Ok(bot) => break bot,
                 Err(Failure::Rejected) => {
                     eprintln!("Slack auth.test failed");
-                    return;
+                    return "Slack refused the bot token";
                 }
                 Err(Failure::Temporary) => backoff(attempt),
                 Err(Failure::RateLimited(wait)) => wait,
@@ -160,7 +161,7 @@ impl Api {
                 Err(Failure::RateLimited(wait)) => wait,
                 Err(Failure::Rejected) => {
                     eprintln!("Slack apps.connections.open failed");
-                    return;
+                    return "Slack refused the app token";
                 }
             };
             attempt = if opened_at.elapsed() >= Duration::from_secs(60) {
@@ -230,6 +231,90 @@ impl Api {
                 .map_err(|_| Failure::Temporary)?;
         }
     }
+}
+
+/// Who a bot token speaks for, as auth.test tells.
+#[derive(Debug)]
+pub(in crate::agent) struct Identity {
+    pub team: String,
+    pub team_name: String,
+    pub user: String,
+    pub user_name: String,
+    pub bot: String,
+}
+
+/// Slack's Web API; an isolated (dev or test) instance may point it at a loopback fake.
+fn endpoint() -> String {
+    std::env::var("TRAME_SLACK_API_URL")
+        .ok()
+        .filter(|_| crate::isolated_mode())
+        .filter(|u| {
+            Url::parse(u).is_ok_and(|u| u.scheme() == "http" && u.host_str() == Some("127.0.0.1"))
+        })
+        .unwrap_or_else(|| "https://slack.com/api/".into())
+}
+
+/// Check a bot app's tokens: auth.test with the bot token, then apps.connections.open with the
+/// app token, which proves Socket Mode is on. The error is what to show the user.
+pub(in crate::agent) async fn verify(app_token: &str, bot_token: &str) -> Result<Identity, String> {
+    let client = Client::builder()
+        .timeout(TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|_| "the HTTP client could not be started".to_owned())?;
+    let endpoint = endpoint();
+    let call = async |method: &str, token: &str, which: &str| -> Result<Value, String> {
+        let body: Value = client
+            .post(format!("{endpoint}{method}"))
+            .bearer_auth(token)
+            .json(&json!({}))
+            .send()
+            .await
+            .map_err(|_| "Slack could not be reached".to_owned())?
+            .json()
+            .await
+            .map_err(|_| "Slack sent an unexpected answer".to_owned())?;
+        if body["ok"] == true {
+            return Ok(body);
+        }
+        let error = body["error"].as_str().unwrap_or("unknown_error");
+        let error: String = error
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .take(64)
+            .collect();
+        Err(format!("Slack refused the {which} token: {error}"))
+    };
+    let auth = call("auth.test", bot_token, "bot").await?;
+    let text = |k: &str| auth[k].as_str().unwrap_or_default().to_owned();
+    let identity = Identity {
+        team: text("team_id"),
+        team_name: auth["team"]
+            .as_str()
+            .unwrap_or_default()
+            .chars()
+            .take(80)
+            .collect(),
+        user: text("user_id"),
+        user_name: auth["user"]
+            .as_str()
+            .unwrap_or_default()
+            .chars()
+            .take(80)
+            .collect(),
+        bot: text("bot_id"),
+    };
+    if !slack_id(&identity.team, "TE")
+        || !slack_id(&identity.user, "UW")
+        || !slack_id(&identity.bot, "B")
+    {
+        return Err("that is not a bot token: copy the Bot User OAuth Token".into());
+    }
+    let open = call("apps.connections.open", app_token, "app").await?;
+    if !open["url"].is_string() {
+        return Err("Slack sent no Socket Mode address".into());
+    }
+    Ok(identity)
 }
 
 fn backoff(attempt: u32) -> Duration {

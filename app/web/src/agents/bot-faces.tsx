@@ -1,4 +1,4 @@
-import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
+import { type CSSProperties, type ReactNode, type Ref, useEffect, useState } from "react";
 import { termToken } from "../term/term-api";
 import { AgentIcon } from "./agents";
 import { type Bot, botImageUrl, type Face } from "./bot-api";
@@ -54,7 +54,7 @@ const FACES: Record<Face, ReactNode> = {
 export const FACE_IDS = Object.keys(FACES) as Face[];
 
 export type Glyph =
-  | "slack" | "hook" | "relay" | "clock" | "hand" | "play" | "folder" | "branch"
+  | "slack" | "hook" | "relay" | "clock" | "hand" | "play" | "folder" | "branch" | "person" | "people" | "download"
   | "auto" | "manual" | "acceptEdits" | "plan";
 const GLYPHS: Record<Glyph, ReactNode> = {
   slack: (
@@ -85,6 +85,20 @@ const GLYPHS: Record<Glyph, ReactNode> = {
     </>
   ),
   hand: <path d="M6 12l5 5 8-10" />,
+  person: (
+    <>
+      <circle cx="12" cy="8.5" r="3.5" />
+      <path d="M5 19.5a7 7 0 0 1 14 0" />
+    </>
+  ),
+  people: (
+    <>
+      <circle cx="9" cy="9" r="3" />
+      <circle cx="16.5" cy="10" r="2.4" />
+      <path d="M3.5 19a5.5 5.5 0 0 1 11 0M15 14.2a4.5 4.5 0 0 1 5.5 4.8" />
+    </>
+  ),
+  download: <path d="M12 4.5v10M7.5 10.5l4.5 4.5 4.5-4.5M5 19.5h14" />,
   play: <path d="M8 5.5v13l10.5-6.5z" fill="currentColor" stroke="none" />,
   folder: <path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />,
   // permission modes
@@ -147,6 +161,45 @@ export const hueWash = (hue: number, alpha = 0.16): CSSProperties => ({
 
 export function BotFace({ face, className = "h-[62%] w-[62%]" }: { face: Face | null; className?: string }) {
   return <svg viewBox="0 0 40 40" className={className} aria-hidden="true">{FACES[face ?? "f1"]}</svg>;
+}
+
+const ICON = 512;
+// the bot's face on its hue at Slack's icon size, as an SVG to rasterize; hidden
+export function BotIconSvg({ bot, svgRef }: { bot: Pick<Bot, "hue" | "face">; svgRef: Ref<SVGSVGElement> }) {
+  const id = `bot-icon-${bot.hue}`;
+  return (
+    <svg ref={svgRef} xmlns="http://www.w3.org/2000/svg" width={ICON} height={ICON} viewBox={`0 0 ${ICON} ${ICON}`} className="hidden">
+      <defs>
+        <radialGradient id={id} cx="0.3" cy="0.2" r="1.2">
+          <stop offset="0" stopColor={`hsl(${bot.hue} 80% 68%)`} />
+          <stop offset="1" stopColor={`hsl(${bot.hue + 40} 60% 38%)`} />
+        </radialGradient>
+      </defs>
+      <rect width={ICON} height={ICON} fill={`url(#${id})`} />
+      <svg x={97} y={97} width={318} height={318} viewBox="0 0 40 40">{FACES[bot.face ?? "f1"]}</svg>
+    </svg>
+  );
+}
+
+// Draw the bot's icon (its uploaded image, else `svg`) on a 512×512 canvas and download it as `<name>.png`.
+export async function downloadBotIcon(bot: Pick<Bot, "id" | "name" | "hasImage">, svg: SVGSVGElement | null) {
+  const img = new Image();
+  img.src = bot.hasImage
+    ? botImageUrl(bot.id, await termToken(), imageEpoch.get(bot.id))
+    : `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(svg!))}`;
+  await img.decode();
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = ICON;
+  const scale = Math.max(ICON / img.naturalWidth, ICON / img.naturalHeight);
+  const [w, h] = [img.naturalWidth * scale, img.naturalHeight * scale];
+  canvas.getContext("2d")?.drawImage(img, (ICON - w) / 2, (ICON - h) / 2, w, h);
+  const blob = await new Promise<Blob | null>((done) => canvas.toBlob(done, "image/png"));
+  if (!blob) throw new Error("the icon could not be drawn");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${bot.name}.png`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
 let tokenNow: string | null = null;

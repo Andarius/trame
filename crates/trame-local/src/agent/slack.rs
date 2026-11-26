@@ -1,6 +1,7 @@
 pub(super) mod api;
 #[cfg(test)]
 mod e2e;
+pub(crate) mod own;
 
 #[cfg(test)]
 use std::{collections::HashMap, sync::Mutex};
@@ -27,8 +28,42 @@ pub(super) struct Config {
     pub(super) app_token: String,
     pub(super) bot_token: String,
     pub(super) team: String,
-    pub(super) channel: String,
-    pub(super) user: String,
+    pub(super) access: Access,
+}
+
+/// Who may start runs, and where.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum Access {
+    /// the shared @Trame app: one user, in one channel
+    Channel { channel: String, user: String },
+    /// a bot's own app: in any channel it is in, from these users or anyone but bots
+    Anywhere {
+        /// its app id, which keys its events in the ledger once known
+        app: Option<String>,
+        allowed: Vec<String>,
+        anyone: bool,
+    },
+}
+
+impl Access {
+    fn admits(&self, channel: &Value, user: &Value) -> bool {
+        let (Some(channel), Some(user)) = (channel.as_str(), user.as_str()) else {
+            return false;
+        };
+        match self {
+            Self::Channel {
+                channel: c,
+                user: u,
+            } => channel == c && user == u,
+            Self::Anywhere {
+                allowed, anyone, ..
+            } => {
+                slack_id(channel, "CGD")
+                    && slack_id(user, "UW")
+                    && (*anyone || allowed.iter().any(|a| a == user))
+            }
+        }
+    }
 }
 
 impl Config {
@@ -55,8 +90,7 @@ impl Config {
             app_token: token("TRAME_SLACK_APP_TOKEN_FILE", "xapp-").await?,
             bot_token: token("TRAME_SLACK_BOT_TOKEN_FILE", "xoxb-").await?,
             team,
-            channel,
-            user,
+            access: Access::Channel { channel, user },
         }))
     }
 }
@@ -84,19 +118,22 @@ pub(super) async fn token(name: &str, prefix: &str) -> Result<String> {
         .await
         .map_err(|_| anyhow::anyhow!("could not read {name}"))?;
     let token = contents.trim();
-    ensure!(
-        token
-            .strip_prefix(prefix)
-            .is_some_and(|suffix| !suffix.is_empty()
-                && suffix
-                    .bytes()
-                    .all(|c| c.is_ascii_alphanumeric() || c == b'-')),
-        "{name} holds an invalid token"
-    );
+    ensure!(token_shape(token, prefix), "{name} holds an invalid token");
     Ok(token.to_owned())
 }
 
-fn slack_id(id: &str, prefixes: &str) -> bool {
+/// Whether `token` looks like a Slack token starting with `prefix`.
+pub(super) fn token_shape(token: &str, prefix: &str) -> bool {
+    token.len() <= 512
+        && token.strip_prefix(prefix).is_some_and(|suffix| {
+            !suffix.is_empty()
+                && suffix
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'-')
+        })
+}
+
+pub(super) fn slack_id(id: &str, prefixes: &str) -> bool {
     id.len() > 1
         && id.len() <= 32
         && id.starts_with(|c| prefixes.contains(c))
@@ -118,7 +155,10 @@ pub(super) fn timestamp(ts: &str) -> bool {
 }
 
 pub(super) struct Mention {
+    /// the ledger key: the event id, after its app id for a bot's own app
     pub(super) event_id: String,
+    pub(super) channel: String,
+    pub(super) user: String,
     pub(super) event_time: u64,
     pub(super) thread: String,
     pub(super) text: String,
@@ -126,6 +166,7 @@ pub(super) struct Mention {
 
 pub(super) struct Stop {
     pub(super) button: String,
+    pub(super) channel: String,
     pub(super) message: String,
 }
 
@@ -142,8 +183,7 @@ fn parse_event(config: &Config, bot: &Bot, frame: &Value) -> Option<Input> {
             if payload["type"] != "event_callback"
                 || payload["team_id"] != config.team
                 || event["type"] != "app_mention"
-                || event["user"] != config.user
-                || event["channel"] != config.channel
+                || !config.access.admits(&event["channel"], &event["user"])
                 || !event["bot_id"].is_null()
                 || !event["subtype"].is_null()
             {
@@ -159,6 +199,19 @@ fn parse_event(config: &Config, bot: &Bot, frame: &Value) -> Option<Input> {
             {
                 return None;
             }
+            let event_id = match &config.access {
+                Access::Channel { .. } => event_id.to_owned(),
+                // event ids are per app: key them by the app's
+                Access::Anywhere { app, .. } => {
+                    let sent = payload["api_app_id"]
+                        .as_str()
+                        .filter(|a| slack_id(a, "A"))?;
+                    if app.as_deref().is_some_and(|a| a != sent) {
+                        return None;
+                    }
+                    format!("{sent}:{event_id}")
+                }
+            };
             let thread = event["thread_ts"]
                 .as_str()
                 .or_else(|| event["ts"].as_str())?;
@@ -172,9 +225,12 @@ fn parse_event(config: &Config, bot: &Bot, frame: &Value) -> Option<Input> {
             }
             let text = text.replacen(&mention, "", 1);
             let text = text.trim();
+            let (channel, user) = (event["channel"].as_str()?, event["user"].as_str()?);
             (!text.is_empty()).then(|| {
                 Input::Mention(Mention {
-                    event_id: event_id.to_owned(),
+                    event_id,
+                    channel: channel.to_owned(),
+                    user: user.to_owned(),
                     event_time: payload["event_time"].as_u64().unwrap_or_default(),
                     thread: thread.to_owned(),
                     text: text
@@ -192,15 +248,16 @@ fn parse_event(config: &Config, bot: &Bot, frame: &Value) -> Option<Input> {
             };
             if payload["type"] != "block_actions"
                 || payload["team"]["id"] != config.team
-                || payload["user"]["id"] != config.user
+                || !config
+                    .access
+                    .admits(&payload["channel"]["id"], &payload["user"]["id"])
                 || !matches!(
                     container["type"].as_str(),
                     Some("message" | "message_attachment")
                 )
                 || container["is_ephemeral"] == true
                 || container["is_app_unfurl"] == true
-                || container["channel_id"] != config.channel
-                || payload["channel"]["id"] != config.channel
+                || container["channel_id"] != payload["channel"]["id"]
                 || payload["message"]["bot_id"] != bot.id
                 || payload["message"]["ts"] != container["message_ts"]
                 || action["type"] != "button"
@@ -210,12 +267,14 @@ fn parse_event(config: &Config, bot: &Bot, frame: &Value) -> Option<Input> {
             }
             let button = action["value"].as_str()?;
             let message = container["message_ts"].as_str()?;
+            let channel = container["channel_id"].as_str()?;
             (button.len() == 32
                 && timestamp(message)
                 && button.bytes().all(|c| c.is_ascii_hexdigit()))
             .then(|| {
                 Input::Stop(Stop {
                     button: button.to_owned(),
+                    channel: channel.to_owned(),
                     message: message.to_owned(),
                 })
             })
@@ -228,6 +287,7 @@ fn parse_event(config: &Config, bot: &Bot, frame: &Value) -> Option<Input> {
 type Claims = Arc<dyn Fn(&str, u64, u64) -> Result<bool> + Send + Sync>;
 
 /// The Slack events this machine already acted on, in its `slack_events` table.
+#[derive(Clone)]
 pub(super) struct Ledger {
     claims: Claims,
 }
@@ -284,10 +344,10 @@ impl Ledger {
     }
 }
 
-/// The thread card for `bot`'s run on `progress.machine`; `message` edits a posted one.
+/// The thread card in `mention`'s thread for `bot`'s run on `progress.machine`; `message` edits a
+/// posted one.
 pub(super) fn status_card(
-    config: &Config,
-    thread: &str,
+    mention: &Mention,
     bot: &str,
     progress: &Progress,
     button: &str,
@@ -303,7 +363,7 @@ pub(super) fn status_card(
     } else {
         progress.status.summary(bot)
     };
-    let mut context = format!("Asked by <@{}> · {bot} on {host}", config.user);
+    let mut context = format!("Asked by <@{}> · {bot} on {host}", mention.user);
     if let Some(link) = &progress.link {
         let _ = write!(context, " · <{link}|Open in Trame>");
     }
@@ -317,11 +377,11 @@ pub(super) fn status_card(
             "action_id":STOP,"value":button,
         }]}));
     }
-    let mut body = json!({"channel":config.channel,"text":summary,"blocks":blocks});
+    let mut body = json!({"channel":mention.channel,"text":summary,"blocks":blocks});
     if let Some(ts) = message {
         body["ts"] = json!(ts);
     } else {
-        body["thread_ts"] = json!(thread);
+        body["thread_ts"] = json!(mention.thread);
         body["unfurl_links"] = json!(false);
         body["unfurl_media"] = json!(false);
     }
@@ -341,8 +401,10 @@ mod tests {
             app_token: String::new(),
             bot_token: String::new(),
             team: "T1".into(),
-            channel: "C1".into(),
-            user: "U1".into(),
+            access: Access::Channel {
+                channel: "C1".into(),
+                user: "U1".into(),
+            },
         }
     }
 
@@ -382,6 +444,56 @@ mod tests {
             let mut frame = frame.clone();
             *frame.pointer_mut(path).unwrap_or_else(|| panic!("{path}")) = value;
             assert!(parse_event(&config, &bot, &frame).is_none(), "{path}");
+        }
+    }
+
+    #[test]
+    fn a_bots_own_app_hears_its_people_in_any_channel() {
+        let bot = bot();
+        let frame = |user: &str, channel: &str, bot_id: Value| {
+            json!({"type":"events_api","payload":{
+                "type":"event_callback","team_id":"T1","api_app_id":"A1","event_id":"Ev1","event_time":1,
+                "event":{"type":"app_mention","channel":channel,"user":user,"bot_id":bot_id,
+                    "text":"<@U2> with codex: go","ts":MESSAGE},
+            }})
+        };
+        let own = |allowed: &[&str], anyone, app: Option<&str>| Config {
+            access: Access::Anywhere {
+                app: app.map(str::to_owned),
+                allowed: allowed.iter().map(|u| (*u).to_owned()).collect(),
+                anyone,
+            },
+            ..config()
+        };
+        for (config, user, channel, bot_id, heard) in [
+            (own(&["U1"], false, None), "U1", "C9", Value::Null, true),
+            (
+                own(&["U1"], false, Some("A1")),
+                "U1",
+                "G9",
+                Value::Null,
+                true,
+            ),
+            (own(&["U1"], false, None), "U3", "C1", Value::Null, false),
+            (own(&[], true, None), "U3", "C9", Value::Null, true),
+            (own(&[], true, None), "U3", "C9", json!("B7"), false),
+            (
+                own(&["U1"], false, Some("A2")),
+                "U1",
+                "C1",
+                Value::Null,
+                false,
+            ),
+        ] {
+            let parsed = parse_event(&config, &bot, &frame(user, channel, bot_id));
+            assert_eq!(parsed.is_some(), heard, "{user} in {channel}");
+            if let Some(Input::Mention(m)) = parsed {
+                assert_eq!(
+                    (m.event_id.as_str(), m.channel.as_str()),
+                    ("A1:Ev1", channel)
+                );
+                assert_eq!(m.text, "with codex: go");
+            }
         }
     }
 
@@ -427,6 +539,8 @@ mod tests {
         let event_time = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         let mut mention = Mention {
             event_id: "Ev1".into(),
+            channel: "C1".into(),
+            user: "U1".into(),
             event_time,
             thread: THREAD.into(),
             text: "synthetic".into(),
@@ -441,7 +555,14 @@ mod tests {
 
     #[test]
     fn the_card_offers_stop_only_while_a_turn_runs() {
-        let config = config();
+        let mention = Mention {
+            event_id: "Ev1".into(),
+            channel: "C1".into(),
+            user: "U1".into(),
+            event_time: 0,
+            thread: THREAD.into(),
+            text: "synthetic".into(),
+        };
         let progress = |waiting, status| Progress {
             machine: "m1".into(),
             waiting,
@@ -457,8 +578,7 @@ mod tests {
             (false, Status::Failed, "fixture-bot failed", 2),
         ] {
             let card = status_card(
-                &config,
-                THREAD,
+                &mention,
                 "fixture-bot",
                 &progress(waiting, status),
                 BUTTON,

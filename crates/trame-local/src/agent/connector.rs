@@ -20,7 +20,7 @@ use tokio::{
 use self::protocol::{Ack, AckState, Delivery, Event, Hello, Kind, Status, VERSION};
 use super::run::Provider;
 use super::runner::{self, Local, Offered};
-use super::slack::{Config, Input, Ledger, Mention, api::Api, status_card, timestamp};
+use super::slack::{Access, Config, Input, Ledger, Mention, api::Api, own, status_card, timestamp};
 
 const MAX_TRACKED_RUNS: usize = 8;
 const MAX_BOTS: usize = 64;
@@ -439,8 +439,8 @@ impl Drop for Polling<'_> {
     }
 }
 
-/// Holds the Slack app here with this machine as its runner, or runs for a remote connector
-/// when `TRAME_CONNECTOR_URL` is set.
+/// Holds the Slack apps here (the shared one and the bots' own) with this machine as their runner,
+/// or runs for a remote connector when `TRAME_CONNECTOR_URL` is set.
 pub(crate) async fn bridge(native: crate::routes::Native) {
     let machine = match crate::startup::node_id() {
         Ok(machine) => machine,
@@ -448,15 +448,17 @@ pub(crate) async fn bridge(native: crate::routes::Native) {
     };
     let place = (native.port, native.root.clone());
     let ledger = Ledger::db(&native);
+    let reader = native.clone();
     let offered: Offered = Arc::new(move || {
         crate::db::Db::connect(
-            &native.root.join("socket"),
-            &native.origin,
-            Some(native.settings.clone()),
+            &reader.root.join("socket"),
+            &reader.origin,
+            Some(reader.settings.clone()),
         )
         .and_then(|mut db| super::bots::offered_to_slack(&mut db))
         .unwrap_or_default()
     });
+    // a remote runner's bots answer through the connector's shared app; their own apps are local only for now
     match http::Remote::from_env().await {
         Ok(Some(remote)) => {
             return runner::serve(Arc::new(remote), machine, offered, place, runner::RETRY).await;
@@ -464,32 +466,65 @@ pub(crate) async fn bridge(native: crate::routes::Native) {
         Ok(None) => {}
         Err(error) => return eprintln!("connector: {error}"),
     }
-    let config = match Config::load().await {
-        Ok(Some(config)) => Arc::new(config),
-        Ok(None) => return,
-        Err(error) => return eprintln!("Slack configuration: {error}"),
-    };
-    let Ok(api) = Api::new(config.clone()).map(Arc::new) else {
-        return eprintln!("Slack HTTP client could not be started");
-    };
     let connector = Arc::new(Connector::new(Timing::default()));
+    let apps = Arc::new(own::Apps::new(
+        connector.clone(),
+        machine.clone(),
+        ledger.clone(),
+        own::Apps::db_loader(native),
+    ));
+    let _ = own::APPS.set(apps.clone());
+    apps.reconcile().await;
+    let shared = async {
+        let config = match Config::load().await {
+            Ok(Some(config)) => Arc::new(config),
+            Ok(None) => return std::future::pending().await,
+            Err(error) => {
+                eprintln!("Slack configuration: {error}");
+                return std::future::pending().await;
+            }
+        };
+        if let Access::Channel { channel, .. } = &config.access {
+            let _ = SHARED.set(channel.clone());
+        }
+        let Ok(api) = Api::new(config.clone()).map(Arc::new) else {
+            eprintln!("Slack HTTP client could not be started");
+            return std::future::pending().await;
+        };
+        hold_slack(api, connector.clone(), ledger, None).await;
+    };
     let local = Arc::new(Local::new(connector.clone(), machine.clone()));
     tokio::select! {
-        () = hold_slack(api, config, connector, ledger) => {}
+        () = shared => {}
         () = runner::serve(local, machine, offered, place, runner::RETRY) => {}
     }
 }
 
-/// The Stop buttons on live cards: button → (card message, start delivery).
-type Buttons = Mutex<HashMap<String, (String, String)>>;
+/// The channel of the shared @Trame app this machine holds, once it is configured.
+static SHARED: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
-/// Listen to Slack and turn mentions and Stop clicks into deliveries.
+pub(crate) fn shared_channel() -> Option<&'static str> {
+    SHARED.get().map(String::as_str)
+}
+
+/// The bot a bot's own Slack app starts, and the machine it runs on.
+#[derive(Clone)]
+pub(super) struct Own {
+    pub machine: String,
+    pub bot: String,
+}
+
+/// The Stop buttons on live cards: button → (channel, card message, start delivery).
+type Buttons = Mutex<HashMap<String, (String, String, String)>>;
+
+/// Listen to Slack and turn mentions and Stop clicks into deliveries until Slack refuses a token,
+/// which it returns. `own` is the bot of a bot's own app; the shared app routes by bot name.
 pub(super) async fn hold_slack(
     api: Arc<Api>,
-    config: Arc<Config>,
     connector: Arc<Connector>,
     ledger: Ledger,
-) {
+    own: Option<Own>,
+) -> &'static str {
     let (input, mut recv) = mpsc::channel(64);
     let buttons = Arc::new(Buttons::default());
     let dispatch = async {
@@ -500,8 +535,8 @@ pub(super) async fn hold_slack(
                     None => return,
                     Some(Input::Stop(stop)) => {
                         let delivery = buttons.lock().unwrap().get(&stop.button)
-                            .filter(|(message, _)| *message == stop.message)
-                            .map(|(_, delivery)| delivery.clone());
+                            .filter(|(channel, message, _)| *channel == stop.channel && *message == stop.message)
+                            .map(|(_, _, delivery)| delivery.clone());
                         let Some(delivery) = delivery else { continue };
                         match connector.stop(&delivery) {
                             Ok(done) => drop(tokio::spawn(async move {
@@ -514,7 +549,7 @@ pub(super) async fn hold_slack(
                     }
                     Some(Input::Mention(mention)) => match ledger.claim(&mention).await {
                         Ok(true) if cards.len() < MAX_TRACKED_RUNS => {
-                            cards.spawn(card(api.clone(), config.clone(), connector.clone(), buttons.clone(), mention));
+                            cards.spawn(card(api.clone(), connector.clone(), buttons.clone(), mention, own.clone()));
                         }
                         Ok(true) => eprintln!("Slack run limit reached"),
                         Ok(false) => {}
@@ -526,56 +561,56 @@ pub(super) async fn hold_slack(
         }
     };
     tokio::select! {
-        () = api.listen(&input) => {}
-        () = dispatch => {}
+        refused = api.listen(&input) => refused,
+        () = dispatch => "the Slack listener stopped",
     }
 }
 
 /// Route a mention, queue its start and keep its thread card current.
 async fn card(
     api: Arc<Api>,
-    config: Arc<Config>,
     connector: Arc<Connector>,
     buttons: Arc<Buttons>,
     mention: Mention,
+    own: Option<Own>,
 ) {
-    let (machine, bot, task, agent) = match connector.route(&mention.text) {
+    let routed = match own {
+        Some(own) => {
+            let (task, agent) = super::bots::own_task(&own.bot, &mention.text);
+            Ok((own.machine, own.bot, task, agent))
+        }
+        None => connector.route(&mention.text),
+    };
+    let (machine, bot, task, agent) = match routed {
         Ok(routed) => routed,
         Err(reason) => {
-            let reply = json!({"channel":config.channel,"thread_ts":mention.thread,"text":reason,
+            let reply = json!({"channel":mention.channel,"thread_ts":mention.thread,"text":reason,
                 "unfurl_links":false,"unfurl_media":false});
             let _ = api.message(&reply, false).await;
             return;
         }
     };
-    let from = format!("Slack user {}", config.user);
+    let from = format!("Slack user {}", mention.user);
     let (delivery, mut progress) = connector.start(&machine, bot.clone(), task, from, agent);
     let button = uuid::Uuid::new_v4().simple().to_string();
     let initial = progress.borrow_and_update().clone();
-    let first = status_card(&config, &mention.thread, &bot, &initial, &button, None);
+    let first = status_card(&mention, &bot, &initial, &button, None);
     let Some(reply) = api.message(&first, false).await else {
         return;
     };
     let Some(message) = reply["ts"].as_str().filter(|ts| timestamp(ts)) else {
         return;
     };
-    if reply["channel"] != config.channel || initial.status.terminal() {
+    if reply["channel"] != mention.channel || initial.status.terminal() {
         return;
     }
-    buttons
-        .lock()
-        .unwrap()
-        .insert(button.clone(), (message.to_owned(), delivery));
+    buttons.lock().unwrap().insert(
+        button.clone(),
+        (mention.channel.clone(), message.to_owned(), delivery),
+    );
     while progress.changed().await.is_ok() {
         let next = progress.borrow_and_update().clone();
-        let update = status_card(
-            &config,
-            &mention.thread,
-            &bot,
-            &next,
-            &button,
-            Some(message),
-        );
+        let update = status_card(&mention, &bot, &next, &button, Some(message));
         if api.message(&update, true).await.is_none() || next.status.terminal() {
             break;
         }

@@ -73,3 +73,6 @@ export function nameHue(name: string) {
   for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return h % 360;
 }
+
+// Slack member IDs from what the user typed: comma or space separated, deduplicated
+export const memberIds = (text: string) => [...new Set(text.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean))];

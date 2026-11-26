@@ -20,6 +20,7 @@ export type Bot = {
   face: Face | null; // null: f1
   hue: number; // the backend derives one from the name when unset
   hasImage: boolean;
+  slackApp: BotSlackApp | null; // its own Slack app, when it has one
 };
 export type Face = "f1" | "f2" | "f3" | "f4";
 export type BotInput =
@@ -45,8 +46,20 @@ export const rotateBotHook = (id: string) => call<BotHook>(`/api/agent/bots/${id
 export const runBot = (id: string, text: string, options: StartOptions = {}) =>
   call<RunSummary>(`/api/agent/bots/${id}/runs`, { method: "POST", body: JSON.stringify({ text, ...options }) });
 
-export type { BotActivity, BotRun, BotStats, Daily, Outcome, RunSource, Sources, StartOptions } from "./bot-types";
-import type { BotActivity, BotRun, BotStats, StartOptions } from "./bot-types";
+export type {
+  BotActivity,
+  BotRun,
+  BotSlack,
+  BotSlackApp,
+  BotStats,
+  Daily,
+  Outcome,
+  RunSource,
+  SharedSlack,
+  Sources,
+  StartOptions,
+} from "./bot-types";
+import type { BotActivity, BotRun, BotSlack, BotSlackApp, BotStats, SharedSlack, StartOptions } from "./bot-types";
 
 export const botRuns = (id: string, limit = 50) => call<BotRun[]>(`/api/agent/bots/${id}/runs?limit=${limit}`);
 export const botStats = (id: string, days = 30) => call<BotStats>(`/api/agent/bots/${id}/stats?days=${days}`);
@@ -64,6 +77,13 @@ export async function putBotImage(id: string, file: Blob) {
     throw new Error((body as { error?: string }).error ?? `image: ${r.status}`);
   }
 }
+export const botSlack = (id: string) => call<BotSlack>(`/api/agent/bots/${id}/slack`);
+export const connectBotSlack = (id: string, b: { appToken: string; botToken: string; allowed: string[]; anyone: boolean }) =>
+  call<BotSlack>(`/api/agent/bots/${id}/slack`, { method: "PUT", body: JSON.stringify(b) });
+export const updateBotSlack = (id: string, b: { allowed?: string[]; anyone?: boolean }) =>
+  call<BotSlack>(`/api/agent/bots/${id}/slack`, { method: "PATCH", body: JSON.stringify(b) });
+export const disconnectBotSlack = (id: string) => call<{ ok: boolean }>(`/api/agent/bots/${id}/slack`, { method: "DELETE" });
+export const sharedSlack = () => call<SharedSlack>("/api/agent/slack");
 export const deleteBotImage = (id: string) => call<{ ok: boolean }>(`/api/agent/bots/${id}/image`, { method: "DELETE" });
 // <img> can't send the header; `v` busts the cache after an upload
 export const botImageUrl = (id: string, token: string, v = 0) =>
