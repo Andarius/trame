@@ -9,7 +9,7 @@ license.workspace = true
 tauri-build = { version = "2.7.6", features = [] }
 
 [dependencies]
-anyhow = "1.0.104"
+anyhow = "1.0.105"
 serde_json = "1.0.154"
 tauri = { version = "2.12.7", features = [] }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "signal", "sync", "time"] }
