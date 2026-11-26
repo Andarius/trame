@@ -43,33 +43,8 @@ export const rotateBotHook = (id: string) => call<BotHook>(`/api/agent/bots/${id
 export const runBot = (id: string, text: string) =>
   call<RunSummary>(`/api/agent/bots/${id}/runs`, { method: "POST", body: JSON.stringify({ text }) });
 
-export type RunSource = "slack" | "hook" | "app" | "relay";
-export type Outcome = "success" | "error" | "interrupted";
-// one run a bot started, kept after the run itself is closed
-export type BotRun = {
-  id: string;
-  source: RunSource;
-  summary: string;
-  requester: string;
-  startedAt: string;
-  endedAt: string | null;
-  outcome: Outcome | null;
-  live: boolean;
-  needsYou: boolean;
-};
-export type Daily = { day: string; runs: number; failed: number };
-export type Sources = Record<RunSource, number>;
-export type BotStats = {
-  runs: number;
-  success: number;
-  error: number;
-  interrupted: number;
-  medianSeconds: number | null;
-  daily: Daily[];
-  sources: Sources;
-  lastStartedAt: string | null;
-};
-export type BotActivity = { bot: string; runs: number; success: number; daily: Daily[]; sources: Sources };
+export type { BotActivity, BotRun, BotStats, Daily, Outcome, RunSource, Sources } from "./bot-types";
+import type { BotActivity, BotRun, BotStats } from "./bot-types";
 
 export const botRuns = (id: string, limit = 50) => call<BotRun[]>(`/api/agent/bots/${id}/runs?limit=${limit}`);
 export const botStats = (id: string, days = 30) => call<BotStats>(`/api/agent/bots/${id}/stats?days=${days}`);

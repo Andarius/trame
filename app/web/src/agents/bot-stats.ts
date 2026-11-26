@@ -1,5 +1,5 @@
 import { fmtDuration } from "./agent-summary";
-import type { BotRun, Daily, RunSource, Sources } from "./bot-api";
+import type { BotRun, Daily, RunSource, Sources } from "./bot-types";
 
 export type RunLabel = "working" | "needs you" | "finished" | "failed" | "stopped";
 // what a run of the history shows as its state
