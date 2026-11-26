@@ -1,0 +1,77 @@
+---
+// One numbered landing-page feature: text on one side, a screenshot from public/shots on the other.
+interface Props {
+	n: string;
+	title: string;
+	shot: string;
+	alt: string;
+	tall?: boolean;
+}
+const { n, title, shot, alt, tall = false } = Astro.props;
+const src = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/shots/${shot}`;
+---
+
+<section class="feature not-content">
+	<div class="text">
+		<span class="n">{n}</span>
+		<h2>{title}</h2>
+		<slot />
+	</div>
+	<a class:list={['shot', { tall }]} href={src}><img src={src} alt={alt} loading="lazy" /></a>
+</section>
+
+<style>
+	.feature {
+		display: grid;
+		grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+		gap: 2.5rem;
+		align-items: center;
+		padding: 3rem 0;
+		border-top: 1px solid var(--sl-color-hairline);
+	}
+	.feature:nth-of-type(even) .text {
+		order: 2;
+	}
+	.n {
+		font-family: var(--sl-font-mono);
+		color: var(--sl-color-accent);
+		font-size: var(--sl-text-sm);
+	}
+	h2 {
+		margin: 0.25rem 0 0.75rem;
+		font-size: var(--sl-text-2xl);
+		color: var(--sl-color-white);
+	}
+	.text :global(p) {
+		color: var(--sl-color-gray-2);
+		margin: 0 0 0.75rem;
+	}
+	.text :global(code) {
+		font-size: 0.9em;
+	}
+	.shot {
+		display: block;
+		border: 1px solid var(--sl-color-hairline);
+		border-radius: 0.5rem;
+		overflow: hidden;
+		background: var(--sl-color-black);
+	}
+	.shot img {
+		display: block;
+		width: 100%;
+		height: auto;
+	}
+	.shot.tall {
+		justify-self: center;
+		max-width: 16rem;
+	}
+	@media (max-width: 50rem) {
+		.feature {
+			grid-template-columns: 1fr;
+			gap: 1.25rem;
+		}
+		.feature:nth-of-type(even) .text {
+			order: 0;
+		}
+	}
+</style>

@@ -1,38 +1,50 @@
-# trame
+# Trame
 
-A **local-first** Claude Code and Codex session tracker. Each session ladders up to a **story** (grouped
-under a **project**); the board is **status columns × swimlanes** — the view no off-the-shelf
-tool gave us, and the columns are **yours to define**. It also holds free-form **pages** — inline
-comments (with agent reply threads), **sandboxed interactive HTML blocks**, per-page guest sharing,
-**public read-only share links** — and **Notion-style databases** (sortable / filterable / groupable views).
-`⌘P` jumps to any session, page, or database; a card's **Resume** button reopens the session in Claude
-Code or Codex. Opt-in **plugins** add side panels, blocks and commands.
+**A desktop workspace for running coding agents in parallel without losing track of them.**
+Start Claude Code, Codex, Antigravity, Mistral Vibe or Pi in Trame's terminals. Every session becomes a card on a
+board, and the agents that need you rise to the top. Plans and notes live in pages your agents can read, write and
+comment on. Close a session today and **Resume** it next week.
 
-Stack: **Tauri 2 + Rust** app → **bundled PostgreSQL 18** (offline read+write) →
-custom **changeset LWW sync over HTTPS** → a small **Bun API in front of Postgres** on a home
-server (the hub), with **WebSocket nudges** so edits propagate between machines in seconds.
-No PowerSync, no Electric. Everything is Postgres, so the SQL is identical on the laptop and
-the hub. (Design + migration story: `docs-site/src/content/docs/hub-api.md`.)
+Local-first: everything runs and is stored on your machine, offline. A self-hosted hub syncs several machines, and it
+is optional.
 
+![Agents in Trame: a Claude session running outside is moved into a Trame tab](docs/move-into-trame.gif)
+
+- **Agents**: every running agent in one sidebar, grouped by project, with what each is doing, which one is *waiting
+  on you*, its forks, subagents and follow-ups. Tabs, split panes, pop-out windows.
+- **Board**: sessions as cards in status columns × swimlanes (project, story); the columns are yours to define.
+  `/trame-track` from any agent session files or updates its card.
+- **Pages**: Markdown pages with todos, inline comment threads agents answer, decision blocks an agent asks you to
+  fill in, sandboxed interactive HTML blocks, and read-only share links.
+- **Databases**: Notion-style tables with sortable, filterable, groupable views.
+- **Plugins**: opt-in native or WebAssembly plugins add panels, blocks and commands.
+
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Andarius/trame/master/bin/quickstart.sh | bash
 ```
- laptop A (Tauri app)                          laptop B (Tauri app)
-   ├─ local PG18    ◀── read/write offline ──▶  local PG18
-   └─ sync ─┐  POST /sync (mutations ⇅ changes)  ┌─ sync
-            ├──────────▶  Bun API @ hub   ◀──────┤   (auth boundary; Docker, home LAN)
-            └── WSS ◀──  "changed, pull now"  ──▶┘        └─▶ Postgres (source of truth)
- /trame-track ─▶ local app if running, else local outbox.jsonl (app drains on launch)
-```
 
-## Demo
+Installs the latest release (Linux x64: snap, deb or AppImage; macOS arm64: DMG) and the agent skills for Claude Code
+and Codex. Read [the script](bin/quickstart.sh) first if you prefer, or grab a package from the
+[releases page](https://github.com/Andarius/trame/releases). Then open Trame, start an agent from **New terminal**, and
+run `/trame-track` in it. No server, account or hub needed.
 
-![Trame walkthrough](docs/demo.gif)
+[SECURITY.md](SECURITY.md#what-trame-touches-on-your-machine) lists what Trame writes outside the app. Trame is pre-1.0
+and moves fast: bugs and ideas are welcome in [issues](https://github.com/Andarius/trame/issues/new/choose).
 
-> A short tour: filter the board by story, regroup into swimlanes, open a session and
-> **resume it in Claude Code or Codex**, sort the list, then browse a page and a database.
-> ([higher-quality MP4](docs/demo.mp4) · screens use demo data, recorded pre-0.4)
+Quickstart options: `TRAME_DIR` (checkout location, default `~/trame`), `TRAME_APP=snap|deb|appimage|dmg|source`,
+`TRAME_VERSION=v0.9.0` pins a release, `TRAME_TARGETS=claude|codex|none`, and `TRAME_SKILL_DIRS=~/.gemini/skills` for
+any other agent CLI that reads an Agent Skills directory.
 
-| Kanban board — status columns | Swimlanes — group by project or story |
+## Screens
+
+Screens use demo data. An older full walkthrough: [GIF](docs/demo.gif) · [MP4](docs/demo.mp4).
+
+| Agents — every running agent, the one waiting on you on top | Split panes, tabs and pop-out windows |
 | :--- | :--- |
+| [![agents sidebar](docs/agents-sidebar.png)](docs/agents-sidebar.png) | [![split panes](docs/terminals-split.gif)](docs/terminals-split.gif) |
+| **Kanban board — status columns** | **Swimlanes — group by project or story** |
 | [![board](docs/board.png)](docs/board.png) | [![grouped board](docs/board-grouped.png)](docs/board-grouped.png) |
 | **Session drawer — resume in Claude Code / Codex** | **Sortable list view** |
 | [![drawer](docs/drawer.png)](docs/drawer.png) | [![list](docs/list.png)](docs/list.png) |
@@ -47,94 +59,9 @@ the hub. (Design + migration story: `docs-site/src/content/docs/hub-api.md`.)
 | **Reminders — due todos flag late, and gather in the sidebar** | |
 | [![reminders](docs/reminders.png)](docs/reminders.png) | |
 
-## Requirements
-- **Linux x64** packaged app (deb, snap, or AppImage); nothing else to install.
-- Source builds use **Rust**, Tauri/WebKitGTK build libraries, **Node/npm**, and **Bun 1.3+** for the hub API, plugin host, tooling and tests.
-- **Docker + openssl** on the hub machine (certs are generated there; the CA key never leaves it).
-- Laptops reach the hub's API over the **home LAN** (no Tailscale required;
-  the hub binds to its LAN IP — install Tailscale there if you want sync away from home).
-- Node/npm builds the existing Vite frontend (`just web-build`).
-
-## Layout
-```
-db/schema.sql              shared schema (hub AND local PostgreSQL) — idempotent; re-applying it IS the migration
-docs-site/                 Astro + Starlight docs (data model, hub API design, release notes) — `just docs`
-protocol/                  versioned sync protocol shared by app and hub (entities, LWW rule, html-block bridge)
-hub/docker-compose.yml     the hub: Postgres (docker-network only) + the Bun API in front of it
-hub/api/                   the API: device tokens, changeset /sync, per-page ACLs, WSS nudges, public /l/* pages
-hub/deploy.sh              deploy the hub over ssh (~/Apps/trame) — `just db-deploy`
-hub/gen-certs.sh           private CA + server certs, runs on the hub (called by deploy)
-hub/fetch-ca.sh            fetch the hub's ca.crt so this laptop trusts the API's TLS — `just hub-ca`
-hub/pg_hba.conf            Postgres auth rules: local + docker network only, anything else rejected
-crates/trame-desktop/       Tauri 2 shell, splash/readiness, window state, native packaging
-crates/trame-local/         axum API, supervised PostgreSQL, sync, plugins, files and migration
-crates/trame-core/          shared markdown/merge/todo logic, also compiled to Wasm
-crates/trame-cli/           native tramecli writers, setup, watcher and MCP stdio server
-app/web/                   existing React app (Vite)
-scripts/rust-db-migrate.ts  legacy PGlite export helper (dev/CI only; no longer bundled in packages)
-bin/quickstart.sh          curl-able laptop setup: clone + packaged app + agent integrations
-skills/trame-{track,page,watch,plugin}/ the agent skills (Claude Code, Codex & friends) — embedded in tramecli, installed by `tramecli setup`
-```
-
-See [native runtime and migration](crates/trame-local/README.md) for isolated development, packaging, and the one-shot PGlite conversion.
-
 ## Setup
 
-### Quickstart (laptop)
-```bash
-curl -fsSL https://raw.githubusercontent.com/Andarius/trame/master/bin/quickstart.sh | bash
-```
-Clones to `~/trame` (override with `TRAME_DIR`), installs the
-latest packaged Linux x64 app (snap, deb or AppImage; `TRAME_APP=source` builds from the checkout instead, `TRAME_VERSION=v0.9.0`
-pins a release), and wires Claude Code and Codex (`TRAME_TARGETS=claude` or `codex`
-to pick one, `none` to skip; any other agent CLI that reads an Agent Skills directory
-→ `TRAME_SKILL_DIRS=~/.gemini/skills`). The hub (step 1), device token (step 2), and
-Claude session hook (step 4) still need the manual steps below.
-
-### 1. The hub
-```bash
-just db-deploy       # ssh: copies compose+schema+hba+api to ~/Apps/trame, creates .env+certs, starts it
-just hub-ca          # per laptop: fetch ca.crt (trusts the API's TLS)
-```
-First run generates the password and the CA/server certs, and binds to the hub's LAN IP
-(never 0.0.0.0). Postgres itself has **no host port** — laptops talk to the Bun API on
-`:8443`, which terminates TLS with the same private-CA cert. Idempotent — rerun to redeploy
-(re-applies the schema and restarts the API).
-
-### 2. Each laptop
-Mint a device token on the hub (`<node-id>` = the laptop's `TRACKER_NODE_ID`), then point the app at the API:
-```bash
-# e.g. for the laptop whose TRACKER_NODE_ID is "mbp-14"
-ssh <hub> "docker exec trame-api bun /srv/hub/api/main.ts mint mbp-14"
-# → prints the token ONCE (only its sha-256 is stored); re-run mint for a fresh one, revoke old rows in api_tokens
-```
-Paste the URL + token in ⚙ Settings → Sync hub, or add to `~/.local/share/trame/settings.json` (chmod 600):
-```json
-{ "hubApi": "https://192.168.1.x:8443", "hubApiToken": "<minted token>" }
-```
-Env (shell profile, or the project `.env` for `just`):
-```bash
-export TRACKER_NODE_ID="mbp-14"                                   # unique per machine
-# folders scanned (depth 4) for *.html reports + *.excalidraw drawings, shown+searchable in Explore
-export TRACKER_REPORT_PATHS="$HOME/Projects:$HOME/code"
-# hostnames the `embed` page block may frame (comma-separated; Settings › Embeds overrides)
-export TRACKER_EMBED_HOSTS="grafana.example.com"
-# optional: client names detected from a repo path (/<Client>/); anything else → "Side-projects"
-export TRACKER_CLIENTS="Acme,Globex"
-```
-### 3. Run the app
-```bash
-just web-build
-just dev                # isolated offline desktop; .scratch/dev data
-just serve              # isolated offline backend; .scratch/dev/port.json
-just web-dev            # Vite HMR on an isolated backend (starts one unless just serve runs)
-just web-live           # Vite HMR on the running Trame app: real data, real writes
-```
-
-Development recipes use disposable worktree data. For an installed runtime and legacy-data cutover,
-follow the [native runtime guide](docs-site/src/content/docs/native-runtime.md); source builds do not attach to the live app.
-
-### 4. Wire session tracking
+### 1. Wire session tracking
 
 Sessions have their own tags, independent of story and specs-page tags. Use the
 **Tags** picker in either the side panel or full-screen session view to add or
@@ -198,7 +125,7 @@ can't see their own session id, so a `UserPromptSubmit` hook records it per-cwd 
 Without the hook `/trame-track` still works — the card just has no transcript link. Cards
 imported from the app's Claude Code + Codex dialog carry the UUID as their id and never need it.
 
-### 5. Page comments & the agent watcher
+### 2. Page comments & the agent watcher
 
 Any page block can hold a thread of inline comments. Agents leave review comments with the
 `trame_add_comment` MCP tool or `tramecli comment` (identify the page by title, the
@@ -241,7 +168,7 @@ The top of each page shows a **presence** stack (Notion-style avatars): you whil
 open, plus every agent a running `tramecli answer` is covering (copper ring). It's device-local and
 ephemeral — never synced — so avatars fade ~20s after a tab closes or the watcher stops.
 
-### 6. Plugins (optional)
+### 3. Plugins (optional)
 
 ⚙ Settings → **Manage plugins**. Everything ships disabled — a networked plugin never reaches
 out until you switch it on.
@@ -280,7 +207,98 @@ settings sanitizing, start and stop), and `web/index.ts`, a `FrontendPlugin` on
 `/api/plugins/<id>/`. The `trame-plugin` skill (installed by `tramecli setup`) walks an agent
 through writing, composing, testing and releasing one.
 
-## How sync works
+### 4. Multi-machine sync (optional)
+
+The hub is a small API in front of Postgres on a machine you own (Docker + openssl; certs are generated there and the
+CA key never leaves it). Laptops reach it over the home LAN; install Tailscale on the hub to sync away from home.
+
+```bash
+just db-deploy       # ssh: copies compose+schema+hba+api to ~/Apps/trame, creates .env+certs, starts it
+just hub-ca          # per laptop: fetch ca.crt (trusts the API's TLS)
+```
+First run generates the password and the CA/server certs, and binds to the hub's LAN IP
+(never 0.0.0.0). Postgres itself has **no host port** — laptops talk to the Bun API on
+`:8443`, which terminates TLS with the same private-CA cert. Idempotent — rerun to redeploy
+(re-applies the schema and restarts the API).
+
+Then on each laptop, mint a device token on the hub (`<node-id>` = the laptop's `TRACKER_NODE_ID`), then point the app at the API:
+```bash
+# e.g. for the laptop whose TRACKER_NODE_ID is "mbp-14"
+ssh <hub> "docker exec trame-api bun /srv/hub/api/main.ts mint mbp-14"
+# → prints the token ONCE (only its sha-256 is stored); re-run mint for a fresh one, revoke old rows in api_tokens
+```
+Paste the URL + token in ⚙ Settings → Sync hub, or add to `~/.local/share/trame/settings.json` (chmod 600):
+```json
+{ "hubApi": "https://192.168.1.x:8443", "hubApiToken": "<minted token>" }
+```
+Env (shell profile, or the project `.env` for `just`):
+```bash
+export TRACKER_NODE_ID="mbp-14"                                   # unique per machine
+# folders scanned (depth 4) for *.html reports + *.excalidraw drawings, shown+searchable in Explore
+export TRACKER_REPORT_PATHS="$HOME/Projects:$HOME/code"
+# hostnames the `embed` page block may frame (comma-separated; Settings › Embeds overrides)
+export TRACKER_EMBED_HOSTS="grafana.example.com"
+# optional: client names detected from a repo path (/<Client>/); anything else → "Side-projects"
+export TRACKER_CLIENTS="Acme,Globex"
+```
+
+### 5. Build from source
+
+Source builds (Linux x86_64) use **Rust**, the Tauri/WebKitGTK build libraries, **Node/npm** for the Vite frontend,
+and **Bun 1.3+** for the hub API, plugin host, tooling and tests.
+
+```bash
+just web-build
+just dev                # isolated offline desktop; .scratch/dev data
+just serve              # isolated offline backend; .scratch/dev/port.json
+just web-dev            # Vite HMR on an isolated backend (starts one unless just serve runs)
+just web-live           # Vite HMR on the running Trame app: real data, real writes
+```
+
+Development recipes use disposable worktree data. For an installed runtime and legacy-data cutover,
+follow the [native runtime guide](docs-site/src/content/docs/native-runtime.md); source builds do not attach to the live app.
+
+Repository layout:
+```
+db/schema.sql              shared schema (hub AND local PostgreSQL) — idempotent; re-applying it IS the migration
+docs-site/                 Astro + Starlight docs (data model, hub API design, release notes) — `just docs`
+protocol/                  versioned sync protocol shared by app and hub (entities, LWW rule, html-block bridge)
+hub/docker-compose.yml     the hub: Postgres (docker-network only) + the Bun API in front of it
+hub/api/                   the API: device tokens, changeset /sync, per-page ACLs, WSS nudges, public /l/* pages
+hub/deploy.sh              deploy the hub over ssh (~/Apps/trame) — `just db-deploy`
+hub/gen-certs.sh           private CA + server certs, runs on the hub (called by deploy)
+hub/fetch-ca.sh            fetch the hub's ca.crt so this laptop trusts the API's TLS — `just hub-ca`
+hub/pg_hba.conf            Postgres auth rules: local + docker network only, anything else rejected
+crates/trame-desktop/       Tauri 2 shell, splash/readiness, window state, native packaging
+crates/trame-local/         axum API, supervised PostgreSQL, sync, plugins, files and migration
+crates/trame-core/          shared markdown/merge/todo logic, also compiled to Wasm
+crates/trame-cli/           native tramecli writers, setup, watcher and MCP stdio server
+app/web/                   existing React app (Vite)
+scripts/rust-db-migrate.ts  legacy PGlite export helper (dev/CI only; no longer bundled in packages)
+bin/quickstart.sh          curl-able laptop setup: clone + packaged app + agent integrations
+skills/trame-{track,page,watch,plugin}/ the agent skills (Claude Code, Codex & friends) — embedded in tramecli, installed by `tramecli setup`
+```
+
+See [native runtime and migration](crates/trame-local/README.md) for isolated development, packaging, and the one-shot PGlite conversion.
+
+## How it's built
+
+Stack: **Tauri 2 + Rust** app → **bundled PostgreSQL 18** (offline read+write) →
+custom **changeset LWW sync over HTTPS** → a small **Bun API in front of Postgres** on a home
+server (the hub), with **WebSocket nudges** so edits propagate between machines in seconds.
+No PowerSync, no Electric. Everything is Postgres, so the SQL is identical on the laptop and
+the hub. (Design + migration story: `docs-site/src/content/docs/hub-api.md`.)
+
+```
+ laptop A (Tauri app)                          laptop B (Tauri app)
+   ├─ local PG18    ◀── read/write offline ──▶  local PG18
+   └─ sync ─┐  POST /sync (mutations ⇅ changes)  ┌─ sync
+            ├──────────▶  Bun API @ hub   ◀──────┤   (auth boundary; Docker, home LAN)
+            └── WSS ◀──  "changed, pull now"  ──▶┘        └─▶ Postgres (source of truth)
+ /trame-track ─▶ local app if running, else local outbox.jsonl (app drains on launch)
+```
+
+### How sync works
 
 Hub and clients must use the same protocol version. Deploy the hub schema and API
 before restarting updated clients; older clients keep local data but cannot sync
@@ -348,4 +366,4 @@ rollback instructions, isolated tests, and package requirements.
 
 ## License
 
-Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT) at your option. Third-party brand marks are excluded; see [NOTICE](NOTICE). Contributions are covered by the same terms ([CONTRIBUTING.md](CONTRIBUTING.md)).
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT) at your option. Third-party brand marks are excluded; see [NOTICE](NOTICE). Contributions are covered by the same terms ([CONTRIBUTING.md](CONTRIBUTING.md)). Security reports: [SECURITY.md](SECURITY.md).
