@@ -492,7 +492,7 @@ fn runs_come_back_stopped_with_their_history_and_hand_off_to_a_terminal() {
             .as_str()
             .unwrap()
             .to_owned();
-        assert!(!term.is_empty());
+        assert_ne!(term, "");
         assert_eq!(
             get("/api/agent/runs/r1".into()).await.unwrap().status(),
             404
