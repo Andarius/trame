@@ -374,6 +374,27 @@ create table if not exists agent_bots (
   hook text not null,                     -- the secret a hook starts its runs with
   created_at timestamptz not null default now()
 );
+alter table agent_bots add column if not exists role text;   -- one line, up to 120 characters
+alter table agent_bots add column if not exists face text;   -- f1..f4; null = f1
+alter table agent_bots add column if not exists hue integer; -- 0-359; null = derived from the name
+-- a bot's uploaded avatar (NOT synced)
+create table if not exists agent_bot_images (
+  bot_id uuid primary key references agent_bots (id) on delete cascade,
+  content_type text not null,             -- image/png | image/jpeg | image/webp, from the bytes
+  bytes bytea not null                    -- up to 256 KiB
+);
+-- the runs this machine's bots started, kept after the runs close (NOT synced)
+create table if not exists agent_bot_runs (
+  run_id text primary key,
+  bot_id uuid not null references agent_bots (id) on delete cascade,
+  source text not null,                   -- slack | hook | app | relay
+  requester text not null,
+  summary text not null,                  -- the task's first 200 characters
+  started_at timestamptz not null default now(),
+  ended_at timestamptz,                   -- when the first turn ended; null while running or unknown
+  outcome text                            -- success | error | interrupted, of the first turn
+);
+create index if not exists agent_bot_runs_bot on agent_bot_runs (bot_id, started_at);
 -- this machine's agent-view runs, listed stopped after a restart (NOT synced)
 create table if not exists agent_runs (
   id text primary key,
