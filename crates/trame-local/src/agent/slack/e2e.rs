@@ -178,7 +178,7 @@ fn bot(name: &str, cwd: &Path) -> bots::Bot {
         id: uuid::Uuid::new_v4().to_string(),
         name: name.into(),
         provider: crate::agent::run::Provider::Claude,
-        cwd: cwd.to_owned(),
+        cwd: Some(cwd.to_owned()),
         mode: Some("auto".into()),
         model: None,
         effort: None,
@@ -219,7 +219,7 @@ fn slack_mention_and_stop_drive_one_child() {
                 Arc::new(Local::new(connector.clone(), "Workshop".into())),
                 "Workshop".into(),
                 offering(bot("fixture", &root)),
-                slack.addr.port(),
+                (slack.addr.port(), root.clone()),
                 runner::RETRY,
             ));
             until(|| !connector.inventory().is_empty()).await;
@@ -292,7 +292,7 @@ fn one_connector_drives_two_machines() {
             }),
             "m1".into(),
             offering(bot("alpha", &root)),
-            port,
+            (port, root.clone()),
             Duration::from_millis(50),
         ));
         // m2 said hello once and has not polled since
@@ -369,7 +369,7 @@ fn one_connector_drives_two_machines() {
             Arc::new(http::Remote::new(&url, "token-m2".into()).unwrap()),
             "m2".into(),
             offering(bot("beta", &root)),
-            port,
+            (port, root.clone()),
             Duration::from_millis(50),
         ));
         let finished = slack.posted("beta finished").await;

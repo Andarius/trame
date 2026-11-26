@@ -4,7 +4,11 @@
 use anyhow::Result;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    os::unix::fs::DirBuilderExt,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use super::run::{Provider, Run, valid_choice};
 use super::{MODES, claude::Launch};
@@ -24,7 +28,8 @@ pub(crate) struct Bot {
     pub id: String,
     pub name: String,
     pub provider: Provider,
-    pub cwd: PathBuf,
+    /// None: runs use its own workspace
+    pub cwd: Option<PathBuf>,
     pub mode: Option<String>,
     pub model: Option<String>,
     pub effort: Option<String>,
@@ -40,9 +45,10 @@ pub(crate) struct Bot {
 
 impl Bot {
     /// What the app shows; the hook secret only through its own route.
-    pub(crate) fn summary(&self, (live, working): (usize, usize)) -> Value {
+    pub(crate) fn summary(&self, root: &Path, (live, working): (usize, usize)) -> Value {
         json!({
             "id":self.id,"name":self.name,"provider":self.provider.name(),"cwd":self.cwd,
+            "workspace":workspace(root, &self.id),
             "mode":self.mode,"model":self.model,"effort":self.effort,"slack":self.slack,"live":live,"working":working,
             "role":self.role,"face":self.face,"hue":self.hue.unwrap_or_else(|| name_hue(&self.name)),
             "hasImage":self.has_image,
@@ -55,7 +61,9 @@ impl Bot {
             id: text("id")?,
             name: text("name")?,
             provider: Provider::parse(r["provider"].as_str()?)?,
-            cwd: PathBuf::from(r["cwd"].as_str()?),
+            cwd: Some(r["cwd"].as_str()?)
+                .filter(|c| !c.is_empty())
+                .map(PathBuf::from),
             mode: text("mode"),
             model: text("model"),
             effort: text("effort"),
@@ -95,6 +103,11 @@ pub(crate) fn name_hue(name: &str) -> i64 {
 
 pub(crate) fn valid_id(id: &str) -> bool {
     uuid::Uuid::parse_str(id).is_ok()
+}
+
+/// Where the runs of bot `id` work when it has no folder.
+pub(crate) fn workspace(root: &Path, id: &str) -> PathBuf {
+    root.join("bots").join(id)
 }
 
 fn new_secret() -> String {
@@ -161,14 +174,17 @@ pub(crate) fn upsert(db: &mut Db, id: Option<&str>, body: &Value) -> Result<Bot,
             .ok_or_else(|| invalid("unknown provider"))?,
         None => current.as_ref().map_or(Provider::Claude, |b| b.provider),
     };
-    let cwd = match field("cwd") {
-        Some(v) => PathBuf::from(v.as_str().unwrap_or_default()),
-        None => current
-            .as_ref()
-            .map(|b| b.cwd.clone())
-            .ok_or_else(|| invalid("a folder is required"))?,
+    // null or "" means its own workspace
+    let cwd = match body.get("cwd") {
+        None => current.as_ref().and_then(|b| b.cwd.clone()),
+        Some(Value::Null) => None,
+        Some(Value::String(s)) if s.is_empty() => None,
+        Some(v) => Some(PathBuf::from(v.as_str().unwrap_or_default())),
     };
-    if !cwd.is_absolute() || !cwd.is_dir() {
+    if cwd
+        .as_ref()
+        .is_some_and(|c| !c.is_absolute() || !c.is_dir())
+    {
         return Err(invalid("the folder must be an existing absolute directory"));
     }
     // `""` or null clears an optional choice
@@ -225,7 +241,7 @@ pub(crate) fn upsert(db: &mut Db, id: Option<&str>, body: &Value) -> Result<Bot,
     let values = [
         json!(name),
         json!(provider.name()),
-        json!(cwd),
+        json!(cwd.unwrap_or_default()),
         json!(mode),
         json!(model),
         json!(effort),
@@ -294,18 +310,21 @@ pub(crate) fn offered_to_slack(db: &mut Db) -> Result<Vec<Bot>> {
     Ok(list(db)?.into_iter().filter(|b| b.slack).collect())
 }
 
-/// The Slack bot name a mention is for and its task: `name: task` names one, else the only one offered.
-/// A prefix that is no offered bot's name stays part of the task.
-pub(crate) fn route(offered: &[String], text: &str) -> Result<(String, String), String> {
-    let (name, task) = addressed(text);
+/// A mention routed to a bot: its name, the task and the agent it asked for.
+pub(crate) type Routed = (String, String, Option<Provider>);
+
+/// The Slack bot name a mention is for and its task: `name: task` or `name with codex: task` names
+/// one, else the only one offered. A prefix that is no offered bot's name stays part of the task.
+pub(crate) fn route(offered: &[String], text: &str) -> Result<Routed, String> {
+    let (name, agent, task) = addressed(text);
     if let Some(bot) = name.and_then(|n| offered.iter().find(|b| *b == n)) {
-        return Ok((bot.clone(), task.to_owned()));
+        return Ok((bot.clone(), task.to_owned(), agent));
     }
     let mut names: Vec<&str> = offered.iter().map(String::as_str).collect();
     names.sort_unstable();
     match offered {
         [] => Err("No bot is offered to Slack.".into()),
-        [bot] => Ok((bot.clone(), text.trim().to_owned())),
+        [bot] => Ok((bot.clone(), text.trim().to_owned(), None)),
         _ => Err(format!(
             "Start with a bot's name, as in `{}: your task`. Bots here: {}.",
             names[0],
@@ -314,47 +333,98 @@ pub(crate) fn route(offered: &[String], text: &str) -> Result<(String, String), 
     }
 }
 
-/// Split `name: task` when `name` could be a bot; otherwise the whole text is the task.
-fn addressed(text: &str) -> (Option<&str>, &str) {
-    match text.split_once(':') {
-        Some((name, rest)) if valid_name(name.trim()) && !rest.trim().is_empty() => {
-            (Some(name.trim()), rest.trim())
-        }
-        _ => (None, text.trim()),
+/// Split `name: task` or `name with <agent>: task` when `name` could be a bot; otherwise the whole
+/// text is the task.
+fn addressed(text: &str) -> (Option<&str>, Option<Provider>, &str) {
+    let whole = (None, None, text.trim());
+    let Some((head, rest)) = text.split_once(':') else {
+        return whole;
+    };
+    if rest.trim().is_empty() {
+        return whole;
+    }
+    let (name, agent) = match head.split_whitespace().collect::<Vec<_>>().as_slice() {
+        [name] => (*name, None),
+        [name, "with", agent] => match Provider::parse(agent) {
+            Some(agent) => (*name, Some(agent)),
+            None => return whole,
+        },
+        _ => return whole,
+    };
+    if valid_name(name) {
+        (Some(name), agent, rest.trim())
+    } else {
+        whole
     }
 }
 
+/// What a start asks of a bot beyond its defaults: another folder, agent or mode.
+#[derive(Default)]
+pub(crate) struct Overrides {
+    pub cwd: Option<PathBuf>,
+    pub provider: Option<Provider>,
+    pub mode: Option<String>,
+}
+
+/// Where bot runs work: the chosen folder, the bot's own, else its workspace under `root` (made 0700).
+fn folder(bot: &Bot, root: &Path, chosen: Option<PathBuf>) -> Result<PathBuf, &'static str> {
+    if let Some(cwd) = chosen.or_else(|| bot.cwd.clone()) {
+        return if cwd.is_dir() {
+            Ok(cwd)
+        } else {
+            Err("the bot's folder no longer exists")
+        };
+    }
+    let dir = workspace(root, &bot.id);
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&dir)
+        .map_err(|_| "could not create the bot's workspace")?;
+    Ok(dir)
+}
+
 /// Start a fresh run for `bot` and hand it `text` from `from`; `sender` keys the inbox rate limit.
+/// `root` holds the workspaces of bots without a folder.
 pub(crate) fn start(
     bot: &Bot,
+    root: &Path,
     from: &str,
     text: &str,
     sender: &str,
+    overrides: Overrides,
 ) -> Result<Arc<Run>, &'static str> {
     if text.trim().is_empty() || text.len() > 64 << 10 {
         return Err("text required, up to 64 KiB");
     }
-    if !bot.cwd.is_dir() {
-        return Err("the bot's folder no longer exists");
-    }
     if super::bot_live(&bot.id) >= MAX_LIVE {
         return Err("this bot already has as many runs as it may");
     }
-    let run = super::launch_run(
-        bot.cwd.clone(),
-        bot.provider,
-        None,
-        bot.launch(),
-        Vec::new(),
-    )
-    .map_err(|_| "could not start the agent")?;
+    let cwd = folder(bot, root, overrides.cwd)?;
+    let provider = overrides.provider.unwrap_or(bot.provider);
+    // the bot's model and effort are its own agent's; another agent starts on its defaults
+    let mut launch = if provider == bot.provider {
+        bot.launch()
+    } else {
+        Launch {
+            mode: Some("auto".into()),
+            ..Launch::default()
+        }
+    };
+    if provider == Provider::Codex {
+        launch.mode = None;
+    } else if overrides.mode.is_some() {
+        launch.mode = overrides.mode;
+    }
+    let run = super::launch_run(cwd.clone(), provider, None, launch, Vec::new())
+        .map_err(|_| "could not start the agent")?;
     run.set_bot(Some(&bot.id));
     run.deliver(from, text, Some(sender))?;
     super::save();
     let summary: String = text.trim().chars().take(200).collect();
     super::record(
-        "insert into agent_bot_runs (run_id, bot_id, source, requester, summary)
-         select $1, id, $3, $4, $5 from agent_bots where id = $2::uuid
+        "insert into agent_bot_runs (run_id, bot_id, source, requester, summary, cwd, provider)
+         select $1, id, $3, $4, $5, $6, $7 from agent_bots where id = $2::uuid
          on conflict (run_id) do nothing",
         vec![
             json!(run.id),
@@ -362,6 +432,8 @@ pub(crate) fn start(
             json!(sender),
             json!(from),
             json!(summary),
+            json!(cwd),
+            json!(provider.name()),
         ],
     );
     if let Ok(runtime) = tokio::runtime::Handle::try_current() {
@@ -382,7 +454,7 @@ pub(crate) fn start(
 pub(crate) fn history(db: &mut Db, id: &str, limit: i64) -> Result<Vec<Value>> {
     db.query(
         r#"select run_id as id, source, summary, requester, started_at as "startedAt",
-                  ended_at as "endedAt", outcome
+                  ended_at as "endedAt", outcome, cwd, provider as agent
              from agent_bot_runs where bot_id = $1::uuid
             order by started_at desc, run_id desc limit $2::int"#,
         &[json!(id), json!(limit)],
@@ -519,13 +591,25 @@ mod tests {
 
     #[test]
     fn a_task_names_its_bot_before_a_colon_or_not_at_all() {
+        let codex = Some(Provider::Codex);
         for (text, want) in [
-            ("trame: fix the test", (Some("trame"), "fix the test")),
-            ("  web-2 :  deploy ", (Some("web-2"), "deploy")),
-            ("fix this: it breaks", (None, "fix this: it breaks")),
-            ("Trame: up", (None, "Trame: up")),
-            ("trame:", (None, "trame:")),
-            ("summarize the README", (None, "summarize the README")),
+            ("trame: fix the test", (Some("trame"), None, "fix the test")),
+            ("  web-2 :  deploy ", (Some("web-2"), None, "deploy")),
+            ("fix this: it breaks", (None, None, "fix this: it breaks")),
+            ("Trame: up", (None, None, "Trame: up")),
+            ("trame:", (None, None, "trame:")),
+            ("summarize the README", (None, None, "summarize the README")),
+            ("trame with codex: fix", (Some("trame"), codex, "fix")),
+            (
+                " web  with  claude : go",
+                (Some("web"), Some(Provider::Claude), "go"),
+            ),
+            ("trame with gpt: fix", (None, None, "trame with gpt: fix")),
+            (
+                "trame using codex: fix",
+                (None, None, "trame using codex: fix"),
+            ),
+            ("trame with codex:", (None, None, "trame with codex:")),
         ] {
             assert_eq!(addressed(text), want, "{text}");
         }
@@ -538,11 +622,15 @@ mod tests {
         let routed = route;
         assert_eq!(
             routed(&two, "web: deploy"),
-            Ok(("web".into(), "deploy".into()))
+            Ok(("web".into(), "deploy".into(), None))
+        );
+        assert_eq!(
+            routed(&two, "web with codex: deploy"),
+            Ok(("web".into(), "deploy".into(), Some(Provider::Codex)))
         );
         assert_eq!(
             routed(&one, "note: keep this"),
-            Ok(("trame".into(), "note: keep this".into()))
+            Ok(("trame".into(), "note: keep this".into(), None))
         );
         assert!(
             routed(&two, "note: keep this")

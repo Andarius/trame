@@ -38,6 +38,9 @@ pub(crate) enum Kind {
         bot: String,
         text: String,
         from: String,
+        /// `claude` or `codex` when the mention asked for one; else the bot's
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent: Option<String>,
     },
     /// Interrupt turn `turn` of incarnation `epoch` of `run`, only while it is that turn.
     Stop {
@@ -130,6 +133,7 @@ mod tests {
                 bot: "trame".into(),
                 text: "fix".into(),
                 from: "Slack user U1".into(),
+                agent: None,
             },
         };
         let stop = Delivery {

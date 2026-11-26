@@ -18,6 +18,7 @@ use tokio::{
 };
 
 use self::protocol::{Ack, AckState, Delivery, Event, Hello, Kind, Status, VERSION};
+use super::run::Provider;
 use super::runner::{self, Local, Offered};
 use super::slack::{Config, Input, Ledger, Mention, api::Api, status_card, timestamp};
 
@@ -289,19 +290,22 @@ impl Connector {
         all
     }
 
-    /// `(machine, bot, task)` for a mention: a bot name unique across machines picks its machine.
-    pub(crate) fn route(&self, text: &str) -> Result<(String, String, String), String> {
+    /// `(machine, bot, task, agent)` for a mention: a bot name unique across machines picks its machine.
+    pub(crate) fn route(
+        &self,
+        text: &str,
+    ) -> Result<(String, String, String, Option<Provider>), String> {
         let inventory = self.inventory();
         let mut names: Vec<String> = inventory.iter().map(|(_, b)| b.clone()).collect();
         names.dedup();
-        let (bot, task) = super::bots::route(&names, text)?;
+        let (bot, task, agent) = super::bots::route(&names, text)?;
         let machines: Vec<&str> = inventory
             .iter()
             .filter(|(_, b)| *b == bot)
             .map(|(m, _)| m.as_str())
             .collect();
         match machines.as_slice() {
-            [machine] => Ok(((*machine).to_owned(), bot, task)),
+            [machine] => Ok(((*machine).to_owned(), bot, task, agent)),
             _ => Err(format!(
                 "{bot} is offered by several machines ({}); rename one of them.",
                 machines.join(", ")
@@ -316,6 +320,7 @@ impl Connector {
         bot: String,
         text: String,
         from: String,
+        agent: Option<Provider>,
     ) -> (String, watch::Receiver<Progress>) {
         let now = Instant::now();
         let mut state = self.state.lock().unwrap();
@@ -323,7 +328,12 @@ impl Connector {
         let entry = state.machines.entry(machine.to_owned()).or_default();
         let (id, _) = queue(
             entry,
-            Kind::Start { bot, text, from },
+            Kind::Start {
+                bot,
+                text,
+                from,
+                agent: agent.map(|a| a.name().to_owned()),
+            },
             now + self.timing.start_ttl,
             false,
         );
@@ -436,7 +446,7 @@ pub(crate) async fn bridge(native: crate::routes::Native) {
         Ok(machine) => machine,
         Err(error) => return eprintln!("connector: {error}"),
     };
-    let port = native.port;
+    let place = (native.port, native.root.clone());
     let ledger = Ledger::db(&native);
     let offered: Offered = Arc::new(move || {
         crate::db::Db::connect(
@@ -449,7 +459,7 @@ pub(crate) async fn bridge(native: crate::routes::Native) {
     });
     match http::Remote::from_env().await {
         Ok(Some(remote)) => {
-            return runner::serve(Arc::new(remote), machine, offered, port, runner::RETRY).await;
+            return runner::serve(Arc::new(remote), machine, offered, place, runner::RETRY).await;
         }
         Ok(None) => {}
         Err(error) => return eprintln!("connector: {error}"),
@@ -466,7 +476,7 @@ pub(crate) async fn bridge(native: crate::routes::Native) {
     let local = Arc::new(Local::new(connector.clone(), machine.clone()));
     tokio::select! {
         () = hold_slack(api, config, connector, ledger) => {}
-        () = runner::serve(local, machine, offered, port, runner::RETRY) => {}
+        () = runner::serve(local, machine, offered, place, runner::RETRY) => {}
     }
 }
 
@@ -529,7 +539,7 @@ async fn card(
     buttons: Arc<Buttons>,
     mention: Mention,
 ) {
-    let (machine, bot, task) = match connector.route(&mention.text) {
+    let (machine, bot, task, agent) = match connector.route(&mention.text) {
         Ok(routed) => routed,
         Err(reason) => {
             let reply = json!({"channel":config.channel,"thread_ts":mention.thread,"text":reason,
@@ -539,7 +549,7 @@ async fn card(
         }
     };
     let from = format!("Slack user {}", config.user);
-    let (delivery, mut progress) = connector.start(&machine, bot.clone(), task, from);
+    let (delivery, mut progress) = connector.start(&machine, bot.clone(), task, from, agent);
     let button = uuid::Uuid::new_v4().simple().to_string();
     let initial = progress.borrow_and_update().clone();
     let first = status_card(&config, &mention.thread, &bot, &initial, &button, None);
@@ -606,14 +616,20 @@ mod tests {
             .hello("m2", hello("m2", &["beta", "both", "Not A Name"], "1"))
             .unwrap();
         for (text, want) in [
-            ("alpha: x", Ok(("m1", "alpha", "x"))),
-            ("beta: y", Ok(("m2", "beta", "y"))),
+            ("alpha: x", Ok(("m1", "alpha", "x", None))),
+            ("beta: y", Ok(("m2", "beta", "y", None))),
+            (
+                "beta with codex: y",
+                Ok(("m2", "beta", "y", Some(Provider::Codex))),
+            ),
             ("both: z", Err("several machines (m1, m2)")),
             ("gamma: z", Err("alpha, beta, both")),
         ] {
             let got = connector.route(text);
             match want {
-                Ok((m, b, t)) => assert_eq!(got, Ok((m.into(), b.into(), t.into())), "{text}"),
+                Ok((m, b, t, a)) => {
+                    assert_eq!(got, Ok((m.into(), b.into(), t.into(), a)), "{text}");
+                }
                 Err(part) => assert!(got.unwrap_err().contains(part), "{text}"),
             }
         }
@@ -640,7 +656,7 @@ mod tests {
     async fn an_unacked_delivery_comes_back_with_its_id_until_received() {
         let connector = connector();
         connector.hello("m1", hello("m1", &["alpha"], "1")).unwrap();
-        let (id, progress) = connector.start("m1", "alpha".into(), "x".into(), "u".into());
+        let (id, progress) = connector.start("m1", "alpha".into(), "x".into(), "u".into(), None);
         assert!(progress.borrow().waiting, "m1 never polled");
         let first = connector.poll("m1", "1").await.unwrap();
         assert_eq!(first.iter().map(|d| &d.id).collect::<Vec<_>>(), [&id]);
@@ -662,9 +678,9 @@ mod tests {
     async fn a_start_nobody_picks_up_fails_and_a_finished_one_refuses_stop() {
         let connector = connector();
         connector.hello("m1", hello("m1", &["alpha"], "1")).unwrap();
-        let (_, lost) = connector.start("m1", "alpha".into(), "x".into(), "u".into());
+        let (_, lost) = connector.start("m1", "alpha".into(), "x".into(), "u".into(), None);
         tokio::time::sleep(Duration::from_millis(350)).await;
-        let (id, progress) = connector.start("m1", "alpha".into(), "y".into(), "u".into());
+        let (id, progress) = connector.start("m1", "alpha".into(), "y".into(), "u".into(), None);
         assert_eq!(lost.borrow().status, Status::Failed);
         let event = |status| Event {
             delivery: id.clone(),

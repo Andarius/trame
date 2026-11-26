@@ -4,6 +4,7 @@
 use std::{
     collections::{HashMap, VecDeque},
     future::{Future, ready},
+    path::PathBuf,
     sync::Arc,
     time::Duration,
 };
@@ -20,7 +21,7 @@ use super::connector::{
     Connector, Refusal,
     protocol::{Ack, AckState, Delivery, Event, Hello, Kind, Status, VERSION},
 };
-use super::run::Run;
+use super::run::{Provider, Run};
 
 pub(crate) const RETRY: Duration = Duration::from_secs(2);
 /// Delivery ids remembered so a redelivery never runs twice.
@@ -148,12 +149,13 @@ async fn offered_names(offered: &Offered) -> Vec<String> {
     names
 }
 
-/// Serve `machine`'s deliveries from `transport` until cancelled; `port` builds the run links.
+/// Serve `machine`'s deliveries from `transport` until cancelled; `port` builds the run links,
+/// `root` holds the workspaces of bots without a folder.
 pub(crate) async fn serve<T: Transport>(
     transport: Arc<T>,
     machine: String,
     offered: Offered,
-    port: u16,
+    (port, root): (u16, PathBuf),
     retry: Duration,
 ) {
     let (finished, mut done) = mpsc::unbounded_channel::<String>();
@@ -214,18 +216,25 @@ pub(crate) async fn serve<T: Transport>(
                 .acks(&[ack(&delivery.id, AckState::Received, None)])
                 .await;
             match delivery.kind {
-                Kind::Start { bot, text, from } => {
+                Kind::Start {
+                    bot,
+                    text,
+                    from,
+                    agent,
+                } => {
                     let job = Start {
                         transport: transport.clone(),
                         delivery: delivery.id,
                         offered: offered.clone(),
                         port,
+                        root: root.clone(),
                         retry,
                     };
                     let finished = finished.clone();
                     starts.spawn(async move {
                         let id = job.delivery.clone();
-                        job.run(&bot, &text, &from).await;
+                        let agent = agent.as_deref().and_then(Provider::parse);
+                        job.run(&bot, &text, &from, agent).await;
                         let _ = finished.send(id);
                     });
                 }
@@ -248,11 +257,12 @@ struct Start<T> {
     delivery: String,
     offered: Offered,
     port: u16,
+    root: PathBuf,
     retry: Duration,
 }
 
 impl<T: Transport> Start<T> {
-    async fn run(&self, bot: &str, text: &str, from: &str) {
+    async fn run(&self, bot: &str, text: &str, from: &str, agent: Option<Provider>) {
         let offered = self.offered.clone();
         let found = tokio::task::spawn_blocking(move || offered())
             .await
@@ -261,7 +271,13 @@ impl<T: Transport> Start<T> {
             .find(|b| b.name == bot);
         let started = found
             .ok_or("this machine no longer offers that bot")
-            .and_then(|bot| super::bots::start(&bot, from, text, "slack"));
+            .and_then(|bot| {
+                let overrides = super::bots::Overrides {
+                    provider: agent,
+                    ..Default::default()
+                };
+                super::bots::start(&bot, &self.root, from, text, "slack", overrides)
+            });
         let run = started.and_then(|run| {
             let epoch = run.snapshot()["epoch"].as_str().map(str::to_owned);
             Ok((run, epoch.ok_or("the run has no epoch")?))

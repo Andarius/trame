@@ -2,7 +2,7 @@ import { SECTION_LABEL } from "../ui/ui";
 import { useAgentDest } from "./agent-run";
 import { useBots } from "./bot-api";
 import { BotAvatar, Glyph } from "./bot-faces";
-import { folderName } from "./bot-stats";
+import { botFolder } from "./bot-stats";
 
 // The bots in the agents column, above the runs they start; hidden until the agent view is on or a bot exists.
 // `selected` is the main pane's bot selection: "bots", "bot:<id>" or "bot:new".
@@ -38,7 +38,7 @@ export function Bots({ selected, onSelect }: { selected: string | null; onSelect
         <button
           key={b.id}
           type="button"
-          title={b.cwd}
+          title={b.cwd ?? b.workspace}
           className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[12.5px] ${
             selected === `bot:${b.id}` ? "bg-active-row text-ink" : "text-ink-soft hover:bg-hover hover:text-ink"
           }`}
@@ -47,7 +47,7 @@ export function Bots({ selected, onSelect }: { selected: string | null; onSelect
           <BotAvatar bot={b} state={b.working > 0 ? "working" : "idle"} ring="border-sidebar" />
           <span className="flex min-w-0 flex-col">
             <span className="truncate font-medium">{b.name}</span>
-            <span className="truncate text-[11px] text-ink-faint">{b.role || folderName(b.cwd)}</span>
+            <span className="truncate text-[11px] text-ink-faint">{b.role || botFolder(b)}</span>
           </span>
           <span className="ml-auto flex shrink-0 gap-1 text-ink-faint">
             {b.slack && <span title="Slack mentions start it"><Glyph name="slack" /></span>}

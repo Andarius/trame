@@ -10,6 +10,10 @@ A bot is a named agent setup: Claude Code or Codex, a project folder, a permissi
 2. Choose the folder, name the bot and choose **Create bot**.
 3. On the bot's page, under **Started by**, turn on **Slack**, or choose **Copy hook command** for a cron job, CI or a script.
 
+A bot without a folder works in a workspace of its own, which Trame creates in its data directory on the bot's first run. **Run now** picks the agent, the mode and the folder for that run. A hook may set `"agent"` and `"mode"` in its JSON body. The folder stays the bot's, so a hook or Slack message can't point the agent elsewhere.
+
+![Starting a bot run with another agent and mode](bot-start.gif)
+
 The bot now appears under **BOTS**. Its page shows its recent runs and figures, how it is wired, and **Run now**. Choose **BOTS** itself for every bot's last four weeks.
 
 ![The bots overview, then a bot's page, wiring and settings](bot-page.gif)

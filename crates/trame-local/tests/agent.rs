@@ -1224,6 +1224,172 @@ fn a_bots_hook_starts_its_runs_up_to_a_cap_and_only_with_its_secret() {
 }
 
 #[test]
+fn a_bot_start_picks_its_folder_and_agent() {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
+    let (claude, codex) = (
+        format!("{dir}/fake-claude.py"),
+        format!("{dir}/fake-codex.py"),
+    );
+    let log = trame_local::workspace().join(format!(
+        ".scratch/agent-bot-start-{}.log",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let t = TestDb::with_env(&[
+        ("TRAME_CLAUDE_BIN", &claude),
+        ("TRAME_CODEX_BIN", &codex),
+        ("FAKE_LOG", log.to_str().unwrap()),
+    ]);
+    let base = t.base_url();
+    let elsewhere = t.root.join("elsewhere");
+    std::fs::create_dir(&elsewhere).unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let http = reqwest::Client::new();
+        let token = reqwest::get(format!("{base}/api/term/token"))
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap()["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let app = |req: reqwest::RequestBuilder| req.header(TOKEN_HEADER, &token).send();
+        let bots = format!("{base}/api/agent/bots");
+
+        // no folder: its runs get a private workspace under the data root
+        let bot: Value = app(http.post(&bots).json(&json!({"name":"ws"})))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let id = bot["id"].as_str().unwrap().to_owned();
+        let workspace = t.root.join("bots").join(&id);
+        assert_eq!(
+            (&bot["cwd"], &bot["workspace"]),
+            (&Value::Null, &json!(workspace))
+        );
+        for (body, want) in [
+            (json!({"cwd":elsewhere}), json!(elsewhere)),
+            (json!({"cwd":""}), Value::Null),
+        ] {
+            let patched: Value = app(http.patch(format!("{bots}/{id}")).json(&body))
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            assert_eq!(patched["cwd"], want, "{body}");
+        }
+        let hook: Value = app(http.get(format!("{bots}/{id}/hook")))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let secret = hook["token"].as_str().unwrap().to_owned();
+        let runs = format!("{bots}/{id}/runs");
+        let by_hook = |body: Value| {
+            http.post(&runs)
+                .header("x-trame-hook", &secret)
+                .json(&body)
+                .send()
+        };
+
+        // a hook may pick the agent and mode, never the folder
+        for (body, want, error) in [
+            (
+                json!({"text":"ping","cwd":elsewhere}),
+                403,
+                "a hook can't choose the folder",
+            ),
+            (
+                json!({"text":"ping","agent":"codex","mode":"plan"}),
+                400,
+                "Codex has no permission modes",
+            ),
+            (json!({"text":"ping","agent":"gpt"}), 400, "unknown agent"),
+            (
+                json!({"text":"ping","mode":"yolo"}),
+                400,
+                "unknown permission mode",
+            ),
+        ] {
+            let res = by_hook(body.clone()).await.unwrap();
+            assert_eq!(res.status(), want, "{body}");
+            assert_eq!(res.json::<Value>().await.unwrap()["error"], error, "{body}");
+        }
+        let mut started = Vec::new();
+        for res in [
+            by_hook(json!({"text":"ping"})).await,
+            app(http
+                .post(&runs)
+                .json(&json!({"text":"ping","cwd":elsewhere})))
+            .await,
+            by_hook(json!({"text":"ping","agent":"codex"})).await,
+        ] {
+            let res = res.unwrap();
+            assert_eq!(res.status(), 201);
+            started.push(res.json::<Value>().await.unwrap()["id"].clone());
+        }
+        let mode = std::os::unix::fs::PermissionsExt::mode(
+            &std::fs::metadata(&workspace).unwrap().permissions(),
+        );
+        assert_eq!(mode & 0o777, 0o700);
+
+        // the history keeps where each run worked and with which agent
+        let history: Value = app(http.get(format!("{runs}?limit=10")))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let recorded: Vec<(Value, Value)> = started
+            .iter()
+            .map(|id| {
+                let row = history
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|r| r["id"] == *id)
+                    .unwrap();
+                (row["cwd"].clone(), row["agent"].clone())
+            })
+            .collect();
+        assert_eq!(
+            recorded,
+            [
+                (json!(workspace), json!("claude")),
+                (json!(elsewhere), json!("claude")),
+                (json!(workspace), json!("codex")),
+            ]
+        );
+
+        // and the agent itself ran there
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+        let cwds = loop {
+            let lines: Vec<Value> = std::fs::read_to_string(&log)
+                .unwrap_or_default()
+                .lines()
+                .map(|l| serde_json::from_str(l).unwrap())
+                .collect();
+            let cwds: Vec<Value> = started[..2]
+                .iter()
+                .filter_map(|id| lines.iter().find(|l| l["run"] == *id))
+                .map(|l| l["cwd"].clone())
+                .collect();
+            if cwds.len() == 2 || tokio::time::Instant::now() > deadline {
+                break cwds;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        };
+        assert_eq!(cwds, [json!(workspace), json!(elsewhere)]);
+    });
+    let _ = std::fs::remove_file(&log);
+}
+
+#[test]
 fn a_bots_page_keeps_its_look_history_stats_and_image() {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fake-claude.py");
     let log = trame_local::workspace().join(format!(
