@@ -52,6 +52,8 @@ export default defineConfig(async ({ command }) => ({
     dedupe: ["react", "react-dom"],
   },
   build: {
+    // keep `||=`: lowering it for ES2020 dropped a declaration in xterm.js, so DECRQM threw and blanked the terminal
+    target: "es2021",
     outDir: "dist",
     emptyOutDir: true,
     // served over loopback; the big chunks are lazy (excalidraw font subsetting is 1.8 MB)
