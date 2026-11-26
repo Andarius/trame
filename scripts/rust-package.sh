@@ -54,9 +54,19 @@ prune_pg() {
     rm -rf "$share/man" "$share/doc"
 }
 
+# Licence notices of the compiled-in crates and JS packages, plus the project's own, shipped as a resource.
+gen_licenses() {
+    local dir="$package/licenses"
+    rm -rf "$dir"
+    mkdir -p "$dir"
+    node scripts/third-party-licenses.ts "$dir/THIRD-PARTY-LICENSES.txt"
+    cp NOTICE LICENSE-MIT LICENSE-APACHE "$dir/"
+}
+
 package="$PWD/.scratch/package"
 pg="$package/pg"
-mkdir -p "$package"
+# tauri-build requires every resource dir to exist, even for test builds after `prepare`
+mkdir -p "$package/licenses"
 if [[ "$platform" == Darwin/arm64 ]]; then
     # relocatable build: bin/, lib/ and share/ must stay siblings
     name=postgresql-18.6.0-aarch64-apple-darwin
@@ -89,6 +99,7 @@ if [[ "$platform" == Darwin/arm64 ]]; then
         exit 0
     fi
     npm ci --prefix app/web
+    gen_licenses
     npm run build --prefix app/web
     cargo build -p trame-cli --release --locked
     cp target/release/tramecli "$package/tramecli-$triple"
@@ -145,9 +156,11 @@ fi
 cd crates/trame-desktop
 if [[ -n "${TRAME_BUNDLE_ONLY:-}" ]]; then
     # reuse the binary of a previous build: `tauri build` would relink it after its bundle-type patch
+    (cd ../.. && gen_licenses)
     npx --yes @tauri-apps/cli@2.12.2 bundle --ci --bundles "$mode"
 else
     npm ci --prefix ../../app/web
+    (cd ../.. && gen_licenses)
     npm run build --prefix ../../app/web
     cargo build -p trame-cli --release --locked
     cp ../../target/release/tramecli "$package/tramecli-$triple"
