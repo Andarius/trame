@@ -3,7 +3,7 @@ import type { BoardData, ClaudeSession } from "../api";
 import { RecentList } from "../agents/RecentList";
 import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
-import { FolderIcon, PinIcon, PlusIcon, PopOutIcon } from "../ui/icons";
+import { DeviceIcon, FolderIcon, PinIcon, PlusIcon, PopOutIcon } from "../ui/icons";
 import { appConfirm, BOOL_CODEC, EntityIcon, enumCodec, MenuRow, Popover, SECTION_LABEL, SET_CODEC, useLocalStorage } from "../ui/ui";
 import { LinkCardDialog } from "./LinkCardDialog";
 import { NewTerminalDialog } from "./NewTerminalDialog";
@@ -117,6 +117,16 @@ export function TermCards(
     const load = () => !document.hidden && termForks().then(setForks).catch(() => {});
     load();
     const t = setInterval(load, FORKS_POLL_MS);
+    return () => clearInterval(t);
+  }, []);
+  // the agents running in Trame on other devices, through the hub
+  const [fleet, setFleet] = useState<Device[]>([]);
+  useEffect(() => {
+    const load = () =>
+      !document.hidden &&
+      fetch("/api/fleet").then((r) => (r.ok ? r.json() : [])).then((d) => setFleet(Array.isArray(d) ? d : [])).catch(() => {});
+    load();
+    const t = setInterval(load, FLEET_POLL_MS);
     return () => clearInterval(t);
   }, []);
   // `/advices` runs, under the agent that asked them
@@ -485,6 +495,27 @@ export function TermCards(
       </div>
     );
   };
+  // an agent running in Trame on another device: its state, and its card when this board has it
+  const remoteProject = (a: RemoteAgent) => (a.card && cardOf.get(a.card)?.client_id) || a.project || null;
+  const remoteRow = (device: string, a: RemoteAgent) => {
+    const waiting = !!a.waiting;
+    const card = a.card && cardOf.has(a.card) ? a.card : null;
+    return (
+      <div key={`remote:${device}:${a.id}`} className={waiting ? "rounded-md bg-wait/[0.14]" : ""}>
+        {row(`remote:${device}:${a.id}`, !!card && selected === card, () => card && onSelect(card), (
+          <>
+            <span className="flex w-full items-center gap-2">
+              {dot(waiting, !waiting && !!a.busy, !waiting && !a.busy && !!a.done)}
+              <span className="min-w-0 flex-1 truncate">{a.name ?? (card && cardOf.get(card)?.title) ?? a.title}</span>
+            </span>
+            <span className={`truncate pl-[15px] text-[11px] ${waiting ? "text-wait" : "text-ink-faint"}`} title={a.waiting}>
+              {waiting ? a.waiting : a.asleep ? "not resumed" : a.busy ? "working" : "idle"}
+            </span>
+          </>
+        ))}
+      </div>
+    );
+  };
   // a shell with no agent in it: its title, and the folder it started in
   const shellRow = (t: (typeof plain)[number]) => (
     <div
@@ -772,6 +803,28 @@ export function TermCards(
           {outside.map(outsideRow)}
         </section>
       )}
+      {fleet.filter((d) => d.agents.length > 0).map((d) => {
+        const by = new Map<string | null, RemoteAgent[]>();
+        for (const a of [...d.agents].sort((a, b) => Number(!!b.waiting) - Number(!!a.waiting))) {
+          by.set(remoteProject(a), [...(by.get(remoteProject(a)) ?? []), a]);
+        }
+        return (
+          <section key={`device:${d.device}`} className={`flex flex-col ${gap}`} aria-label={`Agents on ${d.label}`}>
+            <div className="mx-2 mb-1 border-t border-dashed border-line" />
+            <div className={`flex items-center gap-1.5 px-2 pb-1 ${SECTION_LABEL}`} title={`agents running in Trame on another device (${d.kind ?? "desktop"})`}>
+              <DeviceIcon kind={d.kind} />
+              ON {d.label.toUpperCase()}
+              <span className="ml-auto tracking-normal tabular-nums">{d.agents.length}</span>
+            </div>
+            {[...by].map(([project, as]) => (
+              <div key={project ?? ""} className={`flex flex-col ${gap}`}>
+                <div className="px-2 text-[10.5px] text-ink-faint">{project ? projectName(board, project) : "No project"}</div>
+                {as.map((a) => remoteRow(d.device, a))}
+              </div>
+            ))}
+          </section>
+        );
+      })}
       {shells === "show" && plain.length > 0 && (
         <section className={`flex flex-col ${gap}`}>
           <button
@@ -807,6 +860,20 @@ export function TermCards(
 // the repo a folder belongs to, by name: a worktree <repo>/.scratch/<wt> (or .worktrees/, .claude/worktrees/) is <repo>
 
 const FORKS_POLL_MS = 10_000;
+const FLEET_POLL_MS = 5_000;
+type RemoteAgent = {
+  id: string;
+  agent?: string;
+  name?: string;
+  title?: string;
+  waiting?: string;
+  card?: string;
+  project?: string;
+  busy?: boolean;
+  done?: boolean;
+  asleep?: boolean;
+};
+type Device = { device: string; label: string; kind?: "laptop" | "desktop" | "server"; at: number; agents: RemoteAgent[] };
 const SUBAGENTS_POLL_MS = 5_000;
 const subAge = (a: Subagent) => {
   const at = a.done ? a.updated_at : a.started_at;

@@ -274,3 +274,16 @@ export const PlusIcon = ({ size = 16 }: { size?: number }) => (
     <path d="M8 3v10M3 8h10" />
   </DockSvg>
 );
+
+// a device by kind: laptop, desktop or server
+export function DeviceIcon({ kind, size = 13 }: { kind?: string; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+      {kind === "laptop"
+        ? <><rect x="3" y="3.5" width="10" height="7" rx="1" /><path d="M1.5 12.5h13" /></>
+        : kind === "server"
+        ? <><rect x="2.5" y="2.5" width="11" height="4.5" rx="1" /><rect x="2.5" y="9" width="11" height="4.5" rx="1" /><path d="M5 4.75h.01M5 11.25h.01" /></>
+        : <><rect x="1.75" y="2.5" width="12.5" height="8.5" rx="1" /><path d="M6 13.5h4M8 11v2.5" /></>}
+    </svg>
+  );
+}

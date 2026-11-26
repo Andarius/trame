@@ -314,6 +314,41 @@ impl Sync {
         }
     }
 
+    /// Every 5 s: push this device's running agents to the hub, keep its list of the other devices'.
+    pub async fn fleet(self) {
+        if self.offline {
+            return;
+        }
+        let label = crate::startup::node_id().unwrap_or_default();
+        let kind = crate::fleet::device_kind();
+        loop {
+            let pass = async {
+                let (url, token) =
+                    settings::hub_api(&self.settings).ok_or_else(|| anyhow::anyhow!("no hub"))?;
+                let agents = crate::pty::fleet_snapshot().await;
+                let res = self
+                    .client()?
+                    .post(format!("{url}/api/fleet"))
+                    .timeout(Duration::from_secs(10))
+                    .header("x-trame-protocol", registry().version)
+                    .bearer_auth(token)
+                    .json(&json!({"label":label,"kind":kind,"agents":agents}))
+                    .send()
+                    .await
+                    .map_err(reqwest::Error::without_url)?;
+                anyhow::ensure!(res.status().is_success(), "hub answered {}", res.status());
+                anyhow::Ok(
+                    res.json::<Value>()
+                        .await
+                        .map_err(reqwest::Error::without_url)?,
+                )
+            };
+            // a hub without /api/fleet (the Bun one) or no hub: nobody else is shown
+            crate::fleet::set_remote(&pass.await.unwrap_or(Value::Null));
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    }
+
     #[allow(
         clippy::cast_possible_truncation,
         clippy::cast_precision_loss,

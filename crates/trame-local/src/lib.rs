@@ -12,6 +12,7 @@ pub mod db;
 pub mod demo;
 pub mod diagnostics;
 pub mod files;
+pub mod fleet;
 pub mod forge;
 pub mod host_env;
 pub mod imports;
@@ -295,6 +296,7 @@ pub async fn run(
     );
     let background = tokio::spawn(sync.clone().background());
     let realtime = tokio::spawn(sync.clone().realtime());
+    let fleet = tokio::spawn(sync.clone().fleet());
     diagnostics::start();
     let native = routes::Native {
         root: config.root.clone(),
@@ -369,6 +371,7 @@ pub async fn run(
     }
     background.abort();
     realtime.abort();
+    fleet.abort();
     let _ = background.await;
     let _ = realtime.await;
     if !server_done {
