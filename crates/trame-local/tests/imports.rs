@@ -459,3 +459,121 @@ fn session_ending_says_asked_done_or_stopped() {
         );
     }
 }
+
+fn history_file(text: &str) -> std::path::PathBuf {
+    let dir = trame_local::workspace().join(format!(
+        ".scratch/h-{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..8]
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("t.jsonl");
+    std::fs::write(&path, text).unwrap();
+    path
+}
+
+#[test]
+fn history_keeps_full_turns_tool_pairs_and_ids() {
+    use trame_local::imports::history;
+    let long = "x".repeat(10_000);
+    let claude = jsonl(&[
+        json!({"type":"user","timestamp":"t1","message":{"content":"<command-name>/clear</command-name>"}}),
+        json!({"type":"user","timestamp":"t1","message":{"content":"fix the bug"}}),
+        json!({"type":"assistant","message":{"content":[{"type":"thinking","thinking":"look at pty.rs"}]}}),
+        json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu1","name":"Edit","input":{"file_path":"/r/pty.rs","old_string":"a","new_string":"b"}}]}}),
+        json!({"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu1","content":[{"type":"text","text":long}],"is_error":true}]}}),
+        json!({"type":"assistant","isSidechain":true,"message":{"content":[{"type":"text","text":"subagent says"}]}}),
+        json!({"type":"user","message":{"content":"[Request interrupted by user]"}}),
+        json!({"type":"assistant","message":{"content":[{"type":"text","text":"Fixed."}]}}),
+        json!({"type":"last-prompt"}),
+    ]);
+    let codex = jsonl(&[
+        context(),
+        prompt_new(),
+        json!({"type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"plan"}]}}),
+        json!({"type":"response_item","payload":{"type":"function_call","call_id":"c1","name":"shell","arguments":"{\"command\":[\"ls\"]}"}}),
+        json!({"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"[{\"type\":\"input_text\",\"text\":\"a.rs\"}]"}}),
+        json!({"type":"response_item","payload":{"type":"custom_tool_call","call_id":"c2","name":"apply_patch","input":"*** Begin Patch"}}),
+        json!({"type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"c2","output":"Done!"}}),
+        json!({"type":"event_msg","payload":{"type":"agent_message","message":"dup"}}),
+    ]);
+    let result = format!(
+        "{{\"kind\":\"result\",\"toolId\":\"tu1\",\"text\":\"{}\",\"error\":true,\"truncated\":true}}",
+        "x".repeat(8192)
+    );
+    for (text, codex_fmt, expected) in [
+        (
+            &claude,
+            false,
+            json!([
+                {"kind":"user","ts":"t1","text":"fix the bug","truncated":false},
+                {"kind":"thinking","text":"look at pty.rs","truncated":false},
+                {"kind":"tool","id":"tu1","name":"Edit","input":{"file_path":"/r/pty.rs","old_string":"a","new_string":"b"}},
+                serde_json::from_str::<Value>(&result).unwrap(),
+                {"kind":"note","text":"interrupted"},
+                {"kind":"assistant","text":"Fixed.","truncated":false},
+            ]),
+        ),
+        (
+            &codex,
+            true,
+            json!([
+                {"kind":"user","ts":"2026-09-03T14:11:12.000Z","text":"can i host this in dedicated scaleway\nmore details","truncated":false},
+                {"kind":"thinking","text":"plan","truncated":false},
+                {"kind":"tool","id":"c1","name":"shell","input":{"command":["ls"]}},
+                {"kind":"result","toolId":"c1","text":"a.rs","error":false,"truncated":false},
+                {"kind":"tool","id":"c2","name":"apply_patch","input":{"input":"*** Begin Patch"}},
+                {"kind":"result","toolId":"c2","text":"Done!","error":false,"truncated":false},
+            ]),
+        ),
+    ] {
+        let path = history_file(text);
+        let page = history::before(&path, None, codex_fmt).unwrap();
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+        assert_eq!(Value::Array(page.items), expected);
+        assert_eq!((page.start, page.end), (0, text.len() as u64));
+    }
+}
+
+#[test]
+fn history_pages_back_and_follows_whole_lines_only() {
+    use std::io::Write;
+    use trame_local::imports::history;
+    let line = |i: usize| json!({"type":"user","message":{"content":format!("m{i} {}", "p".repeat(200_000))}});
+    let full = jsonl(&(0..12).map(line).collect::<Vec<_>>());
+    let partial = r#"{"type":"user","message":{"content":"half"#;
+    let path = history_file(&format!("{full}{partial}"));
+    let texts = |p: &history::Page| -> Vec<String> {
+        p.items
+            .iter()
+            .map(|i| i["text"].as_str().unwrap()[..3].trim().to_owned())
+            .collect()
+    };
+    // the newest page stops before the line still being written
+    let last = history::before(&path, None, false).unwrap();
+    assert_eq!(last.end, full.len() as u64);
+    assert!(last.start > 0 && texts(&last).last().unwrap() == "m11");
+    // paging back meets the first page exactly, with no line lost or repeated
+    let mut seen = texts(&last);
+    let mut at = last.start;
+    while at > 0 {
+        let page = history::before(&path, Some(at), false).unwrap();
+        assert_eq!(page.end, at);
+        seen.splice(0..0, texts(&page));
+        at = page.start;
+    }
+    assert_eq!(seen, (0..12).map(|i| format!("m{i}")).collect::<Vec<_>>());
+    // following: nothing until the partial line ends
+    assert_eq!(
+        history::after(&path, last.end, false).unwrap().items,
+        Vec::<Value>::new()
+    );
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap()
+        .write_all(b"\"}}\n")
+        .unwrap();
+    let next = history::after(&path, last.end, false).unwrap();
+    std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    assert_eq!(texts(&next), ["hal"]);
+}
