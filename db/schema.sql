@@ -235,6 +235,7 @@ create table if not exists session_links (
 create index if not exists session_links_session on session_links (session_id);
 create index if not exists session_links_page on session_links (page_id);
 -- editor block ids are short strings (genId), not uuids
+-- squawk-ignore changing-column-type -- block ids were never uuids
 alter table session_links alter column block_id type text using block_id::text;
 -- Pasted images; page blocks reference them as ![...](/api/assets/<id>). Metadata
 -- only — bytes live on disk (ASSETS_DIR) or in S3 (TRACKER_S3_*). Not in the sync
@@ -247,6 +248,7 @@ create table if not exists assets (
   created_at timestamptz not null default now(),
   deleted boolean not null default false
 );
+-- squawk-ignore ban-drop-column -- short-lived column, never synced
 alter table assets drop column if exists data;  -- short-lived base64 variant
 alter table assets add column if not exists store text not null default 'local';
 alter table assets add column if not exists path text not null default '';
@@ -326,6 +328,7 @@ alter table sessions add column if not exists agent text;
 alter table sessions add column if not exists page_id uuid references pages (id);
 alter table sessions add column if not exists specs_page_id uuid references pages (id);
 -- specs are a page (protocol 4); the text column that preceded it is gone.
+-- squawk-ignore ban-drop-column -- specs moved to a page (protocol 4)
 alter table sessions drop column if exists specs;
 alter table reports add column if not exists page_id uuid references pages (id);
 alter table udb_databases add column if not exists page_id uuid references pages (id);
@@ -393,8 +396,11 @@ do $$ begin
     alter table pages rename column story to brief;
   end if;
 end $$;
+-- squawk-ignore ban-drop-constraint -- legacy client_id, replicas already migrated
 alter table pages drop constraint if exists pages_client_id_fkey;
+-- squawk-ignore ban-drop-constraint -- legacy client_id, replicas already migrated
 alter table sessions drop constraint if exists sessions_client_id_fkey;
+-- squawk-ignore ban-drop-constraint -- legacy client_id, replicas already migrated
 alter table reports drop constraint if exists reports_client_id_fkey;
 
 -- Local-only sync bookkeeping (harmless if it also exists on the hub).
