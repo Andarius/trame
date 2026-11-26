@@ -1,42 +1,26 @@
 ---
-import '@fontsource-variable/bricolage-grotesque';
-import '@fontsource/ibm-plex-sans/400.css';
-import '@fontsource/ibm-plex-sans/600.css';
-import '@fontsource/ibm-plex-mono/400.css';
+import '@fontsource-variable/geist';
+import '@fontsource-variable/geist-mono';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const shot = (name: string) => `${base}/shots/${name}`;
 const repo = 'https://github.com/Andarius/trame';
+const docs = `${base}/overview/`;
 const install = 'curl -fsSL https://raw.githubusercontent.com/Andarius/trame/master/bin/quickstart.sh | bash';
 
-const steps = [
-	{
-		title: 'Start agents, answer the one that waits',
-		body: 'Open Claude Code, Codex, Antigravity, Mistral Vibe or Pi from New terminal. The sidebar groups them by project with the step each is on. When one stops to ask you something, it moves to Needs you with its question while the others keep working.',
-		img: 'agents-sidebar.png',
-		alt: 'The agents sidebar: one agent in Needs you, four others working, grouped by project',
-		tall: true,
-	},
-	{
-		title: 'File the session on the board',
-		body: 'Run /trame-track in the session. It becomes a card with its repo, branch and a note, and moves between Active, Paused, Blocked and Done as the work goes.',
-		img: 'board.gif',
-		alt: 'Cards moving across the board columns',
-	},
-	{
-		title: 'Resume it next week',
-		body: 'The card keeps the session. Resume reopens it in Claude Code or Codex, in the right folder, with the whole conversation.',
-		img: 'resume.gif',
-		alt: 'Resuming a past session from its card',
-	},
+const wall = [
+	['agents-needs', 'page-decision', 'resume-preview'],
+	['board-a', 'agents-answer', 'board-b'],
+	['page-thread', 'resume-term', 'agents-working'],
 ];
 
 const faq = [
-	['Do I need a server or an account?', 'No. Trame runs on one machine, offline. The hub is only for syncing several machines, and you host it yourself.'],
-	['What does it change in my agent setup?', 'tramecli setup adds the Trame skills to ~/.claude/skills and links tramecli into ~/.local/bin. With --presence it also adds hooks to ~/.claude/settings.json and ~/.codex/hooks.json, so Trame knows which agent is working or waiting. SECURITY.md lists everything it touches.'],
-	['Does it send anything anywhere?', 'No telemetry. The only request out of the box is a release check against the GitHub API every 6 hours, and TRACKER_UPDATE_CHECK=0 turns it off.'],
-	['Why a whole PostgreSQL inside a desktop app?', 'The laptop and the hub run the same schema and the same SQL, so offline writes sync without a translation layer. It has no TCP port: only a private Unix socket.'],
-	['What does it not do yet?', 'There is no Windows or Intel Mac build. The hub is built for a home network or a VPN, not the open internet. Trame is pre-1.0 and releases often.'],
+	['Do I need a server or an account?', 'No. Trame runs on one machine, offline. The hub only syncs several machines, and you host it yourself.'],
+	['Which agents does it run?', 'Claude Code, Codex, Antigravity, Mistral Vibe and Pi from New terminal, or any command in a plain shell. Session tracking and Resume work with Claude Code and Codex.'],
+	['What does it change in my agent setup?', 'tramecli setup adds the Trame skills to ~/.claude/skills and links tramecli into ~/.local/bin. With --presence it also adds hooks to ~/.claude/settings.json and ~/.codex/hooks.json, so Trame knows which agent is working or waiting.'],
+	['Does it send anything anywhere?', 'No telemetry. The only request out of the box is a release check against the GitHub API every 6 hours; TRACKER_UPDATE_CHECK=0 turns it off.'],
+	['Why a whole PostgreSQL inside a desktop app?', 'The laptop and the hub run the same schema and the same SQL, so offline writes sync without a translation layer. It has no TCP port, only a private Unix socket.'],
+	['What does it not do yet?', 'There is no Windows or Intel Mac build, and the hub is built for a home network or a VPN, not the open internet. Trame is pre-1.0 and releases often.'],
 ];
 ---
 
@@ -45,114 +29,133 @@ const faq = [
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<title>Trame: run coding agents in parallel, lose track of none</title>
-		<meta name="description" content="A local-first desktop workspace for Claude Code, Codex and other coding agents: run them side by side, see which one needs you, and file every session on a board." />
+		<title>Trame: run coding agents in parallel</title>
+		<meta name="description" content="A local-first desktop app for running Claude Code, Codex and other coding agents side by side: see which one needs you, file every session on a board, and resume it next week." />
 		<link rel="icon" href={`${base}/favicon.svg`} type="image/svg+xml" />
 	</head>
 	<body>
-		<header class="bar wrap">
-			<a class="mark" href={`${base}/`}>trame</a>
+		<header class="nav wrap">
+			<a class="logo" href={`${base}/`}><img src={`${base}/favicon.svg`} alt="" width="22" height="22" />Trame</a>
 			<nav>
-				<a href={`${base}/overview/`}>Docs</a>
-				<a href={`${repo}/releases`}>Releases</a>
-				<a href={repo}>GitHub</a>
+				<a href="#agents">Agents</a>
+				<a href="#sessions">Sessions</a>
+				<a href="#pages">Pages</a>
+				<a href={docs}>Docs</a>
 			</nav>
+			<div class="nav-end">
+				<a href={repo}>GitHub</a>
+				<a class="pill" href="#install">Download</a>
+			</div>
 		</header>
 
 		<main>
-			<section class="hero wrap">
-				<h1>Run your agents in parallel. Lose track of none.</h1>
-				<p class="lede">
-					Trame is a desktop workspace for coding agents. Start them side by side, see which one is waiting on
-					you, file every session on a board, and pick it up again next week. Local-first and open source.
-				</p>
-				<div class="install">
-					<code>{install}</code>
-					<button type="button" data-copy={install}>Copy</button>
-				</div>
-				<p class="platforms">
-					Linux x64 and macOS arm64. Or download a package from the <a href={`${repo}/releases`}>releases page</a>.
-				</p>
-			</section>
-
-			<div class="stage">
-				<svg class="weft" viewBox="0 0 1600 600" preserveAspectRatio="none" aria-hidden="true">
-					<path d="M0 90 C 300 60, 500 130, 800 95 S 1300 60, 1600 100" />
-					<path d="M0 200 C 280 230, 520 160, 800 205 S 1320 240, 1600 190" />
-					<path d="M0 320 C 320 290, 480 360, 800 315 S 1280 290, 1600 330" />
-					<path d="M0 440 C 260 470, 540 400, 800 445 S 1340 470, 1600 425" />
-					<path d="M0 540 C 300 515, 500 570, 800 535 S 1300 515, 1600 550" />
-				</svg>
-				<figure class="window wrap-wide">
-					<div class="chrome"><span></span><span></span><span></span></div>
-					<img src={shot('hero.gif')} alt="Agents running in Trame; one moves into Needs you when it asks a question" width="1000" height="625" />
-				</figure>
-			</div>
-
-			<section class="day wrap">
-				<h2>A day with Trame</h2>
-				<ol>
-					{steps.map((s) => (
-						<li>
-							<div class="step-text">
-								<h3>{s.title}</h3>
-								<p>{s.body}</p>
-							</div>
-							<img class:list={[{ tall: s.tall }]} src={shot(s.img)} alt={s.alt} loading="lazy" />
-						</li>
+			<section class="hero">
+				<div class="wall" aria-hidden="true">
+					{wall.map((col) => (
+						<div>{col.map((n) => <img src={shot(`wall/${n}.webp`)} alt="" />)}</div>
 					))}
-				</ol>
-			</section>
-
-			<section class="pages wrap">
-				<div class="step-text">
-					<h2>Plans your agents read and write</h2>
-					<p>
-						Specs, plans and notes are pages with todos. Agents write them through tramecli or MCP, comment on a
-						block, and answer when you reply. When one needs a decision, it asks in the page and reads your answer
-						back.
-					</p>
-					<p>Pages also hold databases, interactive HTML blocks, and read-only share links.</p>
 				</div>
-				<img src={shot('pages.gif')} alt="An agent's question in a page, answered by choosing an option" loading="lazy" />
+				<div class="hero-copy wrap">
+					<h1>Run agents in parallel. <span>Lose track of none.</span></h1>
+					<p class="lede">
+						Trame is a desktop app for running coding agents side by side. <em>See which one needs you, file every
+						session on a board, and resume it next week.</em>
+					</p>
+					<div class="cta">
+						<a class="pill big" href="#install">Download Trame</a>
+						<a href={docs}>Read the docs</a>
+					</div>
+					<p class="fine">Linux and macOS. Local-first and open source.</p>
+				</div>
 			</section>
 
-			<section class="local wrap">
-				<h2>Yours, on your machine</h2>
-				<p>
-					Everything runs and is stored locally, in a bundled PostgreSQL. No account, no cloud, no telemetry. If you
-					work on several machines, run the hub on a server you own: edits reach the others in a couple of seconds.
-					The code is MIT or Apache-2.0, and plugins add panels, blocks and commands.
-				</p>
+			<section class="block wrap" id="agents">
+				<div class="head">
+					<h2>Every agent in one window. <span>The one that needs you on top.</span></h2>
+					<p>
+						Start Claude Code, Codex, Antigravity, Mistral Vibe or Pi from New terminal. The sidebar groups them by
+						project and shows the step each one is on.
+					</p>
+				</div>
+				<figure class="frame"><img src={shot('hero.gif')} alt="Agents running in Trame; one moves into Needs you when it asks a question, and is answered" width="1000" height="625" loading="lazy" /></figure>
+				<div class="trio">
+					<div><h3>Needs you</h3><p>An agent that stops to ask something rises to the top with its question. The others keep working.</p></div>
+					<div><h3>Forks and subagents</h3><p>Background forks and subagents sit under the session that started them.</p></div>
+					<div><h3>Tabs and splits</h3><p>Split panes, side tabs, and pop-out windows for the shells you watch closely.</p></div>
+				</div>
 			</section>
 
-			<section class="faq wrap">
+			<section class="block wrap" id="sessions">
+				<div class="head">
+					<h2>Every session is a card. <span>Pick it up next week.</span></h2>
+					<p>
+						Run <code>/trame-track</code> in a session and it lands on the board with its repo, branch and a note.
+						The card keeps the session, so Resume reopens the whole conversation days later.
+					</p>
+				</div>
+				<div class="pair">
+					<figure class="frame"><img src={shot('board.gif')} alt="Cards moving across the board's status columns" width="1000" height="625" loading="lazy" /></figure>
+					<figure class="frame"><img src={shot('resume.gif')} alt="Finding a past session and resuming it in a Trame tab" width="960" height="600" loading="lazy" /></figure>
+				</div>
+				<div class="trio">
+					<div><h3>Your columns</h3><p>Active, Paused, Blocked, Done, or whatever your work needs. Swimlanes by project or story.</p></div>
+					<div><h3>Status from the agent</h3><p><code>/trame-track blocked "waiting on API PR"</code> moves the card without leaving the terminal.</p></div>
+					<div><h3>Resume anywhere</h3><p>Reopen in a Trame tab or a new terminal, in the right folder.</p></div>
+				</div>
+			</section>
+
+			<section class="block wrap" id="pages">
+				<div class="head">
+					<h2>Plans your agents write. <span>And answer.</span></h2>
+					<p>
+						Specs and plans are pages with todos. Agents write them through <code>tramecli</code> or MCP, comment on a
+						block, and reply when you answer. When one needs a decision, it asks in the page and reads your choice.
+					</p>
+				</div>
+				<figure class="frame"><img src={shot('pages.gif')} alt="An agent's comment answered in a page, and a decision picked" width="960" height="600" loading="lazy" /></figure>
+			</section>
+
+			<section class="block wrap local">
+				<h2>Yours, on your machine. <span>Synced if you want.</span></h2>
+				<div class="trio">
+					<div><h3>Local-first</h3><p>Everything runs and is stored on your machine, in a bundled PostgreSQL. No account, no cloud, no telemetry.</p></div>
+					<div><h3>Your own hub</h3><p>Several machines? Run the hub on a server you own; edits reach the others in a couple of seconds.</p></div>
+					<div><h3>Open source</h3><p>MIT or Apache-2.0. Plugins add panels, blocks and commands, in Rust or WebAssembly.</p></div>
+				</div>
+			</section>
+
+			<section class="block wrap faq">
 				<h2>Questions</h2>
-				{faq.map(([q, a]) => (
-					<details>
-						<summary>{q}</summary>
-						<p>{a}</p>
-					</details>
-				))}
+				<div>
+					{faq.map(([q, a]) => (
+						<details>
+							<summary>{q}</summary>
+							<p>{a}</p>
+						</details>
+					))}
+				</div>
 			</section>
 
-			<section class="end wrap">
-				<h2>Try it on your next session</h2>
+			<section class="end wrap" id="install">
+				<h2>Run agents in parallel. <span>Lose track of none.</span></h2>
 				<div class="install">
 					<code>{install}</code>
 					<button type="button" data-copy={install}>Copy</button>
 				</div>
-				<p class="platforms">
-					Ideas and bugs are welcome in <a href={`${repo}/issues/new/choose`}>issues</a>.{' '}
-					Read the <a href={`${repo}/blob/master/bin/quickstart.sh`}>install script</a> before you run it.
+				<p class="fine">
+					Linux x64 (snap, deb, AppImage) and macOS arm64.{' '}
+					Read the <a href={`${repo}/blob/master/bin/quickstart.sh`}>install script</a>, or download a package
+					from the <a href={`${repo}/releases`}>releases page</a>.
 				</p>
 			</section>
 		</main>
 
 		<footer class="wrap">
-			<span>Trame, MIT or Apache-2.0</span>
+			<span>Trame. MIT or Apache-2.0.</span>
+			<a href={docs}>Docs</a>
+			<a href={`${repo}/releases`}>Releases</a>
+			<a href={`${repo}/issues/new/choose`}>Ideas and bugs</a>
 			<a href={`${repo}/blob/master/SECURITY.md`}>Security</a>
-			<a href={`${base}/overview/`}>Docs</a>
 		</footer>
 
 		<script>
@@ -169,326 +172,367 @@ const faq = [
 
 <style is:global>
 	:root {
-		--indigo: #171a33;
-		--indigo-raised: #20244a;
-		--line: #2f3466;
-		--linen: #ece6da;
-		--muted: #a9a8bd;
-		--copper: #c98a63;
-		--display: 'Bricolage Grotesque Variable', system-ui, sans-serif;
-		--body: 'IBM Plex Sans', system-ui, sans-serif;
-		--mono: 'IBM Plex Mono', ui-monospace, monospace;
+		--bg: #000;
+		--fg: #ededed;
+		--dim: #8f8f8f;
+		--faint: #5c5c5c;
+		--line: #1f1f1f;
+		--raised: #0d0d0d;
 		color-scheme: dark;
 	}
 	* {
 		box-sizing: border-box;
 	}
 	html {
-		background: var(--indigo);
-		color: var(--linen);
-		font: 400 1.0625rem/1.6 var(--body);
+		background: var(--bg);
+		color: var(--fg);
+		font: 400 1.0625rem/1.6 'Geist Variable', system-ui, sans-serif;
 		-webkit-font-smoothing: antialiased;
+		scroll-behavior: smooth;
 	}
 	body {
 		margin: 0;
 	}
 	a {
-		color: var(--linen);
-		text-decoration-color: var(--copper);
-		text-underline-offset: 0.2em;
-	}
-	a:hover {
-		color: var(--copper);
+		color: inherit;
+		text-decoration: none;
 	}
 	:focus-visible {
-		outline: 2px solid var(--copper);
+		outline: 2px solid var(--fg);
 		outline-offset: 3px;
+		border-radius: 4px;
 	}
 	img {
 		display: block;
 		max-width: 100%;
 		height: auto;
 	}
+	code {
+		font: 0.9em 'Geist Mono Variable', ui-monospace, monospace;
+		color: var(--fg);
+	}
 	h1,
 	h2,
-	h3 {
-		font-family: var(--display);
-		font-weight: 650;
-		letter-spacing: -0.02em;
-		line-height: 1.05;
+	h3,
+	p {
 		margin: 0;
 	}
-	h2 {
-		font-size: clamp(1.75rem, 3.5vw, 2.5rem);
-		margin-bottom: 1.5rem;
-	}
-	h3 {
-		font-size: 1.375rem;
-		margin-bottom: 0.5rem;
-	}
-	p {
-		margin: 0 0 1rem;
+	h1 span,
+	h2 span {
+		color: var(--faint);
 	}
 	.wrap {
-		width: min(72rem, 100% - 3rem);
-		margin-inline: auto;
-	}
-	.wrap-wide {
-		width: min(80rem, 100% - 2rem);
+		width: min(77rem, 100% - 3rem);
 		margin-inline: auto;
 	}
 </style>
 
 <style>
-	.bar {
+	.nav {
 		display: flex;
-		align-items: baseline;
+		align-items: center;
 		justify-content: space-between;
-		padding: 1.5rem 0;
+		padding: 1.1rem 0;
+		border-bottom: 1px solid var(--line);
+		font-size: 0.9375rem;
+		position: relative;
+		z-index: 3;
 	}
-	.mark {
-		font: 700 1.5rem/1 var(--display);
-		letter-spacing: -0.03em;
-		text-decoration: none;
+	.logo {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		font-weight: 500;
+		font-size: 1rem;
+	}
+	.logo img {
+		border-radius: 6px;
 	}
 	nav {
 		display: flex;
 		gap: 1.75rem;
+		color: var(--dim);
 	}
-	nav a {
-		text-decoration: none;
-		color: var(--muted);
+	nav a:hover,
+	.nav-end a:hover {
+		color: var(--fg);
 	}
-	nav a:hover {
-		color: var(--linen);
+	.nav-end {
+		display: flex;
+		align-items: center;
+		gap: 1.25rem;
+		color: var(--dim);
+	}
+	.pill {
+		display: inline-block;
+		padding: 0.5rem 1rem;
+		border-radius: 999px;
+		background: var(--fg);
+		color: #000;
+		font-weight: 500;
+	}
+	.nav-end .pill:hover {
+		color: #000;
+		background: #fff;
+	}
+	.pill.big {
+		padding: 0.8rem 1.3rem;
+		font-size: 1rem;
 	}
 
 	.hero {
-		padding: clamp(3rem, 9vw, 7rem) 0 3rem;
-	}
-	h1 {
-		font-size: clamp(2.75rem, 7.5vw, 6rem);
-		font-weight: 700;
-		font-stretch: 85%;
-		letter-spacing: -0.035em;
-		line-height: 0.95;
-		max-width: 14ch;
-	}
-	.lede {
-		max-width: 38rem;
-		margin-top: 1.75rem;
-		font-size: 1.1875rem;
-		color: var(--muted);
-	}
-	.install {
-		display: flex;
-		align-items: stretch;
-		max-width: 54rem;
-		margin-top: 2rem;
-		border: 1px solid var(--line);
-		border-radius: 0.5rem;
-		background: var(--indigo-raised);
-		overflow: hidden;
-	}
-	.install code {
-		flex: 1;
-		padding: 0.95rem 1.1rem;
-		font: 400 0.875rem/1.5 var(--mono);
-		white-space: nowrap;
-		overflow-x: auto;
-	}
-	.install button {
-		flex: none;
-		padding: 0 1.4rem;
-		border: 0;
-		background: var(--copper);
-		color: var(--indigo);
-		font: 600 0.9375rem var(--body);
-		cursor: pointer;
-	}
-	.install button:hover {
-		background: #dba07a;
-	}
-	.platforms {
-		margin-top: 0.85rem;
-		font-size: 0.9375rem;
-		color: var(--muted);
-	}
-
-	.stage {
 		position: relative;
-		padding: 4rem 0 7rem;
+		overflow: hidden;
+		min-height: 52rem;
 	}
-	.weft {
+	.wall {
 		position: absolute;
-		inset: 0;
-		width: 100%;
-		height: 100%;
+		top: 2.5rem;
+		right: -8rem;
+		width: 66rem;
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 1.4rem;
+		transform: perspective(1800px) rotateY(-14deg) rotateX(6deg) rotateZ(2deg);
+		-webkit-mask-image: linear-gradient(90deg, transparent, #000 32%, #000 85%, transparent),
+			linear-gradient(#000 65%, transparent);
+		-webkit-mask-composite: source-in;
+		mask-image: linear-gradient(90deg, transparent, #000 32%, #000 85%, transparent), linear-gradient(#000 65%, transparent);
+		mask-composite: intersect;
+		animation: drift 1.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 	}
-	.weft path {
-		fill: none;
-		stroke: var(--copper);
-		stroke-width: 1.5;
-		vector-effect: non-scaling-stroke;
-		opacity: 0.7;
-		stroke-dasharray: 2000;
-		stroke-dashoffset: 2000;
-		animation: weave 2.4s cubic-bezier(0.3, 0.6, 0.2, 1) forwards;
+	.wall > div {
+		display: grid;
+		gap: 1.4rem;
+		align-content: start;
 	}
-	.weft path:nth-child(2) {
-		animation-delay: 0.15s;
-		opacity: 0.35;
+	.wall > div:nth-child(2) {
+		margin-top: -5rem;
 	}
-	.weft path:nth-child(3) {
-		animation-delay: 0.3s;
+	.wall img {
+		border-radius: 0.6rem;
+		border: 1px solid #2a2a2a;
+		box-shadow: 0 1.25rem 3.75rem #000;
 	}
-	.weft path:nth-child(4) {
-		animation-delay: 0.45s;
-		opacity: 0.35;
-	}
-	.weft path:nth-child(5) {
-		animation-delay: 0.6s;
-	}
-	@keyframes weave {
-		to {
-			stroke-dashoffset: 0;
+	@keyframes drift {
+		from {
+			opacity: 0;
+			translate: 3rem 1.5rem;
 		}
 	}
 	@media (prefers-reduced-motion: reduce) {
-		.weft path {
+		.wall {
 			animation: none;
-			stroke-dashoffset: 0;
+		}
+		html {
+			scroll-behavior: auto;
 		}
 	}
-	.window {
+	.hero-copy {
 		position: relative;
-		max-width: 75rem;
-		margin-block: 0;
-		border: 1px solid var(--line);
-		border-radius: 0.75rem;
-		background: #0e1022;
-		overflow: hidden;
-		box-shadow: 0 2.5rem 5rem -1.5rem rgb(5 6 20 / 0.8);
+		z-index: 2;
+		padding-top: 8.5rem;
 	}
-	.chrome {
+	h1 {
+		font-size: clamp(3rem, 6.6vw, 5.75rem);
+		font-weight: 500;
+		line-height: 1;
+		letter-spacing: -0.045em;
+		max-width: 10.5ch;
+	}
+	.lede {
+		max-width: 33rem;
+		margin-top: 1.75rem;
+		font-size: 1.1875rem;
+		color: var(--dim);
+	}
+	.lede em {
+		font-style: normal;
+		color: var(--fg);
+	}
+	.cta {
 		display: flex;
-		gap: 0.45rem;
-		padding: 0.7rem 0.9rem;
-		border-bottom: 1px solid var(--line);
+		align-items: center;
+		gap: 1.5rem;
+		margin-top: 2rem;
+		color: var(--dim);
 	}
-	.chrome span {
-		width: 0.7rem;
-		height: 0.7rem;
-		border-radius: 50%;
-		background: var(--line);
+	.cta > a:last-child:hover {
+		color: var(--fg);
+	}
+	.fine {
+		margin-top: 1.4rem;
+		font-size: 0.9375rem;
+		color: var(--faint);
+	}
+	.fine a {
+		color: var(--dim);
+		text-decoration: underline;
+		text-underline-offset: 0.2em;
 	}
 
-	.day {
-		padding: 4rem 0;
+	.block {
+		padding: 7rem 0 2rem;
 	}
-	.day ol {
-		list-style: none;
-		counter-reset: step;
+	.head {
+		display: grid;
+		grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+		gap: 3rem;
+		align-items: end;
+		margin-bottom: 2.75rem;
+	}
+	h2 {
+		font-size: clamp(2.25rem, 4.4vw, 3.75rem);
+		font-weight: 500;
+		line-height: 1.02;
+		letter-spacing: -0.04em;
+	}
+	.head p {
+		color: var(--dim);
+		max-width: 30rem;
+	}
+	.frame {
 		margin: 0;
-		padding: 0;
-	}
-	.day li {
-		counter-increment: step;
-		display: grid;
-		grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-		gap: 3rem;
-		align-items: center;
-		padding: 2.5rem 0;
-		border-top: 1px solid var(--line);
-	}
-	.day .step-text::before {
-		content: counter(step);
-		display: block;
-		margin-bottom: 0.75rem;
-		font: 700 2.5rem/1 var(--display);
-		color: var(--copper);
-	}
-	.step-text p {
-		color: var(--muted);
-		max-width: 34rem;
-	}
-	.day img.tall {
-		justify-self: center;
-		max-height: 34rem;
-		width: auto;
-	}
-	.day img,
-	.pages img {
+		padding: 0.5rem;
 		border: 1px solid var(--line);
-		border-radius: 0.5rem;
+		border-radius: 1rem;
+		background: var(--raised);
 	}
-
-	.pages {
+	.frame img {
+		width: 100%;
+		border-radius: 0.6rem;
+	}
+	.pair {
 		display: grid;
-		grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-		gap: 3rem;
-		align-items: center;
-		padding: 4rem 0;
+		grid-template-columns: 1fr 1fr;
+		gap: 1rem;
 	}
-
-	.local {
-		padding: 4rem 0;
+	.trio {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 2.5rem;
+		margin-top: 2.5rem;
 	}
-	.local p {
-		max-width: 44rem;
-		font-size: 1.25rem;
-		line-height: 1.55;
-		color: var(--muted);
+	h3 {
+		font-size: 1rem;
+		font-weight: 500;
+		margin-bottom: 0.4rem;
+	}
+	.trio p {
+		color: var(--dim);
+		font-size: 0.9375rem;
+	}
+	.local h2 {
+		margin-bottom: 0.5rem;
 	}
 
 	.faq {
-		padding: 4rem 0;
-		max-width: 48rem;
-		margin-left: max(1.5rem, (100% - 72rem) / 2);
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+		gap: 3rem;
 	}
 	details {
-		border-top: 1px solid var(--line);
-		padding: 1rem 0;
-	}
-	details:last-of-type {
 		border-bottom: 1px solid var(--line);
+		padding: 1.1rem 0;
+	}
+	details:first-child {
+		border-top: 1px solid var(--line);
 	}
 	summary {
 		cursor: pointer;
-		font-weight: 600;
+		list-style: none;
+		display: flex;
+		justify-content: space-between;
+		gap: 1rem;
+	}
+	summary::-webkit-details-marker {
+		display: none;
+	}
+	summary::after {
+		content: '+';
+		color: var(--dim);
+	}
+	details[open] summary::after {
+		content: '−';
 	}
 	details p {
-		margin: 0.75rem 0 0.25rem;
-		color: var(--muted);
+		margin-top: 0.7rem;
+		color: var(--dim);
+		max-width: 40rem;
 	}
 
 	.end {
-		padding: 5rem 0 6rem;
+		padding: 9rem 0 7rem;
+	}
+	.install {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		max-width: 52rem;
+		margin-top: 2.5rem;
+		padding: 0.6rem 0.6rem 0.6rem 1.1rem;
+		border: 1px solid var(--line);
+		border-radius: 0.75rem;
+		background: var(--raised);
+	}
+	.install code {
+		flex: 1;
+		font-size: 0.875rem;
+		white-space: nowrap;
+		overflow-x: auto;
+		scrollbar-width: none;
+	}
+	.install button {
+		flex: none;
+		padding: 0.45rem 0.9rem;
+		border: 0;
+		border-radius: 0.5rem;
+		background: var(--fg);
+		color: #000;
+		font: 500 0.875rem 'Geist Variable', system-ui, sans-serif;
+		cursor: pointer;
 	}
 
 	footer {
 		display: flex;
-		gap: 1.75rem;
+		flex-wrap: wrap;
+		gap: 1.5rem;
 		padding: 2rem 0 3rem;
 		border-top: 1px solid var(--line);
-		font-size: 0.9375rem;
-		color: var(--muted);
+		font-size: 0.875rem;
+		color: var(--faint);
 	}
 	footer span {
 		margin-right: auto;
 	}
-	footer a {
-		color: var(--muted);
+	footer a:hover {
+		color: var(--fg);
 	}
 
-	@media (max-width: 50rem) {
-		.day li,
-		.pages {
-			grid-template-columns: 1fr;
-			gap: 1.25rem;
-		}
+	@media (max-width: 56rem) {
 		nav {
-			gap: 1rem;
+			display: none;
+		}
+		.hero {
+			min-height: 0;
+			padding-bottom: 4rem;
+		}
+		.wall {
+			opacity: 0.18;
+			right: -20rem;
+		}
+		.hero-copy {
+			padding-top: 5rem;
+		}
+		.head,
+		.pair,
+		.trio,
+		.faq {
+			grid-template-columns: 1fr;
+			gap: 1.5rem;
+		}
+		.block {
+			padding-top: 5rem;
 		}
 	}
 </style>
