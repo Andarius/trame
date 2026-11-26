@@ -29,6 +29,8 @@ use claude::Launch;
 use run::{Provider, Run, valid_choice as valid};
 
 pub const CLOSE_AUTH: u16 = 4401;
+/// The header a hook presents its run's secret in.
+pub const HOOK_HEADER: &str = "x-trame-hook";
 pub const CLOSE_GONE: u16 = 4404;
 const MODES: &[&str] = &["auto", "manual", "default", "acceptEdits", "plan"];
 
@@ -106,6 +108,7 @@ pub async fn restore(native: &Native) -> usize {
             provider,
             Some(session.to_owned()),
             launch,
+            text("hook"),
             history,
         );
         runs().lock().unwrap().insert(id.to_owned(), run);
@@ -183,18 +186,74 @@ pub async fn serve(native: Native, req: Request<Body>) -> Response {
             Err(e) => e.into_response(),
         };
     }
-    let token = req
-        .headers()
-        .get(TOKEN_HEADER)
-        .and_then(|v| v.to_str().ok());
-    if token != Some(crate::pty::token()) {
-        return json_response(401, json!({"error":"terminal token required"}));
-    }
+    let (token, hook, query) = {
+        let header = |name: &str| {
+            req.headers()
+                .get(name)
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_owned)
+        };
+        (
+            header(TOKEN_HEADER),
+            header(HOOK_HEADER),
+            req.uri().query().unwrap_or_default().to_owned(),
+        )
+    };
     let method = req.method().clone();
     let body: Value = match to_bytes(req.into_body(), 1 << 20).await {
         Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_default(),
         Err(_) => return json_response(400, json!({"error":"body too large"})),
     };
+    // a CLI without custom headers may pass the app token in the query or the body
+    let token = token
+        .or_else(|| {
+            query
+                .split('&')
+                .find_map(|kv| kv.strip_prefix("token="))
+                .map(str::to_owned)
+        })
+        .or_else(|| body["token"].as_str().map(str::to_owned));
+    let app = token.as_deref() == Some(crate::pty::token());
+    // a hook holds only its run's own secret, which opens that run's inbox and nothing else
+    if let (&Method::POST, ["", "api", "agent", "runs", id, "inbox"]) = (&method, parts.as_slice())
+    {
+        let Some(run) = get(id) else {
+            return json_response(404, json!({"error":"no such run"}));
+        };
+        let hooked = hook
+            .or_else(|| body["hook"].as_str().map(str::to_owned))
+            .is_some_and(|h| h == run.hook_token());
+        if !app && !hooked {
+            return json_response(
+                401,
+                json!({"error":"terminal token or this run's hook token required"}),
+            );
+        }
+        let text = body["text"].as_str().unwrap_or_default();
+        if text.trim().is_empty() || text.len() > 64 << 10 {
+            return json_response(400, json!({"error":"text required, up to 64 KiB"}));
+        }
+        let from = body["from"]
+            .as_str()
+            .filter(|f| !f.trim().is_empty() && f.len() <= 120)
+            .unwrap_or(if hooked { "a hook" } else { "Trame" });
+        // a run names itself as sender so the receiver can answer it
+        let from = match get(from) {
+            Some(sender) => format!(
+                "run {} ({})",
+                sender.id,
+                sender.cwd.file_name().unwrap_or_default().to_string_lossy()
+            ),
+            None => from.to_owned(),
+        };
+        return match run.deliver(&from, text) {
+            Ok(queued) => json_response(202, json!({"queued":queued})),
+            Err(e) => json_response(429, json!({"error":e})),
+        };
+    }
+    if !app {
+        return json_response(401, json!({"error":"terminal token required"}));
+    }
     match (method, parts.as_slice()) {
         (Method::GET, ["", "api", "agent", "runs"]) => {
             let list: Vec<Value> = runs()
@@ -230,6 +289,17 @@ pub async fn serve(native: Native, req: Request<Body>) -> Response {
             }
         }
         (Method::POST, ["", "api", "agent", "runs", id, "handoff"]) => to_terminal(id).await,
+        // what a hook posts with: the run's inbox URL and its secret
+        (Method::GET, ["", "api", "agent", "runs", id, "hook"]) => match get(id) {
+            Some(run) => {
+                let url = format!("http://127.0.0.1:{}/api/agent/runs/{id}/inbox", native.port);
+                json_response(
+                    200,
+                    json!({"url":url,"token":run.hook_token(),"header":HOOK_HEADER}),
+                )
+            }
+            None => json_response(404, json!({"error":"no such run"})),
+        },
         (Method::DELETE, ["", "api", "agent", "runs", id]) => {
             let removed = runs().lock().unwrap().remove(*id);
             match removed {
@@ -304,7 +374,7 @@ async fn start_run(
         None => Vec::new(),
     };
     let id = uuid::Uuid::new_v4().simple().to_string();
-    match Run::start(id.clone(), cwd, provider, resume, launch, history) {
+    match Run::start(id.clone(), cwd, provider, resume, launch, None, history) {
         Ok(run) => {
             let summary = run.summary();
             runs().lock().unwrap().insert(id, run);

@@ -13,7 +13,7 @@ import sys
 args = sys.argv[1:]
 with open(os.environ["FAKE_LOG"], "a") as log:
     leaked = sorted(k for k in os.environ if k.startswith(("CLAUDE", "ANTHROPIC_")))
-    log.write(json.dumps({"args": args, "leaked": leaked}) + "\n")
+    log.write(json.dumps({"args": args, "leaked": leaked, "run": os.environ.get("TRAME_AGENT_RUN")}) + "\n")
 flag = "--resume" if "--resume" in args else "--session-id"
 session = args[args.index(flag) + 1]
 mode = args[args.index("--permission-mode") + 1] if "--permission-mode" in args else "default"
