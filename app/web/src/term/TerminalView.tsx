@@ -224,11 +224,18 @@ export function TerminalView(
     term.onScroll(() => setBubble(null));
     term.onData((d) => send(enc.encode(d)));
     term.onBinary((d) => send(Uint8Array.from(d, (c) => c.charCodeAt(0))));
-    // the shell only hears the size once a drag settles: every SIGWINCH makes zsh and TUIs redraw
+    // every SIGWINCH makes zsh and TUIs redraw: a one-off change (maximize, fullscreen) goes at once, a drag at most
+    // one size per 200 ms, then its last
     let ptyTimer: ReturnType<typeof setTimeout> | undefined;
+    let ptySent = 0;
     term.onResize(() => {
       clearTimeout(ptyTimer);
-      ptyTimer = setTimeout(() => send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows })), 200);
+      const sendSize = () => {
+        ptySent = Date.now();
+        send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+      };
+      if (Date.now() - ptySent > 200) sendSize();
+      else ptyTimer = setTimeout(sendSize, 200);
     });
 
     const refit = () => {
