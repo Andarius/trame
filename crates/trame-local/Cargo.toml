@@ -6,7 +6,7 @@ publish.workspace = true
 license.workspace = true
 
 [dependencies]
-anyhow = "1.0.104"
+anyhow = "1.0.105"
 trame-protocol = { path = "../trame-protocol" }
 axum = { version = "0.8.9", features = ["ws"] }
 libc = "0.2.191"

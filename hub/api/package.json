@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "hono": "4.13.20",
+    "hono": "4.13.21",
     "postgres": "3.4.9",
     "zod": "4.6.7"
   },

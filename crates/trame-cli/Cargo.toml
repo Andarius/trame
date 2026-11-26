@@ -10,7 +10,7 @@ name = "tramecli"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = "1.0.104"
+anyhow = "1.0.105"
 axum = "0.8.9"
 base64 = "0.23.1"
 chrono = "0.4.45"
