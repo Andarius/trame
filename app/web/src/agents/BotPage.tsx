@@ -109,8 +109,13 @@ function BotView(
               <span className={CHIP}>
                 <AgentIcon a={{ harness: bot.provider, icon: null }} size="h-3 w-3" />
                 {PROVIDER_LABEL[bot.provider]}
-                {mode && ` · ${mode}`}
               </span>
+              {mode && (
+                <span className={CHIP}>
+                  <Glyph name={modeOf(bot.mode)!.mode} />
+                  {mode}
+                </span>
+              )}
               <span className={`${CHIP} font-mono`} title={bot.cwd}>
                 <Glyph name="folder" className="h-3.5 w-3.5" />
                 <span className="truncate">{bot.cwd}</span>
@@ -386,10 +391,24 @@ function StartedBy({ bot, runs, reload }: { bot: Bot; runs: BotRun[] | null; rel
   );
 }
 
-const PROVIDERS: { value: Provider; label: string }[] = [
-  { value: "claude", label: "Claude Code" },
-  { value: "codex", label: "Codex" },
-];
+const PROVIDERS: { value: Provider; label: ReactNode }[] = (["claude", "codex"] as const).map((p) => ({
+  value: p,
+  label: (
+    <span className="inline-flex items-center gap-1.5">
+      <AgentIcon a={{ harness: p, icon: null }} size="h-3 w-3" />
+      {PROVIDER_LABEL[p]}
+    </span>
+  ),
+}));
+const MODE_OPTIONS = MODES.map((m) => ({
+  value: m.mode as string,
+  label: (
+    <span className="inline-flex items-center gap-1.5">
+      <Glyph name={m.mode} />
+      {m.label}
+    </span>
+  ),
+}));
 const HUE_TRACK = `linear-gradient(90deg, ${[0, 60, 120, 180, 240, 300, 359].map((h) => `hsl(${h} 70% 55%)`).join(", ")})`;
 const THUMB =
   "[&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-canvas [&::-webkit-slider-thumb]:bg-ink [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-canvas [&::-moz-range-thumb]:bg-ink";
@@ -468,7 +487,7 @@ function Settings(
         <Field label="FOLDER" hint="where its runs work" group>
           <div className="flex gap-1.5">
             <TextInput mono value={cwd} placeholder="/path/to/project" onChange={(e) => setCwd(e.target.value)} />
-            <Button onClick={() => void choose()}>Choose…</Button>
+            <Button onClick={() => void choose()} className="inline-flex items-center gap-1.5"><Glyph name="folder" />Choose…</Button>
           </div>
         </Field>
         <Field label="ROLE" hint={`${role.length}/120`}>
@@ -479,15 +498,15 @@ function Settings(
             onChange={(e) => setRole(e.target.value)}
           />
         </Field>
-        <Field label="AGENT" group>
+        <Field label="DEFAULT AGENT" group>
           <div className="flex flex-wrap gap-1">
             <SegToggle options={PROVIDERS} value={provider} onChange={setProvider} />
           </div>
         </Field>
         {provider === "claude" && (
-          <Field label="MODE" hint={MODES.find((m) => m.mode === mode)?.hint} group>
+          <Field label="DEFAULT MODE" hint={MODES.find((m) => m.mode === mode)?.hint} group>
             <div className="flex flex-wrap gap-1">
-              <SegToggle<string> options={MODES.map((m) => ({ value: m.mode, label: m.label }))} value={mode} onChange={setMode} />
+              <SegToggle<string> options={MODE_OPTIONS} value={mode} onChange={setMode} />
             </div>
           </Field>
         )}

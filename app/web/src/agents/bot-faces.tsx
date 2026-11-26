@@ -53,7 +53,9 @@ const FACES: Record<Face, ReactNode> = {
 };
 export const FACE_IDS = Object.keys(FACES) as Face[];
 
-export type Glyph = "slack" | "hook" | "relay" | "clock" | "hand" | "play" | "folder" | "branch";
+export type Glyph =
+  | "slack" | "hook" | "relay" | "clock" | "hand" | "play" | "folder" | "branch"
+  | "auto" | "manual" | "acceptEdits" | "plan";
 const GLYPHS: Record<Glyph, ReactNode> = {
   slack: (
     <>
@@ -85,6 +87,26 @@ const GLYPHS: Record<Glyph, ReactNode> = {
   hand: <path d="M6 12l5 5 8-10" />,
   play: <path d="M8 5.5v13l10.5-6.5z" fill="currentColor" stroke="none" />,
   folder: <path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />,
+  // permission modes
+  auto: <path d="M12 3.5l1.9 4.6 4.6 1.9-4.6 1.9L12 16.5l-1.9-4.6L5.5 10l4.6-1.9zM18 15.5l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8z" />,
+  manual: (
+    <>
+      <path d="M12 3.5l7 2.8v5.4c0 4.2-3 7.4-7 8.8-4-1.4-7-4.6-7-8.8V6.3z" />
+      <path d="M10 10.2a2 2 0 1 1 2.7 1.9c-.5.2-.7.6-.7 1.1v.4M12 16v.1" />
+    </>
+  ),
+  acceptEdits: (
+    <>
+      <path d="M14.5 5.5l4 4L9 19H5v-4z" />
+      <path d="M12.5 7.5l4 4" />
+    </>
+  ),
+  plan: (
+    <>
+      <path d="M9 6.5h10M9 12h10M9 17.5h10" />
+      <path d="M4.5 6l1 1 1.8-2M4.5 11.5l1 1 1.8-2M5 17.5h1" />
+    </>
+  ),
   branch: (
     <>
       <circle cx="7" cy="6" r="2.2" />
