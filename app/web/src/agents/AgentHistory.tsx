@@ -111,50 +111,14 @@ export function AgentHistory(
     } else if (pinned.current) el.scrollTop = el.scrollHeight;
   }, [items]);
 
-  const results = useMemo(() => {
-    const out = new Map<string, Result>();
-    for (const { item } of items) if (item.kind === "result") out.set(item.toolId, item);
-    return out;
-  }, [items]);
+  const results = useMemo(() => resultsOf(items), [items]);
   const turns = useMemo(() => toTurns(items), [items]);
-  const changes = useMemo(() => fileChanges(items), [items]);
-  const prompts = turns.filter((t) => t.prompt);
   const jump = (key: number) => {
     pinned.current = false;
     scroller.current?.querySelector(`[data-turn="${key}"]`)?.scrollIntoView({ block: "start" });
   };
 
-  const rail = (
-    <aside className="flex w-60 shrink-0 flex-col gap-5 overflow-y-auto border-l border-line px-4 py-4 text-[12px]">
-      {side}
-      <section className="flex flex-col gap-1.5">
-        <div className={SECTION_LABEL}>CHANGES{range?.more ? " · LOADED" : ""}</div>
-        {!changes.length && <p className="text-ink-faint">No edits yet.</p>}
-        {changes.map((c) => (
-          <div key={c.file} className="flex gap-2 font-mono text-[11px]" title={c.file}>
-            <span className="min-w-0 flex-1 truncate text-ink-soft">{c.file.split("/").pop()}</span>
-            <span className="text-active">+{c.add}</span>
-            {c.del > 0 && <span className="text-blocked">−{c.del}</span>}
-          </div>
-        ))}
-      </section>
-      <section className="flex flex-col gap-0.5">
-        <div className={`${SECTION_LABEL} mb-1`}>PROMPTS</div>
-        {range?.more && <p className="px-1.5 text-ink-faint">earlier ones above ↑</p>}
-        {prompts.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            className="rounded-md px-1.5 py-1 text-left text-ink-soft hover:bg-hover hover:text-ink"
-            onClick={() => jump(t.key)}
-          >
-            <span className="mr-1.5 font-mono text-[10.5px] text-ink-faint">{hhmm(t.prompt!.item.ts)}</span>
-            <span className="line-clamp-2">{t.prompt!.item.kind === "user" ? t.prompt!.item.text : ""}</span>
-          </button>
-        ))}
-      </section>
-    </aside>
-  );
+  const rail = <HistoryRail side={side} items={items} turns={turns} more={!!range?.more} onJump={jump} />;
 
   let body: ReactNode;
   if (error) body = <p className="text-[12.5px] text-ink-muted">{error}</p>;
@@ -196,7 +160,7 @@ export function AgentHistory(
   );
 }
 
-function TurnView({ turn, results, working }: { turn: Turn; results: Map<string, Result>; working: boolean }) {
+export function TurnView({ turn, results, working }: { turn: Turn; results: Map<string, Result>; working: boolean }) {
   const reply = finalReply(turn);
   const work = turn.body.filter((k) => k !== reply);
   const tools = work.flatMap((k) => (k.item.kind === "tool" ? [k.item] : []));
@@ -289,7 +253,7 @@ function Body({ items, results }: { items: Keyed[]; results: Map<string, Result>
   return <>{out}</>;
 }
 
-function Reply({ text, truncated, strong }: { text: string; truncated: boolean; strong?: boolean }) {
+export function Reply({ text, truncated, strong }: { text: string; truncated: boolean; strong?: boolean }) {
   return (
     <div className={`whitespace-pre-wrap ${strong ? "text-ink" : ""}`}>
       <span className="text-ink">● </span>
@@ -300,7 +264,7 @@ function Reply({ text, truncated, strong }: { text: string; truncated: boolean; 
 }
 
 // `● Edit(total.ts)` with a one-line gist under it; the whole call opens on click
-function ToolLine({ tool, result, diffOpen }: { tool: Tool; result?: Result; diffOpen?: boolean }) {
+export function ToolLine({ tool, result, diffOpen }: { tool: Tool; result?: Result; diffOpen?: boolean }) {
   const diffs = toolDiffs(tool);
   const arg = toolArg(tool);
   const tone = !result ? "text-wait" : result.error ? "text-blocked" : "text-active";
@@ -342,7 +306,7 @@ function ToolLine({ tool, result, diffOpen }: { tool: Tool; result?: Result; dif
   );
 }
 
-function Diffs({ diffs }: { diffs: FileDiff[] }) {
+export function Diffs({ diffs }: { diffs: FileDiff[] }) {
   return (
     <div className="max-h-72 overflow-auto text-[11px]">
       {diffs.map((d, i) => (
@@ -359,9 +323,54 @@ function Diffs({ diffs }: { diffs: FileDiff[] }) {
   );
 }
 
-function ToolInput({ tool }: { tool: Tool }) {
+export function ToolInput({ tool }: { tool: Tool }) {
   const { input } = tool;
   const s = (v: unknown) => (typeof v === "string" ? v : undefined);
   const body = s(input.command) ?? s(input.content) ?? s(input.input) ?? JSON.stringify(input, null, 2);
   return <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-[11px] text-ink-muted">{body}</pre>;
+}
+
+export function resultsOf(items: Keyed[]) {
+  const out = new Map<string, Result>();
+  for (const { item } of items) if (item.kind === "result") out.set(item.toolId, item);
+  return out;
+}
+
+// the right rail: the caller's own section, files changed and a prompt index to jump between turns
+export function HistoryRail(
+  { side, items, turns, more, onJump }: { side?: ReactNode; items: Keyed[]; turns: Turn[]; more: boolean; onJump: (key: number) => void },
+) {
+  const changes = useMemo(() => fileChanges(items), [items]);
+  const prompts = turns.filter((t) => t.prompt);
+  return (
+    <aside className="flex w-60 shrink-0 flex-col gap-5 overflow-y-auto border-l border-line px-4 py-4 text-[12px]">
+      {side}
+      <section className="flex flex-col gap-1.5">
+        <div className={SECTION_LABEL}>CHANGES{more ? " · LOADED" : ""}</div>
+        {!changes.length && <p className="text-ink-faint">No edits yet.</p>}
+        {changes.map((c) => (
+          <div key={c.file} className="flex gap-2 font-mono text-[11px]" title={c.file}>
+            <span className="min-w-0 flex-1 truncate text-ink-soft">{c.file.split("/").pop()}</span>
+            <span className="text-active">+{c.add}</span>
+            {c.del > 0 && <span className="text-blocked">−{c.del}</span>}
+          </div>
+        ))}
+      </section>
+      <section className="flex flex-col gap-0.5">
+        <div className={`${SECTION_LABEL} mb-1`}>PROMPTS</div>
+        {more && <p className="px-1.5 text-ink-faint">earlier ones above ↑</p>}
+        {prompts.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            className="rounded-md px-1.5 py-1 text-left text-ink-soft hover:bg-hover hover:text-ink"
+            onClick={() => onJump(t.key)}
+          >
+            <span className="mr-1.5 font-mono text-[10.5px] text-ink-faint">{hhmm(t.prompt!.item.ts)}</span>
+            <span className="line-clamp-2">{t.prompt!.item.kind === "user" ? t.prompt!.item.text : ""}</span>
+          </button>
+        ))}
+      </section>
+    </aside>
+  );
 }

@@ -8,6 +8,7 @@ import { agentCmd, ResumeButton, resumeCmd } from "./AgentSessions";
 import { agentLabel, useResumeMode } from "./resume-modes";
 import { ReplayTerminal } from "../term/ReplayTerminal";
 import { AgentHistory } from "./AgentHistory";
+import { startRun, useAgentDest } from "./agent-run";
 
 const VIEW_CODEC = enumCodec<"summary" | "history">(["summary", "history"]);
 
@@ -15,11 +16,12 @@ const short = (path: string) => path.replace(/^\/home\/[^/]+/, "~");
 
 // A past session, opened from Recent: what it was, where it left off, and how to pick it up again
 export function RecentSession(
-  { session, board, onOpenSession, onResumed }: {
+  { session, board, onOpenSession, onResumed, onAgent }: {
     session: ClaudeSession;
     board: BoardData | null;
     onOpenSession: (card: string) => void;
     onResumed: (term: string) => void; // the shell it now runs in
+    onAgent: (run: string) => void; // the agent-view run it now continues in
   },
 ) {
   const modePick = useResumeMode();
@@ -61,6 +63,17 @@ export function RecentSession(
       setError(e instanceof Error ? e.message : String(e));
     }
   };
+  const [dest] = useAgentDest(agent);
+  // the agent view continues a conversation nobody else is writing to
+  const viaAgent = dest === "agent" && agent === "claude" && !!session.repoPath && !session.live;
+  const openAgent = async () => {
+    try {
+      const r = await startRun({ cwd: session.repoPath!, resume: session.claudeId });
+      onAgent(r.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
   const copy = async () => {
     await navigator.clipboard.writeText(resumeCmd(session)).catch(() => {});
     setCopied(true);
@@ -89,8 +102,13 @@ export function RecentSession(
   ];
   const actions = (
     <>
+      {viaAgent && (
+        <button type="button" className={`${btn} border-copper/60 bg-copper/10 text-ink`} onClick={() => void openAgent()}>
+          ✳ Continue in agent view
+        </button>
+      )}
       {session.repoPath && (
-        <button type="button" className={`${btn} border-copper/60 bg-copper/10 text-ink`} onClick={() => void resume()}>
+        <button type="button" className={viaAgent ? btn : `${btn} border-copper/60 bg-copper/10 text-ink`} onClick={() => void resume()}>
           {session.live?.kind === "bg" ? "↻ Attach in a tab" : elsewhere ? "↘ Move into Trame" : "↻ Resume in a tab"}
         </button>
       )}

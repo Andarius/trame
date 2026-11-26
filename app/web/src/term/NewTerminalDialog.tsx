@@ -1,3 +1,4 @@
+import { startRun, useAgentDest } from "../agents/agent-run";
 import { useEffect, useRef, useState } from "react";
 import { AgentIcon } from "../agents/agents";
 import type { BoardData } from "../api";
@@ -37,7 +38,7 @@ const STRING_CODEC = { parse: (r: string) => r, stringify: (v: string) => v };
 // any folder). Run and project start on the last picks; `project` (or here's) overrides the project.
 // `onOpened` gets the new shell's card and project.
 export function NewTerminalDialog(
-  { board, here, project: presetProject, folder: presetFolder, agent: preset, into = null, onClose, onOpened }: {
+  { board, here, project: presetProject, folder: presetFolder, agent: preset, into = null, onClose, onOpened, onAgent }: {
     board: BoardData | null;
     here?: { cwd: string | null; card: string | null; project?: string | null } | null;
     project?: string;
@@ -46,6 +47,7 @@ export function NewTerminalDialog(
     onClose: () => void;
     onOpened: (card: string | null, project: string | null) => void;
     into?: { tab: string; term: string } | null; // open as a tab of the pane holding this shell
+    onAgent?: (run: string) => void; // Claude opens in the agent view, when the user chose it
   },
 ) {
   const [agents, setAgents] = useState<TermAgent[] | null>(null);
@@ -93,10 +95,24 @@ export function NewTerminalDialog(
     return all.find((b) => b.dataset.folder === lastFolder) ?? all[0];
   };
   const chosen = agents?.find((a) => a.command === run) ?? null;
+  const [claudeDest] = useAgentDest("claude");
+  const viaAgent = !!onAgent && claudeDest === "agent" && chosen?.command.split(/\s/)[0].split("/").at(-1) === "claude";
+  // the agent view runs Claude itself in that folder, fresh or resuming `resume`
+  const openAgent = async (cwd: string, resume?: string) => {
+    try {
+      const r = await startRun({ cwd, resume });
+      setLast(chosen!.command);
+      onAgent!(r.id);
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   // `forProject`: a repo found by search opens for its own project
   const open = async (cwd: string | null, card: string | null = null, forProject = project) => {
     const owner = { cwd, card, project: card ? null : forProject };
+    if (viaAgent && cwd) return openAgent(cwd);
     try {
       await openTerminal(chosen ? { ...owner, command: chosen.command, title: chosen.label } : owner, into);
       setLast(chosen ? chosen.command : SHELL);
@@ -136,6 +152,7 @@ export function NewTerminalDialog(
     : [];
   const resume = async (x: (typeof resumable)[number]) => {
     const card = board?.sessions.find((s) => s.id === x.claudeId || s.claude_id === x.claudeId)?.id ?? null;
+    if (viaAgent && x.repoPath) return openAgent(x.repoPath, x.claudeId);
     try {
       await openTerminal({ cwd: x.repoPath, card, project: card ? null : project, command: agentCmd(x), title: `${chosen!.label} · ${x.title}` }, into);
       setLast(chosen!.command);
