@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { BoardData, ClaudeSession } from "../api";
 import { RecentList } from "../agents/RecentList";
 import { AgentRuns } from "../agents/AgentRuns";
+import { terminalToRun, useAgentDest } from "../agents/agent-run";
 import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
 import { FolderIcon, PinIcon, PlusIcon, PopOutIcon } from "../ui/icons";
@@ -101,6 +102,8 @@ export function TermCards(
   const [linkFor, setLinkFor] = useState<string | null>(null); // the shell to link to a card
   const [menu, setMenu] = useState<string | null>(null); // the agent row right-clicked
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | undefined>(); // where it was right-clicked
+  const [claudeDest] = useAgentDest("claude");
+  const [handoffError, setHandoffError] = useState<string | null>(null);
   const { live } = useAgents();
   const agentOf = new Map<string, Live>(live.map((l) => [l.a.session_id, l]));
   const cardOf = new Map(board?.sessions.map((s) => [s.id, s]));
@@ -298,6 +301,17 @@ export function TermCards(
                 }}
               >
                 Fork
+              </MenuRow>
+            )}
+            {x.agent === "claude" && claudeDest === "agent" && !working && !waiting && (
+              <MenuRow
+                title="Claude exits in this shell and the same conversation continues in the agent view"
+                onClick={() => {
+                  setMenu(null);
+                  terminalToRun(x.term).then((r) => onSelectAgent(r.id), (e: Error) => setHandoffError(e.message));
+                }}
+              >
+                Continue in agent view
               </MenuRow>
             )}
             {working && (
@@ -796,6 +810,11 @@ export function TermCards(
           </button>
           {shellsOpen && plain.map(shellRow)}
         </section>
+      )}
+      {handoffError && (
+        <button type="button" className="px-2 text-left text-[11.5px] text-blocked" onClick={() => setHandoffError(null)}>
+          {handoffError} ✕
+        </button>
       )}
       <AgentRuns selected={agentRun} onSelect={onSelectAgent} />
       <RecentList board={board} selected={recent} history={history} onSelect={onSelectRecent} onHistory={onSelectHistory} />

@@ -329,6 +329,13 @@ pub async fn run(
             eprintln!("terminals: reopened {n}");
         }
     }
+    // agent-view runs come back stopped: resumed only when the user asks
+    if !config.demo {
+        let n = agent::restore(&native).await;
+        if n > 0 {
+            eprintln!("agent view: restored {n} runs");
+        }
+    }
     let term_saver = (!config.demo).then(|| tokio::spawn(pty::keep_saved(native.root.clone())));
     let router = proxy::router(proxy::Proxy { port, native });
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();

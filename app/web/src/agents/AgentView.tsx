@@ -2,7 +2,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "rea
 import { Markdown } from "../md/md";
 import { SECTION_LABEL } from "../ui/ui";
 import { finalReply, type Keyed, type Tool, toolArg, toolDiffs, toTurns } from "./agent-history";
-import { deleteRun, type Interaction, MODES, type Reply, restartRun, type RunStatus, useAgentRun } from "./agent-run";
+import { deleteRun, type Interaction, MODES, type Reply, restartRun, runToTerminal, type RunStatus, useAgentRun } from "./agent-run";
 import { Diffs, HistoryRail, resultsOf, ToolInput, TurnView } from "./AgentHistory";
 
 const STATUS: Record<RunStatus, { label: string; tone: string }> = {
@@ -16,7 +16,9 @@ const STATUS: Record<RunStatus, { label: string; tone: string }> = {
 const btn = "rounded-md border border-line px-2.5 py-1 text-[12px] text-ink-soft hover:text-ink disabled:opacity-50";
 
 // A run Trame owns: its conversation as Claude Code prints it, the decisions it waits on, and a composer.
-export function AgentView({ runId, onClosed }: { runId: string; onClosed: () => void }) {
+export function AgentView(
+  { runId, onClosed, onTerminal }: { runId: string; onClosed: () => void; onTerminal: (term: string) => void },
+) {
   const run = useAgentRun(runId);
   const { state } = run;
   const [notice, setNotice] = useState<string | null>(null);
@@ -81,10 +83,19 @@ export function AgentView({ runId, onClosed }: { runId: string; onClosed: () => 
                 className={`${btn} border-copper/60 bg-copper/10 text-ink`}
                 onClick={() => restartRun(runId).catch((e: Error) => setNotice(e.message))}
               >
-                ↻ Restart
+                ↻ Resume
               </button>
             )
             : <button type="button" className={btn} disabled={!run.writer} onClick={() => void send("stop")}>Stop</button>}
+          <button
+            type="button"
+            className={btn}
+            disabled={!run.writer || busy || state.interactions.length > 0}
+            title="stop this run and continue the same conversation in a Trame terminal"
+            onClick={() => runToTerminal(runId).then((r) => onTerminal(r.term), (e: Error) => setNotice(e.message))}
+          >
+            ›_ Continue in terminal
+          </button>
           <button
             type="button"
             className={btn}

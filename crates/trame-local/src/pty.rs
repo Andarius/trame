@@ -186,7 +186,7 @@ impl Term {
         }
     }
 
-    fn summary(&self) -> Value {
+    pub(crate) fn summary(&self) -> Value {
         json!({"id":self.id,"title":self.title,"cwd":self.cwd,"card":*self.card.lock().unwrap(),"project":self.project,"exited":self.exited()})
     }
 }
@@ -1326,6 +1326,33 @@ fn parse_claude_session(file: &Value) -> Option<AgentSession> {
         done: false,
         follow_ups: None,
     })
+}
+
+/// The Claude conversation running in a Trame shell, as a handoff needs it.
+pub(crate) struct ShellAgent {
+    pub id: String,
+    pub cwd: Option<String>,
+    pub pid: u32,
+    /// neither working on a turn nor waiting on the user
+    pub idle: bool,
+}
+
+pub(crate) async fn claude_in_shell(term: &str) -> Option<ShellAgent> {
+    let r = running_in_shells()
+        .await
+        .into_iter()
+        .find(|r| r.term == term && r.agent == "claude")?;
+    Some(ShellAgent {
+        cwd: i32::try_from(r.pid).ok().and_then(process_cwd),
+        pid: r.pid,
+        idle: !r.session.busy && r.session.waiting.is_none(),
+        id: r.session.id,
+    })
+}
+
+/// Type `data` into shell `term`, as its keyboard would.
+pub(crate) fn type_into(term: &str, data: &[u8]) -> bool {
+    get(term).map(|t| t.write(data)).is_some()
 }
 
 async fn running_in_shells() -> Vec<Running> {

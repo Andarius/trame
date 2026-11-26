@@ -1139,7 +1139,14 @@ export function App() {
               cover={!terminals || !board
                 ? undefined
                 : termAgentId
-                ? <AgentView key={termAgentId} runId={termAgentId} onClosed={() => setTermSel(null)} />
+                ? (
+                  <AgentView
+                    key={termAgentId}
+                    runId={termAgentId}
+                    onClosed={() => setTermSel(null)}
+                    onTerminal={(term) => setTermSel(`term:${term}`)}
+                  />
+                )
                 : termHistory
                 ? <AgentSessions board={board} onOpenSession={(id) => openSession(id)} embedded />
                 : termRecent

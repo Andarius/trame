@@ -14,13 +14,20 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = await termToken();
   const r = await fetch(path, { ...init, headers: { "content-type": "application/json", "x-trame-term": token } });
   const body = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error((body as { error?: string }).error ?? `agent: ${r.status}`);
+  // the body rides along: a refused resume names the run that already holds the conversation
+  if (!r.ok) throw Object.assign(new Error((body as { error?: string }).error ?? `agent: ${r.status}`), { body });
   return body as T;
 }
 export const listRuns = () => call<RunSummary[]>("/api/agent/runs");
 export const startRun = (body: { cwd: string; resume?: string; mode?: string; provider?: Provider }) =>
   call<RunSummary>("/api/agent/runs", { method: "POST", body: JSON.stringify(body) });
 export const restartRun = (id: string) => call<{ ok: boolean }>(`/api/agent/runs/${id}/restart`, { method: "POST" });
+// an idle run continues in a Trame shell, and an idle shell's Claude in the agent view
+export const runToTerminal = (id: string) => call<{ term: string }>(`/api/agent/runs/${id}/handoff`, { method: "POST" });
+export const terminalToRun = (term: string) =>
+  call<RunSummary>("/api/agent/handoff", { method: "POST", body: JSON.stringify({ term }) });
+// the run already holding a conversation, from a refused start
+export const heldBy = (e: unknown) => ((e as { body?: { run?: string } }).body?.run) ?? null;
 export const deleteRun = (id: string) => call<{ ok: boolean }>(`/api/agent/runs/${id}`, { method: "DELETE" });
 
 type Frame =

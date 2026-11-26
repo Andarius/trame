@@ -175,7 +175,7 @@ fn codex_files(dir: &Path, depth: u8, out: &mut Vec<PathBuf>) {
     }
 }
 /// The transcript file of a Claude or Codex session on this machine.
-fn transcript_path(db: &Db, source: &str, id: &str) -> Result<Option<PathBuf>> {
+pub(crate) fn transcript_path(db: &Db, source: &str, id: &str) -> Result<Option<PathBuf>> {
     if !valid_uuid(id) {
         return Ok(None);
     }
