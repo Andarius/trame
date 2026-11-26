@@ -126,7 +126,7 @@ function BotRow({ bot, onOpen, children }: { bot: Bot; onOpen: () => void; child
     <>
       <button
         type="button"
-        title={bot.cwd}
+        title={bot.cwd ?? bot.workspace}
         className="flex min-w-0 items-center gap-2 rounded-md text-left text-[12.5px] font-medium text-ink hover:text-copper"
         onClick={onOpen}
       >

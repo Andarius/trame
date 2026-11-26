@@ -1,5 +1,5 @@
 import { fmtDuration } from "./agent-summary";
-import type { BotRun, Daily, RunSource, Sources } from "./bot-types";
+import type { Agent, BotRun, Daily, RunSource, Sources, StartOptions } from "./bot-types";
 
 export type RunLabel = "working" | "needs you" | "finished" | "failed" | "stopped";
 // what a run of the history shows as its state
@@ -41,6 +41,31 @@ export const sumSources = (all: Sources[]): Sources =>
   Object.fromEntries(SOURCES.map((k) => [k, all.reduce((n, s) => n + (s[k] ?? 0), 0)])) as Sources;
 
 export const folderName = (cwd: string) => cwd.split("/").filter(Boolean).pop() ?? cwd;
+
+type BotWhere = { provider: Agent; cwd: string | null; workspace: string };
+// what a bot's folder reads as: its basename, or its own workspace
+export const botFolder = (b: Pick<BotWhere, "cwd">) => b.cwd ? folderName(b.cwd) : "own workspace";
+
+// what a run of the history did off the bot's defaults: another agent, another folder
+export function runExtras(bot: BotWhere, r: Pick<BotRun, "agent" | "cwd">) {
+  return {
+    agent: r.agent && r.agent !== bot.provider ? r.agent : null,
+    folder: r.cwd && r.cwd !== (bot.cwd ?? bot.workspace) ? folderName(r.cwd) : null,
+  };
+}
+
+// a start's body beyond its text: only what differs from `defaults`; a mode is Claude's alone
+export function startOptions(
+  defaults: { agent: Agent; mode: string },
+  pick: { agent: Agent; mode: string; cwd: string | null },
+): StartOptions {
+  const out: StartOptions = {};
+  if (pick.cwd) out.cwd = pick.cwd;
+  if (pick.agent !== defaults.agent) out.agent = pick.agent;
+  const usual = defaults.agent === "claude" ? defaults.mode : "auto";
+  if (pick.agent === "claude" && pick.mode !== usual) out.mode = pick.mode;
+  return out;
+}
 
 // a stable 0–359 hue for a name, for a draft bot's preview
 export function nameHue(name: string) {

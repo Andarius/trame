@@ -8,7 +8,8 @@ export type Bot = {
   id: string;
   name: string;
   provider: Provider;
-  cwd: string;
+  cwd: string | null; // null: its runs use `workspace`
+  workspace: string; // the folder Trame keeps for it
   mode: string | null;
   model: string | null;
   effort: string | null;
@@ -41,11 +42,11 @@ export const updateBot = (id: string, b: BotInput) =>
 export const deleteBot = (id: string) => call<{ ok: boolean }>(`/api/agent/bots/${id}`, { method: "DELETE" });
 export const botHook = (id: string) => call<BotHook>(`/api/agent/bots/${id}/hook`);
 export const rotateBotHook = (id: string) => call<BotHook>(`/api/agent/bots/${id}/hook`, { method: "POST" });
-export const runBot = (id: string, text: string) =>
-  call<RunSummary>(`/api/agent/bots/${id}/runs`, { method: "POST", body: JSON.stringify({ text }) });
+export const runBot = (id: string, text: string, options: StartOptions = {}) =>
+  call<RunSummary>(`/api/agent/bots/${id}/runs`, { method: "POST", body: JSON.stringify({ text, ...options }) });
 
-export type { BotActivity, BotRun, BotStats, Daily, Outcome, RunSource, Sources } from "./bot-types";
-import type { BotActivity, BotRun, BotStats } from "./bot-types";
+export type { BotActivity, BotRun, BotStats, Daily, Outcome, RunSource, Sources, StartOptions } from "./bot-types";
+import type { BotActivity, BotRun, BotStats, StartOptions } from "./bot-types";
 
 export const botRuns = (id: string, limit = 50) => call<BotRun[]>(`/api/agent/bots/${id}/runs?limit=${limit}`);
 export const botStats = (id: string, days = 30) => call<BotStats>(`/api/agent/bots/${id}/stats?days=${days}`);

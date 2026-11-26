@@ -1,6 +1,6 @@
 import { type ReactNode, useMemo, useRef, useState } from "react";
 import { pickTermFolder } from "../term/term-api";
-import { appConfirm, Button, Popover, EmptyState, ErrorNote, Field, SegToggle, TextArea, TextInput, timeAgo } from "../ui/ui";
+import { appConfirm, Button, Popover, EmptyState, ErrorNote, Field, MenuRow, SegToggle, TextArea, TextInput, timeAgo } from "../ui/ui";
 import { MODES, modeOf, type Provider, useAgentRuns } from "./agent-run";
 import { AgentIcon } from "./agents";
 import {
@@ -27,7 +27,18 @@ import {
   usePoll,
 } from "./bot-api";
 import { BotAvatar, bumpBotImage, FACE_IDS, Glyph, hueWash, type BotState, Switch, TRIGGER_TONE } from "./bot-faces";
-import { fmtSeconds, folderName, nameHue, pct, type RunLabel, runLabel, runSeconds } from "./bot-stats";
+import {
+  botFolder,
+  fmtSeconds,
+  folderName,
+  nameHue,
+  pct,
+  runExtras,
+  type RunLabel,
+  runLabel,
+  runSeconds,
+  startOptions,
+} from "./bot-stats";
 import { BotWiring } from "./BotWiring";
 
 type Tab = "overview" | "wiring" | "settings";
@@ -207,9 +218,9 @@ function BotView(
                   {mode}
                 </span>
               )}
-              <span className={`${CHIP} font-mono`} title={bot.cwd}>
+              <span className={`${CHIP} ${bot.cwd ? "font-mono" : ""}`} title={bot.cwd ?? bot.workspace}>
                 <Glyph name="folder" className="h-3.5 w-3.5" />
-                <span className="truncate">{bot.cwd}</span>
+                <span className="truncate">{bot.cwd ?? "own workspace"}</span>
               </span>
               {state !== "idle" && (
                 <span className={CHIP}>
@@ -280,13 +291,22 @@ function BotView(
 }
 
 function RunComposer({ bot, onRun, onCancel }: { bot: Bot; onRun: (run: string) => void; onCancel: () => void }) {
+  const defaults = { agent: bot.provider, mode: modeOf(bot.mode)?.mode ?? "auto" };
   const [task, setTask] = useState("");
+  const [agent, setAgent] = useState<Provider>(bot.provider);
+  const [mode, setMode] = useState<string>(defaults.mode);
+  const [cwd, setCwd] = useState<string | null>(null); // null: the bot's folder
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const run = () => {
     if (!task.trim() || busy) return;
     setBusy(true);
-    runBot(bot.id, task.trim()).then((r) => onRun(r.id), (e) => (setBusy(false), fail(setError)(e)));
+    runBot(bot.id, task.trim(), startOptions(defaults, { agent, mode, cwd }))
+      .then((r) => onRun(r.id), (e) => (setBusy(false), fail(setError)(e)));
+  };
+  const pickAgent = (a: Provider) => {
+    setAgent(a);
+    setMode(a === bot.provider ? defaults.mode : "auto");
   };
   return (
     <div className="mt-4 flex flex-col gap-2 rounded-xl border border-line bg-panel p-3">
@@ -301,13 +321,68 @@ function RunComposer({ bot, onRun, onCancel }: { bot: Bot; onRun: (run: string) 
           if (e.key === "Escape") onCancel();
         }}
       />
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <span className="text-[11px] text-ink-faint">Start with</span>
+        <span className="flex gap-0.5">
+          <SegToggle options={PROVIDERS} value={agent} onChange={pickAgent} />
+        </span>
+        {agent === "claude" && (
+          <span className="flex gap-0.5">
+            <SegToggle<string> options={MODE_OPTIONS} value={mode} onChange={setMode} />
+          </span>
+        )}
+        <FolderMenu bot={bot} cwd={cwd} onChange={setCwd} onError={setError} />
+      </div>
       {error && <ErrorNote>{error}</ErrorNote>}
       <div className="flex items-center gap-2">
-        <span className="text-[11px] text-ink-faint">a fresh run in {folderName(bot.cwd)} · ⌘/Ctrl+Enter</span>
+        <span className="text-[11px] text-ink-faint">a fresh run · ⌘/Ctrl+Enter</span>
         <Button variant="ghost" className="ml-auto" onClick={onCancel}>Cancel</Button>
         <Button variant="primary" disabled={!task.trim() || busy} onClick={run}>Run</Button>
       </div>
     </div>
+  );
+}
+
+// a start's folder: the bot's own (its folder or workspace), or one chosen for this run
+function FolderMenu(
+  { bot, cwd, onChange, onError }: {
+    bot: Bot;
+    cwd: string | null;
+    onChange: (cwd: string | null) => void;
+    onError: (e: string) => void;
+  },
+) {
+  const [open, setOpen] = useState(false);
+  const choose = async () => {
+    setOpen(false);
+    const picked = await pickTermFolder(cwd ?? bot.cwd ?? null).catch((e: Error) => ({ error: e.message }));
+    if (typeof picked === "string") onChange(picked.replace(/\/+$/, "") || "/");
+    else if (picked && "error" in picked) onError(picked.error);
+  };
+  return (
+    <span className="relative">
+      <button
+        type="button"
+        title={cwd ?? bot.cwd ?? bot.workspace}
+        className={`${CHIP} hover:border-copper hover:text-copper ${cwd ? "border-copper/55 text-copper" : ""}`}
+        onClick={() => setOpen(!open)}
+      >
+        <Glyph name="folder" />
+        <span className="truncate">{cwd ? folderName(cwd) : botFolder(bot)}</span>
+      </button>
+      {open && (
+        <Popover onClose={() => setOpen(false)}>
+          <MenuRow active={!cwd} onClick={() => (onChange(null), setOpen(false))}>
+            <Glyph name="folder" />
+            Default ({botFolder(bot)})
+          </MenuRow>
+          <MenuRow onClick={() => void choose()}>
+            <Glyph name="folder" />
+            Choose…
+          </MenuRow>
+        </Popover>
+      )}
+    </span>
   );
 }
 
@@ -413,6 +488,7 @@ function Overview(
             const label = runLabel(r);
             const can = r.live || held.has(r.id);
             const took = fmtSeconds(runSeconds(r));
+            const extra = runExtras(bot, r);
             return (
               <button
                 key={r.id}
@@ -430,9 +506,22 @@ function Overview(
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[12.5px] text-ink">{r.summary || <i className="text-ink-faint">no task</i>}</span>
-                  <small className="block truncate text-[11px] text-ink-faint">
-                    {r.requester} · {timeAgo(r.startedAt)}
-                    {took && ` · ${took}`}
+                  <small className="flex items-center gap-1 truncate text-[11px] text-ink-faint">
+                    {extra.agent && (
+                      <span title={PROVIDER_LABEL[extra.agent]}>
+                        <AgentIcon a={{ harness: extra.agent, icon: null }} size="h-3 w-3" />
+                      </span>
+                    )}
+                    {extra.folder && (
+                      <span className="inline-flex items-center gap-0.5 font-mono" title={r.cwd ?? undefined}>
+                        <Glyph name="folder" className="h-3 w-3" />
+                        {extra.folder} ·
+                      </span>
+                    )}
+                    <span className="truncate">
+                      {r.requester} · {timeAgo(r.startedAt)}
+                      {took && ` · ${took}`}
+                    </span>
                   </small>
                 </span>
                 <RunStatus label={label} />
@@ -487,6 +576,9 @@ function StartedBy({ bot, runs, reload }: { bot: Bot; runs: BotRun[] | null; rel
       </TriggerRow>
       <TriggerRow glyph="hook" title="Hook">
         cron, CI or a script · {lastHook ? `last call ${timeAgo(lastHook.startedAt)}` : "never called"}
+        <div className="mt-1">
+          its body may also set <code>"agent"</code> (claude, codex) and <code>"mode"</code>
+        </div>
         {hook && (
           <div className="mt-2 truncate rounded-[7px] border border-line bg-canvas px-2 py-1.5 font-mono text-[11px] text-ink-soft">
             {hookCommand({ ...hook, token: "••••" })}
@@ -548,7 +640,7 @@ function Settings(
   const [notice, setNotice] = useState<string | null>(null);
   const file = useRef<HTMLInputElement>(null);
   const shownHue = hue ?? nameHue(name || "bot");
-  const valid = BOT_NAME.test(name) && cwd.startsWith("/");
+  const valid = BOT_NAME.test(name) && (!cwd || cwd.startsWith("/"));
   const onError = fail((e) => (setNotice(null), setError(e)));
 
   const choose = async () => {
@@ -565,7 +657,7 @@ function Settings(
     setError(null);
     const body = {
       name,
-      cwd,
+      cwd: cwd || null,
       provider,
       mode: provider === "claude" ? mode : null,
       role: role.trim(),
@@ -604,10 +696,15 @@ function Settings(
         <Field label="NAME" hint={<>in Slack: <code>@Trame {name || "name"}: task</code></>}>
           <TextInput mono value={name} placeholder="my-project" onChange={(e) => setName(e.target.value.toLowerCase())} />
         </Field>
-        <Field label="FOLDER" hint="where its runs work" group>
+        <Field
+          label="FOLDER"
+          hint={cwd ? "where its runs work" : `optional · without one its runs work in ${bot?.workspace ?? "a folder Trame keeps for it"}`}
+          group
+        >
           <div className="flex gap-1.5">
-            <TextInput mono value={cwd} placeholder="/path/to/project" onChange={(e) => setCwd(e.target.value)} />
+            <TextInput mono value={cwd} placeholder="its own workspace" onChange={(e) => setCwd(e.target.value)} />
             <Button onClick={() => void choose()} className="inline-flex items-center gap-1.5"><Glyph name="folder" />Choose…</Button>
+            {cwd && <Button variant="ghost" onClick={() => setCwd("")}>Clear</Button>}
           </div>
         </Field>
         <Field label="ROLE" hint={`${role.length}/120`}>

@@ -366,7 +366,7 @@ create table if not exists agent_bots (
   id uuid primary key default uuidv7(),
   name text not null unique,              -- how Slack addresses it: [a-z0-9-], up to 32
   provider text not null default 'claude',
-  cwd text not null,
+  cwd text not null,                      -- '' = runs use its own workspace
   mode text,
   model text,
   effort text,
@@ -395,6 +395,8 @@ create table if not exists agent_bot_runs (
   outcome text                            -- success | error | interrupted, of the first turn
 );
 create index if not exists agent_bot_runs_bot on agent_bot_runs (bot_id, started_at);
+alter table agent_bot_runs add column if not exists cwd text;      -- the folder the run worked in
+alter table agent_bot_runs add column if not exists provider text; -- claude | codex; null = before it was kept
 -- this machine's agent-view runs, listed stopped after a restart (NOT synced)
 create table if not exists agent_runs (
   id text primary key,

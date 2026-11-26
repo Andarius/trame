@@ -718,7 +718,11 @@ async fn bot_route(native: &Native, req: BotRequest<'_>) -> Response {
         };
         let text = body["text"].as_str().unwrap_or_default();
         let sender = if app { "app" } else { "hook" };
-        return match bots::start(&bot, &from, text, sender) {
+        let overrides = match start_overrides(&bot, app, body) {
+            Ok(overrides) => overrides,
+            Err((status, error)) => return json_response(status, json!({"error":error})),
+        };
+        return match bots::start(&bot, &native.root, &from, text, sender, overrides) {
             Ok(run) => json_response(201, run.summary()),
             Err(e @ "text required, up to 64 KiB") => json_response(400, json!({"error":e})),
             Err(e @ "this bot already has as many runs as it may") => {
@@ -735,13 +739,17 @@ async fn bot_route(native: &Native, req: BotRequest<'_>) -> Response {
         (&Method::GET, []) => match with_db(native, bots::list).await {
             Ok(list) => json_response(
                 200,
-                Value::Array(list.iter().map(|b| b.summary(bot_counts(&b.id))).collect()),
+                Value::Array(
+                    list.iter()
+                        .map(|b| b.summary(&native.root, bot_counts(&b.id)))
+                        .collect(),
+                ),
             ),
             Err(_) => db_failed(),
         },
         (&Method::POST, []) => {
             match with_db(native, move |db| Ok(bots::upsert(db, None, &body))).await {
-                Ok(Ok(bot)) => json_response(201, bot.summary((0, 0))),
+                Ok(Ok(bot)) => json_response(201, bot.summary(&native.root, (0, 0))),
                 Ok(Err(r)) => refused(r),
                 Err(_) => db_failed(),
             }
@@ -749,7 +757,7 @@ async fn bot_route(native: &Native, req: BotRequest<'_>) -> Response {
         (&Method::PATCH, [id]) => {
             let id = (*id).to_owned();
             match with_db(native, move |db| Ok(bots::upsert(db, Some(&id), &body))).await {
-                Ok(Ok(bot)) => json_response(200, bot.summary(bot_counts(&bot.id))),
+                Ok(Ok(bot)) => json_response(200, bot.summary(&native.root, bot_counts(&bot.id))),
                 Ok(Err(r)) => refused(r),
                 Err(_) => db_failed(),
             }
@@ -895,6 +903,51 @@ async fn bot_route(native: &Native, req: BotRequest<'_>) -> Response {
         }
         _ => json_response(404, json!({"error":"not found"})),
     }
+}
+
+/// A start's `{cwd?, agent?, mode?}`: only the app picks the folder; a mode is Claude's alone.
+fn start_overrides(
+    bot: &bots::Bot,
+    app: bool,
+    body: &Value,
+) -> Result<bots::Overrides, (u16, &'static str)> {
+    let given = |k: &str| body.get(k).filter(|v| !v.is_null() && *v != "");
+    let bad = |e: &'static str| (400, e);
+    let cwd = match given("cwd") {
+        None => None,
+        Some(_) if !app => return Err((403, "a hook can't choose the folder")),
+        Some(v) => Some(
+            v.as_str()
+                .map(PathBuf::from)
+                .filter(|p| p.is_absolute() && p.is_dir())
+                .ok_or_else(|| bad("cwd must be an existing absolute directory"))?,
+        ),
+    };
+    let provider = match given("agent") {
+        None => None,
+        Some(v) => Some(
+            v.as_str()
+                .and_then(Provider::parse)
+                .ok_or_else(|| bad("unknown agent"))?,
+        ),
+    };
+    let mode = match given("mode") {
+        None => None,
+        Some(_) if provider.unwrap_or(bot.provider) == Provider::Codex => {
+            return Err(bad("Codex has no permission modes"));
+        }
+        Some(v) => Some(
+            v.as_str()
+                .filter(|m| MODES.contains(m))
+                .ok_or_else(|| bad("unknown permission mode"))?
+                .to_owned(),
+        ),
+    };
+    Ok(bots::Overrides {
+        cwd,
+        provider,
+        mode,
+    })
 }
 
 /// Bot `id`'s runs still running, and those of them mid-turn (working or waiting on you).

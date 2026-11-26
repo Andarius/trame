@@ -3,7 +3,7 @@ import { timeAgo } from "../ui/ui";
 import { modeOf } from "./agent-run";
 import { type Bot, type BotRun, type BotStats, useTriggerActions } from "./bot-api";
 import { BotAvatar, type BotState, Glyph, Switch, TRIGGER_TONE } from "./bot-faces";
-import { folderName } from "./bot-stats";
+import { botFolder, folderName } from "./bot-stats";
 import type { RunFilter } from "./BotPage";
 
 const TRIG_W = 190, BOT_W = 230, OUT_W = 200, NODE_H = 56, BOT_H = 100, PAD = 24, H = 470;
@@ -105,7 +105,7 @@ export function BotWiring(
     {
       key: "changes",
       glyph: "branch",
-      title: `Changes in ${folderName(bot.cwd)}`,
+      title: `Changes in ${bot.cwd ? folderName(bot.cwd) : "its workspace"}`,
       sub: stats ? `${stats.success} finished · ${stats.error} failed` : "commits or a pull request",
       on: true,
       show: { outcome: "success" },
@@ -172,7 +172,7 @@ export function BotWiring(
             <b className="block truncate text-[15px] text-ink">{bot.name}</b>
             <small className="block truncate text-[11px] text-ink-faint">
               {bot.provider === "codex" ? "Codex" : "Claude"}
-              {mode && ` · ${mode}`} · {folderName(bot.cwd)}
+              {mode && ` · ${mode}`} · {botFolder(bot)}
             </small>
             <small className="block text-[11px] text-ink-faint">
               {state === "idle" ? "idle" : state === "working" ? `${Math.max(bot.working, 1)} running` : "needs you"}
