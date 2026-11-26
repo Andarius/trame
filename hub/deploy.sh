@@ -5,7 +5,8 @@
 #   Idempotent: re-running redeploys the files and restarts the stack; the
 #   existing .env and data volume are kept. schema.sql is re-applied (idempotently)
 #   on every deploy once the db is healthy — the hub's migration mechanism.
-#   Also installs this checkout's tramecli in ~/.local/bin (TRAME_SKIP_CLI=1 skips it).
+#   Also installs this checkout's tramecli in ~/.local/bin (TRAME_SKIP_CLI=1 skips it)
+#   and its Rust hub (trame-hub, port 8445) in ~/Apps/trame/bin.
 # USAGE: hub/deploy.sh [ssh-host]   (default: $TRACKER_HUB_HOST or 'hub')
 # EXAMPLES:
 #   just db-deploy
@@ -36,6 +37,13 @@ if [ "${TRAME_SKIP_CLI:-}" != 1 ]; then
   ssh "$HOST" "~/.local/bin/tramecli.new --version && mv ~/.local/bin/tramecli.new ~/.local/bin/tramecli" ||
     { echo "tramecli built here does not run on $HOST; kept its current tramecli" >&2; exit 1; }
 fi
+
+# the Rust hub binary (trame-hub service), staged and checked for missing libraries before it replaces the running one
+(cd "$HERE/.." && cargo build --release --locked -p trame-hub)
+ssh "$HOST" "mkdir -p ~/$DIR/bin"
+scp -q "$HERE/../target/release/trame-hub" "$HOST:$DIR/bin/trame-hub.new"
+ssh "$HOST" "! ldd ~/$DIR/bin/trame-hub.new | grep -q 'not found' && mv ~/$DIR/bin/trame-hub.new ~/$DIR/bin/trame-hub" ||
+  { echo "trame-hub built here does not run on $HOST; kept its current one" >&2; exit 1; }
 
 ssh "$HOST" bash -s "$DIR" <<'REMOTE'
 set -euo pipefail
@@ -75,6 +83,9 @@ docker exec trame-db psql -q -U tracker -d tracker -c "select pg_reload_conf()" 
 # Bun keeps its old in-memory modules; restart to load the freshly copied source
 docker restart trame-api > /dev/null
 echo "trame-api restarted"
+# a replaced binary is not a config change either
+docker restart trame-hub > /dev/null
+echo "trame-hub restarted"
 echo "hub ready — laptops sync through the API: https://$TRACKER_BIND:8443"
 echo "per laptop: fetch the CA once (just hub-ca), mint a device token:"
 echo "  docker exec trame-api bun /srv/hub/api/main.ts mint <node-id>"

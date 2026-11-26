@@ -321,29 +321,39 @@ impl Sync {
         }
         let label = crate::startup::node_id().unwrap_or_default();
         let kind = crate::fleet::device_kind();
+        let Ok(client) = self.client() else { return };
         loop {
             let pass = async {
                 let (url, token) =
                     settings::hub_api(&self.settings).ok_or_else(|| anyhow::anyhow!("no hub"))?;
-                let agents = crate::pty::fleet_snapshot().await;
-                let res = self
-                    .client()?
-                    .post(format!("{url}/api/fleet"))
-                    .timeout(Duration::from_secs(10))
-                    .header("x-trame-protocol", registry().version)
-                    .bearer_auth(token)
-                    .json(&json!({"label":label,"kind":kind,"agents":agents}))
-                    .send()
-                    .await
-                    .map_err(reqwest::Error::without_url)?;
-                anyhow::ensure!(res.status().is_success(), "hub answered {}", res.status());
-                anyhow::Ok(
-                    res.json::<Value>()
+                let body =
+                    json!({"label":label,"kind":kind,"agents":crate::pty::fleet_snapshot().await});
+                // the Bun hub has no /api/fleet: the Rust hub beside it answers on port 8445
+                let mut last = None;
+                for base in [Some(url.clone()), rust_hub(&url)].into_iter().flatten() {
+                    let res = client
+                        .post(format!("{base}/api/fleet"))
+                        .timeout(Duration::from_secs(10))
+                        .header("x-trame-protocol", registry().version)
+                        .bearer_auth(&token)
+                        .json(&body)
+                        .send()
                         .await
-                        .map_err(reqwest::Error::without_url)?,
-                )
+                        .map_err(reqwest::Error::without_url);
+                    match res {
+                        Ok(r) if r.status().is_success() => {
+                            return Ok(r
+                                .json::<Value>()
+                                .await
+                                .map_err(reqwest::Error::without_url)?);
+                        }
+                        Ok(r) => last = Some(anyhow::anyhow!("hub answered {}", r.status())),
+                        Err(e) => last = Some(e.into()),
+                    }
+                }
+                Err(last.unwrap_or_else(|| anyhow::anyhow!("no hub")))
             };
-            // a hub without /api/fleet (the Bun one) or no hub: nobody else is shown
+            // no hub, or none answering /api/fleet: nobody else is shown
             crate::fleet::set_remote(&pass.await.unwrap_or(Value::Null));
             tokio::time::sleep(Duration::from_secs(5)).await;
         }
@@ -448,6 +458,16 @@ impl Sync {
 }
 
 /// HTTP status and short reason for a failed sync, for the UI.
+/// The Rust hub beside a Bun hub on the default port: same host, port 8445.
+fn rust_hub(url: &str) -> Option<String> {
+    let mut u = reqwest::Url::parse(url).ok()?;
+    if u.port_or_known_default() != Some(8443) {
+        return None;
+    }
+    u.set_port(Some(8445)).ok()?;
+    Some(u.as_str().trim_end_matches('/').to_owned())
+}
+
 pub fn failure(error: &anyhow::Error) -> (u16, String) {
     let unreachable = error
         .chain()
@@ -462,7 +482,16 @@ pub fn failure(error: &anyhow::Error) -> (u16, String) {
 
 #[cfg(test)]
 mod tests {
-    use super::Sync;
+    use super::{Sync, rust_hub};
+
+    #[test]
+    fn the_rust_hub_sits_beside_the_default_port() {
+        assert_eq!(
+            rust_hub("https://10.0.0.2:8443").as_deref(),
+            Some("https://10.0.0.2:8445")
+        );
+        assert_eq!(rust_hub("https://hub.example:9000"), None);
+    }
 
     #[tokio::test]
     async fn failure_names_an_unreachable_hub() {

@@ -91,6 +91,25 @@ services:
       - default
       - proxy
 
+  # Rust hub (crates/trame-hub) next to Bun, which keeps /sync, /ws and /l/* until it is ported:
+  # desktops use it for /api/fleet (the agents running on each device). Same DB, tokens and certs.
+  trame-hub:
+    image: ubuntu:24.04 # glibc 2.39, like the host that builds trame-hub
+    container_name: trame-hub
+    restart: unless-stopped
+    depends_on:
+      trame-db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://tracker:${POSTGRES_PASSWORD}@trame-db:5432/tracker
+      TRACKER_FORMULA_PASSWORD: ${TRACKER_FORMULA_PASSWORD:-}
+    command: ["/usr/local/bin/trame-hub", "serve"]
+    volumes:
+      - ./bin/trame-hub:/usr/local/bin/trame-hub:ro
+      - ./certs:/certs:ro
+    ports:
+      - "${TRACKER_BIND:-127.0.0.1}:${TRACKER_HUB_PORT:-8445}:8443"
+
 networks:
   # Fixed subnet so the pg_hba rule for trame-api can be scoped tightly.
   default:
