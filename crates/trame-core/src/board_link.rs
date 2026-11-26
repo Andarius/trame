@@ -53,6 +53,14 @@ fn encode(text: &str) -> String {
         .collect()
 }
 
+/// The compact UUID in a local agent run link.
+pub fn valid_run_id(id: &str) -> bool {
+    id.len() == 32
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

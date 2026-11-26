@@ -406,6 +406,7 @@ export type ResumeInfo = {
   ok: boolean;
   launched: boolean;
   local?: boolean;
+  transcriptId?: string;
   homeNode?: string | null;
   cmd: string;
   command: string; // `cmd` without the leading cd, for a shell already in `repo`
@@ -987,10 +988,11 @@ export type HistoryItem =
     // `from`: who sent a prompt through a run's inbox (a hook, another run)
     | { kind: "user" | "assistant" | "thinking"; text: string; truncated: boolean; from?: string | null }
     | { kind: "note"; text: string }
+    | { kind: "compaction" }
     | { kind: "tool"; id: string; name: string; input: Record<string, unknown> }
     | { kind: "result"; toolId: string; text: string; error: boolean; truncated: boolean }
   );
-export type HistoryPage = { items: HistoryItem[]; start: number; end: number; more: boolean };
+export type HistoryPage = { items: HistoryItem[]; start: number; end: number; more: boolean; reset?: boolean };
 export const transcriptHistory = (source: string, id: string, at: { before?: number; after?: number } = {}) => {
   const q = new URLSearchParams({ source, id });
   if (at.before !== undefined) q.set("before", String(at.before));

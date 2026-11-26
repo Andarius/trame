@@ -93,7 +93,7 @@ for line in sys.stdin:
             out({"type": "control_cancel_request", "request_id": request_id})
             pending.pop(request_id)
             reply("withdrawn")
-    elif text == "hang":
+    elif text == "hang" or text.endswith(":\n\nhang"):
         pass
     elif text == "crash":
         sys.stderr.write("boom: model unavailable\n")

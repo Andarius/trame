@@ -51,7 +51,13 @@ fn open_resolves_page_and_card_ids_and_refuses_unknown_ones() {
 #[test]
 fn scheme_links_name_a_page_or_a_card() {
     let id = "00000000-0000-4000-8000-00000000abcd";
+    let run = id.replace('-', "");
     for (url, expected) in [
+        (
+            format!("trame://agent/{run}"),
+            Some(("agent", run.as_str())),
+        ),
+        (format!("trame://agent/{id}"), None),
         (format!("trame://page/{id}"), Some(("page", id))),
         (format!("trame://card/{id}/"), Some(("card", id))),
         (format!("trame://session/{id}?x=1"), Some(("card", id))),

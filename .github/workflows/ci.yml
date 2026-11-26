@@ -192,7 +192,7 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/master' }}
 
-      - name: PostgreSQL 18 resources
+      - name: Prepare PostgreSQL and agent relay resources
         run: bash scripts/rust-package.sh prepare
 
       - name: Rust clippy and tests

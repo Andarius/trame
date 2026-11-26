@@ -73,16 +73,28 @@ fn resume_probe_preserves_locality_agent_and_shell_quoting() {
     assert_eq!(missing["ok"], false);
     assert_eq!(missing["launched"], false);
     assert!(missing.get("repo").is_none());
+    assert!(missing.get("transcriptId").is_none());
     assert!(trame_local::sessions::handle(&mut t.db,"POST","/api/sessions","",&json!({"id":id,"title":"Resume probe","repo_path":"/scratch/repo","claude_id":"malicious; command","agent":"codex","no_event":true})).unwrap().is_err());
-    t.request("POST","/api/sessions",json!({"id":id,"title":"Resume probe","repo_path":"/scratch/repo","agent":"codex","no_event":true}));
+    let transcript = "12345678-1234-4234-8234-123456789abe";
+    t.request("POST","/api/sessions",json!({"id":id,"title":"Resume probe","repo_path":"/scratch/repo","claude_id":transcript,"agent":"codex","no_event":true}));
     let probe = platform::handle(&mut t.db, 0, "/api/resume", &json!({"id":id,"probe":true}))
         .unwrap()
         .1;
     assert_eq!(
         probe["cmd"],
-        format!("cd '/scratch/repo' && codex resume {id}")
+        format!("cd '/scratch/repo' && codex resume {transcript}")
     );
     assert_eq!(probe["local"], false);
+    assert!(probe.get("transcriptId").is_none());
+    let dir = t.root.join("codex-sessions");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(format!("rollout-{transcript}.jsonl")), "").unwrap();
+    let local = platform::handle(&mut t.db, 0, "/api/resume", &json!({"id":id,"probe":true}))
+        .unwrap()
+        .1;
+    assert_eq!(local["transcriptId"], transcript);
+    assert_eq!(local["agent"], "codex");
+    assert_eq!(local["launched"], false);
 }
 
 #[test]

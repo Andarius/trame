@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# DESCRIPTION: Build the native desktop packages (Linux x86_64, macOS arm64) with pinned PostgreSQL 18 resources.
+# DESCRIPTION: Build native desktop packages (Linux x86_64, macOS arm64) with pinned PostgreSQL and agent relay.
 # USAGE: scripts/rust-package.sh [prepare|cli|deb|appimage|dmg]
 # Locally (plugin rebuilds included) it builds without LTO (fast rebuilds); CI, or TRAME_FULL_RELEASE=1
 # (bin/quickstart.sh), uses the shipped release profile. Switching between the two rebuilds everything once.
@@ -83,6 +83,7 @@ if [[ "$platform" == Darwin/arm64 ]]; then
     # tauri builds with tauri.macos.conf.json's minimumSystemVersion; the same value keeps C deps cached across both builds
     export MACOSX_DEPLOYMENT_TARGET=12.0
     [[ "$(rustc -vV | sed -n 's/^host: //p')" == "$triple" ]]
+    bash scripts/fetch-agent-relay.sh "$package" "$triple"
     if [[ "$mode" == prepare ]]; then
         cargo build -p trame-cli --locked
         cp target/debug/tramecli "$package/tramecli-$triple"
@@ -99,6 +100,7 @@ if [[ "$platform" == Darwin/arm64 ]]; then
     mkdir -p dist/macos
     find target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -exec cp '{}' dist/macos/Trame.dmg \;
     [[ -f dist/macos/Trame.dmg ]]
+    [[ -x target/release/bundle/macos/Trame.app/Contents/MacOS/agent-relay ]]
     cp target/release/tramecli dist/macos/tramecli
     exit 0
 fi
@@ -136,6 +138,7 @@ find "$pg/usr/share/doc" -mindepth 1 -type d -empty -delete
 
 triple="$(rustc -vV | sed -n 's/^host: //p')"
 [[ "$triple" == x86_64-unknown-linux-gnu ]]
+bash scripts/fetch-agent-relay.sh "$package" "$triple"
 if [[ "$mode" == prepare ]]; then
     cargo build -p trame-cli --locked
     cp target/debug/tramecli "$package/tramecli-$triple"
@@ -160,7 +163,9 @@ if [[ "$mode" == deb ]]; then
     [[ -f dist/linux/trame.deb ]]
     # the window's Wayland app id is `trame`; the menu entry needs that exact name to own the window
     unpacked="$(mktemp -d)"
+    trap 'rm -rf -- "$unpacked"' EXIT
     dpkg-deb -R dist/linux/trame.deb "$unpacked"
+    [[ -x "$unpacked/usr/bin/agent-relay" ]]
     entry="$unpacked/usr/share/applications/trame.desktop"
     mv "$unpacked/usr/share/applications/Trame.desktop" "$entry"
     # trame://page/<id> and trame://card/<id> links open in the app
@@ -171,7 +176,6 @@ if [[ "$mode" == deb ]]; then
         (cd "$unpacked" && md5sum usr/share/applications/trame.desktop) >>"$unpacked/DEBIAN/md5sums"
     fi
     dpkg-deb --root-owner-group -b "$unpacked" dist/linux/trame.deb >/dev/null
-    rm -rf "$unpacked"
 else
     find target/release/bundle/appimage -maxdepth 1 -name '*.AppImage' -exec cp '{}' dist/linux/Trame.AppImage \;
     [[ -f dist/linux/Trame.AppImage ]]

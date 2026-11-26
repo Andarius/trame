@@ -1,10 +1,13 @@
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
+use reqwest::Method;
 use serde_json::{Value, json};
 use std::io::Read;
+use std::time::Duration;
 
 use crate::target::local_target;
 
-const USAGE: &str = "usage: tramecli agent list | send <run> <text…|-> | hook <run>";
+const USAGE: &str =
+    "usage: tramecli agent list | send <run> <text…|-> | send --peer <peer> <text…|-> | hook <run>";
 
 /// `tramecli agent`: list the agent-view runs, message one, or print how a hook reaches it.
 pub async fn main(args: &[String], json_out: bool) -> Result<i32> {
@@ -40,7 +43,9 @@ pub async fn main(args: &[String], json_out: bool) -> Result<i32> {
             }
         }
         Some("send") => {
-            let (Some(run), Some(first)) = (args.get(1), args.get(2)) else {
+            let to_peer = args.get(1).is_some_and(|arg| arg == "--peer");
+            let address = if to_peer { 2 } else { 1 };
+            let (Some(recipient), Some(first)) = (args.get(address), args.get(address + 1)) else {
                 bail!(USAGE);
             };
             let text = if first == "-" {
@@ -48,17 +53,37 @@ pub async fn main(args: &[String], json_out: bool) -> Result<i32> {
                 std::io::stdin().read_to_string(&mut text)?;
                 text
             } else {
-                args[2..].join(" ")
+                args[address + 1..].join(" ")
             };
-            // from inside a run, the message is signed with it so the receiver can answer
+            // Include the sending run if the CLI was called from one.
             let from = std::env::var("TRAME_AGENT_RUN").unwrap_or_else(|_| "tramecli".into());
-            let body = json!({"token": token, "text": text, "from": from});
+            let mut body = json!({"token": token, "text": text, "from": from});
+            if to_peer {
+                body["peer"] = json!(recipient);
+                let reply = target
+                    .request(
+                        Method::POST,
+                        "/api/agent/relay/send",
+                        Some(&body),
+                        Some(Duration::from_secs(22)),
+                    )
+                    .await?;
+                let id = reply["id"]
+                    .as_str()
+                    .context("Trame returned no delivery ID")?;
+                if json_out {
+                    println!("{reply}");
+                } else {
+                    println!("delivered to {recipient} ({id})");
+                }
+                return Ok(0);
+            }
             let reply = target
-                .post(&format!("/api/agent/runs/{run}/inbox"), &body)
+                .post(&format!("/api/agent/runs/{recipient}/inbox"), &body)
                 .await?;
             let queued = reply["queued"].as_u64().unwrap_or(0);
             println!(
-                "sent to {run}{}",
+                "sent to {recipient}{}",
                 if queued > 1 {
                     format!(" ({queued} waiting)")
                 } else {

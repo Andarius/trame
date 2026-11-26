@@ -75,6 +75,8 @@ async fn fixture(
     });
     let value = match (method.as_str(), path.as_str()) {
         ("GET", "/api/status") => json!({"version":env!("CARGO_PKG_VERSION"),"ok":true}),
+        ("GET", "/api/term/token") => json!({"token":"app-token"}),
+        ("POST", "/api/agent/relay/send") => json!({"id":"delivery-1"}),
         ("GET", "/api/pages") if state.page_tree => json!([
             {"id":"p1","parent_id":null,"title":"Plan: tramecli"},
             {"id":"p2","parent_id":"p1","title":"Specs"},
@@ -237,6 +239,51 @@ impl Drop for Scratch {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
+}
+
+#[tokio::test]
+async fn agent_send_peer_uses_the_local_relay_and_preserves_stdin() {
+    let (base, state, server) = server().await;
+    let port = base.rsplit(':').next().unwrap().parse().unwrap();
+    let scratch = Scratch::new();
+    let mut child = scratch
+        .command(Some(port))
+        .env("TRAME_AGENT_RUN", "current-run")
+        .args(["agent", "send", "--peer", "bob", "-", "--json"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let text = "hello\nfrom this run\n";
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(text.as_bytes())
+        .await
+        .unwrap();
+    let output = child.wait_with_output().await.unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&output.stdout).unwrap(),
+        json!({"id":"delivery-1"})
+    );
+    let state = state.lock().unwrap();
+    let post = state
+        .hits
+        .iter()
+        .find(|hit| hit.method == "POST" && hit.path == "/api/agent/relay/send")
+        .unwrap();
+    assert_eq!(
+        post.body,
+        json!({"peer":"bob","text":text,"token":"app-token","from":"current-run"})
+    );
+    server.abort();
 }
 
 #[tokio::test]

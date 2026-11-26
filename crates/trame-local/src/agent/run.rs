@@ -4,7 +4,7 @@ use std::{
     path::PathBuf,
     process::Stdio,
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::{
     io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -18,6 +18,7 @@ use crate::imports::history::claude_items;
 
 /// Events kept for a reconnecting client; an older cursor gets a snapshot instead.
 const RING: usize = 512;
+const BROADCAST_CAPACITY: usize = 1024;
 /// Completed items kept in the snapshot; older ones stay in the provider's transcript.
 const ITEMS: usize = 2000;
 /// A longer stdout line is dropped and reported, not buffered.
@@ -27,6 +28,7 @@ const SEEN_COMMANDS: usize = 256;
 const STDIN_QUEUE: usize = 64;
 /// Messages a run holds for its next idle moment; more are refused.
 const INBOX: usize = 20;
+const MESSAGES_PER_MINUTE: usize = 30;
 /// Permission modes a client may switch to; bypassing every check is left to the terminal.
 const MODES: &[&str] = &["auto", "manual", "default", "acceptEdits", "plan"];
 
@@ -61,7 +63,7 @@ impl Provider {
             Self::Claude => ("TRAME_CLAUDE_BIN", "claude"),
             Self::Codex => ("TRAME_CODEX_BIN", "codex"),
         };
-        std::env::var(var).unwrap_or_else(|_| default.into())
+        std::env::var(var).unwrap_or_else(|_| resolve(default))
     }
 
     /// The shell command that resumes `session` in a terminal.
@@ -70,6 +72,54 @@ impl Provider {
             Self::Claude => format!("claude --resume {session}"),
             Self::Codex => format!("codex resume {session}"),
         }
+    }
+}
+
+/// `name` as the user's login shell finds it. An app launched from the desktop (a macOS app, a
+/// launchd job) gets a short PATH without `~/.local/bin`, where the agent CLIs install.
+fn resolve(name: &str) -> String {
+    static FOUND: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+    if let Some((_, path)) = FOUND.lock().unwrap().iter().find(|(n, _)| n == name) {
+        return path.clone();
+    }
+    let on_path = std::env::var_os("PATH")
+        .is_some_and(|p| std::env::split_paths(&p).any(|dir| dir.join(name).is_file()));
+    if on_path {
+        return name.to_owned();
+    }
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+    let probe = std::process::Command::new(shell)
+        .args(["-l", "-i", "-c", &format!("command -v {name}")])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .stdout(Stdio::piped())
+        .spawn();
+    let Ok(child) = probe else {
+        return name.to_owned();
+    };
+    // a slow shell profile must not hold a launch for long
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(child.wait_with_output());
+    });
+    let found = rx
+        .recv_timeout(Duration::from_secs(5))
+        .ok()
+        .and_then(Result::ok)
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .and_then(|out| {
+            out.lines()
+                .rev()
+                .map(str::trim)
+                .find(|line| line.starts_with('/'))
+                .map(str::to_owned)
+        });
+    match found {
+        Some(path) => {
+            FOUND.lock().unwrap().push((name.to_owned(), path.clone()));
+            path
+        }
+        None => name.to_owned(),
     }
 }
 
@@ -113,9 +163,13 @@ struct Inner {
     model_reqs: HashSet<String>,
     /// messages from outside waiting for an idle moment, and the secret hooks post them with
     inbox: VecDeque<(String, String)>,
+    recent_messages: VecDeque<(Instant, String)>,
+    relay_slots: usize,
     hook: String,
     /// this run takes the messages other machines' agents send over the agent relay
     relay: bool,
+    /// the bot that started it, if any
+    bot: Option<String>,
     /// Codex: our JSON-RPC requests in flight, the turn running and file changes by item
     rpc: HashMap<u64, Rpc>,
     rpc_next: u64,
@@ -140,6 +194,7 @@ struct State {
     relay: bool,
     relay_error: Option<String>,
     turn: u64,
+    outcome: Option<String>,
     items: VecDeque<Value>,
     dropped: u64,
     partial: String,
@@ -166,6 +221,7 @@ impl State {
             "relay": self.relay,
             "relayError": self.relay_error,
             "turn": self.turn,
+            "outcome": self.outcome,
             "items": self.items,
             "droppedItems": self.dropped,
             "partial": self.partial,
@@ -213,7 +269,7 @@ impl Run {
         hook: Option<String>,
         history: Vec<Value>,
     ) -> Arc<Self> {
-        let (tx, _) = broadcast::channel(1024);
+        let (tx, _) = broadcast::channel(BROADCAST_CAPACITY);
         let shown = cwd.display().to_string();
         let session = resume.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let mut items: VecDeque<Value> = history.into();
@@ -251,8 +307,11 @@ impl Run {
                 modes: HashMap::new(),
                 model_reqs: HashSet::new(),
                 inbox: VecDeque::new(),
+                recent_messages: VecDeque::new(),
+                relay_slots: 0,
                 hook: hook.unwrap_or_else(|| uuid::Uuid::new_v4().simple().to_string()),
                 relay: false,
+                bot: None,
                 rpc: HashMap::new(),
                 rpc_next: 0,
                 codex_turn: None,
@@ -376,6 +435,13 @@ impl Run {
     /// Apply an event to the state and hand it to every client, in one step under the lock.
     fn publish(&self, kind: &str, payload: Value) {
         let mut inner = self.inner.lock().unwrap();
+        self.emit(&mut inner, kind, payload);
+        if kind == "turn.finished" || (kind == "run.state" && inner.state.status == "ready") {
+            self.pump(&mut inner);
+        }
+    }
+
+    fn emit(&self, inner: &mut Inner, kind: &str, payload: Value) {
         apply(&mut inner.state, kind, &payload);
         inner.seq += 1;
         let mut event = json!({
@@ -388,16 +454,15 @@ impl Run {
             inner.ring.pop_front();
         }
         let _ = self.tx.send(event);
-        let idle =
-            kind == "turn.finished" || (kind == "run.state" && inner.state.status == "ready");
-        drop(inner);
-        if idle {
-            self.pump();
-        }
     }
 
     /// Start a turn with `text`; `from` names who sent it when it came through the inbox.
-    fn send_prompt(&self, text: &str, from: Option<&str>) -> Reply {
+    fn send_prompt(&self, inner: &mut Inner, text: &str, from: Option<&str>) -> Reply {
+        if inner.state.status != "ready" || !inner.pending.is_empty() || inner.stopping {
+            return Err("busy");
+        }
+        let stdin = inner.stdin.as_ref().ok_or("not running")?;
+        let permit = stdin.try_reserve().map_err(|_| "input queue full")?;
         // the agent sees who wrote: a hook, another run, a relayed agent
         let said = match from {
             Some(from) => format!("Message from {from}:\n\n{text}"),
@@ -406,22 +471,19 @@ impl Run {
         let line = match self.provider {
             Provider::Claude => claude::user_message(&said),
             Provider::Codex => {
-                // a model or effort picked since the last turn applies from this one
-                let (model, effort) = {
-                    let st = &self.inner.lock().unwrap().state;
-                    (st.model.clone(), st.effort.clone())
-                };
+                inner.rpc_next += 1;
+                let id = inner.rpc_next;
+                inner.rpc.insert(id, Rpc::Turn);
                 let params = json!({
-                    "threadId":self.session(),"input":codex::user_input(&said),"model":model,"effort":effort,
+                    "threadId":inner.state.session,"input":codex::user_input(&said),"model":inner.state.model,"effort":inner.state.effort,
                 });
-                codex::request(self.rpc(Rpc::Turn), "turn/start", &params)
+                codex::request(id, "turn/start", &params)
             }
         };
-        if !self.send(&line) {
-            return Err("input queue full");
-        }
-        self.publish("turn.started", json!({}));
-        self.publish(
+        permit.send(line.to_string());
+        self.emit(inner, "turn.started", json!({}));
+        self.emit(
+            inner,
             "item.completed",
             json!({"kind":"user","text":text,"truncated":false,"ts":now(),"from":from}),
         );
@@ -429,32 +491,55 @@ impl Run {
     }
 
     /// Queue a message from outside (a hook, another run, the relay) for this run's next idle moment.
-    pub fn deliver(&self, from: &str, text: &str) -> Result<usize, &'static str> {
-        let queued = {
-            let mut inner = self.inner.lock().unwrap();
-            if inner.inbox.len() >= INBOX {
-                return Err("inbox full");
+    pub fn deliver(
+        &self,
+        from: &str,
+        text: &str,
+        sender: Option<&str>,
+    ) -> Result<usize, &'static str> {
+        let mut inner = self.inner.lock().unwrap();
+        if sender.is_some() && inner.inbox.len() + inner.relay_slots >= INBOX {
+            return Err("inbox full");
+        }
+        if sender.is_none() {
+            if inner.relay_slots == 0 {
+                return Err("no reserved relay slot");
             }
-            inner.inbox.push_back((from.to_owned(), text.to_owned()));
-            inner.inbox.len()
-        };
-        self.publish("inbox.queued", json!({"from":from,"text":text}));
-        self.pump();
+            inner.relay_slots -= 1;
+        }
+        if let Some(sender) = sender {
+            let now = Instant::now();
+            while inner
+                .recent_messages
+                .front()
+                .is_some_and(|(t, _)| now.duration_since(*t) >= Duration::from_secs(60))
+            {
+                inner.recent_messages.pop_front();
+            }
+            if inner
+                .recent_messages
+                .iter()
+                .filter(|(_, key)| key == sender)
+                .count()
+                >= MESSAGES_PER_MINUTE
+            {
+                return Err("sender rate limit");
+            }
+            inner.recent_messages.push_back((now, sender.to_owned()));
+        }
+        inner.inbox.push_back((from.to_owned(), text.to_owned()));
+        let queued = inner.inbox.len();
+        self.emit(&mut inner, "inbox.queued", json!({"from":from,"text":text}));
+        self.pump(&mut inner);
         Ok(queued)
     }
 
-    /// Start the next queued message when the run is idle: never mid-turn, never over a pending decision.
-    fn pump(&self) {
-        let next = {
-            let mut inner = self.inner.lock().unwrap();
-            let idle =
-                inner.state.status == "ready" && inner.stdin.is_some() && inner.pending.is_empty();
-            if idle { inner.inbox.pop_front() } else { None }
-        };
-        if let Some((from, text)) = next {
-            self.publish("inbox.delivered", json!({"from":from}));
-            if self.send_prompt(&text, Some(&from)).is_err() {
-                self.inner.lock().unwrap().inbox.push_front((from, text));
+    fn pump(&self, inner: &mut Inner) {
+        if let Some((from, text)) = inner.inbox.pop_front() {
+            if self.send_prompt(inner, &text, Some(&from)).is_ok() {
+                self.emit(inner, "inbox.delivered", json!({"from":from}));
+            } else {
+                inner.inbox.push_front((from, text));
             }
         }
     }
@@ -463,6 +548,14 @@ impl Run {
     pub fn set_relay(&self, on: bool) {
         self.inner.lock().unwrap().relay = on;
         self.publish("relay.state", json!({"on":on}));
+    }
+
+    pub fn set_bot(&self, bot: Option<&str>) {
+        self.inner.lock().unwrap().bot = bot.map(str::to_owned);
+    }
+
+    pub fn bot(&self) -> Option<String> {
+        self.inner.lock().unwrap().bot.clone()
     }
 
     pub fn relay(&self) -> bool {
@@ -477,9 +570,19 @@ impl Run {
         }
     }
 
-    /// How many more messages the inbox takes, so the relay is never read past it.
-    pub fn room(&self) -> usize {
-        INBOX.saturating_sub(self.inner.lock().unwrap().inbox.len())
+    /// Reserve inbox slots before the relay marks its records read.
+    pub fn reserve_relay_slots(&self) -> usize {
+        let mut inner = self.inner.lock().unwrap();
+        inner.relay_slots = if inner.stdin.is_some() && inner.relay {
+            INBOX.saturating_sub(inner.inbox.len()).min(INBOX / 2)
+        } else {
+            0
+        };
+        inner.relay_slots
+    }
+
+    pub fn release_relay_slots(&self) {
+        self.inner.lock().unwrap().relay_slots = 0;
     }
 
     /// The secret a hook presents to post into this run's inbox.
@@ -510,7 +613,7 @@ impl Run {
             .map_or(inner.seq + 1, |e| e["seq"].as_u64().unwrap_or(0));
         let first = match (epoch, after) {
             (Some(e), Some(after))
-                if e == inner.epoch && after + 1 >= oldest && after <= inner.seq =>
+                if e == inner.epoch && after >= oldest.saturating_sub(1) && after <= inner.seq =>
             {
                 inner
                     .ring
@@ -524,9 +627,59 @@ impl Run {
         Attached { lease, first, rx }
     }
 
+    /// Replace an overrun subscription at the same watermark as its recovery snapshot.
+    pub async fn next_event(&self, rx: &mut broadcast::Receiver<Value>) -> Option<Value> {
+        match rx.recv().await {
+            Ok(event) => Some(event),
+            Err(broadcast::error::RecvError::Lagged(_)) => {
+                let inner = self.inner.lock().unwrap();
+                *rx = self.tx.subscribe();
+                Some(snapshot(&inner))
+            }
+            Err(broadcast::error::RecvError::Closed) => None,
+        }
+    }
+
     /// The state now, for a client that fell behind the live stream.
     pub fn snapshot(&self) -> Value {
         snapshot(&self.inner.lock().unwrap())
+    }
+
+    /// Interrupt only the incarnation and turn named by an external Stop button.
+    pub(super) fn interrupt_turn(&self, epoch: &str, turn: u64) -> Reply {
+        let mut inner = self.inner.lock().unwrap();
+        if inner.epoch != epoch || inner.state.turn != turn || inner.state.status != "busy" {
+            return Err("this turn is no longer running");
+        }
+        self.interrupt_locked(&mut inner)
+    }
+
+    fn interrupt_locked(&self, inner: &mut Inner) -> Reply {
+        let stdin = inner.stdin.as_ref().ok_or("not running")?;
+        let permit = stdin.try_reserve().map_err(|_| "input queue full")?;
+        let line = match self.provider {
+            Provider::Claude => {
+                inner.requests += 1;
+                claude::interrupt(&format!("trame-{}", inner.requests))
+            }
+            Provider::Codex => {
+                let turn = inner
+                    .codex_turn
+                    .as_ref()
+                    .ok_or("the turn hasn't started yet")?;
+                inner.rpc_next += 1;
+                let id = inner.rpc_next;
+                inner.rpc.insert(id, Rpc::Other);
+                codex::request(
+                    id,
+                    "turn/interrupt",
+                    &json!({"threadId":inner.state.session,"turnId":turn}),
+                )
+            }
+        };
+        permit.send(line.to_string());
+        self.emit(inner, "run.state", json!({"status":"interrupting"}));
+        Ok(())
     }
 
     /// Check and run one client command; `lease` is the sender's writer lease.
@@ -559,7 +712,7 @@ impl Run {
             match (cmd["kind"].as_str(), inner.state.status) {
                 (Some("prompt"), "ready") => {}
                 (Some("prompt"), _) => return Err("busy"),
-                (Some("interrupt"), "busy") => {}
+                (Some("interrupt"), "busy") => return self.interrupt_locked(&mut inner),
                 (Some("interrupt"), _) => return Err("nothing to interrupt"),
                 (Some("stop" | "answer"), _) => {}
                 (Some("setMode" | "setModel"), "ready" | "busy") => {}
@@ -578,22 +731,7 @@ impl Run {
                 if text.trim().is_empty() {
                     return Err("empty prompt");
                 }
-                self.send_prompt(&text, None)?;
-            }
-            Some("interrupt") => {
-                let line = match self.provider {
-                    Provider::Claude => claude::interrupt(&self.next_request()),
-                    Provider::Codex => {
-                        let turn = self.inner.lock().unwrap().codex_turn.clone();
-                        let turn = turn.ok_or("the turn hasn't started yet")?;
-                        let params = json!({"threadId":self.session(),"turnId":turn});
-                        codex::request(self.rpc(Rpc::Other), "turn/interrupt", &params)
-                    }
-                };
-                if !self.send(&line) {
-                    return Err("input queue full");
-                }
-                self.status("interrupting");
+                self.send_prompt(&mut self.inner.lock().unwrap(), &text, None)?;
             }
             Some("answer") => return self.answer(&cmd["payload"]),
             Some("setMode") => {
@@ -781,7 +919,7 @@ impl Run {
         let inner = self.inner.lock().unwrap();
         json!({
             "id":self.id,"provider":self.provider.name(),"cwd":self.cwd,"sessionId":inner.state.session,
-            "mode":inner.state.mode,"model":inner.state.model,"effort":inner.state.effort,"hook":inner.hook,"relay":inner.relay,
+            "mode":inner.state.mode,"model":inner.state.model,"effort":inner.state.effort,"hook":inner.hook,"relay":inner.relay,"bot":inner.bot,
         })
     }
 
@@ -814,7 +952,7 @@ impl Run {
 
     pub fn summary(&self) -> Value {
         let inner = self.inner.lock().unwrap();
-        json!({"id":self.id,"provider":self.provider.name(),"cwd":self.cwd,"epoch":inner.epoch,"status":inner.state.status,"sessionId":inner.state.session})
+        json!({"id":self.id,"provider":self.provider.name(),"cwd":self.cwd,"epoch":inner.epoch,"status":inner.state.status,"sessionId":inner.state.session,"bot":inner.bot})
     }
 
     async fn supervise(
@@ -1271,10 +1409,12 @@ fn apply(state: &mut State, kind: &str, p: &Value) {
         }
         "turn.started" => {
             state.turn += 1;
+            state.outcome = None;
             state.status = "busy";
             state.partial.clear();
         }
         "turn.finished" => {
+            state.outcome = p["outcome"].as_str().map(str::to_owned);
             state.status = "ready";
             state.partial.clear();
         }
@@ -1377,6 +1517,88 @@ fn signal_group(pid: i32, sig: i32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inbox_preserves_claimed_slots_and_limits_each_sender() {
+        let run = Run::new(
+            "test".into(),
+            PathBuf::new(),
+            Provider::Claude,
+            None,
+            Launch::default(),
+            None,
+            vec![],
+        );
+        let (stdin, mut reader) = mpsc::channel(1);
+        {
+            let mut inner = run.inner.lock().unwrap();
+            inner.stdin = Some(stdin);
+            inner.relay = true;
+        }
+        let slots = run.reserve_relay_slots();
+        for _ in 0..(INBOX - slots) {
+            run.deliver("ci", "ping", Some("hook")).unwrap();
+        }
+        assert_eq!(run.deliver("ci", "extra", Some("hook")), Err("inbox full"));
+        for _ in 0..slots {
+            run.deliver("peer", "relay", None).unwrap();
+        }
+        run.release_relay_slots();
+        run.status("ready");
+        for _ in 0..INBOX {
+            let _ = reader.try_recv().unwrap();
+            run.publish("turn.finished", json!({"outcome":"success"}));
+        }
+        for _ in (INBOX - slots)..MESSAGES_PER_MINUTE {
+            run.deliver("ci", "ping", Some("hook")).unwrap();
+            let _ = reader.try_recv().unwrap();
+            run.publish("turn.finished", json!({"outcome":"success"}));
+        }
+        assert_eq!(
+            run.deliver("another label", "extra", Some("hook")),
+            Err("sender rate limit")
+        );
+        assert!(run.deliver("local", "turn", Some("app")).is_ok());
+        assert_eq!(
+            run.interrupt_turn("old", 1),
+            Err("this turn is no longer running")
+        );
+    }
+
+    #[tokio::test]
+    async fn lagging_writer_recovers_at_the_snapshot_watermark() {
+        let run = Run::new(
+            "test".into(),
+            PathBuf::new(),
+            Provider::Claude,
+            None,
+            Launch::default(),
+            None,
+            vec![],
+        );
+        let mut slow = run.attach(None, None, true);
+        let current = run.attach(None, None, true);
+        let count = BROADCAST_CAPACITY + 1;
+        for _ in 0..count {
+            run.publish("item.delta", json!({"text":"x"}));
+        }
+        run.publish("interaction.requested", json!({"requestId":"pending"}));
+
+        let recovered = run.next_event(&mut slow.rx).await.unwrap();
+        assert_eq!(recovered["type"], "snapshot");
+        assert_eq!(recovered["writer"], current.lease);
+        assert_eq!(recovered["seq"], count + 1);
+        assert_eq!(recovered["state"]["partial"], "x".repeat(count));
+        assert_eq!(
+            recovered["state"]["interactions"][0]["requestId"],
+            "pending"
+        );
+
+        run.publish("interaction.resolved", json!({"requestId":"pending"}));
+        let next = run.next_event(&mut slow.rx).await.unwrap();
+        assert_eq!(next["seq"], count + 2);
+        assert_eq!(next["kind"], "interaction.resolved");
+    }
 
     #[tokio::test]
     async fn next_line_splits_caps_and_keeps_a_last_unterminated_line() {

@@ -29,6 +29,10 @@ fn parse(input: &str) -> Option<(Option<&'static str>, String)> {
     }
     if let Some(rest) = input.strip_prefix("trame://") {
         let (kind, id) = rest.split_once('/')?;
+        if kind == "agent" {
+            return trame_core::board_link::valid_run_id(id)
+                .then(|| (Some("agent"), id.to_owned()));
+        }
         let kind = match kind {
             "page" => "page",
             "card" | "session" => "card",
@@ -92,6 +96,9 @@ pub async fn main(args: &[String]) -> Result<i32> {
             Ok(value) => value,
             Err(error) => {
                 if let Some(RequestFailure::Http { status: 404, .. }) = error.downcast_ref() {
+                    if kind == Some("agent") {
+                        bail!("this run is not on this machine");
+                    }
                     if kind == Some("view") {
                         bail!("no saved view named {id} (save one from the Sessions board)");
                     }

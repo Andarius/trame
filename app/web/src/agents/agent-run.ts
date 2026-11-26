@@ -36,7 +36,7 @@ export const deleteRun = (id: string) => call<{ ok: boolean }>(`/api/agent/runs/
 
 type Frame =
   | { type: "attached"; lease: number }
-  | { type: "snapshot"; epoch: string; seq: number; state: RunState }
+  | { type: "snapshot"; epoch: string; seq: number; writer: number; state: RunState }
   | { type: "event"; epoch: string; seq: number; kind: string; payload: P }
   | { type: "lease"; writer: number }
   | { type: "reply"; commandId: string; accepted: boolean; reason?: string };
@@ -102,6 +102,7 @@ export function useAgentRun(id: string): RunView {
           c.writer = f.lease > 0;
         } else if (f.type === "lease") c.writer = c.lease > 0 && f.writer === c.lease;
         else if (f.type === "snapshot") {
+          c.writer = c.lease > 0 && f.writer === c.lease;
           c.state = f.state;
           c.epoch = f.epoch;
           c.seq = f.seq;

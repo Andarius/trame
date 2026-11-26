@@ -36,6 +36,7 @@ export function openLink(uri: string) {
 
 // a trame:// link opens here, in a workspace like this app's own http links, never through the OS
 function openTrame(t: TrameTarget) {
+  if (t.kind === "agent") return openWorkspaceAt(`agent:${t.run}`, `?view=terminals&term=agent:${t.run}`, "Agent run");
   if (t.kind === "card") return openWorkspaceAt(t.id, `?view=card&card=${t.id}`);
   if (t.kind === "page") {
     return void getPage(t.id).then((p) => p.title, () => undefined).then((n) => openWorkspaceAt(`page:${t.id}`, `?page=${t.id}`, n));

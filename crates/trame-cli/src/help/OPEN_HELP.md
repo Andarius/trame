@@ -5,7 +5,7 @@ tramecli open — show a page, a card or a filtered Sessions board in the runnin
   tramecli open --view <name>                 a saved board view (the chips by the query box)
 
 Accepts an id, an app URL (`…/?page=<id>`, `…/?view=card&card=<id>`) or a
-`trame://page/<id>`, `trame://card/<id>`, `trame://board?q=<query>` or
+`trame://agent/<run-id>`, `trame://page/<id>`, `trame://card/<id>`, `trame://board?q=<query>` or
 `trame://view/<name>` link. The app window navigates to that view and comes to the
 front (POST /api/open {"page_id"|"card_id"|"id"|"q"|"view"}; an unknown id or view
 name is refused). Prints the URL either way. View names match ignoring case.

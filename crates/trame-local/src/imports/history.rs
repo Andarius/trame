@@ -1,3 +1,4 @@
+use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use std::{
     fs::File,
@@ -18,11 +19,16 @@ pub struct Page {
     pub items: Vec<Value>,
     pub start: u64,
     pub end: u64,
+    pub reset: bool,
 }
 
 impl Page {
     pub fn to_json(&self) -> Value {
-        json!({"items": self.items, "start": self.start, "end": self.end, "more": self.start > 0})
+        let mut page = json!({"items": self.items, "start": self.start, "end": self.end, "more": self.start > 0});
+        if self.reset {
+            page["reset"] = true.into();
+        }
+        page
     }
 }
 
@@ -31,16 +37,39 @@ pub fn before(path: &Path, before: Option<u64>, codex: bool) -> std::io::Result<
     let mut file = File::open(path)?;
     let size = file.metadata()?.len();
     // a partial last line is still being written: stop at the last newline
-    let end = match before {
-        Some(at) => at.min(size),
-        None => last_newline(&mut file, size)?,
+    let tail = last_newline(&mut file, size)?;
+    let end = before.unwrap_or(tail).min(tail);
+    page_before(&mut file, end, tail, codex)
+}
+
+fn page_before(file: &mut File, end: u64, tail: u64, codex: bool) -> std::io::Result<Page> {
+    let (start, bytes) = window_before(file, 0, end)?;
+    let items = if codex {
+        items(&bytes, codex_items)
+    } else {
+        let mut lineage = Lineage::default();
+        // Older pages use the current tip so rewound branches stay out of every page.
+        visit_links(file, end, tail, |link| {
+            lineage.includes(link);
+            !lineage.found_tip || lineage.parent.is_some()
+        })?;
+        lineage.items(&bytes)
     };
+    Ok(Page {
+        items,
+        start,
+        end,
+        reset: false,
+    })
+}
+
+fn window_before(file: &mut File, floor: u64, end: u64) -> std::io::Result<(u64, Vec<u8>)> {
     let mut want = PAGE;
     loop {
-        let start = end.saturating_sub(want);
-        let bytes = read_range(&mut file, start, end)?;
+        let start = end.saturating_sub(want).max(floor);
+        let mut bytes = read_range(file, start, end)?;
         // the window starts mid-line: drop that fragment, unless it is all there is
-        let skip = if start == 0 {
+        let skip = if start == floor {
             0
         } else {
             match bytes.iter().position(|&b| b == b'\n') {
@@ -51,12 +80,8 @@ pub fn before(path: &Path, before: Option<u64>, codex: bool) -> std::io::Result<
                 }
             }
         };
-        let start = start + skip as u64;
-        return Ok(Page {
-            items: items(&bytes[skip..], codex),
-            start,
-            end,
-        });
+        drop(bytes.drain(..skip));
+        return Ok((start + skip as u64, bytes));
     }
 }
 
@@ -64,13 +89,37 @@ pub fn before(path: &Path, before: Option<u64>, codex: bool) -> std::io::Result<
 pub fn after(path: &Path, after: u64, codex: bool) -> std::io::Result<Page> {
     let mut file = File::open(path)?;
     let size = file.metadata()?.len();
-    let after = after.min(size);
-    let end = last_newline(&mut file, size)?.max(after);
+    let end = last_newline(&mut file, size)?;
+    if after > end {
+        let mut page = page_before(&mut file, end, end, codex)?;
+        page.reset = true;
+        return Ok(page);
+    }
     let bytes = read_range(&mut file, after, end)?;
+    let items = if codex {
+        items(&bytes, codex_items)
+    } else {
+        let mut lineage = Lineage::default();
+        let items = lineage.items(&bytes);
+        if lineage.found_tip {
+            let mut previous = None;
+            visit_links(&mut file, 0, after, |link| {
+                previous = link.uuid;
+                false
+            })?;
+            if previous.is_some() && previous != lineage.parent {
+                let mut page = page_before(&mut file, end, end, codex)?;
+                page.reset = true;
+                return Ok(page);
+            }
+        }
+        items
+    };
     Ok(Page {
-        items: items(&bytes, codex),
+        items,
         start: after,
         end,
+        reset: false,
     })
 }
 
@@ -95,18 +144,105 @@ fn last_newline(file: &mut File, size: u64) -> std::io::Result<u64> {
     Ok(0)
 }
 
-fn items(bytes: &[u8], codex: bool) -> Vec<Value> {
+fn items(bytes: &[u8], parse: fn(&Value) -> Vec<Value>) -> Vec<Value> {
     String::from_utf8_lossy(bytes)
         .split('\n')
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .flat_map(|event| {
-            if codex {
-                codex_items(&event)
-            } else {
-                claude_items(&event)
-            }
-        })
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .flat_map(|event| parse(&event))
         .collect()
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ClaudeLink {
+    uuid: Option<String>,
+    parent_uuid: Option<String>,
+    logical_parent_uuid: Option<String>,
+    compact_metadata: Option<CompactMetadata>,
+    subtype: Option<String>,
+    #[serde(default)]
+    is_sidechain: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CompactMetadata {
+    preserved_segment: Option<PreservedSegment>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PreservedSegment {
+    tail_uuid: Option<String>,
+}
+
+#[derive(Default)]
+struct Lineage {
+    found_tip: bool,
+    parent: Option<String>,
+}
+
+impl Lineage {
+    fn includes(&mut self, link: ClaudeLink) -> bool {
+        if link.is_sidechain {
+            return false;
+        }
+        let Some(id) = &link.uuid else {
+            return true; // older transcripts can omit message IDs
+        };
+        if self.found_tip && self.parent.as_ref() != Some(id) {
+            return false;
+        }
+        self.found_tip = true;
+        self.parent = if link.subtype.as_deref() == Some("compact_boundary") {
+            link.compact_metadata
+                .and_then(|meta| meta.preserved_segment)
+                .and_then(|segment| segment.tail_uuid)
+                .or(link.logical_parent_uuid)
+                .or(link.parent_uuid)
+        } else {
+            link.parent_uuid
+        };
+        true
+    }
+
+    fn items(&mut self, bytes: &[u8]) -> Vec<Value> {
+        let mut items = Vec::new();
+        for line in String::from_utf8_lossy(bytes).rsplit('\n') {
+            let Ok(link) = serde_json::from_str::<ClaudeLink>(line) else {
+                continue;
+            };
+            if self.includes(link)
+                && let Ok(event) = serde_json::from_str(line)
+            {
+                items.extend(claude_items(&event).into_iter().rev());
+            }
+        }
+        items.reverse();
+        items
+    }
+}
+
+fn visit_links(
+    file: &mut File,
+    floor: u64,
+    mut end: u64,
+    mut visit: impl FnMut(ClaudeLink) -> bool,
+) -> std::io::Result<()> {
+    while end > floor {
+        let (start, bytes) = window_before(file, floor, end)?;
+        for line in String::from_utf8_lossy(&bytes).rsplit('\n') {
+            if let Ok(link) = serde_json::from_str::<ClaudeLink>(line)
+                && link.uuid.is_some()
+                && !link.is_sidechain
+                && !visit(link)
+            {
+                return Ok(());
+            }
+        }
+        end = start;
+    }
+    Ok(())
 }
 
 fn cap(text: &str, max: usize) -> (String, bool) {
@@ -219,11 +355,13 @@ fn content_text(content: &Value, kinds: &[&str]) -> String {
 
 pub(crate) fn claude_items(event: &Value) -> Vec<Value> {
     // subagent turns are folded into their Agent tool call
-    if event["isSidechain"] == true || event["isMeta"] == true {
+    if event["isSidechain"] == true || event["isMeta"] == true || event["isCompactSummary"] == true
+    {
         return Vec::new();
     }
     let content = &event["message"]["content"];
     match event["type"].as_str() {
+        Some("system") if event["subtype"] == "compact_boundary" => vec![compaction_item(event)],
         Some("user") => {
             if let Some(text) = content.as_str() {
                 return user_item(event, text).into_iter().collect();
@@ -268,6 +406,9 @@ pub(crate) fn claude_items(event: &Value) -> Vec<Value> {
 }
 
 fn codex_items(event: &Value) -> Vec<Value> {
+    if event["type"] == "compacted" {
+        return vec![compaction_item(event)];
+    }
     if event["type"] != "response_item" {
         return Vec::new();
     }
@@ -328,6 +469,10 @@ fn codex_items(event: &Value) -> Vec<Value> {
         }
         _ => Vec::new(),
     }
+}
+
+fn compaction_item(event: &Value) -> Value {
+    item("compaction", event, Value::Null)
 }
 
 #[cfg(test)]

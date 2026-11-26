@@ -13,6 +13,7 @@ use std::{path::Path, time::Duration};
 pub fn query(kind: &str, id: &str) -> String {
     match kind {
         "page" => format!("page={id}"),
+        "agent" => format!("view=terminals&term=agent:{id}"),
         "board" => format!("view=board&group=none&q={}", crate::plugins::encode(id)),
         _ => format!("view=card&card={id}"),
     }
@@ -50,6 +51,9 @@ pub fn scheme_target(url: &str) -> Option<(&'static str, String)> {
     }
     let rest = url.strip_prefix("trame://")?;
     let (kind, id) = rest.split_once('/')?;
+    if kind == "agent" {
+        return trame_core::board_link::valid_run_id(id).then(|| ("agent", id.to_owned()));
+    }
     let id = id.split(['?', '#', '/']).next()?;
     if !crate::routes::valid_uuid(id) {
         return None;
@@ -146,6 +150,21 @@ pub fn resolve(db: &mut Db, body: &Value) -> anyhow::Result<(u16, Value)> {
 
 /// POST /api/open for a view: resolves the id, then hands it to the window (`opened` is false when headless).
 pub async fn serve(state: Native, body: Value) -> Response {
+    if let Some(id) = body["agent_id"].as_str() {
+        if !trame_core::board_link::valid_run_id(id) {
+            return json_response(400, json!({"error":"invalid run id"}));
+        }
+        if !crate::agent::exists(id) {
+            return json_response(404, json!({"error":"this run is not on this machine"}));
+        }
+        return reply(
+            &state,
+            (
+                200,
+                json!({"kind":"agent","id":id,"query":query("agent",id)}),
+            ),
+        );
+    }
     if let Some(resolved) = resolve_board(&state.settings, &body) {
         return reply(&state, resolved);
     }
@@ -171,4 +190,12 @@ fn reply(state: &Native, (status, mut value): (u16, Value)) -> Response {
         value["opened"] = json!(state.open.as_ref().is_some_and(|tx| tx.send(query).is_ok()));
     }
     json_response(status, value)
+}
+
+/// A passive landing page for Slack clients that accept only web links.
+pub(crate) fn agent_landing(id: &str) -> Response {
+    if !trame_core::board_link::valid_run_id(id) {
+        return (StatusCode::NOT_FOUND, "Unknown run link").into_response();
+    }
+    axum::response::Html(include_str!("open-agent.html").replace("{{RUN_ID}}", id)).into_response()
 }

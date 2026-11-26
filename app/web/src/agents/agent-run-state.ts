@@ -32,7 +32,15 @@ export type RunState = {
   error: string | null;
   interactions: Interaction[];
 };
-export type RunSummary = { id: string; cwd: string; epoch: string; status: RunStatus; sessionId: string; provider?: Provider };
+export type RunSummary = {
+  id: string;
+  cwd: string;
+  epoch: string;
+  status: RunStatus;
+  sessionId: string;
+  provider?: Provider;
+  bot?: string | null; // the bot that started it
+};
 export type Reply = { accepted: boolean; reason?: string };
 // a model the provider offers: `value` is what to ask for, `resolved` what it runs as
 export type ModelChoice = { value: string; resolved?: string | null; label: string; description?: string | null; efforts?: string[] | null };

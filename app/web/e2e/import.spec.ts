@@ -110,6 +110,13 @@ test("import creates the card, the auto project, and the worklog event", async (
   await expect(page.getByText("IMPORT FROM CLAUDE CODE + CODEX", { exact: true })).toBeHidden();
   await page.getByText("alpha — Ship the import feature").click();
   await expect(page.getByText("Imported from Claude Code · e2e")).toBeVisible(); // stamps the node
+  const historyButton = page.getByRole("button", { name: "Full history" });
+  await historyButton.click();
+  const history = page.getByRole("dialog", { name: "Session history" });
+  await expect(history.getByText("build the import", { exact: true }).first()).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(history).toBeHidden();
+  await expect(historyButton).toBeVisible();
   await page.keyboard.press("Escape");
 });
 
