@@ -40,6 +40,7 @@ pub fn owns(method: &str, path: &str) -> bool {
         ["", "api", "pages", id, "delete" | "move"] => !id.is_empty(),
         ["", "api", "pages", id, "story" | "session"] => !id.is_empty() && method == "POST",
         ["", "api", "pages", id, "events"] => !id.is_empty() && method == "GET",
+        ["", "api", "fleet"] => true,
         ["", "api", "repos", "suggest"] => method == "GET",
         ["", "api", "repos"] | ["", "api", "repos", _] | ["", "api", "repos", _, "delete"] => {
             method == "POST"
@@ -55,7 +56,7 @@ fn hub_owns(method: &str, path: &str) -> bool {
     let parts: Vec<_> = path.split('/').collect();
     match (method, parts.as_slice()) {
         ("GET", ["board" | "search" | "due" | "agent-presence"] | ["stories", "similar"])
-        | ("GET" | "POST", ["presence" | "tags" | "pages" | "comments" | "udb"])
+        | ("GET" | "POST", ["presence" | "tags" | "pages" | "comments" | "udb" | "fleet"])
         | ("POST", ["sessions" | "stories" | "statuses"]) => true,
         ("GET", ["sessions", id])
         | ("GET" | "POST", ["sessions", id, "links" | "events"])
@@ -152,6 +153,9 @@ fn handle_inner(
     if !db.is_hub()
         && let Some(result) = crate::local::handle(db, method, path, query, body)
     {
+        return result;
+    }
+    if let Some(result) = crate::fleet::handle(db, method, path, body) {
         return result;
     }
     if let Some(result) = crate::udb::handle(db, method, path, query, body) {
@@ -320,7 +324,8 @@ fn parses_json(method: &str, path: &str) -> bool {
             "",
             "api",
             "pages" | "comments" | "sessions" | "stories" | "statuses" | "tags" | "presence"
-            | "settings" | "reports" | "shares" | "page-links" | "open-path" | "udb" | "repos",
+            | "fleet" | "settings" | "reports" | "shares" | "page-links" | "open-path" | "udb"
+            | "repos",
         ] => true,
         ["", "api", "pages" | "repos", _] | ["", "api", "pages", _, "move"] => true,
         ["", "api", "comments", "inbox"] => false,
