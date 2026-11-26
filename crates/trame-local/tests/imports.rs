@@ -495,6 +495,7 @@ fn history_keeps_full_turns_tool_pairs_and_ids() {
         json!({"type":"response_item","payload":{"type":"custom_tool_call","call_id":"c2","name":"apply_patch","input":"*** Begin Patch"}}),
         json!({"type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"c2","output":"Done!"}}),
         json!({"type":"event_msg","payload":{"type":"agent_message","message":"dup"}}),
+        json!({"type":"compacted","payload":{"replacement_history":[{"type":"message","role":"user","content":[{"type":"input_text","text":"replacement context"}]}]}}),
     ]);
     let result = format!(
         "{{\"kind\":\"result\",\"toolId\":\"tu1\",\"text\":\"{}\",\"error\":true,\"truncated\":true}}",
@@ -523,6 +524,7 @@ fn history_keeps_full_turns_tool_pairs_and_ids() {
                 {"kind":"result","toolId":"c1","text":"a.rs","error":false,"truncated":false},
                 {"kind":"tool","id":"c2","name":"apply_patch","input":{"input":"*** Begin Patch"}},
                 {"kind":"result","toolId":"c2","text":"Done!","error":false,"truncated":false},
+                {"kind":"compaction"},
             ]),
         ),
     ] {
@@ -532,6 +534,71 @@ fn history_keeps_full_turns_tool_pairs_and_ids() {
         assert_eq!(Value::Array(page.items), expected);
         assert_eq!((page.start, page.end), (0, text.len() as u64));
     }
+}
+
+#[test]
+fn history_follows_the_active_claude_branch_across_pages_and_compaction() {
+    use std::io::Write;
+    use trame_local::imports::history;
+
+    let initial = jsonl(&[
+        json!({"type":"user","uuid":"root","parentUuid":null,"message":{"content":"original prompt"}}),
+        json!({"type":"assistant","uuid":"answer","parentUuid":"root","message":{"content":[{"type":"text","text":"original reply"}]}}),
+        json!({"type":"user","uuid":"rewound","parentUuid":"answer","message":{"content":"discarded prompt"}}),
+        json!({"type":"assistant","uuid":"discarded","parentUuid":"rewound","message":{"content":[{"type":"text","text":"x".repeat(1 << 20)}]}}),
+    ]);
+    let path = history_file(&initial);
+    let last = history::before(&path, None, false).unwrap();
+    assert!(
+        last.items
+            .iter()
+            .any(|item| item["text"] == "discarded prompt")
+    );
+
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap();
+    let compacted = jsonl(&[
+        json!({"type":"system","subtype":"compact_boundary","uuid":"compact","parentUuid":null,"logicalParentUuid":"rewritten","compactMetadata":{"preservedSegment":{"tailUuid":"answer"}}}),
+        json!({"type":"user","uuid":"summary","parentUuid":"compact","isCompactSummary":true,"message":{"content":"injected summary"}}),
+        json!({"type":"user","uuid":"continued","parentUuid":"summary","message":{"content":"next prompt"}}),
+        json!({"type":"assistant","uuid":"side","parentUuid":"continued","isSidechain":true,"message":{"content":[{"type":"text","text":"subagent reply"}]}}),
+    ]);
+    file.write_all(compacted.as_bytes()).unwrap();
+    let next = history::after(&path, last.end, false).unwrap();
+    assert_eq!(next.to_json()["reset"], true);
+    assert_eq!(
+        Value::Array(next.items),
+        json!([
+            {"kind":"compaction"},
+            {"kind":"user","text":"next prompt","truncated":false},
+        ]),
+    );
+    let earlier = history::before(&path, Some(next.start), false).unwrap();
+    assert_eq!(
+        Value::Array(earlier.items),
+        json!([
+            {"kind":"user","text":"original prompt","truncated":false},
+            {"kind":"assistant","text":"original reply","truncated":false},
+        ]),
+    );
+
+    let appended = jsonl(&[
+        json!({"type":"assistant","uuid":"reply","parentUuid":"continued","message":{"content":[{"type":"text","text":"next reply"}]}}),
+        json!({"type":"system","subtype":"compact_boundary","uuid":"compact-again","parentUuid":null,"logicalParentUuid":"reply"}),
+    ]);
+    file.write_all(appended.as_bytes()).unwrap();
+    let followed = history::after(&path, next.end, false).unwrap();
+    std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    assert!(!followed.reset);
+    assert_eq!(
+        Value::Array(followed.items),
+        json!([
+            {"kind":"assistant","text":"next reply","truncated":false},
+            {"kind":"compaction"},
+        ]),
+    );
 }
 
 #[test]

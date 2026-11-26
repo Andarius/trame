@@ -35,6 +35,12 @@ describe("turns split at prompts and keep their closing reply", () => {
         { kind: "assistant", text: "done", truncated: false },
         { kind: "user", text: "next", truncated: false },
       ], [false, true], "done"],
+      ["compaction keeps its place between replies", [
+        { kind: "user", text: "start", truncated: false },
+        { kind: "assistant", text: "done", truncated: false },
+        { kind: "compaction" },
+        { kind: "assistant", text: "continued", truncated: false },
+      ], [true, false, false], "done"],
     ] as const
   ) {
     test(id, () => {

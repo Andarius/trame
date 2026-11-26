@@ -12,7 +12,7 @@
     "shortDescription": "Local-first session tracker for coding work",
     "longDescription": "Trame keeps coding sessions, pages, comments, and reports in a local PostgreSQL database.",
     "icon": ["../../app/assets/icon.png"],
-    "externalBin": ["../../.scratch/package/tramecli"],
+    "externalBin": ["../../.scratch/package/tramecli", "../../.scratch/package/agent-relay"],
     "resources": {
       "../../.scratch/package/pg/usr/lib/postgresql/18/": "postgres/lib/postgresql/18/",
       "../../.scratch/package/pg/usr/share/postgresql/18/": "postgres/share/postgresql/18/",

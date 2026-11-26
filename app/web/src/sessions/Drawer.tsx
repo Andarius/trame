@@ -25,6 +25,7 @@ import {
 } from "../api";
 import { clearSelection, MenuRow, enumCodec, useLocalStorage, appConfirm, clientColor, EntityIcon, ExpandIcon, FIELD_LABEL, FieldRow, pageOptions, Popover, Select, TagChips, timeAgo, IconButton, PresenceDot, EmptyState } from "../ui/ui";
 import { AgentIcon, AgentsSummary, EventMeta, PresencePill, useAgents } from "../agents/agents";
+import { AgentHistory } from "../agents/AgentHistory";
 import { summarizeAgents } from "../agents/agent-summary";
 import { PrChip, RepoLink } from "../md/chips";
 import { renderInline } from "../md/md-inline";
@@ -57,6 +58,36 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 export const TOPBAR_SLOT = "topbar-actions";
 const TOP_BTN =
   "shrink-0 whitespace-nowrap rounded-md border border-line px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink-soft";
+
+type Transcript = { source: AgentKind; id: string };
+
+function HistoryDialog({ transcript, title, live, onClose }: {
+  transcript: Transcript;
+  title: string;
+  live: boolean;
+  onClose: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    dialog.current?.showModal();
+  }, []);
+  return (
+    <dialog
+      ref={dialog}
+      aria-label="Session history"
+      className="m-auto h-[82vh] max-h-none w-[min(960px,calc(100vw-2rem))] max-w-none overflow-hidden rounded-xl border border-line bg-canvas text-ink shadow-2xl backdrop:bg-black/45"
+      onClose={onClose}
+    >
+      <div className="flex h-full flex-col">
+        <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3">
+          <h2 className="truncate text-sm font-medium">{title}</h2>
+          <IconButton tone="close" title="Close history" onClick={() => dialog.current?.close()}>✕</IconButton>
+        </div>
+        <AgentHistory {...transcript} live={live} className="flex-1" />
+      </div>
+    </dialog>
+  );
+}
 
 export function Drawer(
   { session, board, onClose, onSaved, defaultExpanded, onExpandedChange, onOpenPage, embedded = false, docked = false, onOpenTerminals }: {
@@ -156,6 +187,7 @@ export function Drawer(
   const [resumeMsg, setResumeMsg] = useState<string | null>(null);
   const [missing, setMissing] = useState<MissingFolder | null>(null);
   const [resumeInfo, setResumeInfo] = useState<ResumeInfo | null>(null);
+  const [shownTranscript, setShownTranscript] = useState<Transcript | null>(null);
   const [resumeMenu, setResumeMenu] = useState(false);
   const [resumeMode, setResumeMode] = useResumeMode();
   // the last picked agent drives the main button, like the open mode above
@@ -164,10 +196,15 @@ export function Drawer(
 
   // probe on open so the button shows whether this session is resumable HERE vs on another device
   useEffect(() => {
+    let current = true;
     setResumeInfo(null);
-    if (!session.repo_path) return;
-    probeResume(session.id).then(setResumeInfo).catch(() => {});
-  }, [session.id, session.repo_path]);
+    probeResume(session.id).then((info) => {
+      if (current) setResumeInfo(info);
+    }).catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [session.id, session.repo_path, session.agent, session.claude_id]);
 
   // size the next-step textarea to its content when it enters edit mode
   useEffect(() => {
@@ -258,14 +295,16 @@ export function Drawer(
     }
   };
 
+  const handleKey = useEffectEvent((e: KeyboardEvent) => {
+    if (shownTranscript) return;
+    if (e.key === "Escape") onClose();
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commit().then(onClose);
+  });
   useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commit().then(onClose);
-    };
+    const h = (e: KeyboardEvent) => handleKey(e);
     addEventListener("keydown", h);
     return () => removeEventListener("keydown", h);
-  });
+  }, []);
 
   // shared pieces — composed differently by the side-panel and expanded (ticket) layouts
   const headerBar = (
@@ -309,6 +348,26 @@ export function Drawer(
     a.session_id === session.id || (!!session.specs_page_id && a.page_id === session.specs_page_id)
   );
   const active = cardAgents.length > 0;
+  const { agent: transcriptSource, transcriptId } = resumeInfo ?? {};
+  const historyButton = transcriptSource && transcriptId && (
+    <button
+      type="button"
+      className="self-start rounded-md border border-line px-2.5 py-1 text-xs text-ink-muted hover:text-ink"
+      onClick={() => setShownTranscript({ source: transcriptSource, id: transcriptId })}
+    >
+      Full history
+    </button>
+  );
+  const historyDialog = shownTranscript && (
+    <HistoryDialog
+      transcript={shownTranscript}
+      title={title}
+      live={cardAgents.some(({ a, state }) =>
+        a.session_id === session.id && a.harness === shownTranscript.source && state === "working"
+      )}
+      onClose={() => setShownTranscript(null)}
+    />
+  );
   const reloadJournal = useEffectEvent(() => {
     loadJournal();
   });
@@ -919,6 +978,7 @@ export function Drawer(
             <div className="flex flex-col gap-3 border-b border-line px-4 py-4">
               <span className={FIELD_LABEL}>JOURNAL</span>
               {resumeBlock}
+              {historyButton}
               {nextBanner}
               {activityInput}
             </div>
@@ -928,6 +988,7 @@ export function Drawer(
           </div>
         </div>
         {!embedded && footerBar}
+        {historyDialog}
       </div>
     );
   }
@@ -945,6 +1006,7 @@ export function Drawer(
         {sessionTags}
         {statusSelect}
         {resumeBlock}
+        {historyButton}
       </div>
 
       <div className="flex flex-col gap-1 border-t border-line-soft px-4 py-3.5">
@@ -970,6 +1032,7 @@ export function Drawer(
       </div>
 
       {footerBar}
+      {historyDialog}
     </div>
   );
 }

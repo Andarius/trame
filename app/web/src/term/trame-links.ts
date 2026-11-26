@@ -1,6 +1,7 @@
 // What a Trame link names: a `trame://` link (what agents report) or this app's own http link.
 export type TrameTarget =
   | { kind: "card" | "page" | "db"; id: string }
+  | { kind: "agent"; run: string }
   | { kind: "board"; q: string }
   | { kind: "view"; name: string };
 
@@ -13,6 +14,8 @@ export function trameScheme(uri: string): TrameTarget | null {
   const [, kind, path, query] = m;
   const segs = path.split("/").filter(Boolean);
   switch (kind.toLowerCase()) {
+    case "agent":
+      return /^[0-9a-f]{32}$/.test(path) && !query ? { kind: "agent", run: path } : null;
     case "board":
       return segs.length
         ? null

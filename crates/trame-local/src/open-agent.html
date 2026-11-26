@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Open in Trame</title>
+<style>
+  :root { color-scheme: light dark; font: 1rem system-ui }
+  main { max-width: 28rem; margin: 12vh auto; padding: 1.5rem }
+  a { font-weight: 600 }
+</style>
+<main>
+  <h1>Agent run</h1>
+  <p role="status">Open this conversation on the machine named in Slack.</p>
+  <a href="trame://agent/{{RUN_ID}}">Open in Trame</a>
+</main>
+<script>
+  document.querySelector("a").addEventListener("click", async (event) => {
+    event.preventDefault();
+    const status = document.querySelector("[role=status]");
+    try {
+      const response = await fetch("/api/open", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent_id: "{{RUN_ID}}" })
+      });
+      if (!response.ok) {
+        status.textContent = response.status === 404
+          ? "This run is no longer available on this machine."
+          : "Trame could not open this run.";
+        return;
+      }
+      const result = await response.json();
+      if (result.opened) status.textContent = "Opened in Trame.";
+      else location.assign("/?" + result.query);
+    } catch {
+      status.textContent = "Start Trame on this machine and try again.";
+    }
+  });
+</script>
+</html>

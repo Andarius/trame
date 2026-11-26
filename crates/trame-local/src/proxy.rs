@@ -10,6 +10,7 @@ use axum::{
 pub struct Proxy {
     pub port: u16,
     pub native: crate::routes::Native,
+    pub(crate) relay: std::sync::Arc<crate::managed_relay::Service>,
 }
 
 fn loopback_origin(value: &str) -> bool {
@@ -111,11 +112,19 @@ async fn route(state: &Proxy, req: Request<Body>) -> Response {
         return (StatusCode::FORBIDDEN, "local request required").into_response();
     }
     let native = &state.native;
+    if req.method() == axum::http::Method::GET {
+        if let Some(id) = req.uri().path().strip_prefix("/open-agent/") {
+            return crate::open::agent_landing(id);
+        }
+    }
     if crate::diagnostics::owns(req.method().as_str(), req.uri().path()) {
         return crate::diagnostics::serve(native.clone()).await;
     }
     if crate::demo::owns(req.uri().path()) {
         return crate::demo::serve(native, &req);
+    }
+    if req.uri().path() == "/api/agent-relay" {
+        return state.relay.serve(req).await;
     }
     if crate::agent::owns(req.uri().path()) {
         return crate::agent::serve(native.clone(), req).await;

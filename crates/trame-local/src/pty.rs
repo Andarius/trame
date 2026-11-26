@@ -394,9 +394,16 @@ fn save_folder(root: &Path, from: &str, to: &str) -> std::io::Result<()> {
 
 /// Variables an agent harness sets for its own children (Claude Code, Codex, Anthropic SDK).
 pub(crate) fn agent_host_var(key: &str) -> bool {
-    ["CLAUDE", "ANTHROPIC_", "CODEX_", "OPENAI_"]
-        .iter()
-        .any(|prefix| key.starts_with(prefix))
+    [
+        "CLAUDE",
+        "ANTHROPIC_",
+        "CODEX_",
+        "OPENAI_",
+        "TRAME_SLACK_",
+        "TRAME_RELAY_TOKEN",
+    ]
+    .iter()
+    .any(|prefix| key.starts_with(prefix))
 }
 
 /// Hang up the terminal, then force it after a grace period.

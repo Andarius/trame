@@ -1,4 +1,4 @@
-import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { type HistoryPage, transcriptHistory } from "../api";
 import { BOOL_CODEC, SECTION_LABEL, useLocalStorage } from "../ui/ui";
 import {
@@ -39,26 +39,36 @@ export function AgentHistory(
   const scroller = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
   const keepFrom = useRef<number | null>(null);
+  const generation = useRef({ value: 0 });
+
+  const replace = useCallback((p: HistoryPage) => {
+    generation.current.value++;
+    keys.current = { low: 0, high: p.items.length };
+    pinned.current = true;
+    keepFrom.current = null;
+    setItems(p.items.map((item, key) => ({ key, item })));
+    setRange({ start: p.start, end: p.end, more: p.more });
+    setLoading(false);
+    setError(null);
+  }, []);
 
   useEffect(() => {
     let alive = true;
+    const epoch = generation.current;
+    epoch.value++;
     setItems([]);
     setRange(null);
     setError(null);
     pinned.current = true;
     transcriptHistory(source, id).then(
-      (p) => {
-        if (!alive) return;
-        keys.current = { low: 0, high: p.items.length };
-        setItems(p.items.map((item, key) => ({ key, item })));
-        setRange({ start: p.start, end: p.end, more: p.more });
-      },
+      (p) => alive && replace(p),
       (e: Error) => alive && setError(e.message),
     );
     return () => {
       alive = false;
+      epoch.value++;
     };
-  }, [source, id]);
+  }, [source, id, replace]);
 
   // follow appended lines; a failed poll just waits for the next one
   const end = useRef<number | null>(null);
@@ -66,11 +76,17 @@ export function AgentHistory(
   const following = range !== null;
   useEffect(() => {
     if (!following) return;
+    let alive = true;
     let busy = false;
     const timer = setInterval(() => {
       if (busy || end.current === null) return;
       busy = true;
       transcriptHistory(source, id, { after: end.current }).then((p: HistoryPage) => {
+        if (!alive) return;
+        if (p.reset) {
+          replace(p);
+          return;
+        }
         if (p.items.length) {
           const from = keys.current.high;
           keys.current.high += p.items.length;
@@ -81,23 +97,28 @@ export function AgentHistory(
         busy = false;
       });
     }, FOLLOW_MS);
-    return () => clearInterval(timer);
-  }, [source, id, following]);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [source, id, following, replace]);
 
   const earlier = async () => {
     if (!range?.more || loading) return;
+    const requested = generation.current.value;
     setLoading(true);
     try {
       const p = await transcriptHistory(source, id, { before: range.start });
+      if (requested !== generation.current.value) return;
       keepFrom.current = scroller.current ? scroller.current.scrollHeight - scroller.current.scrollTop : null;
       const from = keys.current.low - p.items.length;
       keys.current.low = from;
       setItems((prev) => [...p.items.map((item, i) => ({ key: from + i, item })), ...prev]);
       setRange((r) => r && { ...r, start: p.start, more: p.more });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (requested === generation.current.value) setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false);
+      if (requested === generation.current.value) setLoading(false);
     }
   };
 
@@ -251,6 +272,7 @@ function Body({ items, results }: { items: Keyed[]; results: Map<string, Result>
     flush();
     if (item.kind === "tool") out.push(<ToolLine key={key} tool={item} result={results.get(item.id)} diffOpen />);
     else if (item.kind === "assistant") out.push(<Reply key={key} text={item.text} truncated={item.truncated} />);
+    else if (item.kind === "compaction") out.push(<div key={key} className="text-ink-faint">· context compacted</div>);
     else if (item.kind === "thinking") {
       out.push(
         <details key={key} className="text-ink-faint">

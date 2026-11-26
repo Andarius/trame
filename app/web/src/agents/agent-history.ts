@@ -63,8 +63,9 @@ export function runSentence(tools: Tool[]): string {
 export function toTurns(items: Keyed[]): Turn[] {
   const out: Turn[] = [];
   for (const k of items) {
+    const previous = out.at(-1);
     if (k.item.kind === "user") out.push({ key: k.key, prompt: k, body: [] });
-    else if (out.length) out[out.length - 1].body.push(k);
+    else if (previous && k.item.kind !== "compaction" && previous.body[0]?.item.kind !== "compaction") previous.body.push(k);
     else out.push({ key: k.key, prompt: null, body: [k] });
   }
   return out;

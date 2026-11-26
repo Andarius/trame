@@ -18,6 +18,7 @@ pub mod host_env;
 pub mod imports;
 pub mod json;
 pub mod local;
+mod managed_relay;
 pub mod notify;
 pub mod open;
 pub mod pages;
@@ -335,10 +336,24 @@ pub async fn run(
         if n > 0 {
             eprintln!("agent view: restored {n} runs");
         }
-        tokio::spawn(agent::bridge());
     }
+    let relay_bridge = (!config.demo && agent::enabled()).then(|| tokio::spawn(agent::bridge()));
+    let slack_bridge = (!offline && !isolated_mode() && agent::enabled()).then(|| {
+        let native = native.clone();
+        tokio::spawn(async move { agent::connector::bridge(native).await })
+    });
+    let relay = std::sync::Arc::new(managed_relay::Service::new(
+        native.settings.clone(),
+        &native.root,
+        config.demo,
+    ));
+    relay.start().await;
     let term_saver = (!config.demo).then(|| tokio::spawn(pty::keep_saved(native.root.clone())));
-    let router = proxy::router(proxy::Proxy { port, native });
+    let router = proxy::router(proxy::Proxy {
+        port,
+        native,
+        relay: relay.clone(),
+    });
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let mut server = tokio::spawn(async move {
         use axum::serve::ListenerExt as _;
@@ -366,7 +381,12 @@ pub async fn run(
     let _ = shutdown_tx.send(());
     // open terminals hold WebSocket connections the graceful shutdown would wait on
     let _ = blocking::spawn(pty::shutdown).await;
+    for task in [slack_bridge, relay_bridge].into_iter().flatten() {
+        task.abort();
+        let _ = task.await;
+    }
     agent::shutdown();
+    relay.shutdown().await;
     let _ = blocking::spawn(plugins::stop_all).await;
     for task in plugin_tasks.into_iter().chain(
         [updater, notifier, seeder, term_saver]

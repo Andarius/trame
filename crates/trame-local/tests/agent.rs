@@ -60,6 +60,23 @@ async fn send(ws: &mut Ws, id: &str, epoch: &str, kind: &str, payload: Value) ->
     frames.last().unwrap().clone()
 }
 
+/// The runs saved in `agent_runs`, once `want` holds on them or after 5 s (the writer is asynchronous).
+fn saved_runs(t: &mut TestDb, want: impl Fn(&[Value]) -> bool) -> Vec<Value> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let runs: Vec<Value> =
+            t.db.query("select record from agent_runs order by id", &[])
+                .unwrap()
+                .into_iter()
+                .map(|mut r| r["record"].take())
+                .collect();
+        if want(&runs) || std::time::Instant::now() > deadline {
+            return runs;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 fn assistant_texts(frames: &[Value]) -> Vec<String> {
     frames
         .iter()
@@ -116,6 +133,12 @@ fn supervisor_runs_turns_denies_decisions_and_reconnects() {
         let created: Value = created.json().await.unwrap();
         let run = created["id"].as_str().unwrap().to_owned();
         let epoch = created["epoch"].as_str().unwrap().to_owned();
+
+        let landing = http.get(format!("{base}/open-agent/{run}")).send().await.unwrap().text().await.unwrap();
+        assert!(landing.contains(&format!("trame://agent/{run}")));
+        let opened: Value = http.post(format!("{base}/api/open")).json(&json!({"agent_id":run})).send().await.unwrap().json().await.unwrap();
+        assert_eq!(opened["query"], format!("view=terminals&term=agent:{run}"));
+        assert_eq!(opened["opened"], false);
 
         let bad = attach(&base, &run, json!({"type":"attach","token":"nope","role":"writer"})).await;
         drop(bad);
@@ -406,7 +429,7 @@ fn runs_come_back_stopped_with_their_history_and_hand_off_to_a_terminal() {
     .join("\n")
         + "\n";
     let transcript_path = format!("claude-projects/-work-acme/{session}.jsonl");
-    let t = TestDb::with_files(
+    let mut t = TestDb::with_files(
         &[
             ("TRAME_CLAUDE_BIN", fake),
             ("FAKE_LOG", log.to_str().unwrap()),
@@ -523,17 +546,15 @@ fn runs_come_back_stopped_with_their_history_and_hand_off_to_a_terminal() {
             get("/api/agent/runs/r1".into()).await.unwrap().status(),
             404
         );
-        let saved: Value =
-            serde_json::from_slice(&std::fs::read(t.root.join("agent-runs.json")).unwrap())
-                .unwrap();
-        assert_eq!(saved, json!([]));
-
         // a shell without Claude in it has nothing to hand over
         let none = post("/api/agent/handoff".into(), json!({"term":term}))
             .await
             .unwrap();
         assert_eq!(none.status(), 404);
     });
+    // the old JSON file was taken over once, and the handed-off run is no longer saved
+    assert!(!t.root.join("agent-runs.json").exists());
+    assert_eq!(saved_runs(&mut t, <[Value]>::is_empty), Vec::<Value>::new());
     let _ = std::fs::remove_file(&log);
 }
 
@@ -937,6 +958,37 @@ fn the_listening_run_takes_relayed_messages_and_only_it() {
             .to_owned();
         let (a, _, mut wa) = ready_run(&base, &token, json!({"cwd":cwd})).await;
         let (b, _, mut wb) = ready_run(&base, &token, json!({"cwd":cwd})).await;
+        let send_to_peer = |auth: &str, peer: &str| {
+            http.post(format!("{base}/api/agent/relay/send"))
+                .header(TOKEN_HEADER, auth)
+                .json(&json!({"peer":peer,"text":"a reply","from":a}))
+                .send()
+        };
+        let sent = queue.with_extension("sent.jsonl");
+        assert_eq!(
+            send_to_peer("wrong-token", "bob").await.unwrap().status(),
+            401
+        );
+        assert!(!sent.exists());
+        let sent_reply = send_to_peer(&token, "bob").await.unwrap();
+        assert_eq!(sent_reply.status(), 200);
+        assert_eq!(
+            sent_reply.json::<Value>().await.unwrap()["id"],
+            "9ac1307d-d127-4331-b2d9-20d6cdbdd803",
+        );
+        let delivered: Value =
+            serde_json::from_str(&std::fs::read_to_string(sent).unwrap()).unwrap();
+        assert_eq!(
+            delivered,
+            json!({"to":"bob","body":format!("Message from Trame run {a}:\n\na reply")})
+        );
+        let refused = send_to_peer(&token, "carol").await.unwrap();
+        assert_eq!(refused.status(), 502);
+        assert_eq!(
+            refused.json::<Value>().await.unwrap()["error"],
+            "relay peer carol refused the message (HTTP 403)"
+        );
+
         let listen = |run: String, on: bool| {
             http.post(format!("{base}/api/agent/runs/{run}/relay"))
                 .json(&json!({"token":token,"on":on}))
@@ -963,7 +1015,7 @@ fn the_listening_run_takes_relayed_messages_and_only_it() {
         let said = &assistant_texts(&turn)[0];
         assert!(
             said.starts_with("echo: Message from relay peer bob:\n\nping")
-                && said.contains("send_message tool with to: bob"),
+                && said.contains("tramecli agent send --peer bob"),
             "{said}"
         );
 
@@ -990,4 +1042,183 @@ fn the_listening_run_takes_relayed_messages_and_only_it() {
     let _ = fake_relay.kill();
     let _ = fake_relay.wait();
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_agent_missing_from_the_app_path_is_found_through_the_login_shell() {
+    let shell = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/fake-login-shell.sh"
+    );
+    let log = trame_local::workspace().join(format!(
+        ".scratch/agent-shell-{}.log",
+        uuid::Uuid::new_v4().simple()
+    ));
+    // no TRAME_CLAUDE_BIN, and the server's PATH (/usr/bin:/bin) has no claude: as for a macOS app
+    let t = TestDb::with_env(&[("SHELL", shell), ("FAKE_LOG", log.to_str().unwrap())]);
+    let base = t.base_url();
+    let cwd = t.root.to_str().unwrap().to_owned();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let token = reqwest::get(format!("{base}/api/term/token"))
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap()["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let (_, epoch, mut w) = ready_run(&base, &token, json!({"cwd":cwd})).await;
+        command(&mut w, "p1", &epoch, "prompt", "hello").await;
+        assert_eq!(
+            assistant_texts(&until(&mut w, kind("turn.finished")).await),
+            ["echo: hello"]
+        );
+    });
+    let _ = std::fs::remove_file(&log);
+}
+
+#[test]
+fn a_bots_hook_starts_its_runs_up_to_a_cap_and_only_with_its_secret() {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fake-claude.py");
+    let log = trame_local::workspace().join(format!(
+        ".scratch/agent-bots-{}.log",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let mut t = TestDb::with_env(&[
+        ("TRAME_CLAUDE_BIN", fake),
+        ("FAKE_LOG", log.to_str().unwrap()),
+    ]);
+    let base = t.base_url();
+    let cwd = t.root.to_str().unwrap().to_owned();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let http = reqwest::Client::new();
+        let token = reqwest::get(format!("{base}/api/term/token"))
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap()["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let app = |req: reqwest::RequestBuilder| req.header(TOKEN_HEADER, &token).send();
+        let bots = format!("{base}/api/agent/bots");
+
+        for (body, want) in [
+            (json!({"name":"CI bot","cwd":cwd}), 400),
+            (json!({"name":"ci","cwd":"/no/such/folder"}), 400),
+            (json!({"name":"ci","cwd":cwd,"mode":"yolo"}), 400),
+        ] {
+            assert_eq!(
+                app(http.post(&bots).json(&body)).await.unwrap().status(),
+                want,
+                "{body}"
+            );
+        }
+        let bot: Value = app(http.post(&bots).json(&json!({"name":"ci","cwd":cwd})))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(
+            (bot["mode"].clone(), bot["slack"].clone()),
+            (json!("auto"), json!(false))
+        );
+        assert!(bot.get("hook").is_none(), "the list never shows the secret");
+        let same = app(http.post(&bots).json(&json!({"name":"ci","cwd":cwd})))
+            .await
+            .unwrap();
+        assert_eq!(same.status(), 400);
+        let id = bot["id"].as_str().unwrap().to_owned();
+        let hook: Value = app(http.get(format!("{bots}/{id}/hook")))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let secret = hook["token"].as_str().unwrap().to_owned();
+        let trigger = |secret: &str, text: &str| {
+            http.post(format!("{bots}/{id}/runs"))
+                .header("x-trame-hook", secret)
+                .json(&json!({"text":text,"from":"ci"}))
+                .send()
+        };
+
+        // only this bot's secret (or the app) starts it
+        assert_eq!(trigger("wrong", "ping").await.unwrap().status(), 401);
+        let started = trigger(&secret, "ping").await.unwrap();
+        assert_eq!(started.status(), 201);
+        let run: Value = started.json().await.unwrap();
+        assert_eq!(run["bot"], json!(id));
+        let mut ws = attach(
+            &base,
+            run["id"].as_str().unwrap(),
+            json!({"type":"attach","token":token}),
+        )
+        .await;
+        assert_eq!(
+            assistant_texts(&until(&mut ws, kind("turn.finished")).await),
+            ["echo: Message from a hook (ci):\n\nping"]
+        );
+
+        // four live runs at most; the fifth trigger is refused rather than queued
+        for _ in 0..3 {
+            assert_eq!(trigger(&secret, "hang").await.unwrap().status(), 201);
+        }
+        assert_eq!(trigger(&secret, "hang").await.unwrap().status(), 429);
+        let listed: Value = app(http.get(&bots)).await.unwrap().json().await.unwrap();
+        assert_eq!(listed[0]["live"], 4);
+
+        // a new secret retires the old one at once
+        let rotated: Value = app(http.post(format!("{bots}/{id}/hook")))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_ne!(rotated["token"], json!(secret));
+        assert_eq!(trigger(&secret, "ping").await.unwrap().status(), 401);
+
+        // an update keeps what it leaves out; a run's record keeps its bot for the next launch
+        let patched: Value = app(http
+            .patch(format!("{bots}/{id}"))
+            .json(&json!({"slack":true})))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+        assert_eq!(
+            (patched["name"].clone(), patched["slack"].clone()),
+            (json!("ci"), json!(true))
+        );
+        let owned = |runs: &[Value]| runs.len() == 4 && runs.iter().all(|r| r["bot"] == json!(id));
+        // off the runtime: the blocking postgres client can't run on it
+        let saved = std::thread::scope(|s| s.spawn(|| saved_runs(&mut t, owned)).join().unwrap());
+        assert!(owned(&saved));
+
+        // deleting the bot keeps its runs, ownerless
+        assert_eq!(
+            app(http.delete(format!("{bots}/{id}")))
+                .await
+                .unwrap()
+                .status(),
+            200
+        );
+        let runs: Vec<Value> = app(http.get(format!("{base}/api/agent/runs")))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(runs.len(), 4);
+        assert!(runs.iter().all(|r| r["bot"].is_null()));
+    });
+    let ownerless = |runs: &[Value]| runs.len() == 4 && runs.iter().all(|r| r["bot"].is_null());
+    assert!(ownerless(&saved_runs(&mut t, ownerless)));
+    let _ = std::fs::remove_file(&log);
 }

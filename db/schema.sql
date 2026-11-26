@@ -361,6 +361,29 @@ create table if not exists repo_checkouts (
   repo_id uuid primary key,
   path text not null
 );
+-- this machine's agent bots: what Slack, hooks and the app start runs from (NOT synced: paths and hook secrets are per machine)
+create table if not exists agent_bots (
+  id uuid primary key default uuidv7(),
+  name text not null unique,              -- how Slack addresses it: [a-z0-9-], up to 32
+  provider text not null default 'claude',
+  cwd text not null,
+  mode text,
+  model text,
+  effort text,
+  slack boolean not null default false,
+  hook text not null,                     -- the secret a hook starts its runs with
+  created_at timestamptz not null default now()
+);
+-- this machine's agent-view runs, listed stopped after a restart (NOT synced)
+create table if not exists agent_runs (
+  id text primary key,
+  record jsonb not null                   -- folder, conversation, mode, hook secret, bot
+);
+-- Slack events this machine already acted on, so a redelivery never starts a second run (NOT synced)
+create table if not exists slack_events (
+  event_id text primary key,
+  event_time bigint not null              -- Slack's event_time, seconds; rows past a day are dropped
+);
 
 create or replace function trame_session_done_at() returns trigger
 language plpgsql as $fn$

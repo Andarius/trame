@@ -350,9 +350,9 @@ fn resume(db: &mut Db, body: &Value) -> Result<(u16, Value)> {
     let pick = body["open"]
         .as_str()
         .filter(|a| matches!(*a, "claude" | "codex"));
-    let (repo, cid, agent, local, home, fresh) = if let Some(repo) =
-        body["repoPath"].as_str().filter(|s| !s.is_empty())
-    {
+    let transcript_repo = body["repoPath"].as_str().filter(|s| !s.is_empty());
+    let probe = trame_core::truthy(&body["probe"]);
+    let (repo, cid, agent, local, home, fresh) = if let Some(repo) = transcript_repo {
         (
             Some(json!(repo)),
             id.to_owned(),
@@ -438,6 +438,9 @@ fn resume(db: &mut Db, body: &Value) -> Result<(u16, Value)> {
     }
     result["agent"] = json!(agent);
     result["fresh"] = json!(fresh.is_some());
+    if probe && transcript_repo.is_none() && local && fresh.is_none() {
+        result["transcriptId"] = json!(cid);
+    }
     result["desktop"] =
         json!({"claude":desktop_installed("claude"),"codex":desktop_installed("codex")});
     let url = cwd
@@ -446,7 +449,7 @@ fn resume(db: &mut Db, body: &Value) -> Result<(u16, Value)> {
     if let Some(url) = &url {
         result["url"] = json!(url);
     }
-    if trame_core::truthy(&body["probe"]) || cwd.is_none() || !local {
+    if probe || cwd.is_none() || !local {
         result["ok"] = json!(local && cwd.is_some());
         result["launched"] = json!(false);
         return Ok((200, result));

@@ -18,6 +18,7 @@ is optional.
   fill in, sandboxed interactive HTML blocks, and read-only share links.
 - **Databases**: Notion-style tables with sortable, filterable, groupable views.
 - **Plugins**: opt-in native or WebAssembly plugins add panels, blocks and commands.
+- **Bots**: named agent setups that [Slack, a hook or the app start](docs/slack-agent.md) in a project folder.
 
 ## Install
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { BoardData, ClaudeSession } from "../api";
 import { RecentList } from "../agents/RecentList";
 import { AgentRuns } from "../agents/AgentRuns";
+import { Bots } from "../agents/Bots";
 import { terminalToRun, useAgentDest } from "../agents/agent-run";
 import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
@@ -816,6 +817,7 @@ export function TermCards(
           {handoffError} ✕
         </button>
       )}
+      <Bots onOpenRun={onSelectAgent} />
       <AgentRuns selected={agentRun} onSelect={onSelectAgent} />
       <RecentList board={board} selected={recent} history={history} onSelect={onSelectRecent} onHistory={onSelectHistory} />
       {linkFor && (

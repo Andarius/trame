@@ -89,7 +89,7 @@ wasm-fixture:
 [group('dev')]
 dev: web-build
     bash scripts/rust-package.sh prepare
-    TRAME_ISOLATED=1 TRAME_OFFLINE=1 TRAME_LOCAL_DIR="$PWD/.scratch/dev" TRACKER_PORT=0 TRAME_PG_BIN="$PWD/.scratch/package/pg/usr/lib/postgresql/18/bin" TRAME_WEB_DIR="$PWD/app/web/dist" cargo run -p trame-desktop --locked
+    AGENT_RELAY_HOME="${AGENT_RELAY_HOME:-$PWD/.scratch/dev/relay}" TRAME_ISOLATED=1 TRAME_OFFLINE=1 TRAME_LOCAL_DIR="$PWD/.scratch/dev" TRACKER_PORT=0 TRAME_PG_BIN="$PWD/.scratch/package/pg/usr/lib/postgresql/18/bin" TRAME_WEB_DIR="$PWD/app/web/dist" cargo run -p trame-desktop --locked
 
 # Run the native backend headlessly
 [group('dev')]

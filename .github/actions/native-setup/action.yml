@@ -1,5 +1,5 @@
 name: Native setup
-description: Node, Bun, Rust (cached), native libraries and PostgreSQL 18 resources
+description: Node, Bun, Rust (cached), native libraries and packaged resources
 
 runs:
   using: composite
@@ -35,6 +35,6 @@ runs:
       with:
         save-if: ${{ github.ref == 'refs/heads/master' }}
 
-    - name: Prepare PostgreSQL 18 resources
+    - name: Prepare PostgreSQL and agent relay resources
       shell: bash
       run: bash scripts/rust-package.sh prepare
