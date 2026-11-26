@@ -170,11 +170,13 @@ export function TermCards(
     });
   // agents in their project's own window are listed there, not here
   const inWindow = (x: TermSession) => !!out[x.term]?.group;
+  // agents waiting on you stay in their project, first in it, and are counted in the header
   const asking = termSessions.filter((x) => !inWindow(x) && isWaiting(x));
-  const running = termSessions.filter((x) => !inWindow(x) && !isWaiting(x)).sort((a, b) => seen(b) - seen(a));
+  const running = termSessions.filter((x) => !inWindow(x))
+    .sort((a, b) => Number(isWaiting(b)) - Number(isWaiting(a)) || seen(b) - seen(a));
   const pins = running.filter((x) => pinned.has(x.id));
   // idle agents whose follow-ups have waited over a day, above the groups
-  const leftOver = running.filter((x) => !pinned.has(x.id) && !x.busy && liveOf(x)?.state !== "working" && isLeftOver(x, openCount(followUps(x))));
+  const leftOver = running.filter((x) => !pinned.has(x.id) && !x.busy && !isWaiting(x) && liveOf(x)?.state !== "working" && isLeftOver(x, openCount(followUps(x))));
   // an agent's project: its card's, else its shell's
   const projectOf = (x: TermSession) => {
     const t = terms[x.term];
@@ -596,12 +598,6 @@ export function TermCards(
 
   return (
     <nav aria-label="Running agents" className="flex flex-col gap-3">
-      {asking.length > 0 && (
-        <section className={`flex flex-col ${gap}`}>
-          <div className={`px-2 pb-1 ${SECTION_LABEL} text-wait`}>NEEDS YOU · {asking.length}</div>
-          {asking.map((x) => agentRow(x))}
-        </section>
-      )}
       {leftOver.length > 0 && (
         <section className={`flex flex-col ${gap}`} aria-label="Left over">
           <div className={`px-2 pb-1 ${SECTION_LABEL}`} title="idle agents whose follow-ups have waited over a day">
@@ -620,6 +616,7 @@ export function TermCards(
         >
           AGENTS
           {agents > 0 && <span>· {agents}</span>}
+          {asking.length > 0 && <span className="tracking-normal text-wait">· {asking.length} need{asking.length === 1 ? "s" : ""} you</span>}
         </button>
         <button
           type="button"
@@ -702,7 +699,14 @@ export function TermCards(
                 >
                   {folded.has(gkey(key)) ? "▸" : "▾"}
                 </span>
-                <span className="ml-auto pr-1 tracking-normal tabular-nums text-ink-faint">{xs.length + (project ? windowed(project) : 0)}</span>
+                {xs.some(isWaiting) && (
+                  <span className="ml-auto tracking-normal tabular-nums text-wait" title="agents waiting on you">
+                    {xs.filter(isWaiting).length} waiting
+                  </span>
+                )}
+                <span className={`${xs.some(isWaiting) ? "" : "ml-auto "}pr-1 tracking-normal tabular-nums text-ink-faint`}>
+                  {xs.length + (project ? windowed(project) : 0)}
+                </span>
               </button>
               {project && !popped.has(project) && grouping !== "paths" && (
                 <button
