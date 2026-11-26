@@ -1115,6 +1115,44 @@ struct Running {
     /// Restored but not resumed yet: it starts when its shell is first shown.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     asleep: bool,
+    /// Headless agents it started (`codex exec`), listed under it.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    workers: Vec<Worker>,
+}
+
+/// A headless agent run started by another agent, such as `codex exec` from a Claude script.
+#[derive(Debug, PartialEq, serde::Serialize)]
+struct Worker {
+    pid: u32,
+    agent: &'static str,
+    model: Option<String>,
+    cwd: Option<String>,
+}
+
+/// `codex exec …` (not its sandbox helpers), run directly or through node: a worker with the model it was given.
+fn codex_worker(p: &crate::diagnostics::Process) -> Option<Worker> {
+    let rest = if p.name == "codex" {
+        &p.args[..]
+    } else {
+        p.args
+            .first()
+            .filter(|a| a.rsplit('/').next() == Some("codex"))?;
+        &p.args[1..]
+    };
+    rest.first().filter(|a| *a == "exec")?;
+    let model = rest
+        .windows(2)
+        .find(|w| w[0] == "-m" || w[0] == "--model")
+        .map(|w| w[1].clone());
+    let cwd = std::fs::read_link(format!("/proc/{}/cwd", p.pid))
+        .ok()
+        .map(|c| c.to_string_lossy().into_owned());
+    Some(Worker {
+        pid: p.pid,
+        agent: "codex",
+        model,
+        cwd,
+    })
 }
 
 /// Claude sessions alive now anywhere on this machine (a terminal, the background daemon), by transcript id:
@@ -1406,6 +1444,7 @@ fn asleep_agent(term: &str, agent: &SavedAgent) -> Option<Running> {
             model: None,
         },
         asleep: true,
+        workers: Vec::new(),
     })
 }
 
@@ -1416,13 +1455,16 @@ fn running_agents(
     shells: &[(String, u32)],
     session_of: impl Fn(u32) -> Option<AgentSession>,
 ) -> Vec<Running> {
-    let mut out = Vec::new();
+    let mut out: Vec<Running> = Vec::new();
     for (term, pid) in shells {
-        // the tree lists parents first: an agent's descendants are skipped as they come
-        let mut below_agent = std::collections::HashSet::new();
+        // the tree lists parents first: an agent's descendants belong to it, its `codex exec` runs listed as workers
+        let mut below_agent: HashMap<u32, usize> = HashMap::new();
         for p in crate::diagnostics::tree(all, *pid) {
-            if below_agent.contains(&p.ppid) {
-                below_agent.insert(p.pid);
+            if let Some(&owner) = below_agent.get(&p.ppid) {
+                below_agent.insert(p.pid, owner);
+                if let Some(w) = codex_worker(&p) {
+                    out[owner].workers.push(w);
+                }
                 continue;
             }
             let codex = || {
@@ -1447,13 +1489,14 @@ fn running_agents(
                 .map(|s| ("claude", s))
                 .or_else(|| codex().map(|s| ("codex", s)));
             if let Some((agent, session)) = found {
-                below_agent.insert(p.pid);
+                below_agent.insert(p.pid, out.len());
                 out.push(Running {
                     term: term.clone(),
                     pid: p.pid,
                     agent,
                     session,
                     asleep: false,
+                    workers: Vec::new(),
                 });
             }
         }
@@ -2094,6 +2137,10 @@ mod tests {
                 &["daemon", "run", "--origin", "transient"],
             ),
             proc(13, 12, "2.1.332", &["bg-spare"]),
+            // a script it ran started headless Codex workers
+            proc(14, 11, "zsh", &["-c", "run-worker.sh"]),
+            proc(15, 14, "codex", &["exec", "-m", "gpt-6.2-astra", "-c"]),
+            proc(16, 15, "codex-linux-sandbox", &["--sandbox-policy-cwd"]),
             proc(20, 1, "zsh", &[]),
             proc(
                 21,
@@ -2127,7 +2174,8 @@ mod tests {
         assert_eq!(
             json!(running_agents(&all, &shells, session)),
             json!([
-                {"term":"t1","agent":"claude","id":"c-1","name":"test","named":true,"busy":true,"waiting":null,"started_at":1,"updated_at":2,"done":false,"follow_ups":null},
+                {"term":"t1","agent":"claude","id":"c-1","name":"test","named":true,"busy":true,"waiting":null,"started_at":1,"updated_at":2,"done":false,"follow_ups":null,
+                 "workers":[{"pid":15,"agent":"codex","model":"gpt-6.2-astra","cwd":null}]},
                 {"term":"t2","agent":"codex","id":"x-2","name":null,"named":false,"busy":false,"waiting":null,"started_at":null,"updated_at":null,"done":false,"follow_ups":null},
             ])
         );
