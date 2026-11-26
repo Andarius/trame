@@ -440,6 +440,7 @@ fn upsert_mut(db: &mut Db, raw: &mut Value, note: Option<&mut String>) -> Result
                 }
                 let tags = get(&s, "repo_path")
                     .as_str()
+                    .filter(|_| !db.is_hub())
                     .map(default_tags)
                     .unwrap_or_default();
                 let anchor = if reused.is_null() {

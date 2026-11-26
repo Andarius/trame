@@ -29,25 +29,108 @@ pub fn owns(method: &str, path: &str) -> bool {
         || crate::udb::owns(method, path)
         || crate::sessions::owns(method, path)
         || crate::imports::owns(method, path)
+        || owns_comments(method, path)
     {
         return true;
     }
     let p: Vec<_> = path.split('/').collect();
     match p.as_slice() {
-        ["", "api", "pages" | "comments"] | ["", "api", "comments", "inbox"] => true,
+        ["", "api", "pages"] => true,
         ["", "api", "pages", id] => !id.is_empty() && *id != "import",
         ["", "api", "pages", id, "delete" | "move"] => !id.is_empty(),
         ["", "api", "pages", id, "story" | "session"] => !id.is_empty() && method == "POST",
         ["", "api", "pages", id, "events"] => !id.is_empty() && method == "GET",
-        ["", "api", "comments", id] | ["", "api", "comments", id, "delete" | "agent-status"] => {
-            !id.is_empty() && method == "POST"
-        }
+        ["", "api", "fleet"] => true,
         ["", "api", "repos", "suggest"] => method == "GET",
         ["", "api", "repos"] | ["", "api", "repos", _] | ["", "api", "repos", _, "delete"] => {
             method == "POST"
         }
         _ => false,
     }
+}
+
+fn hub_owns(method: &str, path: &str) -> bool {
+    let Some(path) = path.strip_prefix("/api/") else {
+        return false;
+    };
+    let parts: Vec<_> = path.split('/').collect();
+    match (method, parts.as_slice()) {
+        ("GET", ["board" | "search" | "due" | "agent-presence"] | ["stories", "similar"])
+        | ("GET" | "POST", ["presence" | "tags" | "pages" | "comments" | "udb" | "fleet"])
+        | ("POST", ["sessions" | "stories" | "statuses"]) => true,
+        ("GET", ["sessions", id])
+        | ("GET" | "POST", ["sessions", id, "links" | "events"])
+        | (
+            "POST",
+            [
+                "sessions",
+                id,
+                "specs-page" | "presence" | "status" | "delete" | "restore",
+            ]
+            | ["stories" | "statuses" | "tags", id]
+            | ["statuses", id, "delete" | "move"]
+            | ["tags" | "links", id, "delete"],
+        ) => valid_uuid(id),
+        // The shared page handler answers 405 for unsupported methods on these paths.
+        (_, ["pages", id] | ["pages", id, "delete" | "move"])
+        | ("GET", ["pages", id, "events"])
+        | ("POST", ["pages", id, "story" | "session"]) => valid_uuid(id),
+        ("GET", ["comments", "inbox"] | ["udb", "icons"]) => true,
+        ("POST", ["comments", id] | ["comments", id, "delete" | "agent-status"]) => valid_uuid(id),
+        ("POST", ["udb", "links"]) => true,
+        ("GET" | "POST", ["udb", id])
+        | (
+            "POST",
+            ["udb", id, "props" | "rows" | "delete"]
+            | ["udb", "props" | "rows", id]
+            | ["udb", "props" | "rows", id, "delete"],
+        ) => valid_uuid(id),
+        _ => false,
+    }
+}
+
+pub fn hub_parses_json(method: &str, path: &str) -> bool {
+    hub_owns(method, path) && parses_json(method, path)
+}
+
+pub fn parse_hub_body(method: &str, path: &str, bytes: &[u8]) -> Result<Value, (u16, Value)> {
+    if !hub_parses_json(method, path) {
+        return Ok(Value::Null);
+    }
+    let error = match serde_json::from_slice(bytes) {
+        Ok(body) => return Ok(body),
+        Err(error) => error,
+    };
+    let parts: Vec<_> = path.split('/').collect();
+    let status = match parts.as_slice() {
+        ["", "api", "sessions", _, "presence"] => return Ok(Value::Null),
+        ["", "api", "pages", ..]
+        | ["", "api", "statuses" | "tags", _]
+        | ["", "api", "statuses", _, "move"]
+        | ["", "api", "udb", "props", _]
+        | ["", "api", "udb", _, "props"] => 400,
+        _ => 500,
+    };
+    Err((status, json!({"error": error.to_string()})))
+}
+
+/// Dispatch only the shared routes explicitly exposed by the hub.
+pub fn hub_handle(
+    db: &mut Db,
+    method: &str,
+    path: &str,
+    query: &str,
+    body: &Value,
+) -> anyhow::Result<(u16, Value)> {
+    if !hub_owns(method, path) {
+        return Ok(not_found());
+    }
+    anyhow::ensure!(db.is_hub(), "hub dispatcher requires a hub database");
+    handle(db, method, path, query, body)
+}
+
+fn not_found() -> (u16, Value) {
+    (404, json!({"error":"not found"}))
 }
 
 pub fn handle(
@@ -67,7 +150,12 @@ fn handle_inner(
     query: &str,
     body: &Value,
 ) -> anyhow::Result<(u16, Value)> {
-    if let Some(result) = crate::local::handle(db, method, path, query, body) {
+    if !db.is_hub()
+        && let Some(result) = crate::local::handle(db, method, path, query, body)
+    {
+        return result;
+    }
+    if let Some(result) = crate::fleet::handle(db, method, path, body) {
         return result;
     }
     if let Some(result) = crate::udb::handle(db, method, path, query, body) {
@@ -76,19 +164,42 @@ fn handle_inner(
     if let Some(result) = crate::sessions::handle(db, method, path, query, body) {
         return result;
     }
-    if let Some(result) = crate::imports::handle(db, method, path, query, body) {
-        return result;
-    }
-    if let Some(result) = crate::repos::handle(db, method, path, query, body) {
+    if !db.is_hub()
+        && let Some(result) = crate::imports::handle(db, method, path, query, body)
+            .or_else(|| crate::repos::handle(db, method, path, query, body))
+    {
         return result;
     }
     if let Some(result) = crate::pages::handle(db, method, path, body) {
         return result;
     }
+    if owns_comments(method, path) {
+        return handle_comments(db, method, path, query, body);
+    }
+    Ok(not_found())
+}
+
+fn owns_comments(method: &str, path: &str) -> bool {
+    let parts: Vec<_> = path.split('/').collect();
+    match parts.as_slice() {
+        ["", "api", "comments"] | ["", "api", "comments", "inbox"] => true,
+        ["", "api", "comments", id] | ["", "api", "comments", id, "delete" | "agent-status"] => {
+            !id.is_empty() && method == "POST"
+        }
+        _ => false,
+    }
+}
+
+fn handle_comments(
+    db: &mut Db,
+    method: &str,
+    path: &str,
+    query: &str,
+    body: &Value,
+) -> anyhow::Result<(u16, Value)> {
     if method == "POST"
         && body.is_null()
         && path != "/api/comments/inbox"
-        && path != "/api/udb/icons"
         && !path.ends_with("/delete")
     {
         anyhow::bail!("null comment body");
@@ -213,7 +324,8 @@ fn parses_json(method: &str, path: &str) -> bool {
             "",
             "api",
             "pages" | "comments" | "sessions" | "stories" | "statuses" | "tags" | "presence"
-            | "settings" | "reports" | "shares" | "page-links" | "open-path" | "udb" | "repos",
+            | "fleet" | "settings" | "reports" | "shares" | "page-links" | "open-path" | "udb"
+            | "repos",
         ] => true,
         ["", "api", "pages" | "repos", _] | ["", "api", "pages", _, "move"] => true,
         ["", "api", "comments", "inbox"] => false,
@@ -367,6 +479,111 @@ pub(crate) fn number(value: &str) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hub_allowlist_routes_to_shared_handlers() {
+        let id = "aaf9a808-4376-4bd3-b90b-645bb0fd634d";
+        for (method, path) in [
+            ("GET", "/api/board".into()),
+            ("GET", "/api/stories/similar".into()),
+            ("POST", "/api/sessions".into()),
+            ("GET", format!("/api/sessions/{id}")),
+            ("POST", format!("/api/sessions/{id}/presence")),
+            ("GET", format!("/api/sessions/{id}/links")),
+            ("POST", format!("/api/links/{id}/delete")),
+            ("POST", format!("/api/stories/{id}")),
+            ("POST", format!("/api/statuses/{id}/move")),
+            ("POST", format!("/api/tags/{id}/delete")),
+            ("GET", "/api/comments/inbox".into()),
+            ("POST", format!("/api/comments/{id}/agent-status")),
+            ("POST", "/api/pages".into()),
+            ("GET", format!("/api/pages/{id}/events")),
+            ("PATCH", format!("/api/pages/{id}")),
+            ("POST", format!("/api/pages/{id}/story")),
+            ("POST", format!("/api/pages/{id}/session")),
+            ("GET", "/api/udb/icons".into()),
+            ("POST", "/api/udb/links".into()),
+            ("POST", format!("/api/udb/{id}/props")),
+            ("POST", format!("/api/udb/rows/{id}/delete")),
+        ] {
+            assert!(hub_owns(method, &path), "{method} {path}");
+            assert!(owns(method, &path), "{method} {path}");
+        }
+    }
+
+    #[test]
+    fn hub_allowlist_rejects_local_unknown_and_ambiguous_paths() {
+        let id = "aaf9a808-4376-4bd3-b90b-645bb0fd634d";
+        for (method, path) in [
+            ("GET", "/api/settings".into()),
+            ("POST", "/api/settings".into()),
+            ("GET", "/api/status".into()),
+            ("GET", "/api/fs/complete".into()),
+            ("GET", "/api/folder".into()),
+            ("POST", "/api/open-path".into()),
+            ("POST", "/api/import/claude".into()),
+            ("POST", "/api/pages/import".into()),
+            ("GET", "/api/repos/suggest".into()),
+            ("POST", format!("/api/repos/{id}")),
+            ("GET", "/api/reports".into()),
+            ("POST", "/api/report-files/delete".into()),
+            ("GET", "/api/timeline".into()),
+            ("POST", "/api/update/restart".into()),
+            ("POST", "/api/sync".into()),
+            ("POST", "/sync".into()),
+            ("GET", "/usage".into()),
+            ("GET", "/l/test".into()),
+            ("POST", "/api/comment-links".into()),
+            ("POST", "/api/page-links".into()),
+            ("POST", "/api/comments/inbox".into()),
+            ("GET", "/api/pages/".into()),
+            ("POST", format!("/api/pages/{id}/story/extra")),
+            ("POST", "/api/udb/icons".into()),
+            ("POST", "/api/udb/props/rows".into()),
+            ("GET", "/api/udb/links".into()),
+            ("DELETE", "/api/board".into()),
+            ("POST", "/api/stories/similar".into()),
+            ("GET", format!("/api/sessions/{id}/unknown")),
+            ("GET", format!("/api/sessions/{id}/events/")),
+            ("GET", "/api//board".into()),
+        ] {
+            assert!(!hub_owns(method, &path), "{method} {path}");
+        }
+    }
+
+    #[test]
+    fn hub_reads_json_only_for_supported_body_consumers() {
+        let id = "aaf9a808-4376-4bd3-b90b-645bb0fd634d";
+        for (method, path, expected) in [
+            ("POST", "/api/pages".into(), true),
+            ("POST", "/api/pages/import".into(), false),
+            ("POST", format!("/api/pages/{id}/move"), true),
+            ("POST", format!("/api/pages/{id}/session"), false),
+            ("POST", format!("/api/sessions/{id}/specs-page"), false),
+            ("POST", format!("/api/statuses/{id}/move"), true),
+            ("POST", format!("/api/comments/{id}/delete"), false),
+            ("POST", "/api/open-path".into(), false),
+            ("PATCH", format!("/api/pages/{id}"), false),
+        ] {
+            assert_eq!(hub_parses_json(method, &path), expected, "{method} {path}");
+        }
+    }
+
+    #[test]
+    fn malformed_hub_json_preserves_route_status() {
+        let id = "aaf9a808-4376-4bd3-b90b-645bb0fd634d";
+        for (path, status) in [
+            ("/api/pages".to_owned(), Some(400)),
+            (format!("/api/statuses/{id}/move"), Some(400)),
+            (format!("/api/udb/{id}/props"), Some(400)),
+            ("/api/sessions".into(), Some(500)),
+            (format!("/api/sessions/{id}/presence"), None),
+        ] {
+            let result = parse_hub_body("POST", &path, b"{");
+            assert_eq!(result.err().map(|(status, _)| status), status, "{path}");
+        }
+    }
+
     #[test]
     fn import_routes_get_their_json_body() {
         for path in [

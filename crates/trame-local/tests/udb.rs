@@ -247,6 +247,108 @@ fn formula_evaluates_and_cannot_read_private_tables() {
 }
 
 #[test]
+fn hub_formula_executor_is_opt_in_and_uses_the_restricted_login() {
+    use postgres::{Config, NoTls};
+    use trame_local::{db::Db, udb::formula::Executor};
+
+    let mut t = TestDb::new();
+    let id = id(&mut t, "Hub formulas");
+    row(&mut t, &id, json!({}));
+    let expr =
+        "current_setting('transaction_read_only') || ':' || current_setting('statement_timeout')";
+    let formula = prop(&mut t, &id, "Settings", "formula", json!({"expr":expr}));
+    let values = [
+        (
+            "Exact numeric",
+            "12345678901234567890.123456789012345678900::numeric",
+            json!("12345678901234567890.123456789012345678900"),
+        ),
+        (
+            "Exact bigint",
+            "9007199254740993::bigint",
+            json!("9007199254740993"),
+        ),
+        ("Integer", "42::int", json!(42)),
+        ("Null numeric", "null::numeric", Value::Null),
+    ]
+    .map(|(name, expr, expected)| {
+        (
+            prop(&mut t, &id, name, "formula", json!({"expr":expr})),
+            expected,
+        )
+    });
+    let mut config = Config::new();
+    config
+        .host_path(t.root.join("socket"))
+        .port(trame_local::pg::PORT)
+        .user("trame")
+        .dbname("postgres");
+    let read_path = format!("/api/udb/{id}");
+    let props_path = format!("{read_path}/props");
+    for password in [None, Some("")] {
+        let executor = Executor::for_hub(&mut t.db.client, &config, password).unwrap();
+        let mut db = Db::for_hub(
+            config.connect(NoTls).unwrap(),
+            t.db.origin.clone(),
+            executor,
+        );
+        let (status, body) = udb::handle(&mut db, "GET", &read_path, "", &Value::Null)
+            .unwrap()
+            .unwrap();
+        assert_eq!(status, 200);
+        assert_eq!(
+            body["rows"][0]["derived"][&formula]["error"],
+            "formulas are not evaluated on this hub"
+        );
+        let (status, body) = udb::handle(
+            &mut db,
+            "POST",
+            &props_path,
+            "",
+            &json!({"name":"Disabled","type":"formula","config":{"expr":"1 + 1"}}),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(status, 400);
+        assert_eq!(
+            body["error"],
+            "invalid formula: formulas are not evaluated on this hub"
+        );
+    }
+
+    let executor = Executor::for_hub(&mut t.db.client, &config, Some("trame's formula")).unwrap();
+    let mut db = Db::for_hub(
+        config.connect(NoTls).unwrap(),
+        t.db.origin.clone(),
+        executor,
+    );
+    let (status, body) = udb::handle(&mut db, "GET", &read_path, "", &Value::Null)
+        .unwrap()
+        .unwrap();
+    assert_eq!(status, 200);
+    assert_eq!(body["rows"][0]["derived"][&formula], "on:2s");
+    for (id, expected) in values {
+        assert_eq!(body["rows"][0]["derived"][&id], expected);
+    }
+    let (status, body) = udb::handle(
+        &mut db,
+        "POST",
+        &props_path,
+        "",
+        &json!({"name":"Private","type":"formula","config":{"expr":"query_to_xml('select id from pages',false,false,'')"}}),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(status, 400);
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("permission denied")
+    );
+}
+
+#[test]
 fn route_ownership_keeps_unrelated_endpoints_proxied() {
     for path in [
         "/api/udb",

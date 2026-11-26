@@ -2,6 +2,7 @@ mod common;
 use common::TestDb;
 use serde_json::{Value, json};
 use std::{path::Path, process::Command};
+use trame_local::{db::Db, pg, routes::hub_handle, udb::formula::Executor};
 
 fn git(dir: &Path, args: &[&str]) {
     let ok = Command::new("git")
@@ -162,4 +163,93 @@ fn cards_file_under_the_project_listing_their_repo() {
         suggested,
         json!([{"path":api,"remote":"gitlab.com/acme/api","name":"api"}])
     );
+}
+
+#[test]
+fn hub_routes_leave_desktop_checkouts_alone() {
+    let mut t = TestDb::new();
+    let checkout = clone(&t.root.join("web"), "git@github.com:Acme/Web.git");
+    let project = project(&mut t, "Acme");
+    let (status, repo) = http_post(
+        &t,
+        "/api/repos",
+        &json!({"project_id":project,"path":checkout}),
+    );
+    assert_eq!(status, 200);
+    let stale = json!(t.root.join("absent-checkout"));
+    t.db.query(
+        "update repo_checkouts set path=$2 where repo_id=$1",
+        &[repo["id"].clone(), stale.clone()],
+    )
+    .unwrap();
+    let existing = t.db.query(
+        "insert into sessions(title,repo_path,branch) values('Existing card',$1,'existing') returning id",
+        &[json!(checkout)],
+    )
+    .unwrap()
+    .remove(0);
+
+    let mut client = pg::connect(&t.root).unwrap();
+    let formula = Executor::for_hub(&mut client, &postgres::Config::new(), None).unwrap();
+    let mut hub = Db::for_hub(client, "hub-test".into(), formula);
+    let (status, board) = hub_handle(&mut hub, "GET", "/api/board", "", &Value::Null).unwrap();
+    assert_eq!(status, 200);
+    let project = board["projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"] == project)
+        .unwrap();
+    assert!(project.get("repos").is_none());
+    let existing = board["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["id"] == existing["id"])
+        .unwrap();
+    assert_eq!(existing.get("repo_id"), Some(&Value::Null));
+
+    let (status, session) = hub_handle(
+        &mut hub,
+        "POST",
+        "/api/sessions",
+        "",
+        &json!({"title":"New card","repo_path":checkout,"branch":"new"}),
+    )
+    .unwrap();
+    assert_eq!(status, 200);
+    let card =
+        t.db.query(
+            "select repo_id,client_id from sessions where id=$1",
+            &[session["id"].clone()],
+        )
+        .unwrap()
+        .remove(0);
+    assert_eq!(card, json!({"repo_id":null,"client_id":null}));
+
+    let (status, page) = hub_handle(
+        &mut hub,
+        "POST",
+        "/api/pages",
+        "",
+        &json!({"title":"New page","repo_path":checkout}),
+    )
+    .unwrap();
+    assert_eq!(status, 200);
+    let parent =
+        t.db.query(
+            "select p.title from pages c join pages p on p.id=c.parent_id where c.id=$1",
+            &[page["id"].clone()],
+        )
+        .unwrap()
+        .remove(0);
+    assert_eq!(parent["title"], "Side-projects");
+    let remembered =
+        t.db.query(
+            "select path from repo_checkouts where repo_id=$1",
+            std::slice::from_ref(&repo["id"]),
+        )
+        .unwrap()
+        .remove(0);
+    assert_eq!(remembered["path"], stale);
 }

@@ -22,7 +22,7 @@ pub fn attach_udb(db: &mut Db, id: &str, page_id: &Value) -> Result<()> {
 
 fn rules() -> &'static Mutex<Vec<MarkRule>> {
     static RULES: OnceLock<Mutex<Vec<MarkRule>>> = OnceLock::new();
-    RULES.get_or_init(|| Mutex::new(Vec::new()))
+    RULES.get_or_init(|| Mutex::new(crate::plugins::mark_roles()))
 }
 
 pub fn add_mark_roles(add: Vec<MarkRule>) {
@@ -52,11 +52,11 @@ pub fn is_user_story(page: &Value) -> bool {
     has_role(page, "linked-story") || (page["kind"] == "story" && !has_role(page, "ticket"))
 }
 
-fn list_cols() -> String {
+pub(crate) fn mark_role_col() -> String {
     let rules = rules().lock().unwrap();
     let mut sorted: Vec<_> = rules.iter().collect();
     sorted.sort_by_key(|r| r.role != "ticket");
-    let role = if sorted.is_empty() {
+    if sorted.is_empty() {
         "null::text as mark_role".into()
     } else {
         format!(
@@ -73,7 +73,17 @@ fn list_cols() -> String {
                 .collect::<Vec<_>>()
                 .join(" ")
         )
-    };
+    }
+}
+
+fn list_cols(db: &Db) -> String {
+    let cols = format!(
+        "id, parent_id, kind, title, icon, status, client_id, color, tags, sort_key, owner_id, updated_at, {}",
+        mark_role_col()
+    );
+    if db.is_hub() {
+        return cols;
+    }
     let icons: Vec<String> = crate::plugins::registry()
         .filter_map(crate::plugins::api::Plugin::page_icon)
         .map(|(block, icon)| {
@@ -89,9 +99,7 @@ fn list_cols() -> String {
     } else {
         format!("case {} end as plugin_icon", icons.join(" "))
     };
-    format!(
-        "id, parent_id, kind, title, icon, status, client_id, color, tags, sort_key, owner_id, updated_at, {role}, {plugin_icon}"
-    )
+    format!("{cols}, {plugin_icon}")
 }
 
 pub fn mid_key(a: &str, b: &str) -> String {
@@ -183,7 +191,7 @@ pub fn list(db: &mut Db) -> Result<Value> {
     Ok(json!(db.query(
         &format!(
             "select {} from pages where not deleted order by sort_key, title",
-            list_cols()
+            list_cols(db)
         ),
         &[]
     )?))
@@ -213,7 +221,7 @@ pub fn get(db: &mut Db, id: &str) -> Result<Value> {
                case when jsonb_typeof(content)='array' then content else '[]'::jsonb end) b
               where b->>'type'='todo' and b->>'done'='true') as todos_done
        from pages where parent_id=$1 and not deleted order by sort_key, title",
-            list_cols()
+            list_cols(db)
         ),
         &[json!(id)]
     )?);

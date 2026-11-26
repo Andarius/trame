@@ -1,11 +1,8 @@
 use crate::{db::Db, files, settings};
 use anyhow::Result;
-use base64::Engine;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
-    io::Read,
     process::{Command, Stdio},
     sync::{Mutex, OnceLock},
 };
@@ -246,10 +243,8 @@ pub fn set_share(db: &mut Db, body: &Value) -> Result<Value> {
 }
 
 pub fn create_link(db: &mut Db, page: &str) -> Result<(Value, String)> {
-    let mut raw = [0u8; 32];
-    std::fs::File::open("/dev/urandom")?.read_exact(&mut raw)?;
-    let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw);
-    let hash = crate::assets::hex(&Sha256::digest(token.as_bytes()));
+    let token = crate::token::generate()?;
+    let hash = crate::token::hash(&token);
     let id=db.query("insert into page_links (page_id, token_hash, token, origin) values ($1,$2,$3,$4) returning id",&[json!(page),json!(hash),json!(token),json!(db.origin)])?[0]["id"].clone();
     Ok((id, token))
 }

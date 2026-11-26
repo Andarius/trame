@@ -1342,6 +1342,22 @@ fn parse_claude_session(file: &Value) -> Option<AgentSession> {
     })
 }
 
+/// This device's running agents with their shell's title, card and project, for the other devices.
+pub(crate) async fn fleet_snapshot() -> Vec<Value> {
+    running_in_shells()
+        .await
+        .into_iter()
+        .filter_map(|r| {
+            let t = get(&r.term)?;
+            let mut v = serde_json::to_value(&r).ok()?;
+            v["title"] = json!(t.title);
+            v["card"] = json!(*t.card.lock().unwrap());
+            v["project"] = json!(t.project);
+            Some(v)
+        })
+        .collect()
+}
+
 async fn running_in_shells() -> Vec<Running> {
     let (shells, asleep): (Vec<(String, u32)>, Vec<Running>) = {
         let terms = registry().terms.lock().unwrap();

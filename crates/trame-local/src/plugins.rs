@@ -94,9 +94,8 @@ pub fn web_dir(root: &std::path::Path) -> std::path::PathBuf {
     root.join("plugins/web")
 }
 
-/// Boot-time loops of every plugin; the composed plugins' page marks join the hierarchy rules.
-pub fn start_all(native: &Native) -> Vec<tokio::task::JoinHandle<()>> {
-    let roles = local_gen::MARK_ROLES
+pub(crate) fn mark_roles() -> Vec<crate::pages::MarkRule> {
+    local_gen::MARK_ROLES
         .iter()
         .filter_map(|(mark, value, role)| {
             Some(crate::pages::MarkRule {
@@ -105,8 +104,11 @@ pub fn start_all(native: &Native) -> Vec<tokio::task::JoinHandle<()>> {
                 role: (*role).to_owned(),
             })
         })
-        .collect();
-    crate::pages::add_mark_roles(roles);
+        .collect()
+}
+
+/// Starts the plugin tasks.
+pub fn start_all(native: &Native) -> Vec<tokio::task::JoinHandle<()>> {
     registry().filter_map(|p| p.start(native.clone())).collect()
 }
 

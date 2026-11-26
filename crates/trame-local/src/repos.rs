@@ -94,6 +94,9 @@ pub fn identity(path: &str) -> Option<Identity> {
 
 /// The repo row for a folder, by remote. When two projects list it: `prefer`'s, else the one whose card there moved last.
 pub fn repo_for(db: &mut Db, path: &str, prefer: &Value) -> Result<Option<Value>> {
+    if db.is_hub() {
+        return Ok(None);
+    }
     let Some(id) = identity(path) else {
         return Ok(None);
     };

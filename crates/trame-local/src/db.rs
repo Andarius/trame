@@ -1,3 +1,4 @@
+use crate::udb::formula::Executor;
 use anyhow::{Result, bail};
 use bytes::BytesMut;
 use postgres::{
@@ -32,8 +33,9 @@ fn operation_gate(root: &Path) -> Result<OperationGate> {
 pub struct Db {
     pub client: Client,
     pub origin: String,
+    pub(crate) formula: Executor,
     settings: Option<PathBuf>,
-    gate: OperationGate,
+    gate: Option<OperationGate>,
     in_operation: bool,
     in_transaction: bool,
 }
@@ -108,18 +110,38 @@ impl Db {
         Ok(Self {
             client: crate::pg::connect(root)?,
             origin: origin.into(),
+            formula: Executor::local(),
             settings,
-            gate: operation_gate(root)?,
+            gate: Some(operation_gate(root)?),
             in_operation: false,
             in_transaction: false,
         })
     }
+    /// Wrap a checked-out hub connection without a desktop settings file or operation gate.
+    pub fn for_hub(client: Client, origin: String, formula: Executor) -> Self {
+        Self {
+            client,
+            origin,
+            formula,
+            settings: None,
+            gate: None,
+            in_operation: false,
+            in_transaction: false,
+        }
+    }
+
+    pub(crate) fn is_hub(&self) -> bool {
+        self.gate.is_none()
+    }
+
     /// Keep multi-query local operations and sync scans from interleaving.
     pub fn exclusive<T>(&mut self, work: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
         if self.in_operation {
             return work(self);
         }
-        let gate = self.gate.clone();
+        let Some(gate) = self.gate.clone() else {
+            return work(self);
+        };
         let _guard = gate
             .lock()
             .map_err(|_| anyhow::anyhow!("database operation panicked"))?;
@@ -133,17 +155,32 @@ impl Db {
     }
     /// Runs `work` in one transaction: an error rolls back everything it wrote. Nests by joining the outer one.
     pub fn transaction<T>(&mut self, work: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
+        if self.in_transaction {
+            return work(self);
+        }
+        self.transaction_if(work, |_| true)
+    }
+
+    /// Roll back a completed request when its response rejects the operation.
+    pub fn transaction_if<T>(
+        &mut self,
+        work: impl FnOnce(&mut Self) -> Result<T>,
+        commit: impl FnOnce(&T) -> bool,
+    ) -> Result<T> {
         self.exclusive(|db| {
             if db.in_transaction {
-                return work(db);
+                bail!("conditional transaction requires a top-level boundary");
             }
             db.batch_execute("begin")?;
             db.in_transaction = true;
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(db)));
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let value = work(db)?;
+                Ok((commit(&value), value))
+            }));
             db.in_transaction = false;
             match result {
-                Ok(Ok(value)) => {
-                    db.batch_execute("commit")?;
+                Ok(Ok((commit, value))) => {
+                    db.batch_execute(if commit { "commit" } else { "rollback" })?;
                     Ok(value)
                 }
                 Ok(Err(e)) => {
