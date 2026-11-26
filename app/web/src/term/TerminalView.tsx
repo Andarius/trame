@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useSelectionBubble } from "./selection-bubble";
 import { createPortal } from "react-dom";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -119,6 +120,7 @@ export function TerminalView(
   const [notice, setNotice] = useState<Notice>(null);
   // a selection's Copy / Reply bubble, where the mouse let go (px in the pane)
   const [bubble, setBubble] = useState<{ x: number; y: number } | null>(null);
+  const [bubbleOn] = useSelectionBubble();
   const [preview, setPreview] = useState<Preview | null>(null);
   const [pr, setPr] = useState<LinkHover | null>(null); // a PR or Trame link hovered
   const focusCb = useRef(onFocus);
@@ -343,7 +345,7 @@ export function TerminalView(
           const r = e.currentTarget.getBoundingClientRect();
           const at = { x: e.clientX - r.left, y: e.clientY - r.top };
           // xterm settles the selection after mouseup
-          requestAnimationFrame(() => setBubble(api.current?.term.hasSelection() ? at : null));
+          requestAnimationFrame(() => setBubble(bubbleOn && api.current?.term.hasSelection() ? at : null));
         }}
       />
       {bubble && (

@@ -16,6 +16,7 @@ import {
 import { PresencePreview } from "../agents/PresencePreview";
 import { applyScale, getScale, SCALES } from "../ui/scale";
 import { KeyBindingsSettings } from "../term/KeyBindingsSettings";
+import { useSelectionBubble } from "../term/selection-bubble";
 import { getPreviewSize, PREVIEW_SIZES, type PreviewSize, setPreviewSize } from "../term/preview-size";
 import { applyTheme, getTheme, type Theme } from "../ui/theme";
 import { CheckRow, Footer, label, pill, seg, segTrack } from "../modals/modal-ui";
@@ -247,6 +248,7 @@ export function Settings(
   const [loaded, setLoaded] = useState(false);
   const [scale, setScale] = useState(getScale);
   const [previewSize, setPreviewSizeState] = useState(getPreviewSize);
+  const [bubbleOn, setBubbleOn] = useSelectionBubble();
   const [theme, setTheme] = useState(getTheme);
   const [authorName, setAuthorName] = useState("");
   const [authorAvatar, setAuthorAvatar] = useState("");
@@ -448,6 +450,19 @@ export function Settings(
             ))}
           </div>
           <span className="text-[12px] text-ink-muted/70">hover an image path in a terminal; click for full size</span>
+        </div>
+
+        <div className="h-px bg-line" />
+        <div className={HEADING}>Terminal selection</div>
+        <div className="flex items-center gap-2">
+          <div className={segTrack}>
+            {([false, true] as const).map((on) => (
+              <button key={String(on)} type="button" aria-pressed={on === bubbleOn} className={seg(on === bubbleOn)} onClick={() => setBubbleOn(on)}>
+                {on ? "Copy / Reply" : "Plain"}
+              </button>
+            ))}
+          </div>
+          <span className="text-[12px] text-ink-muted/70">Copy / Reply shows a bubble over selected text</span>
         </div>
 
         <div className="h-px bg-line" />
