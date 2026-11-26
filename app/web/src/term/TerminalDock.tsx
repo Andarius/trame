@@ -96,17 +96,22 @@ export default function TerminalDock(
     if (scope!.all) return true;
     if (scope!.term && leaves(t.root).includes(scope!.term)) return true;
     const onBoard = (c: string) => !!board?.sessions.some((s) => s.id === c);
-    const boardProject = (ids: string[]) =>
-      ids.map((id) => terms[id]?.project).find((p) => p && board?.projects.some((x) => x.id === p)) ?? null;
-    // one agent session's shell: the tabs of the sidebar group it sits in, like TermCards lists them
+    const known = (p: string | null | undefined) => (p && board?.projects.some((x) => x.id === p) ? p : null);
+    const cardProject = (c: string | null | undefined) => known(board?.sessions.find((s) => s.id === c)?.client_id);
+    // a shell's project: its card's, else the one it was opened for (as TermCards groups them)
+    const projectOf = (id: string) => cardProject(terms[id]?.card) ?? known(terms[id]?.project);
     const lead = scope!.term ? terms[scope!.term] : undefined;
     const card = lead ? (lead.card && onBoard(lead.card) ? lead.card : null) : scope!.card;
-    const scopeProject = lead ? (card ? null : boardProject([scope!.term!])) : scope!.project;
+    // a project's agent or card: every tab of that project, so projects don't share one strip
+    const project = lead ? projectOf(scope!.term!) : card ? cardProject(card) : known(scope!.project);
+    // a card with no shell yet keeps its own empty strip, with its start buttons
+    const bare = !lead && card !== null && !allTabs.some((x) => tabCards(x, terms).includes(card));
+    if (project && !bare) return leaves(t.root).some((id) => projectOf(id) === project);
+    // no project: the card's tabs, else the shells with no card on this board and no project
     const cards = tabCards(t, terms);
     if (card !== null) return cards.includes(card);
-    // no card: shells whose card isn't on this board, by project like TermCards lists them
     if (cards.some(onBoard)) return false;
-    return boardProject(leaves(t.root)) === scopeProject;
+    return leaves(t.root).every((id) => !projectOf(id));
   };
   const tabs = scope ? allTabs.filter(inScope) : allTabs;
   // the scoped card's Claude runs in a terminal outside Trame: offer to move it here
