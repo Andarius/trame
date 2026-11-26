@@ -16,7 +16,7 @@ import {
   runBot,
   updateBot,
   useBots,
-} from "./bots";
+} from "./bot-api";
 
 // The bots in the agents column, above the runs they start; hidden until the agent view is on or a bot exists.
 export function Bots({ onOpenRun }: { onOpenRun: (run: string) => void }) {
