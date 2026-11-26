@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { termToken } from "../term/term-api";
+import { appConfirm } from "../ui/ui";
 import type { Provider, RunSummary } from "./agent-run-state";
 
 // A bot: a named agent setup that Slack, a hook or the app starts fresh runs from.
@@ -116,3 +117,19 @@ export function useBots(enabled: boolean) {
 export const BOT_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
 export const botName = (folder: string) =>
   (folder.split("/").filter(Boolean).pop() ?? "").toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+/, "").slice(0, 32);
+
+// Slack on/off and the hook command, shared by the bot page's Started by and Wiring
+export function useTriggerActions(bot: Bot, reload: () => void) {
+  const [hook, setHook] = useState<BotHook | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const failed = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
+  const toggleSlack = (on: boolean) => updateBot(bot.id, { slack: on }).then(reload, failed);
+  const copy = async (fresh: boolean) => {
+    if (fresh && !await appConfirm("Make a new secret? The current hook command stops working.", "New secret")) return;
+    (fresh ? rotateBotHook(bot.id) : botHook(bot.id))
+      .then((h) => (setHook(h), navigator.clipboard.writeText(hookCommand(h))))
+      .then(() => (setError(null), setNotice(fresh ? "New secret made; its command is copied." : "Hook command copied.")), failed);
+  };
+  return { hook, notice, error, copy, toggleSlack };
+}

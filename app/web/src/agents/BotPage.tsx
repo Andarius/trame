@@ -1,6 +1,6 @@
 import { type ReactNode, useMemo, useRef, useState } from "react";
 import { pickTermFolder } from "../term/term-api";
-import { appConfirm, Button, EmptyState, ErrorNote, Field, SegToggle, TextArea, TextInput, timeAgo } from "../ui/ui";
+import { appConfirm, Button, Popover, EmptyState, ErrorNote, Field, SegToggle, TextArea, TextInput, timeAgo } from "../ui/ui";
 import { MODES, modeOf, type Provider, useAgentRuns } from "./agent-run";
 import { AgentIcon } from "./agents";
 import {
@@ -8,8 +8,6 @@ import {
   BOT_IMAGE_MAX,
   BOT_IMAGE_TYPES,
   BOT_NAME,
-  botHook,
-  type BotHook,
   botName,
   type BotRun,
   botRuns,
@@ -21,7 +19,7 @@ import {
   type Face,
   hookCommand,
   putBotImage,
-  rotateBotHook,
+  useTriggerActions,
   runBot,
   type RunSource,
   updateBot,
@@ -45,6 +43,12 @@ export const SOURCE: Record<RunSource, { glyph: "slack" | "hook" | "relay" | "ha
   app: { glyph: "hand", label: "Trame" },
   relay: { glyph: "relay", label: "Relay" },
 };
+// what Recent runs is narrowed to, from a Wiring node
+export type RunFilter = { source: RunSource } | { outcome: "success" | "error" } | null;
+const filterLabel = (f: NonNullable<RunFilter>) =>
+  "source" in f ? `${SOURCE[f.source].label} runs` : f.outcome === "success" ? "Finished runs" : "Failed runs";
+const keep = (f: RunFilter) => (r: BotRun) =>
+  !f || ("source" in f ? r.source === f.source : r.outcome === f.outcome);
 const CHIP = "inline-flex max-w-full items-center gap-1.5 rounded-full border border-chipline px-2 py-[2px] text-[11px] text-ink-soft";
 export const CARD = "rounded-xl border border-line bg-panel";
 const CARD_HEAD = "flex items-center justify-between gap-2 border-b border-line px-3.5 py-[11px]";
@@ -82,10 +86,97 @@ export function BotPage(
   return <BotView key={bot.id} bot={bot} reload={reload} onOpenRun={onOpenRun} onDeleted={onDeleted} />;
 }
 
+// The hero's face: a click picks another face, color or image, saved at once.
+function AvatarMenu({ bot, state, reload }: { bot: Bot; state: BotState; reload: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [hue, setHue] = useState(bot.hue);
+  const [error, setError] = useState<string | null>(null);
+  const file = useRef<HTMLInputElement>(null);
+  const failed = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
+  const save = (b: Parameters<typeof updateBot>[1]) => updateBot(bot.id, b).then(() => (setError(null), reload()), failed);
+  const upload = (f: File | undefined) => {
+    if (!f) return;
+    if (!BOT_IMAGE_TYPES.includes(f.type)) return setError("Use a PNG, JPEG or WebP image.");
+    if (f.size > BOT_IMAGE_MAX) return setError("The image is over 256 KiB.");
+    putBotImage(bot.id, f).then(() => (bumpBotImage(bot.id), setError(null), reload()), failed);
+  };
+  return (
+    <span className="relative shrink-0">
+      <button
+        type="button"
+        title="change the face, color or picture"
+        aria-label="change the face, color or picture"
+        className="group/av relative block rounded-[24%] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-copper"
+        onClick={() => (setHue(bot.hue), setOpen(!open))}
+      >
+        <BotAvatar bot={bot} size="xl" state={state} provider ring="border-canvas" />
+        <span className="pointer-events-none absolute inset-0 grid place-items-center rounded-[24%] bg-black/45 text-[11px] font-medium text-white opacity-0 transition-opacity group-hover/av:opacity-100">
+          Change
+        </span>
+      </button>
+      {open && (
+        <Popover onClose={() => setOpen(false)} style={{ width: 260 }}>
+          <div className="flex flex-col gap-3 p-1">
+            <div className="flex gap-2">
+              {FACE_IDS.map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  aria-label={`face ${f.slice(1)}`}
+                  aria-pressed={(bot.face ?? "f1") === f && !bot.hasImage}
+                  className={`rounded-[30%] p-0.5 ${
+                    (bot.face ?? "f1") === f && !bot.hasImage ? "outline-2 outline-offset-2 outline-copper" : "opacity-80 hover:opacity-100"
+                  }`}
+                  onClick={() => void save({ face: f })}
+                >
+                  <BotAvatar bot={{ ...bot, face: f, hue, hasImage: false }} size="m" />
+                </button>
+              ))}
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={359}
+              value={hue}
+              aria-label="color"
+              className={`h-2 w-full cursor-pointer appearance-none rounded-full ${THUMB}`}
+              style={{ background: HUE_TRACK }}
+              onChange={(e) => setHue(Number(e.target.value))}
+              onPointerUp={() => void save({ hue })}
+              onKeyUp={() => void save({ hue })}
+            />
+            <div className="flex gap-1.5">
+              <Button size="sm" className="inline-flex items-center gap-1.5" onClick={() => file.current?.click()}>
+                <Glyph name="folder" />
+                {bot.hasImage ? "Replace picture…" : "Upload picture…"}
+              </Button>
+              {bot.hasImage && (
+                <Button size="sm" variant="danger" onClick={() => void deleteBotImage(bot.id).then(() => (bumpBotImage(bot.id), reload()), failed)}>
+                  Remove
+                </Button>
+              )}
+              <input
+                ref={file}
+                type="file"
+                accept={BOT_IMAGE_TYPES.join(",")}
+                className="hidden"
+                onChange={(e) => (upload(e.target.files?.[0]), (e.target.value = ""))}
+              />
+            </div>
+            <span className="text-[10.5px] text-ink-faint">PNG, JPEG or WebP · ≤ 256 KiB</span>
+            {error && <ErrorNote>{error}</ErrorNote>}
+          </div>
+        </Popover>
+      )}
+    </span>
+  );
+}
+
 function BotView(
   { bot, reload, onOpenRun, onDeleted }: { bot: Bot; reload: () => void; onOpenRun: (run: string) => void; onDeleted: () => void },
 ) {
   const [tab, setTab] = useState<Tab>("overview");
+  const [filter, setFilter] = useState<RunFilter>(null);
   const runs = usePoll(() => botRuns(bot.id, 50), 5000, bot.id);
   const stats = usePoll(() => botStats(bot.id, 30), 30_000, bot.id);
   const [composing, setComposing] = useState(false);
@@ -95,7 +186,7 @@ function BotView(
     <div className="@container min-h-full bg-canvas">
       <div className="border-b border-line px-7 pb-[18px] pt-[26px]" style={hueWash(bot.hue)}>
         <div className="flex items-center gap-[18px]">
-          <BotAvatar bot={bot} size="xl" state={state} provider ring="border-canvas" />
+          <AvatarMenu bot={bot} state={state} reload={reload} />
           <div className="min-w-0 flex-1">
             <h2 className="m-0 truncate text-[22px] font-semibold tracking-[-0.01em] text-ink">{bot.name}</h2>
             <p className="mb-2 mt-0.5 text-[13px] text-ink-soft">
@@ -161,9 +252,28 @@ function BotView(
         ))}
       </div>
       {tab === "overview" && (
-        <Overview bot={bot} runs={runs.data} runsError={runs.error} stats={stats.data} reload={reload} onOpenRun={onOpenRun} />
+        <Overview
+          bot={bot}
+          runs={runs.data}
+          runsError={runs.error}
+          stats={stats.data}
+          reload={reload}
+          onOpenRun={onOpenRun}
+          filter={filter}
+          onFilter={setFilter}
+        />
       )}
-      {tab === "wiring" && <BotWiring bot={bot} state={state} runs={runs.data} stats={stats.data} />}
+      {tab === "wiring" && (
+        <BotWiring
+          bot={bot}
+          state={state}
+          runs={runs.data}
+          stats={stats.data}
+          reload={reload}
+          onShow={(f) => (setFilter(f), setTab("overview"))}
+          onSettings={() => setTab("settings")}
+        />
+      )}
       {tab === "settings" && <Settings bot={bot} onSaved={reload} onDeleted={onDeleted} reload={reload} />}
     </div>
   );
@@ -230,17 +340,20 @@ function Kpi({ value, label }: { value: ReactNode; label: string }) {
 }
 
 function Overview(
-  { bot, runs, runsError, stats, reload, onOpenRun }: {
+  { bot, runs: everyRun, runsError, stats, reload, onOpenRun, filter, onFilter }: {
     bot: Bot;
     runs: BotRun[] | null;
     runsError: string | null;
     stats: BotStats | null;
     reload: () => void;
     onOpenRun: (run: string) => void;
+    filter: RunFilter;
+    onFilter: (f: RunFilter) => void;
   },
 ) {
   const open = useAgentRuns(true);
   const held = useMemo(() => new Set(open.map((r) => r.id)), [open]);
+  const runs = useMemo(() => everyRun?.filter(keep(filter)) ?? null, [everyRun, filter]);
   const [all, setAll] = useState(false);
   const spark = stats?.daily.slice(-14) ?? [];
   const max = Math.max(1, ...spark.map((d) => d.runs));
@@ -269,13 +382,29 @@ function Overview(
         </div>
         <div className={CARD}>
           <div className={CARD_HEAD}>
-            <h4 className="m-0 text-[12px] font-semibold text-ink">Recent runs</h4>
+            <h4 className="m-0 flex items-center gap-2 text-[12px] font-semibold text-ink">
+              Recent runs
+              {filter && (
+                <button
+                  type="button"
+                  className={`${CHIP} hover:border-copper hover:text-copper`}
+                  title="show every run"
+                  onClick={() => onFilter(null)}
+                >
+                  {"source" in filter && <Glyph name={SOURCE[filter.source].glyph} />}
+                  {filterLabel(filter)} ✕
+                </button>
+              )}
+            </h4>
             {(runs?.length ?? 0) > 8 && (
               <Button variant="link" onClick={() => setAll(!all)}>{all ? "Fewer" : `All ${runs!.length} →`}</Button>
             )}
           </div>
           {runsError && !runs && <div className="px-3.5 py-3"><ErrorNote>{runsError}</ErrorNote></div>}
-          {runs && !runs.length && (
+          {runs && !runs.length && filter && (
+            <p className="px-3.5 py-5 text-center text-[12px] text-ink-faint">No {filterLabel(filter).toLowerCase()} yet.</p>
+          )}
+          {runs && !runs.length && !filter && (
             <p className="px-3.5 py-5 text-center text-[12px] text-ink-faint">
               No runs yet. Start one with Run now{bot.slack ? `, a Slack mention (@Trame ${bot.name}: …)` : ""} or its hook.
             </p>
@@ -341,17 +470,8 @@ function TriggerRow(
 }
 
 function StartedBy({ bot, runs, reload }: { bot: Bot; runs: BotRun[] | null; reload: () => void }) {
-  const [hook, setHook] = useState<BotHook | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { hook, notice, error, copy, toggleSlack } = useTriggerActions(bot, reload);
   const lastHook = runs?.find((r) => r.source === "hook");
-  const toggleSlack = (on: boolean) => updateBot(bot.id, { slack: on }).then(reload, fail(setError));
-  const copy = async (fresh: boolean) => {
-    if (fresh && !await appConfirm("Make a new secret? The current hook command stops working.", "New secret")) return;
-    (fresh ? rotateBotHook(bot.id) : botHook(bot.id))
-      .then((h) => (setHook(h), navigator.clipboard.writeText(hookCommand(h))))
-      .then(() => setNotice(fresh ? "New secret made; its command is copied." : "Hook command copied."), fail(setError));
-  };
   return (
     <div className={`${CARD} self-start`}>
       <div className={CARD_HEAD}>
