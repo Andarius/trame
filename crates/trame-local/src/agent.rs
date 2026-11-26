@@ -56,6 +56,8 @@ fn get(id: &str) -> Option<Arc<Run>> {
 
 enum Write {
     Records(Vec<Value>),
+    /// one statement, applied in order (bots' run history)
+    Sql(&'static str, Vec<Value>),
     Flush(std::sync::mpsc::SyncSender<()>),
 }
 
@@ -86,14 +88,15 @@ fn start_writer(native: &Native) {
         let mut db: Option<Db> = None;
         while let Ok(first) = rx.recv() {
             // only the latest snapshot matters
-            let (mut latest, mut acks) = (None, Vec::new());
+            let (mut latest, mut statements, mut acks) = (None, Vec::new(), Vec::new());
             for write in std::iter::once(first).chain(rx.try_iter()) {
                 match write {
                     Write::Records(r) => latest = Some(r),
+                    Write::Sql(sql, params) => statements.push((sql, params)),
                     Write::Flush(ack) => acks.push(ack),
                 }
             }
-            if let Some(records) = latest {
+            if latest.is_some() || !statements.is_empty() {
                 if db.is_none() {
                     db = Db::connect(
                         &native.root.join("socket"),
@@ -102,9 +105,16 @@ fn start_writer(native: &Native) {
                     )
                     .ok();
                 }
-                let written = db.as_mut().map(|db| write_runs(db, &records));
+                let written = db.as_mut().map(|db| {
+                    for (sql, params) in &statements {
+                        db.query(sql, params)?;
+                    }
+                    latest.as_ref().map_or(Ok(()), |r| write_runs(db, r))
+                });
+                if let Some(Err(e)) = &written {
+                    eprintln!("agent view: could not save the runs: {e:#}");
+                }
                 if !matches!(written, Some(Ok(()))) {
-                    eprintln!("agent view: could not save the runs");
                     db = None;
                 }
             }
@@ -129,6 +139,13 @@ fn save() {
         .map(|r| r.record())
         .collect();
     let _ = writer.send(Write::Records(records));
+}
+
+/// Run `sql` on the writer's thread, after what was sent before it; dropped without a workspace.
+fn record(sql: &'static str, params: Vec<Value>) {
+    if let Some(writer) = WRITER.lock().unwrap().as_ref() {
+        let _ = writer.send(Write::Sql(sql, params));
+    }
 }
 
 /// Wait, up to `limit`, until what `save` sent is written.
@@ -338,10 +355,15 @@ pub async fn serve(native: Native, req: Request<Body>) -> Response {
         )
     };
     let method = req.method().clone();
-    let body: Value = match to_bytes(req.into_body(), 1 << 20).await {
-        Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_default(),
-        Err(_) => return json_response(400, json!({"error":"body too large"})),
+    let content_type = req
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let Ok(raw) = to_bytes(req.into_body(), 1 << 20).await else {
+        return json_response(413, json!({"error":"body too large"}));
     };
+    let body: Value = serde_json::from_slice(&raw).unwrap_or_default();
     // a CLI without custom headers may pass the app token in the query or the body
     let token = token
         .or_else(|| {
@@ -402,7 +424,17 @@ pub async fn serve(native: Native, req: Request<Body>) -> Response {
         };
     }
     if let ["", "api", "agent", "bots", rest @ ..] = parts.as_slice() {
-        return bot_route(&native, &method, rest, app, hook, &body).await;
+        let request = BotRequest {
+            method: &method,
+            rest,
+            app,
+            hook,
+            body: &body,
+            query: &query,
+            content_type: content_type.as_deref(),
+            raw: &raw,
+        };
+        return bot_route(&native, request).await;
     }
     if !app {
         return json_response(401, json!({"error":"terminal token required"}));
@@ -617,16 +649,39 @@ fn db_failed() -> Response {
     json_response(500, json!({"error":"the bots could not be read or saved"}))
 }
 
-/// `/api/agent/bots/...`: the app manages bots; a bot's hook, holding only that bot's secret, starts
-/// its runs and nothing else.
-async fn bot_route(
-    native: &Native,
-    method: &Method,
-    rest: &[&str],
+/// A request under `/api/agent/bots/`: `rest` is the path after it, `raw` the body as sent.
+struct BotRequest<'a> {
+    method: &'a Method,
+    rest: &'a [&'a str],
     app: bool,
     hook: Option<String>,
-    body: &Value,
-) -> Response {
+    body: &'a Value,
+    query: &'a str,
+    content_type: Option<&'a str>,
+    raw: &'a [u8],
+}
+
+/// The integer query parameter `key`, clamped to `range`, else `default`.
+fn query_int(query: &str, key: &str, default: i64, range: std::ops::RangeInclusive<i64>) -> i64 {
+    query
+        .split('&')
+        .find_map(|kv| kv.strip_prefix(key)?.strip_prefix('=')?.parse::<i64>().ok())
+        .map_or(default, |n| n.clamp(*range.start(), *range.end()))
+}
+
+/// `/api/agent/bots/...`: the app manages bots; a bot's hook, holding only that bot's secret, starts
+/// its runs and nothing else.
+async fn bot_route(native: &Native, req: BotRequest<'_>) -> Response {
+    let BotRequest {
+        method,
+        rest,
+        app,
+        hook,
+        body,
+        query,
+        content_type,
+        raw,
+    } = req;
     let no_bot = || json_response(404, json!({"error":"no such bot"}));
     let refused = |r: bots::Refused| match r {
         bots::Refused::Missing => no_bot(),
@@ -680,13 +735,13 @@ async fn bot_route(
         (&Method::GET, []) => match with_db(native, bots::list).await {
             Ok(list) => json_response(
                 200,
-                Value::Array(list.iter().map(|b| b.summary(bot_live(&b.id))).collect()),
+                Value::Array(list.iter().map(|b| b.summary(bot_counts(&b.id))).collect()),
             ),
             Err(_) => db_failed(),
         },
         (&Method::POST, []) => {
             match with_db(native, move |db| Ok(bots::upsert(db, None, &body))).await {
-                Ok(Ok(bot)) => json_response(201, bot.summary(0)),
+                Ok(Ok(bot)) => json_response(201, bot.summary((0, 0))),
                 Ok(Err(r)) => refused(r),
                 Err(_) => db_failed(),
             }
@@ -694,7 +749,7 @@ async fn bot_route(
         (&Method::PATCH, [id]) => {
             let id = (*id).to_owned();
             match with_db(native, move |db| Ok(bots::upsert(db, Some(&id), &body))).await {
-                Ok(Ok(bot)) => json_response(200, bot.summary(bot_live(&bot.id))),
+                Ok(Ok(bot)) => json_response(200, bot.summary(bot_counts(&bot.id))),
                 Ok(Err(r)) => refused(r),
                 Err(_) => db_failed(),
             }
@@ -736,8 +791,120 @@ async fn bot_route(
                 Err(_) => db_failed(),
             }
         }
+        (&Method::GET, ["activity"]) => {
+            let days = query_int(query, "days", 28, 1..=90);
+            match with_db(native, move |db| bots::stats(db, None, days)).await {
+                Ok(list) => json_response(200, Value::Array(list)),
+                Err(_) => db_failed(),
+            }
+        }
+        (&Method::GET, [id, "runs"]) => {
+            let (owned, limit) = ((*id).to_owned(), query_int(query, "limit", 50, 1..=200));
+            let read = with_db(native, move |db| {
+                // what the writer still holds belongs in the list
+                flush(Duration::from_secs(2));
+                if bots::get(db, &owned)?.is_none() {
+                    return Ok(None);
+                }
+                bots::history(db, &owned, limit).map(Some)
+            })
+            .await;
+            match read {
+                Ok(Some(mut list)) => {
+                    for row in &mut list {
+                        let run = row["id"].as_str().and_then(get).filter(|r| r.running());
+                        let waiting = run.as_ref().is_some_and(|r| {
+                            r.snapshot()["state"]["interactions"]
+                                .as_array()
+                                .is_some_and(|i| !i.is_empty())
+                        });
+                        row["live"] = json!(run.is_some());
+                        row["needsYou"] = json!(waiting);
+                    }
+                    json_response(200, Value::Array(list))
+                }
+                Ok(None) => no_bot(),
+                Err(_) => db_failed(),
+            }
+        }
+        (&Method::GET, [id, "stats"]) => {
+            let (owned, days) = ((*id).to_owned(), query_int(query, "days", 30, 1..=90));
+            let read = with_db(native, move |db| {
+                flush(Duration::from_secs(2));
+                if !bots::valid_id(&owned) {
+                    return Ok(Vec::new());
+                }
+                bots::stats(db, Some(&owned), days)
+            })
+            .await;
+            match read {
+                Ok(mut list) if !list.is_empty() => {
+                    let mut stats = list.swap_remove(0);
+                    if let Some(o) = stats.as_object_mut() {
+                        o.remove("bot");
+                    }
+                    json_response(200, stats)
+                }
+                Ok(_) => no_bot(),
+                Err(_) => db_failed(),
+            }
+        }
+        (&Method::PUT, [id, "image"]) => {
+            let declared = content_type
+                .and_then(|c| c.split(';').next())
+                .map(str::trim)
+                .unwrap_or_default();
+            if !["image/png", "image/jpeg", "image/webp"].contains(&declared) {
+                return json_response(415, json!({"error":"an image is a PNG, JPEG or WebP"}));
+            }
+            if raw.len() > bots::MAX_IMAGE {
+                return json_response(413, json!({"error":"an image is up to 256 KiB"}));
+            }
+            let Some(kind) = bots::image_type(raw).filter(|k| *k == declared) else {
+                return json_response(
+                    415,
+                    json!({"error":"the bytes are not the image type they claim"}),
+                );
+            };
+            let (owned, bytes) = ((*id).to_owned(), raw.to_vec());
+            match with_db(native, move |db| bots::set_image(db, &owned, kind, &bytes)).await {
+                Ok(true) => json_response(200, json!({"ok":true})),
+                Ok(false) => no_bot(),
+                Err(_) => db_failed(),
+            }
+        }
+        (&Method::GET, [id, "image"]) => {
+            let owned = (*id).to_owned();
+            match with_db(native, move |db| bots::image(db, &owned)).await {
+                Ok(Some((kind, bytes))) => Response::builder()
+                    .header("content-type", kind)
+                    .header("cache-control", "no-cache")
+                    .body(Body::from(bytes))
+                    .unwrap_or_else(|_| db_failed()),
+                Ok(None) => json_response(404, json!({"error":"no image"})),
+                Err(_) => db_failed(),
+            }
+        }
+        (&Method::DELETE, [id, "image"]) => {
+            let owned = (*id).to_owned();
+            match with_db(native, move |db| bots::remove_image(db, &owned)).await {
+                Ok(true) => json_response(200, json!({"ok":true})),
+                Ok(false) => no_bot(),
+                Err(_) => db_failed(),
+            }
+        }
         _ => json_response(404, json!({"error":"not found"})),
     }
+}
+
+/// Bot `id`'s runs still running, and those of them mid-turn (working or waiting on you).
+fn bot_counts(id: &str) -> (usize, usize) {
+    let runs = runs().lock().unwrap();
+    let mine: Vec<_> = runs
+        .values()
+        .filter(|r| r.running() && r.bot().as_deref() == Some(id))
+        .collect();
+    (mine.len(), mine.iter().filter(|r| !r.idle()).count())
 }
 
 /// The runs of bot `id` still running, against its cap.

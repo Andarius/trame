@@ -59,6 +59,8 @@ export function TermCards(
     onSelectHistory,
     agentRun,
     onSelectAgent,
+    bot,
+    onSelectBot,
   }: {
     board: BoardData | null;
     selected: string | null;
@@ -75,6 +77,8 @@ export function TermCards(
     onSelectHistory: () => void;
     agentRun: string | null; // the agent-view run shown
     onSelectAgent: (run: string) => void;
+    bot: string | null; // the bot selection shown: "bots", "bot:<id>" or "bot:new"
+    onSelectBot: (sel: string) => void;
   },
 ) {
   const { terms: dockTerms, out } = useTermDock();
@@ -817,7 +821,7 @@ export function TermCards(
           {handoffError} ✕
         </button>
       )}
-      <Bots onOpenRun={onSelectAgent} />
+      <Bots selected={bot} onSelect={onSelectBot} />
       <AgentRuns selected={agentRun} onSelect={onSelectAgent} />
       <RecentList board={board} selected={recent} history={history} onSelect={onSelectRecent} onHistory={onSelectHistory} />
       {linkFor && (

@@ -33,6 +33,8 @@ import { closeWorkspaces, onWorkspaceNavigate, openWorkspace, save, setWorkspace
 import { AgentSessions } from "../agents/AgentSessions";
 import { RecentSession } from "../agents/RecentSession";
 import { AgentView } from "../agents/AgentView";
+import { AllBots } from "../agents/AllBots";
+import { BotPage } from "../agents/BotPage";
 import { cachedScan } from "../agents/scan";
 import { Board } from "../sessions/Board";
 import { Drawer, TOPBAR_SLOT } from "../sessions/Drawer";
@@ -716,11 +718,13 @@ export function App() {
   const termRecentId = termSel?.startsWith("recent:") ? termSel.slice("recent:".length) : null;
   // a run Trame owns in the agent view ("agent:<run id>")
   const termAgentId = termSel?.startsWith("agent:") ? termSel.slice("agent:".length) : null;
+  // a bot's page ("bot:<id>", "bot:new" for a draft) or every bot's activity ("bots")
+  const termBot = termSel === "bots" || termSel?.startsWith("bot:") ? termSel : null;
   const termRecent = termRecentId
     ? (recentPick?.claudeId === termRecentId ? recentPick : null) ??
       cachedScan(7)?.groups.flatMap((g) => g.sessions).find((s) => s.claudeId === termRecentId) ?? null
     : null;
-  const termCard = termSel === "plain" || termAll || termProject || termShell || termHistory || termRecentId || termAgentId
+  const termCard = termSel === "plain" || termAll || termProject || termShell || termHistory || termRecentId || termAgentId || termBot
     ? null
     : termSel ?? board?.sessions.find((s) => Object.values(termDock.terms).some((t) => t.card === s.id))?.id ?? null;
   const termSession = termCard ? board?.sessions.find((s) => s.id === termCard) ?? null : null;
@@ -813,6 +817,8 @@ export function App() {
               onSelectHistory={() => setTermSel("history")}
               agentRun={termAgentId}
               onSelectAgent={(id) => setTermSel(`agent:${id}`)}
+              bot={termBot}
+              onSelectBot={setTermSel}
             />
           )
           : view === "explore" || view === "agents" || (view === "plugin" && pluginColumn)
@@ -1126,7 +1132,7 @@ export function App() {
               board={board}
               scope={terminals
                 ? {
-                  all: termAll || termHistory || !!termRecentId || !!termAgentId,
+                  all: termAll || termHistory || !!termRecentId || !!termAgentId || !!termBot,
                   term: termShell,
                   card: termCard,
                   project: termProject,
@@ -1145,6 +1151,24 @@ export function App() {
                     runId={termAgentId}
                     onClosed={() => setTermSel(null)}
                     onTerminal={(term) => setTermSel(`term:${term}`)}
+                  />
+                )
+                : termBot === "bots"
+                ? (
+                  <AllBots
+                    onOpenBot={(id) => setTermSel(`bot:${id}`)}
+                    onOpenRun={(run) => setTermSel(`agent:${run}`)}
+                    onNew={() => setTermSel("bot:new")}
+                  />
+                )
+                : termBot
+                ? (
+                  <BotPage
+                    key={termBot}
+                    botId={termBot === "bot:new" ? null : termBot.slice("bot:".length)}
+                    onOpenRun={(run) => setTermSel(`agent:${run}`)}
+                    onCreated={(id) => setTermSel(`bot:${id}`)}
+                    onDeleted={() => setTermSel("bots")}
                   />
                 )
                 : termHistory

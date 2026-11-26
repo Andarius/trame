@@ -4,9 +4,15 @@ Mention your Slack app in its configured channel to start a fresh run of one of 
 
 ## Create a bot
 
-A bot is a named agent setup: Claude Code or Codex, a project folder and a permission mode. In the **Agents** column, choose **+** next to **BOTS**, pick the folder and check **Slack mentions**. The same dialog copies a hook command that starts the bot from a cron job, CI or a script, and runs it on demand.
+A bot is a named agent setup: Claude Code or Codex, a project folder, a permission mode, a role and a face. Each trigger starts a fresh run of it.
 
-![Creating a bot and copying its hook command](bots.gif)
+1. In the **Agents** column, choose **+** next to **BOTS**.
+2. Choose the folder, name the bot and choose **Create bot**.
+3. On the bot's page, under **Started by**, turn on **Slack**, or choose **Copy hook command** for a cron job, CI or a script.
+
+The bot now appears under **BOTS**. Its page shows its recent runs and figures, how it is wired, and **Run now**. Choose **BOTS** itself for every bot's last four weeks.
+
+![The bots overview, then a bot's page, wiring and settings](bot-page.gif)
 
 ![Preview of the Slack thread as a run stops](slack-agent.gif)
 

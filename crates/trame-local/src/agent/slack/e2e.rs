@@ -184,6 +184,10 @@ fn bot(name: &str, cwd: &Path) -> bots::Bot {
         effort: None,
         slack: true,
         hook: "0".repeat(32),
+        role: None,
+        face: None,
+        hue: None,
+        has_image: false,
     }
 }
 

@@ -434,6 +434,20 @@ async fn observe(run: &Run, epoch: String, updates: watch::Sender<Status>) {
     updates.send_replace(Status::Stopped);
 }
 
+/// How `run`'s first turn ended, once it has: `success`, `error` or `interrupted`.
+pub(super) async fn first_turn(run: &Run) -> &'static str {
+    let Some(epoch) = run.snapshot()["epoch"].as_str().map(str::to_owned) else {
+        return "error";
+    };
+    let (sender, updates) = watch::channel(Status::Starting);
+    observe(run, epoch, sender).await;
+    match *updates.borrow() {
+        Status::Completed => "success",
+        Status::Failed => "error",
+        _ => "interrupted",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

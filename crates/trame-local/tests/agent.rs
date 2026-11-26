@@ -1222,3 +1222,186 @@ fn a_bots_hook_starts_its_runs_up_to_a_cap_and_only_with_its_secret() {
     assert!(ownerless(&saved_runs(&mut t, ownerless)));
     let _ = std::fs::remove_file(&log);
 }
+
+#[test]
+fn a_bots_page_keeps_its_look_history_stats_and_image() {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fake-claude.py");
+    let log = trame_local::workspace().join(format!(
+        ".scratch/agent-bot-page-{}.log",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let t = TestDb::with_env(&[
+        ("TRAME_CLAUDE_BIN", fake),
+        ("FAKE_LOG", log.to_str().unwrap()),
+    ]);
+    let base = t.base_url();
+    let cwd = t.root.to_str().unwrap().to_owned();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let http = reqwest::Client::new();
+        let token = reqwest::get(format!("{base}/api/term/token"))
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap()["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let app = |req: reqwest::RequestBuilder| req.header(TOKEN_HEADER, &token).send();
+        let bots = format!("{base}/api/agent/bots");
+        let bot: Value = app(http.post(&bots).json(&json!({"name":"ci","cwd":cwd})))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let id = bot["id"].as_str().unwrap().to_owned();
+        assert!(bot["hue"].is_u64(), "a hue even when none was chosen");
+        assert_eq!(
+            (&bot["role"], &bot["hasImage"]),
+            (&Value::Null, &json!(false))
+        );
+
+        // look: role, face and hue round-trip; a bad one is refused
+        for (body, want) in [
+            (json!({"face":"f9"}), 400),
+            (json!({"hue":360}), 400),
+            (json!({"hue":"red"}), 400),
+            (json!({"role":"two\nlines"}), 400),
+            (json!({"role":"r".repeat(121)}), 400),
+            (json!({"role":"  Reviews CI  ","face":"f3","hue":200}), 200),
+        ] {
+            let res = app(http.patch(format!("{bots}/{id}")).json(&body))
+                .await
+                .unwrap();
+            assert_eq!(res.status(), want, "{body}");
+        }
+        let listed: Value = app(http.get(&bots)).await.unwrap().json().await.unwrap();
+        assert_eq!(
+            (&listed[0]["role"], &listed[0]["face"], &listed[0]["hue"]),
+            (&json!("Reviews CI"), &json!("f3"), &json!(200))
+        );
+
+        // a hook-started run is recorded, then its first turn's outcome
+        let hook: Value = app(http.get(format!("{bots}/{id}/hook")))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let started: Value = http
+            .post(format!("{bots}/{id}/runs"))
+            .header("x-trame-hook", hook["token"].as_str().unwrap())
+            .json(&json!({"text":"ping","from":"ci"}))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+        let runs = loop {
+            let runs: Value = app(http.get(format!("{bots}/{id}/runs?limit=5")))
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            if runs[0]["outcome"].is_string() || tokio::time::Instant::now() > deadline {
+                break runs;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        };
+        assert_eq!(runs.as_array().unwrap().len(), 1);
+        let row = &runs[0];
+        assert_eq!(
+            (
+                &row["id"],
+                &row["source"],
+                &row["requester"],
+                &row["summary"]
+            ),
+            (
+                &started["id"],
+                &json!("hook"),
+                &json!("a hook (ci)"),
+                &json!("ping")
+            )
+        );
+        assert_eq!(
+            (&row["outcome"], &row["needsYou"]),
+            (&json!("success"), &json!(false))
+        );
+        assert!(row["endedAt"].is_string() && row["live"].is_boolean());
+
+        // stats and activity: `days` zero-filled entries, today last
+        let stats: Value = app(http.get(format!("{bots}/{id}/stats?days=7")))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let daily = stats["daily"].as_array().unwrap();
+        assert_eq!(daily.len(), 7);
+        assert_eq!(
+            (&daily[6]["runs"], &daily[0]["runs"]),
+            (&json!(1), &json!(0))
+        );
+        assert_eq!(
+            (&stats["runs"], &stats["success"], &stats["sources"]["hook"]),
+            (&json!(1), &json!(1), &json!(1))
+        );
+        assert!(stats["medianSeconds"].is_i64() && stats["lastStartedAt"].is_string());
+        let activity: Value = app(http.get(format!("{bots}/activity?days=28")))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(
+            (&activity[0]["bot"], &activity[0]["runs"]),
+            (&json!(id), &json!(1))
+        );
+        assert_eq!(activity[0]["daily"].as_array().unwrap().len(), 28);
+
+        // image: only real PNG/JPEG/WebP bytes up to 256 KiB; GET takes the token in the query
+        let image = format!("{bots}/{id}/image");
+        let png = [b"\x89PNG\r\n\x1a\n".as_slice(), &[0; 32]].concat();
+        let put = |kind: &'static str, bytes: Vec<u8>| {
+            app(http.put(&image).header("content-type", kind).body(bytes))
+        };
+        for (kind, bytes, want) in [
+            ("image/gif", png.clone(), 415),
+            ("image/jpeg", png.clone(), 415),
+            ("image/png", vec![0; 300 << 10], 413),
+            ("image/png", png.clone(), 200),
+        ] {
+            assert_eq!(put(kind, bytes).await.unwrap().status(), want, "{kind}");
+        }
+        let got = http
+            .get(format!("{image}?token={token}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            (
+                got.status().as_u16(),
+                got.headers()["content-type"].to_str().unwrap()
+            ),
+            (200, "image/png")
+        );
+        assert_eq!(got.bytes().await.unwrap().as_ref(), png.as_slice());
+        let wrong = http
+            .get(format!("{image}?token=wrong"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(wrong.status(), 401);
+        let listed: Value = app(http.get(&bots)).await.unwrap().json().await.unwrap();
+        assert_eq!(listed[0]["hasImage"], true);
+        assert_eq!(app(http.delete(&image)).await.unwrap().status(), 200);
+        assert_eq!(app(http.get(&image)).await.unwrap().status(), 404);
+    });
+    let _ = std::fs::remove_file(&log);
+}
