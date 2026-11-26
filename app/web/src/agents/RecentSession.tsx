@@ -65,10 +65,10 @@ export function RecentSession(
   };
   const [dest] = useAgentDest(agent);
   // the agent view continues a conversation nobody else is writing to
-  const viaAgent = dest === "agent" && agent === "claude" && !!session.repoPath && !session.live;
+  const viaAgent = dest === "agent" && !!session.repoPath && !session.live;
   const openAgent = async () => {
     try {
-      const r = await startRun({ cwd: session.repoPath!, resume: session.claudeId });
+      const r = await startRun({ cwd: session.repoPath!, resume: session.claudeId, provider: agent });
       onAgent(r.id);
     } catch (e) {
       const run = heldBy(e);

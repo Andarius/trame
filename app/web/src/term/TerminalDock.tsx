@@ -74,7 +74,7 @@ export type DockScope = { all?: boolean; term?: string | null; card: string | nu
 // With a `scope` it is the Terminals view's center instead: always open, full size, one card's tabs.
 // Both are the same mounted component, so moving between them never remounts (and replays) a shell.
 export default function TerminalDock(
-  { board, scope, onScope, details = null, onToggleDetails, cover, onUncover }: {
+  { board, scope, onScope, details = null, onToggleDetails, cover, onUncover, onAgent }: {
     board?: BoardData | null;
     scope?: DockScope | null;
     onScope?: (card: string | null, project: string | null) => void; // show another card's or project's shells
@@ -82,6 +82,7 @@ export default function TerminalDock(
     onToggleDetails?: () => void;
     cover?: React.ReactNode; // shown over the panes (a past session, All sessions); the tabs stay above it
     onUncover?: (term: string) => void; // a tab clicked while covered: show that shell's group
+    onAgent?: (run: string) => void; // a new session the user sends to the agent view
   },
 ) {
   const dock = useTermDock();
@@ -496,6 +497,7 @@ export default function TerminalDock(
         agent={newTerm.agent}
         into={newTerm.into && current ? { tab: current.id, term: current.focus } : null}
         onClose={() => setNewTerm(null)}
+        onAgent={onAgent}
         onOpened={(c, p) => {
           // one agent session's view hides any other shell: switch to the new one's card or project
           if (scope && !scope.all && (scope.term || c !== scope.card || (!c && p !== scope.project))) onScope?.(c, p);

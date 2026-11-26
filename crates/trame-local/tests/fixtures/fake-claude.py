@@ -62,7 +62,14 @@ for line in sys.stdin:
         kind = msg["request"]["subtype"]
         if kind == "set_permission_mode":
             mode = msg["request"]["mode"]
-        ok(msg["request_id"], {"commands": []} if kind == "initialize" else None)
+        if kind == "initialize":
+            ok(msg["request_id"], {"commands": [], "current_permission_mode": mode, "models": [
+                {"value": "default", "displayName": "Default (recommended)", "description": "Opus", "supportedEffortLevels": ["low", "high", "max"]},
+                {"value": "sonnet", "displayName": "Sonnet", "description": "Fast", "supportedEffortLevels": ["low", "high"]}]})
+        elif kind == "set_model":
+            ok(msg["request_id"], {"model": "claude-" + msg["request"]["model"]})
+        else:
+            ok(msg["request_id"])
         if kind == "interrupt":
             for request_id in list(pending):
                 out({"type": "control_cancel_request", "request_id": request_id})

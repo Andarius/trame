@@ -1163,6 +1163,7 @@ export function App() {
                 ? <EmptyState>This session isn't in the last week's scan.</EmptyState>
                 : undefined}
               onUncover={(term) => setTermSel(`term:${term}`)}
+              onAgent={(run) => setTermSel(`agent:${run}`)}
             />
           </Suspense>
         )}

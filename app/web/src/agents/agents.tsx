@@ -31,20 +31,21 @@ const HARNESS_ICON = new Map([
 ]);
 const PROVIDER_ICON = new Map([["anthropic", "anthropic"], ["openai", "openai"]]);
 
-function Svg({ name, className = "" }: { name: string; className?: string }) {
+function Svg({ name, className = "", size = "h-3.5 w-3.5" }: { name: string; className?: string; size?: string }) {
   const i = ICONS[name];
   return (
-    <svg viewBox={i.viewBox} aria-hidden="true" className={`h-3.5 w-3.5 shrink-0 fill-current ${className}`}>
+    <svg viewBox={i.viewBox} aria-hidden="true" className={`${size} shrink-0 fill-current ${className}`}>
       <path d={i.d} />
     </svg>
   );
 }
 
 // the harness's logo, else the icon the agent sent (emoji or image URL), else a monogram
-export function AgentIcon({ a }: { a: Pick<LiveAgent, "harness" | "icon"> }) {
+// `size` swaps the default 14px for a larger logo (a page header)
+export function AgentIcon({ a, size = "h-3.5 w-3.5" }: { a: Pick<LiveAgent, "harness" | "icon">; size?: string }) {
   const known = HARNESS_ICON.get(a.harness.toLowerCase());
-  if (known && IMAGES[known]) return <img src={IMAGES[known]} alt="" className="h-3.5 w-3.5 shrink-0" />;
-  if (known) return <Svg name={known} className={ICON_COLOR[known] ?? ""} />;
+  if (known && IMAGES[known]) return <img src={IMAGES[known]} alt="" className={`${size} shrink-0`} />;
+  if (known) return <Svg name={known} className={ICON_COLOR[known] ?? ""} size={size} />;
   if (a.icon && /^(https?:|data:image\/)/.test(a.icon)) {
     return <img src={a.icon} alt="" className="h-3.5 w-3.5 shrink-0 rounded-sm object-cover" />;
   }

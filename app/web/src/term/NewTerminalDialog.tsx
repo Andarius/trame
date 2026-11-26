@@ -1,4 +1,4 @@
-import { startRun, useAgentDest } from "../agents/agent-run";
+import { type Provider, startRun, useAgentDest } from "../agents/agent-run";
 import { useEffect, useRef, useState } from "react";
 import { AgentIcon } from "../agents/agents";
 import type { BoardData } from "../api";
@@ -96,11 +96,14 @@ export function NewTerminalDialog(
   };
   const chosen = agents?.find((a) => a.command === run) ?? null;
   const [claudeDest] = useAgentDest("claude");
-  const viaAgent = !!onAgent && claudeDest === "agent" && chosen?.command.split(/\s/)[0].split("/").at(-1) === "claude";
+  const [codexDest] = useAgentDest("codex");
+  const provider = chosen?.command.split(/\s/)[0].split("/").at(-1);
+  const viaAgent = !!onAgent &&
+    ((provider === "claude" && claudeDest === "agent") || (provider === "codex" && codexDest === "agent"));
   // the agent view runs Claude itself in that folder, fresh or resuming `resume`
   const openAgent = async (cwd: string, resume?: string) => {
     try {
-      const r = await startRun({ cwd, resume });
+      const r = await startRun({ cwd, resume, provider: provider as Provider });
       setLast(chosen!.command);
       onAgent!(r.id);
       onClose();

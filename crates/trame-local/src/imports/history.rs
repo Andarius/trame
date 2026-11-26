@@ -147,6 +147,23 @@ fn user_item(event: &Value, text: &str) -> Option<Value> {
     if trimmed.starts_with('<') || trimmed.starts_with("Caveat:") {
         return None;
     }
+    // a skill's instructions arrive as a user message: show which skill, not its text
+    if let Some(dir) = trimmed.strip_prefix("Base directory for this skill:") {
+        let name = dir
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .trim_end_matches('/')
+            .rsplit('/')
+            .next()
+            .unwrap_or_default();
+        return Some(item(
+            "note",
+            event,
+            json!({"text": format!("skill: {name}")}),
+        ));
+    }
     if trimmed.starts_with("[Request interrupted") {
         return Some(item("note", event, json!({"text": "interrupted"})));
     }
@@ -310,5 +327,31 @@ fn codex_items(event: &Value) -> Vec<Value> {
             )))
         }
         _ => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn user_turns_keep_prompts_and_name_injected_skills() {
+        let event = json!({});
+        for (text, want) in [
+            ("fix the cart", Some(("user", "fix the cart"))),
+            (
+                "Base directory for this skill: /home/u/.claude/skills/trame-track\n\n# Track",
+                Some(("note", "skill: trame-track")),
+            ),
+            ("<command-name>/clear</command-name>", None),
+        ] {
+            let got = user_item(&event, text);
+            assert_eq!(
+                got.as_ref()
+                    .map(|v| (v["kind"].as_str().unwrap(), v["text"].as_str().unwrap())),
+                want,
+                "{text}"
+            );
+        }
     }
 }

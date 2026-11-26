@@ -1,9 +1,21 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Markdown } from "../md/md";
-import { SECTION_LABEL } from "../ui/ui";
+import { Popover, SECTION_LABEL } from "../ui/ui";
 import { finalReply, type Keyed, type Tool, toolArg, toolDiffs, toTurns } from "./agent-history";
-import { deleteRun, type Interaction, MODES, type Reply, restartRun, runToTerminal, type RunStatus, useAgentRun } from "./agent-run";
+import {
+  type Interaction,
+  modelOf,
+  MODES,
+  modeOf,
+  type Reply,
+  restartRun,
+  runToTerminal,
+  type RunState,
+  type RunStatus,
+  useAgentRun,
+} from "./agent-run";
 import { Diffs, HistoryRail, resultsOf, ToolInput, TurnView } from "./AgentHistory";
+import { AgentIcon } from "./agents";
 
 const STATUS: Record<RunStatus, { label: string; tone: string }> = {
   starting: { label: "starting", tone: "text-ink-faint" },
@@ -20,7 +32,7 @@ export function AgentView(
   { runId, onClosed, onTerminal }: { runId: string; onClosed: () => void; onTerminal: (term: string) => void },
 ) {
   const run = useAgentRun(runId);
-  const { state } = run;
+  const { state, writer, send: sendCommand } = run;
   const [notice, setNotice] = useState<string | null>(null);
   const items = useMemo<Keyed[]>(
     () => (state?.items ?? []).map((item, i) => ({ key: (state?.droppedItems ?? 0) + i, item })),
@@ -35,9 +47,30 @@ export function AgentView(
     if (el && pinned.current) el.scrollTop = el.scrollHeight;
   }, [items, state?.partial, state?.interactions]);
 
+  useEffect(() => {
+    if (run.gone) onClosed();
+  }, [run.gone, onClosed]);
+  // the composer keeps stable callbacks, so streaming renders never reach it
+  const latest = useRef({
+    interrupt: () => {},
+    cycleMode: () => {},
+    prompt: (_text: string): Promise<Reply> => Promise.resolve({ accepted: false }),
+  });
+  const interrupt = useCallback(() => latest.current.interrupt(), []);
+  const cycleMode = useCallback(() => latest.current.cycleMode(), []);
+  const prompt = useCallback((text: string) => latest.current.prompt(text), []);
+  // a message written to a stopped run resumes it, then goes out once it is ready
+  const queued = useRef<string | null>(null);
+  const status = state?.status;
+  useEffect(() => {
+    if (status !== "ready" || !writer || !queued.current) return;
+    const text = queued.current;
+    queued.current = null;
+    void sendCommand("prompt", { text }).then((r) => setNotice(r.accepted ? null : r.reason ?? "refused"));
+  }, [status, writer, sendCommand]);
   const tell = (r: Reply) => setNotice(r.accepted ? null : r.reason ?? "refused");
   const send = async (kind: string, payload?: Record<string, unknown>) => {
-    const r = await run.send(kind, payload);
+    const r = await sendCommand(kind, payload);
     tell(r);
     return r;
   };
@@ -55,63 +88,54 @@ export function AgentView(
   const busy = state.status === "busy" || state.status === "interrupting";
   const ended = state.status === "stopped" || state.status === "failed";
   const folder = state.cwd.split("/").pop() || state.cwd;
+  const who = state.provider === "codex" ? "Codex" : "Claude";
+  const modes = state.capabilities?.modes ?? true;
+  const toTerminal = () => runToTerminal(runId).then((r) => onTerminal(r.term), (e: Error) => setNotice(e.message));
+  const resume = () => restartRun(runId).catch((e: Error) => setNotice(e.message));
+  const bar = (
+    <RunBar
+      state={state}
+      folder={folder}
+      writer={writer}
+      connected={run.connected}
+      send={send}
+      actions={[
+        ...(ended ? [{ key: "resume", label: "Resume", hint: "start the agent again on this conversation", run: resume }] : []),
+        ...(!busy && state.interactions.length === 0
+          ? [{ key: "terminal", label: "Continue in terminal", hint: "stop this run and resume it in a Trame shell", run: toTerminal }]
+          : []),
+      ]}
+    />
+  );
+  // Shift+Tab steps through the modes, as in the CLI
+  latest.current = {
+    prompt: async (text) => {
+      if (!ended) return send("prompt", { text });
+      queued.current = text;
+      try {
+        await restartRun(runId);
+        return { accepted: true };
+      } catch (e) {
+        queued.current = null;
+        setNotice(e instanceof Error ? e.message : String(e));
+        return { accepted: false };
+      }
+    },
+    interrupt: () => void send("interrupt"),
+    cycleMode: () => {
+      if (!modes || !writer) return;
+      const i = MODES.findIndex((m) => m.mode === modeOf(state.mode)?.mode);
+      void send("setMode", { mode: MODES[(i + 1) % MODES.length].mode });
+    },
+  };
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-6 py-3">
-        <h2 className="text-[16px] font-semibold text-ink" title={state.cwd}>{folder}</h2>
-        <span className={`text-[12px] ${STATUS[state.status].tone}`}>● {STATUS[state.status].label}</span>
-        {!run.connected && <span className="text-[12px] text-wait">reconnecting…</span>}
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <select
-            aria-label="permission mode"
-            className="rounded-md border border-line bg-transparent px-2 py-1 text-[12px] text-ink-soft"
-            value={state.mode ?? "default"}
-            disabled={!run.writer || ended}
-            onChange={(e) => void send("setMode", { mode: e.target.value })}
-          >
-            {MODES.map((m) => <option key={m.mode} value={m.mode}>{m.label}</option>)}
-          </select>
-          {busy && (
-            <button type="button" className={btn} disabled={!run.writer} onClick={() => void send("interrupt")}>
-              ■ Interrupt
-            </button>
-          )}
-          {ended
-            ? (
-              <button
-                type="button"
-                className={`${btn} border-copper/60 bg-copper/10 text-ink`}
-                onClick={() => restartRun(runId).catch((e: Error) => setNotice(e.message))}
-              >
-                ↻ Resume
-              </button>
-            )
-            : <button type="button" className={btn} disabled={!run.writer} onClick={() => void send("stop")}>Stop</button>}
-          <button
-            type="button"
-            className={btn}
-            disabled={!run.writer || busy || state.interactions.length > 0}
-            title="stop this run and continue the same conversation in a Trame terminal"
-            onClick={() => runToTerminal(runId).then((r) => onTerminal(r.term), (e: Error) => setNotice(e.message))}
-          >
-            ›_ Continue in terminal
-          </button>
-          <button
-            type="button"
-            className={btn}
-            title="stop the run and close this view; the conversation stays resumable"
-            onClick={() => void deleteRun(runId).catch(() => {}).then(onClosed)}
-          >
-            Close
-          </button>
-        </div>
-      </div>
       {state.status === "failed" && (
         <div className="whitespace-pre-wrap border-b border-blocked/40 bg-blocked/10 px-6 py-2 font-mono text-[11.5px] text-blocked">
           {state.error ?? "the agent stopped unexpectedly"}
         </div>
       )}
-      {!run.writer && run.connected && (
+      {!writer && run.connected && (
         <div className="flex items-center gap-3 border-b border-line bg-wait/10 px-6 py-1.5 text-[12px] text-ink-soft">
           Another window is driving this run; this one is watching.
           <button type="button" className="text-copper hover:text-ink" onClick={run.takeOver}>Take over</button>
@@ -145,15 +169,19 @@ export function AgentView(
               </div>
             )}
             {state.interactions.map((x) => (
-              <InteractionCard key={x.requestId} x={x} disabled={!run.writer} send={send} />
+              <InteractionCard key={x.requestId} x={x} who={who} provider={state.provider ?? "claude"} disabled={!writer} send={send} />
             ))}
           </div>
           {notice && <div className="px-6 pb-1 text-[11.5px] text-blocked">{notice}</div>}
           <Composer
-            ready={state.status === "ready" && run.writer}
+            bar={bar}
+            who={who}
+            ready={writer && (state.status === "ready" || ended)}
+            stopped={ended}
             busy={busy}
-            onSend={(text) => send("prompt", { text })}
-            onInterrupt={() => void send("interrupt")}
+            onSend={prompt}
+            onInterrupt={interrupt}
+            onCycleMode={cycleMode}
           />
         </div>
         <HistoryRail
@@ -164,16 +192,6 @@ export function AgentView(
             pinned.current = false;
             scroller.current?.querySelector(`[data-turn="${key}"]`)?.scrollIntoView({ block: "start" });
           }}
-          side={
-            <section className="flex flex-col gap-1.5 text-ink-faint">
-              <div className={SECTION_LABEL}>RUN</div>
-              <span>✳ Claude Code{state.model ? ` · ${state.model}` : ""}</span>
-              <span className="break-all">{state.cwd.replace(/^\/(home|Users)\/[^/]+/, "~")}</span>
-              <span>mode: {MODES.find((m) => m.mode === state.mode)?.label ?? state.mode ?? "default"}</span>
-              <span>turns: {state.turn}</span>
-              <code className="break-all font-mono text-[10.5px] text-ink-muted" title="the provider's session id">{state.sessionId}</code>
-            </section>
-          }
         />
       </div>
     </div>
@@ -182,7 +200,11 @@ export function AgentView(
 
 // The textarea keeps its own state so streaming renders never touch what is being typed.
 const Composer = memo(function Composer(
-  { ready, busy, onSend, onInterrupt }: {
+  { bar, who, ready, stopped, busy, onSend, onInterrupt, onCycleMode }: {
+    bar: ReactNode;
+    stopped: boolean;
+    onCycleMode: () => void;
+    who: string;
     ready: boolean;
     busy: boolean;
     onSend: (text: string) => Promise<Reply>;
@@ -203,14 +225,19 @@ const Composer = memo(function Composer(
     if (r.accepted) setText("");
   };
   return (
-    <div className="border-t border-line-soft px-6 pb-4 pt-2">
-      <div className="flex items-start gap-2 rounded-lg border border-chipline bg-panel px-3 py-2 font-mono text-[12px] focus-within:border-copper/60">
-        <span className="pt-0.5 text-copper">&gt;</span>
+    <div className="px-4 pb-3 pt-2">
+      <div className="flex items-center gap-2 rounded-xl border border-chipline bg-panel py-1.5 pl-3 pr-1.5 font-mono text-[12px] focus-within:border-copper/60">
         <textarea
           ref={box}
           rows={Math.min(8, Math.max(1, text.split("\n").length))}
-          className="min-w-0 flex-1 resize-none bg-transparent text-ink outline-none placeholder:text-ink-faint"
-          placeholder={ready ? "Message Claude…" : busy ? "Claude is working · Esc to interrupt" : "waiting for the agent"}
+          className="min-w-0 flex-1 resize-none bg-transparent py-1 text-ink outline-none placeholder:text-ink-faint"
+          placeholder={stopped
+            ? `Stopped · write to resume ${who}`
+            : ready
+            ? `Message ${who}…`
+            : busy
+            ? `${who} is working · Esc to stop`
+            : "waiting for the agent"}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
@@ -220,11 +247,37 @@ const Composer = memo(function Composer(
             } else if (e.key === "Escape" && busy) {
               e.preventDefault();
               onInterrupt();
+            } else if (e.key === "Tab" && e.shiftKey) {
+              e.preventDefault();
+              onCycleMode();
             }
           }}
         />
+        {/* send while ready, stop while it works, as other agent apps do */}
+        {busy
+          ? (
+            <button
+              type="button"
+              title="stop this turn (Esc)"
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-ink-soft hover:bg-hover hover:text-blocked"
+              onClick={onInterrupt}
+            >
+              <span className="h-2.5 w-2.5 rounded-[2px] bg-current" />
+            </button>
+          )
+          : (
+            <button
+              type="button"
+              title="send (Enter · Shift+Enter for a new line)"
+              disabled={!ready || !text.trim()}
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-[14px] text-ink-soft hover:bg-hover hover:text-ink disabled:opacity-30"
+              onClick={() => void submit()}
+            >
+              ↵
+            </button>
+          )}
       </div>
-      <div className="mt-1 text-[10.5px] text-ink-faint">⏎ send · ⇧⏎ newline · Esc interrupt</div>
+      <div className="flex items-center gap-0.5 pl-1 pt-1">{bar}</div>
     </div>
   );
 });
@@ -233,7 +286,9 @@ type Send = (kind: string, payload?: Record<string, unknown>) => Promise<Reply>;
 const card = "my-2 flex flex-col gap-2 rounded-lg border border-copper/50 bg-copper/5 px-4 py-3 font-sans text-[12.5px] text-ink";
 
 // A request the agent is blocked on: a tool to allow, questions to answer or a plan to review.
-function InteractionCard({ x, disabled, send }: { x: Interaction; disabled: boolean; send: Send }) {
+function InteractionCard(
+  { x, who, provider, disabled, send }: { x: Interaction; who: string; provider: string; disabled: boolean; send: Send },
+) {
   const [message, setMessage] = useState("");
   const answer = (decision: string, extra: Record<string, unknown> = {}) =>
     void send("answer", { requestId: x.requestId, decision, message, ...extra });
@@ -265,8 +320,9 @@ function InteractionCard({ x, disabled, send }: { x: Interaction; disabled: bool
   const diffs = toolDiffs(tool);
   return (
     <div className={card}>
-      <div>
-        Claude wants to use <span className="font-mono font-bold">{x.tool}</span>
+      <div className="flex items-center gap-1.5">
+        <AgentIcon a={{ harness: provider, icon: null }} />
+        {who} wants to use <span className="font-mono font-bold">{x.tool}</span>
         {toolArg(tool) && <span className="font-mono">({toolArg(tool)})</span>}
       </div>
       <div className="font-mono text-[11.5px]">{diffs ? <Diffs diffs={diffs} /> : <ToolInput tool={tool} />}</div>
@@ -347,5 +403,138 @@ function QuestionCard({ x, disabled, send }: { x: Interaction; disabled: boolean
         </button>
       </div>
     </div>
+  );
+}
+
+type Choice = { key: string; label: string; hint?: string | null; badge?: string; on: boolean };
+
+// Mode, model and effort under the composer, each a menu like Claude Code's own: number keys pick
+type Action = { key: string; label: string; hint: string; run: () => void };
+
+function RunBar(
+  { state, folder, writer, connected, send, actions }: {
+    state: RunState;
+    folder: string;
+    writer: boolean;
+    connected: boolean;
+    send: Send;
+    actions: Action[];
+  },
+) {
+  const [open, setOpen] = useState<"mode" | "model" | "effort" | "more" | null>(null);
+  const ended = state.status === "stopped" || state.status === "failed" || state.status === "starting";
+  const model = modelOf(state);
+  const models = state.models ?? [];
+  const efforts = model?.efforts ?? [...new Set(models.flatMap((m) => m.efforts ?? []))];
+  const restarts = !!state.capabilities?.effortRestarts;
+  const mode = modeOf(state.mode);
+  const menus: Record<"mode" | "model" | "effort" | "more", { kind: string; field: string; title: string; items: Choice[]; footer?: string }> = {
+    mode: {
+      kind: "setMode",
+      field: "mode",
+      title: "Mode",
+      items: MODES.map((m) => ({ key: m.mode, label: m.label, hint: m.hint, on: m.mode === mode?.mode })),
+      footer: "Bypassing permissions stays in the terminal",
+    },
+    model: {
+      kind: "setModel",
+      field: "model",
+      title: "Model",
+      items: models.map((m) => ({ key: m.value, label: m.label, hint: m.description, on: m === model })),
+    },
+    effort: {
+      kind: "setEffort",
+      field: "effort",
+      title: "Effort",
+      items: efforts.map((e) => ({ key: e, label: e[0].toUpperCase() + e.slice(1), on: e === state.effort })),
+      footer: restarts ? "Claude takes a new effort by resuming the conversation" : "Applies from the next turn",
+    },
+    more: {
+      kind: "",
+      field: "",
+      title: "Run",
+      items: actions.map((a) => ({ key: a.key, label: a.label, hint: a.hint, on: false })),
+    },
+  };
+  const pick = (which: keyof typeof menus, key: string) => {
+    setOpen(null);
+    if (which === "more") return actions.find((a) => a.key === key)?.run();
+    void send(menus[which].kind, { [menus[which].field]: key });
+  };
+  useEffect(() => {
+    if (!open) return;
+    const keys = (e: KeyboardEvent) => {
+      const n = Number(e.key);
+      const item = Number.isInteger(n) ? menus[open].items[n - 1] : undefined;
+      if (!item) return;
+      e.preventDefault();
+      pick(open, item.key);
+    };
+    addEventListener("keydown", keys);
+    return () => removeEventListener("keydown", keys);
+  });
+  const chip = (which: keyof typeof menus, label: ReactNode, disabled: boolean) => (
+    <span className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        className={`rounded-md px-1.5 py-0.5 text-[12px] hover:bg-hover hover:text-ink disabled:opacity-50 ${
+          which === "effort" ? "text-ink-faint" : "text-ink-soft"
+        }`}
+        onClick={() => setOpen(open === which ? null : which)}
+      >
+        {label}
+      </button>
+      {open === which && <Menu {...menus[which]} onPick={(k) => pick(which, k)} onClose={() => setOpen(null)} />}
+    </span>
+  );
+  const status = STATUS[state.status];
+  return (
+    <>
+      <span className="flex min-w-0 items-center gap-1.5 text-[12px]" title={state.cwd}>
+        <AgentIcon a={{ harness: state.provider ?? "claude", icon: null }} />
+        <span className="truncate text-ink-soft">{folder}</span>
+        {state.status !== "ready" && <span className={status.tone}>· {status.label}</span>}
+        {!connected && <span className="text-wait">· reconnecting…</span>}
+      </span>
+      <span className="ml-auto" />
+      {models.length > 0 && chip("model", model?.label ?? state.model ?? "Model", !writer || ended)}
+      {efforts.length > 0 &&
+        chip("effort", state.effort ? state.effort[0].toUpperCase() + state.effort.slice(1) : "Default effort", !writer || state.status !== "ready")}
+      {(state.capabilities?.modes ?? true) && chip("mode", mode?.label ?? state.mode ?? "Mode", !writer || ended)}
+      {actions.length > 0 && chip("more", "⋯", !writer)}
+    </>
+  );
+}
+
+function Menu(
+  { title, items, footer, onPick, onClose }: {
+    title: string;
+    items: Choice[];
+    footer?: string;
+    onPick: (key: string) => void;
+    onClose: () => void;
+  },
+) {
+  return (
+    <Popover portal onClose={onClose} className="w-72">
+      <div className="px-2 pb-1 pt-0.5 text-[11px] text-ink-faint">{title}</div>
+      {items.map((it, i) => (
+        <button
+          key={it.key}
+          type="button"
+          className="flex w-full items-start gap-3 rounded-md px-2 py-1.5 text-left hover:bg-active-row"
+          onClick={() => onPick(it.key)}
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block text-[12.5px] text-ink">{it.label}</span>
+            {it.hint && <span className="block text-[11.5px] leading-snug text-ink-muted">{it.hint}</span>}
+          </span>
+          <span className="w-4 pt-0.5 text-center text-copper">{it.on ? "✓" : ""}</span>
+          {i < 9 && <span className="w-3 pt-0.5 text-right text-[11px] text-ink-faint">{i + 1}</span>}
+        </button>
+      ))}
+      {footer && <div className="mt-1 border-t border-line px-2 pt-1.5 text-[11px] text-ink-faint">{footer}</div>}
+    </Popover>
   );
 }

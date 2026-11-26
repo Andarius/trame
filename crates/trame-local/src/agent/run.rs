@@ -12,7 +12,8 @@ use tokio::{
     sync::{broadcast, mpsc},
 };
 
-use super::claude::{self, Frame};
+use super::claude::{self, Frame, Launch};
+use super::codex::{self, Msg};
 use crate::imports::history::claude_items;
 
 /// Events kept for a reconnecting client; an older cursor gets a snapshot instead.
@@ -25,13 +26,65 @@ const STDERR_LINES: usize = 40;
 const SEEN_COMMANDS: usize = 256;
 const STDIN_QUEUE: usize = 64;
 /// Permission modes a client may switch to; bypassing every check is left to the terminal.
-const MODES: &[&str] = &["default", "acceptEdits", "plan"];
+const MODES: &[&str] = &["auto", "manual", "default", "acceptEdits", "plan"];
+
+/// The agent CLI a run drives, each with its own protocol on stdio.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Provider {
+    /// `claude -p` speaking stream-json, with control requests for decisions
+    Claude,
+    /// `codex app-server` speaking JSON-RPC
+    Codex,
+}
+
+impl Provider {
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "claude" => Some(Self::Claude),
+            "codex" => Some(Self::Codex),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+        }
+    }
+
+    /// The installed CLI, or a stand-in for tests.
+    fn bin(self) -> String {
+        let (var, default) = match self {
+            Self::Claude => ("TRAME_CLAUDE_BIN", "claude"),
+            Self::Codex => ("TRAME_CODEX_BIN", "codex"),
+        };
+        std::env::var(var).unwrap_or_else(|_| default.into())
+    }
+
+    /// The shell command that resumes `session` in a terminal.
+    pub fn resume_command(self, session: &str) -> String {
+        match self {
+            Self::Claude => format!("claude --resume {session}"),
+            Self::Codex => format!("codex resume {session}"),
+        }
+    }
+}
+
+/// What one of our JSON-RPC requests to Codex was for.
+enum Rpc {
+    Initialize,
+    Thread,
+    Models,
+    Turn,
+    Other,
+}
 
 /// One live agent run: its child, its reduced state and the clients following it.
 pub struct Run {
     pub id: String,
     pub cwd: PathBuf,
-    bin: String,
+    pub provider: Provider,
     inner: Mutex<Inner>,
     tx: broadcast::Sender<Value>,
 }
@@ -54,15 +107,28 @@ struct Inner {
     pending: HashMap<String, Value>,
     /// our own control requests still waiting for the CLI's answer: the mode asked for
     modes: HashMap<String, String>,
+    /// our `set_model` requests still waiting for the CLI's answer
+    model_reqs: HashSet<String>,
+    /// Codex: our JSON-RPC requests in flight, the turn running and file changes by item
+    rpc: HashMap<u64, Rpc>,
+    rpc_next: u64,
+    codex_turn: Option<String>,
+    /// whether this incarnation resumes its thread rather than starting one
+    codex_resume: bool,
+    patches: HashMap<String, String>,
 }
 
 #[derive(Default)]
 struct State {
     status: &'static str,
+    provider: &'static str,
     cwd: String,
     session: String,
     model: Option<String>,
     mode: Option<String>,
+    effort: Option<String>,
+    /// what the provider offers: `{value, label, description, efforts}`
+    models: Vec<Value>,
     turn: u64,
     items: VecDeque<Value>,
     dropped: u64,
@@ -76,10 +142,16 @@ impl State {
     fn to_json(&self) -> Value {
         json!({
             "status": self.status,
+            "provider": self.provider,
+            // what this provider's view can offer: Codex has no permission modes to switch, and
+            // Claude only takes a new effort at launch, so changing it restarts an idle run
+            "capabilities": {"modes": self.provider == "claude", "effortRestarts": self.provider == "claude"},
             "cwd": self.cwd,
             "sessionId": self.session,
             "model": self.model,
             "mode": self.mode,
+            "effort": self.effort,
+            "models": self.models,
             "turn": self.turn,
             "items": self.items,
             "droppedItems": self.dropped,
@@ -106,13 +178,13 @@ impl Run {
     pub fn start(
         id: String,
         cwd: PathBuf,
-        bin: String,
+        provider: Provider,
         resume: Option<String>,
-        mode: Option<String>,
+        launch: Launch,
         history: Vec<Value>,
     ) -> std::io::Result<Arc<Self>> {
         let resumed = resume.is_some();
-        let run = Self::new(id, cwd, bin, resume, mode, history);
+        let run = Self::new(id, cwd, provider, resume, launch, history);
         run.spawn(resumed)?;
         Ok(run)
     }
@@ -121,9 +193,9 @@ impl Run {
     pub fn new(
         id: String,
         cwd: PathBuf,
-        bin: String,
+        provider: Provider,
         resume: Option<String>,
-        mode: Option<String>,
+        launch: Launch,
         history: Vec<Value>,
     ) -> Arc<Self> {
         let (tx, _) = broadcast::channel(1024);
@@ -135,7 +207,7 @@ impl Run {
         Arc::new(Self {
             id,
             cwd,
-            bin,
+            provider,
             tx,
             inner: Mutex::new(Inner {
                 epoch: String::new(),
@@ -143,9 +215,12 @@ impl Run {
                 ring: VecDeque::new(),
                 state: State {
                     status: "stopped",
+                    provider: provider.name(),
                     cwd: shown,
                     session,
-                    mode,
+                    mode: launch.mode,
+                    model: launch.model,
+                    effort: launch.effort,
                     items,
                     ..State::default()
                 },
@@ -159,6 +234,12 @@ impl Run {
                 stopping: false,
                 pending: HashMap::new(),
                 modes: HashMap::new(),
+                model_reqs: HashSet::new(),
+                rpc: HashMap::new(),
+                rpc_next: 0,
+                codex_turn: None,
+                codex_resume: false,
+                patches: HashMap::new(),
             }),
         })
     }
@@ -172,22 +253,31 @@ impl Run {
     }
 
     fn spawn(self: &Arc<Self>, resume: bool) -> std::io::Result<()> {
-        let (session, mode) = {
+        let (session, launch) = {
             let inner = self.inner.lock().unwrap();
-            (inner.state.session.clone(), inner.state.mode.clone())
+            let st = &inner.state;
+            let launch = Launch {
+                mode: st.mode.clone(),
+                model: st.model.clone(),
+                effort: st.effort.clone(),
+            };
+            (st.session.clone(), launch)
         };
-        let mut cmd = Command::new(&self.bin);
-        cmd.args(claude::args(
-            resume.then_some(session.as_str()),
-            &session,
-            mode.as_deref(),
-        ))
-        .current_dir(&self.cwd)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .process_group(0);
+        let mut cmd = Command::new(self.provider.bin());
+        match self.provider {
+            Provider::Claude => cmd.args(claude::args(
+                resume.then_some(session.as_str()),
+                &session,
+                &launch,
+            )),
+            Provider::Codex => cmd.arg("app-server"),
+        };
+        cmd.current_dir(&self.cwd)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .process_group(0);
         for (key, _) in std::env::vars_os() {
             if key.to_str().is_some_and(crate::pty::agent_host_var) {
                 cmd.env_remove(&key);
@@ -214,14 +304,29 @@ impl Run {
             inner.state.error = None;
             inner.state.partial.clear();
             inner.state.stderr.clear();
+            inner.rpc.clear();
+            inner.codex_turn = None;
+            // a fresh Codex thread gets its id from Codex; resuming one keeps it
+            inner.codex_resume = resume;
             let snapshot = snapshot(&inner);
             let _ = self.tx.send(snapshot);
         }
         let stdin = child.stdin.take().expect("piped stdin");
         let stdout = child.stdout.take().expect("piped stdout");
         let stderr = child.stderr.take().expect("piped stderr");
-        let init = self.next_request();
-        let _ = stdin_tx.try_send(claude::initialize(&init).to_string());
+        let init = match self.provider {
+            Provider::Claude => {
+                let init = self.next_request();
+                let _ = stdin_tx.try_send(claude::initialize(&init).to_string());
+                init
+            }
+            Provider::Codex => {
+                let id = self.rpc(Rpc::Initialize);
+                let _ = stdin_tx
+                    .try_send(codex::request(id, "initialize", &codex::initialize()).to_string());
+                String::new()
+            }
+        };
         tokio::spawn(write_stdin(stdin, stdin_rx));
         let errors = tokio::spawn(read_stderr(self.clone(), stderr));
         tokio::spawn(self.clone().supervise(child, stdout, errors, init));
@@ -232,6 +337,15 @@ impl Run {
         let mut inner = self.inner.lock().unwrap();
         inner.requests += 1;
         format!("trame-{}", inner.requests)
+    }
+
+    /// A fresh JSON-RPC id for a Codex request, remembering what it is for.
+    fn rpc(&self, purpose: Rpc) -> u64 {
+        let mut inner = self.inner.lock().unwrap();
+        inner.rpc_next += 1;
+        let id = inner.rpc_next;
+        inner.rpc.insert(id, purpose);
+        id
     }
 
     fn send(&self, line: &Value) -> bool {
@@ -299,7 +413,7 @@ impl Run {
     }
 
     /// Check and run one client command; `lease` is the sender's writer lease.
-    pub fn command(&self, lease: u64, cmd: &Value) -> Reply {
+    pub fn command(self: &Arc<Self>, lease: u64, cmd: &Value) -> Reply {
         let id = cmd["commandId"]
             .as_str()
             .ok_or("commandId required")?
@@ -331,8 +445,10 @@ impl Run {
                 (Some("interrupt"), "busy") => {}
                 (Some("interrupt"), _) => return Err("nothing to interrupt"),
                 (Some("stop" | "answer"), _) => {}
-                (Some("setMode"), "ready" | "busy") => {}
-                (Some("setMode"), _) => return Err("not ready"),
+                (Some("setMode" | "setModel"), "ready" | "busy") => {}
+                (Some("setMode" | "setModel"), _) => return Err("not ready"),
+                (Some("setEffort"), "ready") => {}
+                (Some("setEffort"), _) => return Err("finish the turn first"),
                 _ => return Err("unknown command"),
             }
             text = cmd["payload"]["text"]
@@ -345,7 +461,21 @@ impl Run {
                 if text.trim().is_empty() {
                     return Err("empty prompt");
                 }
-                if !self.send(&claude::user_message(&text)) {
+                let line = match self.provider {
+                    Provider::Claude => claude::user_message(&text),
+                    Provider::Codex => {
+                        // a model or effort picked since the last turn applies from this one
+                        let (model, effort) = {
+                            let st = &self.inner.lock().unwrap().state;
+                            (st.model.clone(), st.effort.clone())
+                        };
+                        let params = json!({
+                            "threadId":self.session(),"input":codex::user_input(&text),"model":model,"effort":effort,
+                        });
+                        codex::request(self.rpc(Rpc::Turn), "turn/start", &params)
+                    }
+                };
+                if !self.send(&line) {
                     return Err("input queue full");
                 }
                 self.publish("turn.started", json!({}));
@@ -355,8 +485,16 @@ impl Run {
                 );
             }
             Some("interrupt") => {
-                let id = self.next_request();
-                if !self.send(&claude::interrupt(&id)) {
+                let line = match self.provider {
+                    Provider::Claude => claude::interrupt(&self.next_request()),
+                    Provider::Codex => {
+                        let turn = self.inner.lock().unwrap().codex_turn.clone();
+                        let turn = turn.ok_or("the turn hasn't started yet")?;
+                        let params = json!({"threadId":self.session(),"turnId":turn});
+                        codex::request(self.rpc(Rpc::Other), "turn/interrupt", &params)
+                    }
+                };
+                if !self.send(&line) {
                     return Err("input queue full");
                 }
                 self.status("interrupting");
@@ -364,6 +502,9 @@ impl Run {
             Some("answer") => return self.answer(&cmd["payload"]),
             Some("setMode") => {
                 let mode = cmd["payload"]["mode"].as_str().unwrap_or_default();
+                if self.provider == Provider::Codex {
+                    return Err("Codex has no permission modes to switch");
+                }
                 if !MODES.contains(&mode) {
                     return Err("unknown mode");
                 }
@@ -375,6 +516,38 @@ impl Run {
                     .insert(id.clone(), mode.to_owned());
                 if !self.send(&claude::set_mode(&id, mode)) {
                     return Err("input queue full");
+                }
+            }
+            Some("setModel") => {
+                let model = cmd["payload"]["model"].as_str().unwrap_or_default();
+                if !valid_choice(model) {
+                    return Err("unknown model");
+                }
+                match self.provider {
+                    Provider::Claude => {
+                        let id = self.next_request();
+                        self.inner.lock().unwrap().model_reqs.insert(id.clone());
+                        if !self.send(&claude::set_model(&id, model)) {
+                            return Err("input queue full");
+                        }
+                    }
+                    Provider::Codex => self.publish("run.info", json!({"model":model})),
+                }
+            }
+            Some("setEffort") => {
+                let effort = cmd["payload"]["effort"].as_str().unwrap_or_default();
+                if !valid_choice(effort) {
+                    return Err("unknown effort");
+                }
+                self.publish("run.info", json!({"effort":effort}));
+                // Claude takes effort only at launch: resume the same conversation with it
+                if self.provider == Provider::Claude {
+                    let run = self.clone();
+                    tokio::spawn(async move {
+                        if run.stop_and_wait(Duration::from_secs(6)).await {
+                            let _ = run.spawn(true);
+                        }
+                    });
                 }
             }
             _ => self.stop(),
@@ -395,6 +568,9 @@ impl Run {
         let input = &request["input"];
         let decision = p["decision"].as_str().unwrap_or_default();
         let message = p["message"].as_str().filter(|m| !m.trim().is_empty());
+        if self.provider == Provider::Codex {
+            return self.answer_codex(id, request, decision, p);
+        }
         let allow = |updated: &Value| json!({"behavior":"allow","updatedInput":updated});
         let deny = |text: &str| json!({"behavior":"deny","message":text});
         let response = match (request["kind"].as_str(), decision) {
@@ -439,6 +615,43 @@ impl Run {
         Ok(())
     }
 
+    /// Codex's answers: `accept`/`decline` for approvals, answers keyed by question id.
+    fn answer_codex(&self, id: &str, request: Value, decision: &str, p: &Value) -> Reply {
+        let result = match (request["kind"].as_str(), decision) {
+            (Some("permission"), "allow") => json!({"decision":"accept"}),
+            (Some("permission"), "deny") => json!({"decision":"decline"}),
+            (Some("question"), "answer" | "deny") => {
+                let given = p["answers"].as_object().cloned().unwrap_or_default();
+                let answers: serde_json::Map<String, Value> = request["input"]["questions"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|q| {
+                        let text = given.get(q["question"].as_str()?)?.as_str()?;
+                        Some((q["id"].as_str()?.to_owned(), json!({"answers":[text]})))
+                    })
+                    .collect();
+                json!({"answers":answers})
+            }
+            _ => {
+                self.inner
+                    .lock()
+                    .unwrap()
+                    .pending
+                    .insert(id.to_owned(), request);
+                return Err("unknown decision");
+            }
+        };
+        if !self.send(&codex::respond(&request["rpcId"], &result)) {
+            return Err("input queue full");
+        }
+        self.publish(
+            "interaction.resolved",
+            json!({"requestId":id,"decision":decision}),
+        );
+        Ok(())
+    }
+
     /// End the child: close its input, then signal its process group if it lingers.
     pub fn stop(&self) {
         let pid = {
@@ -470,7 +683,10 @@ impl Run {
     /// What survives a restart: enough to resume the conversation in its folder and mode.
     pub fn record(&self) -> Value {
         let inner = self.inner.lock().unwrap();
-        json!({"id":self.id,"provider":"claude","cwd":self.cwd,"sessionId":inner.state.session,"mode":inner.state.mode})
+        json!({
+            "id":self.id,"provider":self.provider.name(),"cwd":self.cwd,"sessionId":inner.state.session,
+            "mode":inner.state.mode,"model":inner.state.model,"effort":inner.state.effort,
+        })
     }
 
     pub fn session(&self) -> String {
@@ -502,7 +718,7 @@ impl Run {
 
     pub fn summary(&self) -> Value {
         let inner = self.inner.lock().unwrap();
-        json!({"id":self.id,"cwd":self.cwd,"epoch":inner.epoch,"status":inner.state.status,"sessionId":inner.state.session})
+        json!({"id":self.id,"provider":self.provider.name(),"cwd":self.cwd,"epoch":inner.epoch,"status":inner.state.status,"sessionId":inner.state.session})
     }
 
     async fn supervise(
@@ -526,14 +742,14 @@ impl Run {
                     if line.trim().is_empty() {
                         continue;
                     }
-                    match claude::decode(&line) {
-                        None => {
-                            self.publish(
-                                "run.warning",
-                                json!({"text":"skipped a malformed frame"}),
-                            );
+                    let decoded = match self.provider {
+                        Provider::Claude => {
+                            claude::decode(&line).map(|f| self.frame(f, &mut init_id))
                         }
-                        Some(frame) => self.frame(frame, &mut init_id),
+                        Provider::Codex => codex::decode(&line).map(|m| self.codex(m)),
+                    };
+                    if decoded.is_none() {
+                        self.publish("run.warning", json!({"text":"skipped a malformed frame"}));
                     }
                 }
             }
@@ -663,17 +879,41 @@ impl Run {
                     json!({"requestId":id,"subtype":subtype,"tool":body["tool_name"]}),
                 );
             }
-            Frame::Response { id, error } => {
+            Frame::Response { id, error, body } => {
                 // taken out of the lock first: publish locks it again
-                let mode = self.inner.lock().unwrap().modes.remove(&id);
+                let (mode, model) = {
+                    let mut inner = self.inner.lock().unwrap();
+                    (inner.modes.remove(&id), inner.model_reqs.remove(&id))
+                };
                 if init_id.as_deref() == Some(id.as_str()) {
                     *init_id = None;
                     match error {
-                        None => self.status("ready"),
+                        None => {
+                            // the CLI says which mode it starts in and which models it offers
+                            let models: Vec<Value> = body["models"]
+                                .as_array()
+                                .into_iter()
+                                .flatten()
+                                .map(|m| json!({
+                                    "value": m["value"], "resolved": m["resolvedModel"], "label": m["displayName"], "description": m["description"],
+                                    "efforts": m["supportedEffortLevels"],
+                                }))
+                                .collect();
+                            // the CLI doesn't say its effort: it starts at the one its settings give
+                            let effort = self.inner.lock().unwrap().state.effort.clone();
+                            let effort = effort.or_else(|| claude::default_effort(&self.cwd));
+                            self.publish(
+                                "run.info",
+                                json!({"mode":body["current_permission_mode"],"models":models,"effort":effort}),
+                            );
+                            self.status("ready");
+                        }
                         Some(e) => self.publish("run.state", json!({"status":"failed","error":e})),
                     }
                 } else if let Some(mode) = mode.filter(|_| error.is_none()) {
                     self.publish("run.info", json!({"mode":mode}));
+                } else if model && error.is_none() {
+                    self.publish("run.info", json!({"model":body["model"]}));
                 } else if let Some(e) = error {
                     self.publish("run.warning", json!({"text":e,"requestId":id}));
                 }
@@ -688,6 +928,207 @@ impl Run {
             Frame::Other(_) => {}
         }
     }
+}
+
+impl Run {
+    fn codex(&self, msg: Msg) {
+        match msg {
+            Msg::Response { id, result, error } => {
+                let purpose = id
+                    .as_u64()
+                    .and_then(|id| self.inner.lock().unwrap().rpc.remove(&id));
+                match (purpose, error) {
+                    (Some(Rpc::Initialize), None) => {
+                        self.send(&codex::notify("initialized"));
+                        let (cwd, resume) = {
+                            let inner = self.inner.lock().unwrap();
+                            (
+                                inner.state.cwd.clone(),
+                                inner.codex_resume.then(|| inner.state.session.clone()),
+                            )
+                        };
+                        let (method, params) = codex::thread(&cwd, resume.as_deref());
+                        self.send(&codex::request(self.rpc(Rpc::Thread), method, &params));
+                    }
+                    (Some(Rpc::Thread), None) => {
+                        let thread = result["thread"]["id"]
+                            .as_str()
+                            .unwrap_or_default()
+                            .to_owned();
+                        let expected = self.session();
+                        if self.inner.lock().unwrap().codex_resume && thread != expected {
+                            self.publish(
+                                "run.warning",
+                                json!({"text":format!("Codex resumed thread {thread} instead of {expected}")}),
+                            );
+                        }
+                        self.publish(
+                            "run.info",
+                            json!({"sessionId":thread,"model":result["model"],"effort":result["reasoningEffort"]}),
+                        );
+                        self.status("ready");
+                        // the models and efforts offered, for the pickers
+                        self.send(&codex::request(
+                            self.rpc(Rpc::Models),
+                            "model/list",
+                            &json!({}),
+                        ));
+                    }
+                    (Some(Rpc::Models), None) => {
+                        let models: Vec<Value> = result["data"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter(|m| m["hidden"] != true)
+                            .map(|m| {
+                                let efforts: Vec<Value> = m["supportedReasoningEfforts"]
+                                    .as_array()
+                                    .into_iter()
+                                    .flatten()
+                                    .map(|e| e["reasoningEffort"].clone())
+                                    .collect();
+                                json!({"value":m["model"],"label":m["displayName"],"description":m["description"],"efforts":efforts})
+                            })
+                            .collect();
+                        self.publish("run.info", json!({"models":models}));
+                    }
+                    (Some(Rpc::Initialize | Rpc::Thread), Some(e)) => {
+                        self.publish("run.state", json!({"status":"failed","error":e}));
+                    }
+                    (Some(Rpc::Turn), Some(e)) => {
+                        self.publish("run.warning", json!({"text":e}));
+                        self.publish(
+                            "turn.finished",
+                            json!({"outcome":"error","subtype":"rejected"}),
+                        );
+                    }
+                    (Some(Rpc::Turn), None) => {
+                        self.inner.lock().unwrap().codex_turn =
+                            result["turn"]["id"].as_str().map(str::to_owned);
+                    }
+                    (_, Some(e)) => self.publish("run.warning", json!({"text":e})),
+                    _ => {}
+                }
+            }
+            Msg::Notification { method, params } => match method.as_str() {
+                "item/agentMessage/delta" => {
+                    self.publish("item.delta", json!({"text":params["delta"]}));
+                }
+                // a file change is shown in its approval before it completes
+                "item/started" if params["item"]["type"] == "fileChange" => {
+                    let id = params["item"]["id"].as_str().unwrap_or_default().to_owned();
+                    let patch = codex::patch(&params["item"]["changes"]);
+                    self.inner.lock().unwrap().patches.insert(id, patch);
+                }
+                "item/completed" => {
+                    for mut item in codex::items(&params["item"]) {
+                        item["ts"] = now().into();
+                        self.publish("item.completed", item);
+                    }
+                }
+                "turn/started" => {
+                    self.inner.lock().unwrap().codex_turn =
+                        params["turn"]["id"].as_str().map(str::to_owned);
+                }
+                "turn/completed" => {
+                    self.inner.lock().unwrap().codex_turn = None;
+                    let outcome = match params["turn"]["status"].as_str() {
+                        Some("completed") => "success",
+                        Some("interrupted") => "interrupted",
+                        _ => "error",
+                    };
+                    self.publish(
+                        "turn.finished",
+                        json!({"outcome":outcome,"subtype":params["turn"]["status"]}),
+                    );
+                }
+                "error" if params["willRetry"] != true => {
+                    self.publish("run.warning", json!({"text":params["error"]["message"]}));
+                }
+                // answered elsewhere or withdrawn: a late answer must not reach Codex
+                "serverRequest/resolved" => {
+                    let id = request_key(&params["requestId"]);
+                    if self.inner.lock().unwrap().pending.remove(&id).is_some() {
+                        self.publish("interaction.cancelled", json!({"requestId":id}));
+                    }
+                }
+                _ => {}
+            },
+            Msg::Request { id, method, params } => {
+                let key = request_key(&id);
+                let request = match method.as_str() {
+                    "item/commandExecution/requestApproval" => Some(json!({
+                        "kind": "permission", "tool": "Bash",
+                        "input": {"command": params["command"], "cwd": params["cwd"], "description": params["reason"]},
+                    })),
+                    "item/fileChange/requestApproval" => {
+                        let item = params["itemId"].as_str().unwrap_or_default();
+                        let patch = self
+                            .inner
+                            .lock()
+                            .unwrap()
+                            .patches
+                            .get(item)
+                            .cloned()
+                            .unwrap_or_default();
+                        Some(
+                            json!({"kind":"permission","tool":"apply_patch","input":{"input":patch,"description":params["reason"]}}),
+                        )
+                    }
+                    "item/tool/requestUserInput" => {
+                        let questions: Vec<Value> = params["questions"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .map(|q| {
+                                json!({
+                                    "id": q["id"], "question": q["question"], "header": q["header"], "multiSelect": false,
+                                    "options": q["options"].as_array().map(|o| o.iter().map(|o| json!({"label":o["label"],"description":o["description"]})).collect::<Vec<_>>()),
+                                })
+                            })
+                            .collect();
+                        Some(
+                            json!({"kind":"question","tool":"request_user_input","input":{"questions":questions}}),
+                        )
+                    }
+                    _ => None,
+                };
+                if let Some(mut request) = request {
+                    request["requestId"] = key.clone().into();
+                    request["rpcId"] = id;
+                    self.inner
+                        .lock()
+                        .unwrap()
+                        .pending
+                        .insert(key, request.clone());
+                    self.publish("interaction.requested", request);
+                } else {
+                    // a blocking request with no UI must fail, not leave the turn hanging
+                    self.send(&codex::refuse(
+                        &id,
+                        "Trame's agent view can't answer this request",
+                    ));
+                    self.publish(
+                        "interaction.denied",
+                        json!({"requestId":key,"subtype":method}),
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// A model or effort name as the CLIs spell them: `claude-opus-5-5`, `gpt-6.2`, `xhigh`.
+pub(crate) fn valid_choice(v: &str) -> bool {
+    !v.is_empty()
+        && v.len() <= 80
+        && v.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_.:[]".contains(c))
+}
+
+/// A JSON-RPC id as the string key clients answer by.
+fn request_key(id: &Value) -> String {
+    id.as_str().map_or_else(|| id.to_string(), str::to_owned)
 }
 
 fn now() -> String {
@@ -725,6 +1166,12 @@ fn apply(state: &mut State, kind: &str, p: &Value) {
                 .map(str::to_owned)
                 .or(state.model.take());
             state.mode = p["mode"].as_str().map(str::to_owned).or(state.mode.take());
+            if let Some(e) = p["effort"].as_str() {
+                state.effort = Some(e.to_owned());
+            }
+            if let Some(models) = p["models"].as_array() {
+                models.clone_into(&mut state.models);
+            }
         }
         "turn.started" => {
             state.turn += 1;
