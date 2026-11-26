@@ -10,3 +10,7 @@ the server refuses to start without them. Todos are read like `tramecli due`
 (local app, else the hub).
 
 Put it behind HTTPS (hub/miniapp/) and point the bot's menu button at /tg/.
+
+The ⚙ screen lists and edits the due digest schedules (settings.json due.schedules on
+the machine that serves it, validated like `tramecli due schedule`); TRAME_RUNNER_NAME
+names that machine on screen.

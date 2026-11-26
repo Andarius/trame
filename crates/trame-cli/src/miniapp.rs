@@ -1,11 +1,12 @@
 use crate::{
-    connectors,
+    connectors, digest,
     due::{self, Options, Window},
     target::resolve_target,
 };
 use anyhow::{Context, Result, bail};
 use axum::{
     Json, Router,
+    body::Bytes,
     extract::{DefaultBodyLimit, Request},
     http::{HeaderMap, StatusCode, header},
     middleware::{self, Next},
@@ -25,6 +26,8 @@ const MAX_FUTURE_SECS: i64 = 5 * 60;
 const MAX_INIT_DATA_BYTES: usize = 4096;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 const DUE_WITHIN_DAYS: i64 = 7;
+const MAX_SCHEDULES: usize = 10;
+const MAX_SETTINGS_BYTES: usize = 16 * 1024;
 const USAGE: &str = "usage: tramecli miniapp serve [--addr HOST:PORT]";
 
 type HmacSha256 = Hmac<Sha256>;
@@ -121,24 +124,103 @@ fn pick(row: &Value) -> Value {
     })
 }
 
-async fn api_due(headers: HeaderMap) -> Response {
+/// None for the signed Telegram user, else the response to send instead (401, or 503
+/// without credentials).
+fn refuse(headers: &HeaderMap) -> Option<Response> {
     // read per request: a removed or rotated connector takes effect at once, and none means closed
     let Ok(config) = config() else {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "unavailable"})),
-        )
-            .into_response();
+        return Some(
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"error": "unavailable"})),
+            )
+                .into_response(),
+        );
     };
     let init_data = headers
         .get("x-telegram-init-data")
         .filter(|v| v.len() <= MAX_INIT_DATA_BYTES)
         .and_then(|v| v.to_str().ok());
-    let Some(init_data) = init_data else {
-        return unauthorized();
+    match init_data {
+        Some(data) if validate_init_data(data, &config.token, &config.chat_id, now()).is_ok() => {
+            None
+        }
+        _ => Some(unauthorized()),
+    }
+}
+
+fn bad_request(message: &str) -> Response {
+    (StatusCode::BAD_REQUEST, Json(json!({"error": message}))).into_response()
+}
+
+/// Where the schedules run, for the settings screen.
+fn runs_on() -> String {
+    std::env::var("TRAME_RUNNER_NAME").unwrap_or_else(|_| "this server".into())
+}
+
+async fn api_settings(headers: HeaderMap) -> Response {
+    if let Some(response) = refuse(&headers) {
+        return response;
+    }
+    let values = connectors::load_values();
+    let set_up: Vec<&str> = connectors::REGISTRY
+        .iter()
+        .filter(|s| (s.build)(&values).is_some())
+        .map(|s| s.name)
+        .collect();
+    match digest::read_settings().and_then(|s| digest::schedules_from(&s)) {
+        Ok(schedules) => Json(json!({
+            "schedules": schedules,
+            "connectors": set_up,
+            "runs_on": runs_on(),
+            "defaults": digest::Schedule::morning(),
+        }))
+        .into_response(),
+        Err(error) => bad_request(&format!("{error:#}")),
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Save {
+    schedules: Vec<digest::Schedule>,
+}
+
+async fn api_settings_save(headers: HeaderMap, body: Bytes) -> Response {
+    if let Some(response) = refuse(&headers) {
+        return response;
+    }
+    let save: Save = match serde_json::from_slice(&body) {
+        Ok(save) => save,
+        Err(error) => return bad_request(&format!("invalid schedules: {error}")),
     };
-    if validate_init_data(init_data, &config.token, &config.chat_id, now()).is_err() {
-        return unauthorized();
+    if save.schedules.len() > MAX_SCHEDULES {
+        return bad_request(&format!("at most {MAX_SCHEDULES} schedules"));
+    }
+    for (i, schedule) in save.schedules.iter().enumerate() {
+        if let Err(error) = schedule.validate() {
+            return bad_request(&format!("{error:#}"));
+        }
+        if save.schedules[..i].iter().any(|s| s.name == schedule.name) {
+            return bad_request(&format!("two schedules are named {}", schedule.name));
+        }
+    }
+    match digest::write_schedules(&save.schedules) {
+        Ok(()) => Json(json!({"schedules": save.schedules})).into_response(),
+        Err(error) => {
+            eprintln!("miniapp: saving schedules failed: {error:#}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "could not save"})),
+            )
+                .into_response()
+        }
+    }
+}
+
+async fn api_due(headers: HeaderMap) -> Response {
+    if let Some(response) = refuse(&headers) {
+        return response;
     }
     let options = Options {
         window: Window::Within(DUE_WITHIN_DAYS),
@@ -195,6 +277,11 @@ fn router() -> Router {
     Router::new()
         .route("/tg/", get(index))
         .route("/tg/api/due", post(api_due))
+        .route("/tg/api/settings", post(api_settings))
+        .route(
+            "/tg/api/settings/save",
+            post(api_settings_save).layer(DefaultBodyLimit::max(MAX_SETTINGS_BYTES)),
+        )
         .fallback(|| async { StatusCode::NOT_FOUND })
         .layer(DefaultBodyLimit::max(1024))
         .layer(middleware::from_fn(limit_time))
