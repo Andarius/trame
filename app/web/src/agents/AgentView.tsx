@@ -32,7 +32,7 @@ export function AgentView(
   { runId, onClosed, onTerminal }: { runId: string; onClosed: () => void; onTerminal: (term: string) => void },
 ) {
   const run = useAgentRun(runId);
-  const { state } = run;
+  const { state, writer, send: sendCommand } = run;
   const [notice, setNotice] = useState<string | null>(null);
   const items = useMemo<Keyed[]>(
     () => (state?.items ?? []).map((item, i) => ({ key: (state?.droppedItems ?? 0) + i, item })),
@@ -63,14 +63,14 @@ export function AgentView(
   const queued = useRef<string | null>(null);
   const status = state?.status;
   useEffect(() => {
-    if (status !== "ready" || !run.writer || !queued.current) return;
+    if (status !== "ready" || !writer || !queued.current) return;
     const text = queued.current;
     queued.current = null;
-    void run.send("prompt", { text }).then((r) => setNotice(r.accepted ? null : r.reason ?? "refused"));
-  }, [status, run.writer, run.send]);
+    void sendCommand("prompt", { text }).then((r) => setNotice(r.accepted ? null : r.reason ?? "refused"));
+  }, [status, writer, sendCommand]);
   const tell = (r: Reply) => setNotice(r.accepted ? null : r.reason ?? "refused");
   const send = async (kind: string, payload?: Record<string, unknown>) => {
-    const r = await run.send(kind, payload);
+    const r = await sendCommand(kind, payload);
     tell(r);
     return r;
   };
@@ -96,7 +96,7 @@ export function AgentView(
     <RunBar
       state={state}
       folder={folder}
-      writer={run.writer}
+      writer={writer}
       connected={run.connected}
       send={send}
       actions={[
@@ -123,7 +123,7 @@ export function AgentView(
     },
     interrupt: () => void send("interrupt"),
     cycleMode: () => {
-      if (!modes || !run.writer) return;
+      if (!modes || !writer) return;
       const i = MODES.findIndex((m) => m.mode === modeOf(state.mode)?.mode);
       void send("setMode", { mode: MODES[(i + 1) % MODES.length].mode });
     },
@@ -135,7 +135,7 @@ export function AgentView(
           {state.error ?? "the agent stopped unexpectedly"}
         </div>
       )}
-      {!run.writer && run.connected && (
+      {!writer && run.connected && (
         <div className="flex items-center gap-3 border-b border-line bg-wait/10 px-6 py-1.5 text-[12px] text-ink-soft">
           Another window is driving this run; this one is watching.
           <button type="button" className="text-copper hover:text-ink" onClick={run.takeOver}>Take over</button>
@@ -169,14 +169,14 @@ export function AgentView(
               </div>
             )}
             {state.interactions.map((x) => (
-              <InteractionCard key={x.requestId} x={x} who={who} provider={state.provider ?? "claude"} disabled={!run.writer} send={send} />
+              <InteractionCard key={x.requestId} x={x} who={who} provider={state.provider ?? "claude"} disabled={!writer} send={send} />
             ))}
           </div>
           {notice && <div className="px-6 pb-1 text-[11.5px] text-blocked">{notice}</div>}
           <Composer
             bar={bar}
             who={who}
-            ready={run.writer && (state.status === "ready" || ended)}
+            ready={writer && (state.status === "ready" || ended)}
             stopped={ended}
             busy={busy}
             onSend={prompt}
