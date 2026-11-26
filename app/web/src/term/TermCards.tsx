@@ -412,11 +412,13 @@ export function TermCards(
             title: label,
             command: `claude attach ${f.job}`,
           })}
-        className="ml-[19px] flex w-[calc(100%-19px)] items-center gap-1.5 rounded-md px-2 py-0.5 text-left text-[11.5px] text-ink-muted hover:bg-active-row hover:text-ink-soft"
+        className="ml-[11px] flex w-[calc(100%-11px)] items-center gap-1.5 rounded-md px-2 py-0.5 text-left text-[11.5px] text-ink-muted hover:bg-active-row hover:text-ink-soft"
       >
+        <span aria-hidden="true" className="-mt-2 h-2.5 w-2 shrink-0 rounded-bl-sm border-b border-l border-ink-faint" />
         <ForkState state={state} />
         <AgentIcon a={{ harness: x.agent, icon: null }} />
         <span className="min-w-0 flex-1 truncate">{label}</span>
+        <span className="shrink-0 text-[10.5px] text-ink-faint">fork</span>
         <span className="shrink-0 font-mono text-[10.5px] text-ink-faint">{f.updated_at ? age(Date.parse(f.updated_at)) : ""}</span>
       </button>
     );
