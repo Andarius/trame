@@ -13,6 +13,7 @@ export type TermSession = {
   done: boolean; // idle, and its last reply ended with "Follow-ups: none"
   follow_ups?: string[] | null; // idle: the items of its last reply's follow-ups list
   model?: string | null; // its latest reply's model (`claude-opus-5-5`), Claude only
+  workers?: { pid: number; agent: string; model: string | null; cwd: string | null }[]; // headless runs it started (`codex exec`)
   asleep?: boolean; // restored at launch, resumes when its shell is first shown
 };
 
