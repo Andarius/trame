@@ -1099,6 +1099,9 @@ struct AgentSession {
     updated_at: Option<u64>, // epoch ms of its last status change, Claude only
     done: bool,              // idle, and its last reply ended with "Follow-ups: none"
     follow_ups: Option<Vec<String>>, // idle: the items of its last reply's follow-ups list
+    /// the model of its latest reply, Claude only
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
 }
 
 #[derive(Debug, PartialEq, serde::Serialize)]
@@ -1223,6 +1226,7 @@ fn claude_session(dir: &Path, pid: u32) -> Option<AgentSession> {
         return None;
     }
     let mut session = parse_claude_session(&file)?;
+    session.model = transcript_tail(dir, &session.id, 64 * 1024).and_then(|t| last_model(&t));
     if !session.busy && session.waiting.is_none() {
         session.follow_ups = last_reply(dir, &session.id).and_then(|text| follow_ups(&text));
         session.done = session.follow_ups.as_ref().is_some_and(Vec::is_empty);
@@ -1231,7 +1235,8 @@ fn claude_session(dir: &Path, pid: u32) -> Option<AgentSession> {
 }
 
 /// The text of the last assistant message in a Claude transcript, read from its tail.
-fn last_reply(dir: &Path, id: &str) -> Option<String> {
+/// The last `bytes` of session `id`'s transcript.
+fn transcript_tail(dir: &Path, id: &str, bytes: u64) -> Option<String> {
     use std::io::{Read, Seek, SeekFrom};
     let name = format!("{id}.jsonl");
     let path = std::fs::read_dir(dir.join("projects"))
@@ -1241,11 +1246,24 @@ fn last_reply(dir: &Path, id: &str) -> Option<String> {
         .find(|p| p.is_file())?;
     let mut file = std::fs::File::open(path).ok()?;
     let len = file.metadata().ok()?.len();
-    file.seek(SeekFrom::Start(len.saturating_sub(256 * 1024)))
-        .ok()?;
+    file.seek(SeekFrom::Start(len.saturating_sub(bytes))).ok()?;
     let mut tail = Vec::new();
     file.read_to_end(&mut tail).ok()?;
-    String::from_utf8_lossy(&tail)
+    Some(String::from_utf8_lossy(&tail).into_owned())
+}
+
+/// The model of the session's latest reply (`claude-opus-5-5`, …).
+fn last_model(tail: &str) -> Option<String> {
+    tail.lines().rev().find_map(|line| {
+        let entry: Value = serde_json::from_str(line).ok()?;
+        let model = entry["message"]["model"].as_str()?;
+        // Claude Code's own notices carry `<synthetic>`
+        (entry["type"] == "assistant" && !model.starts_with('<')).then(|| model.to_owned())
+    })
+}
+
+fn last_reply(dir: &Path, id: &str) -> Option<String> {
+    transcript_tail(dir, id, 256 * 1024)?
         .lines()
         .rev()
         .find_map(|line| {
@@ -1320,6 +1338,7 @@ fn parse_claude_session(file: &Value) -> Option<AgentSession> {
         updated_at: file["updatedAt"].as_u64(),
         done: false,
         follow_ups: None,
+        model: None,
     })
 }
 
@@ -1368,12 +1387,14 @@ fn asleep_agent(term: &str, agent: &SavedAgent) -> Option<Running> {
             updated_at: None,
             done: false,
             follow_ups: None,
+            model: None,
         },
         asleep: true,
     })
 }
 
-/// The Claude (by `session_of`) and `codex resume` runs under each shell.
+/// The Claude (by `session_of`) and `codex resume` runs under each shell; not what an agent started
+/// itself (Claude runs a `/fork` in a daemon below it): those are listed as its forks.
 fn running_agents(
     all: &[crate::diagnostics::Process],
     shells: &[(String, u32)],
@@ -1381,7 +1402,13 @@ fn running_agents(
 ) -> Vec<Running> {
     let mut out = Vec::new();
     for (term, pid) in shells {
+        // the tree lists parents first: an agent's descendants are skipped as they come
+        let mut below_agent = std::collections::HashSet::new();
         for p in crate::diagnostics::tree(all, *pid) {
+            if below_agent.contains(&p.ppid) {
+                below_agent.insert(p.pid);
+                continue;
+            }
             let codex = || {
                 let at = p.args.iter().position(|a| a == "resume")?;
                 let exe = if at == 0 { &p.name } else { &p.args[at - 1] };
@@ -1397,12 +1424,14 @@ fn running_agents(
                     updated_at: None,
                     done: false,
                     follow_ups: None,
+                    model: None,
                 })
             };
             let found = session_of(p.pid)
                 .map(|s| ("claude", s))
                 .or_else(|| codex().map(|s| ("codex", s)));
             if let Some((agent, session)) = found {
+                below_agent.insert(p.pid);
                 out.push(Running {
                     term: term.clone(),
                     pid: p.pid,
@@ -1995,8 +2024,8 @@ fn parse_ghostty(config: &str) -> Option<Value> {
 mod tests {
     use super::{
         AgentSession, Outside, Saved, SavedAgent, advice_runs, card_id, find_outside, follow_ups,
-        parse_claude_session, parse_ghostty, preview_image, process_cwd, process_name, reopen_plan,
-        repo_root, resolve_cwd, running_agents, usage_rows,
+        last_model, parse_claude_session, parse_ghostty, preview_image, process_cwd, process_name,
+        reopen_plan, repo_root, resolve_cwd, running_agents, usage_rows,
     };
     use crate::diagnostics::Process;
     use serde_json::{Value, json};
@@ -2041,6 +2070,14 @@ mod tests {
         let all = [
             proc(10, 1, "zsh", &[]),
             proc(11, 10, "claude", &["--resume", "c-1"]),
+            // its `/fork`: a daemon below it runs the forked session
+            proc(
+                12,
+                11,
+                "claude",
+                &["daemon", "run", "--origin", "transient"],
+            ),
+            proc(13, 12, "2.1.332", &["bg-spare"]),
             proc(20, 1, "zsh", &[]),
             proc(
                 21,
@@ -2063,9 +2100,11 @@ mod tests {
             updated_at: Some(2),
             done: false,
             follow_ups: None,
+            model: None,
         };
         let session = |pid| match pid {
             11 => Some(claude("c-1")),
+            13 => Some(claude("c-fork")),
             40 => Some(claude("c-out")),
             _ => None,
         };
@@ -2076,6 +2115,22 @@ mod tests {
                 {"term":"t2","agent":"codex","id":"x-2","name":null,"named":false,"busy":false,"waiting":null,"started_at":null,"updated_at":null,"done":false,"follow_ups":null},
             ])
         );
+    }
+
+    #[test]
+    fn last_model_is_the_latest_real_reply() {
+        let line =
+            |kind: &str, model: &str| json!({"type":kind,"message":{"model":model}}).to_string();
+        let tail = [
+            line("assistant", "claude-sonnet-5-5"),
+            line("assistant", "claude-opus-5-5"),
+            line("assistant", "<synthetic>"),
+            line("user", "x"),
+            "{\"partial".to_owned(), // a line cut by the tail read
+        ]
+        .join("\n");
+        assert_eq!(last_model(&tail).as_deref(), Some("claude-opus-5-5"));
+        assert_eq!(last_model(""), None);
     }
 
     #[test]
