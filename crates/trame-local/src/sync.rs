@@ -320,6 +320,7 @@ impl Sync {
             return;
         }
         let label = crate::startup::node_id().unwrap_or_default();
+        let kind = crate::fleet::device_kind();
         loop {
             let pass = async {
                 let (url, token) =
@@ -331,7 +332,7 @@ impl Sync {
                     .timeout(Duration::from_secs(10))
                     .header("x-trame-protocol", registry().version)
                     .bearer_auth(token)
-                    .json(&json!({"label":label,"agents":agents}))
+                    .json(&json!({"label":label,"kind":kind,"agents":agents}))
                     .send()
                     .await
                     .map_err(reqwest::Error::without_url)?;

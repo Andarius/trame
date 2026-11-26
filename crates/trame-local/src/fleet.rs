@@ -68,6 +68,34 @@ fn store(device: &str, body: &Value, at: i64) {
     store_into(&mut devices().lock().unwrap(), device, body, at);
 }
 
+/// What this machine is, for its icon on the other devices: a battery makes a laptop, no display a server.
+pub fn device_kind() -> &'static str {
+    if cfg!(target_os = "macos") {
+        let batt = std::process::Command::new("pmset")
+            .args(["-g", "batt"])
+            .output();
+        return if batt.is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains("InternalBattery"))
+        {
+            "laptop"
+        } else {
+            "desktop"
+        };
+    }
+    let battery = std::fs::read_dir("/sys/class/power_supply")
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|e| e.file_name().to_string_lossy().starts_with("BAT"));
+    if battery {
+        "laptop"
+    } else if std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none()
+    {
+        "server"
+    } else {
+        "desktop"
+    }
+}
+
 /// The hub's answer, as this desktop's view of the other devices.
 pub fn set_remote(list: &Value) {
     let at = now();
@@ -87,6 +115,10 @@ fn store_into(map: &mut BTreeMap<String, Value>, device: &str, d: &Value, at: i6
         .chars()
         .take(60)
         .collect::<String>();
+    let kind = d["kind"]
+        .as_str()
+        .filter(|k| matches!(*k, "laptop" | "desktop" | "server"))
+        .unwrap_or("desktop");
     let agents = d["agents"]
         .as_array()
         .map(|a| {
@@ -98,7 +130,7 @@ fn store_into(map: &mut BTreeMap<String, Value>, device: &str, d: &Value, at: i6
         .unwrap_or_default();
     map.insert(
         device.to_owned(),
-        json!({"device":device,"label":label,"at":at,"agents":agents}),
+        json!({"device":device,"label":label,"kind":kind,"at":at,"agents":agents}),
     );
 }
 
@@ -131,6 +163,7 @@ mod tests {
         let seen = others("linux", 1_000);
         assert_eq!(seen.as_array().unwrap().len(), 1);
         assert_eq!(seen[0]["label"], "mac");
+        assert_eq!(seen[0]["kind"], "desktop");
         // unknown fields and agents without an id are dropped
         assert_eq!(
             seen[0]["agents"],

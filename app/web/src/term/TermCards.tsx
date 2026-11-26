@@ -3,7 +3,7 @@ import type { BoardData, ClaudeSession } from "../api";
 import { RecentList } from "../agents/RecentList";
 import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
-import { FolderIcon, PinIcon, PlusIcon, PopOutIcon } from "../ui/icons";
+import { DeviceIcon, FolderIcon, PinIcon, PlusIcon, PopOutIcon } from "../ui/icons";
 import { appConfirm, BOOL_CODEC, EntityIcon, enumCodec, MenuRow, Popover, SECTION_LABEL, SET_CODEC, useLocalStorage } from "../ui/ui";
 import { LinkCardDialog } from "./LinkCardDialog";
 import { NewTerminalDialog } from "./NewTerminalDialog";
@@ -811,7 +811,8 @@ export function TermCards(
         return (
           <section key={`device:${d.device}`} className={`flex flex-col ${gap}`} aria-label={`Agents on ${d.label}`}>
             <div className="mx-2 mb-1 border-t border-dashed border-line" />
-            <div className={`flex items-center px-2 pb-1 ${SECTION_LABEL}`} title="agents running in Trame on another device">
+            <div className={`flex items-center gap-1.5 px-2 pb-1 ${SECTION_LABEL}`} title={`agents running in Trame on another device (${d.kind ?? "desktop"})`}>
+              <DeviceIcon kind={d.kind} />
               ON {d.label.toUpperCase()}
               <span className="ml-auto tracking-normal tabular-nums">{d.agents.length}</span>
             </div>
@@ -872,7 +873,7 @@ type RemoteAgent = {
   done?: boolean;
   asleep?: boolean;
 };
-type Device = { device: string; label: string; at: number; agents: RemoteAgent[] };
+type Device = { device: string; label: string; kind?: "laptop" | "desktop" | "server"; at: number; agents: RemoteAgent[] };
 const SUBAGENTS_POLL_MS = 5_000;
 const subAge = (a: Subagent) => {
   const at = a.done ? a.updated_at : a.started_at;
