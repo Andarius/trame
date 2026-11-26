@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
@@ -48,7 +49,11 @@ export default defineConfig(async ({ command }) => ({
   // shown by debug builds so a reload visibly picked up the new bundle
   define: { __BUILD_TIME__: JSON.stringify(new Date().toISOString()) },
   resolve: {
-    alias: { "@trame/web-api": resolve("src/plugin-api.ts") },
+    alias: [
+      { find: "@trame/web-api", replacement: resolve("src/plugin-api.ts") },
+      // Bundling xterm 6.0's ESM entry drops a local variable in the terminal-mode query handler.
+      { find: /^@xterm\/xterm$/, replacement: createRequire(import.meta.url).resolve("@xterm/xterm") },
+    ],
     dedupe: ["react", "react-dom"],
   },
   build: {
