@@ -886,3 +886,108 @@ fn inbox_takes_hooks_and_other_runs_and_waits_for_an_idle_moment() {
     });
     let _ = std::fs::remove_file(&log);
 }
+
+#[test]
+fn the_listening_run_takes_relayed_messages_and_only_it() {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fake-claude.py");
+    let relay = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fake-relay.py");
+    let dir = trame_local::workspace().join(format!(
+        ".scratch/agent-relay-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (port_file, queue) = (dir.join("port"), dir.join("queue.jsonl"));
+    std::fs::write(&queue, "").unwrap();
+    let mut fake_relay = std::process::Command::new(relay)
+        .args([
+            port_file.to_str().unwrap(),
+            queue.to_str().unwrap(),
+            "secret",
+        ])
+        .spawn()
+        .unwrap();
+    while !port_file.exists() || std::fs::read_to_string(&port_file).unwrap().is_empty() {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let url = format!(
+        "http://127.0.0.1:{}/mcp",
+        std::fs::read_to_string(&port_file).unwrap()
+    );
+    let log = dir.join("argv.log");
+    let t = TestDb::with_env(&[
+        ("TRAME_CLAUDE_BIN", fake),
+        ("FAKE_LOG", log.to_str().unwrap()),
+        ("TRAME_RELAY_URL", &url),
+        ("TRAME_RELAY_TOKEN", "secret"),
+        ("TRAME_RELAY_POLL_MS", "100"),
+    ]);
+    let base = t.base_url();
+    let cwd = t.root.to_str().unwrap().to_owned();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let http = reqwest::Client::new();
+        let token = reqwest::get(format!("{base}/api/term/token"))
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap()["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let (a, _, mut wa) = ready_run(&base, &token, json!({"cwd":cwd})).await;
+        let (b, _, mut wb) = ready_run(&base, &token, json!({"cwd":cwd})).await;
+        let listen = |run: String, on: bool| {
+            http.post(format!("{base}/api/agent/runs/{run}/relay"))
+                .json(&json!({"token":token,"on":on}))
+                .send()
+        };
+
+        // nobody listens: the relay keeps its messages
+        std::fs::write(
+            &queue,
+            "{\"id\":\"1\",\"from\":\"bob\",\"body\":\"ping\"}\n",
+        )
+        .unwrap();
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        assert_ne!(std::fs::read_to_string(&queue).unwrap(), "");
+
+        // A listens: the message becomes a turn from the peer, framed as another agent's
+        assert_eq!(listen(a.clone(), true).await.unwrap().status(), 200);
+        let turn = until(&mut wa, kind("turn.finished")).await;
+        let user = turn
+            .iter()
+            .find(|v| v["payload"]["kind"] == "user")
+            .unwrap();
+        assert_eq!(user["payload"]["from"], "relay peer bob");
+        let said = &assistant_texts(&turn)[0];
+        assert!(
+            said.starts_with("echo: Message from relay peer bob:\n\nping")
+                && said.contains("send_message tool with to: bob"),
+            "{said}"
+        );
+
+        // B takes over: one listener at a time
+        listen(b.clone(), true).await.unwrap();
+        until(&mut wa, |v| {
+            v["kind"] == "relay.state" && v["payload"]["on"] == false
+        })
+        .await;
+        std::fs::write(
+            &queue,
+            "{\"id\":\"2\",\"from\":\"carol\",\"body\":\"hello\"}\n",
+        )
+        .unwrap();
+        let turn = until(&mut wb, kind("turn.finished")).await;
+        assert_eq!(
+            turn.iter()
+                .find(|v| v["payload"]["kind"] == "user")
+                .unwrap()["payload"]["from"],
+            "relay peer carol"
+        );
+        let _ = b;
+    });
+    let _ = fake_relay.kill();
+    let _ = fake_relay.wait();
+    let _ = std::fs::remove_dir_all(&dir);
+}

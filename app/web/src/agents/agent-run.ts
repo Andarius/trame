@@ -30,6 +30,8 @@ export const terminalToRun = (term: string) =>
 export const heldBy = (e: unknown) => ((e as { body?: { run?: string } }).body?.run) ?? null;
 // how a hook posts into a run's inbox: its URL and the run's own secret
 export const runHook = (id: string) => call<{ url: string; token: string; header: string }>(`/api/agent/runs/${id}/hook`);
+export const listenOnRelay = (id: string, on: boolean) =>
+  call<{ on: boolean }>(`/api/agent/runs/${id}/relay`, { method: "POST", body: JSON.stringify({ on }) });
 export const deleteRun = (id: string) => call<{ ok: boolean }>(`/api/agent/runs/${id}`, { method: "DELETE" });
 
 type Frame =

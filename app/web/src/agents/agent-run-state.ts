@@ -22,6 +22,9 @@ export type RunState = {
   models?: ModelChoice[];
   // messages from outside waiting for an idle moment
   queued?: number;
+  // this run takes the agent relay's incoming messages; why it can't, when it can't
+  relay?: boolean;
+  relayError?: string | null;
   turn: number;
   items: HistoryItem[];
   droppedItems: number;
@@ -81,6 +84,8 @@ export function applyEvent(s: RunState, kind: string, p: P): RunState {
       return { ...s, partial: s.partial + (typeof p.text === "string" ? p.text : "") };
     case "item.completed":
       return { ...s, items: [...s.items, p as HistoryItem], partial: p.kind === "assistant" ? "" : s.partial };
+    case "relay.state":
+      return { ...s, relay: p.on === true, relayError: typeof p.error === "string" ? p.error : null };
     case "inbox.queued":
       return { ...s, queued: (s.queued ?? 0) + 1 };
     case "inbox.delivered":

@@ -23,6 +23,7 @@ use crate::routes::json_response;
 
 pub mod claude;
 pub mod codex;
+pub mod relay;
 pub mod run;
 
 use claude::Launch;
@@ -111,6 +112,9 @@ pub async fn restore(native: &Native) -> usize {
             text("hook"),
             history,
         );
+        if r["relay"] == true {
+            run.set_relay(true);
+        }
         runs().lock().unwrap().insert(id.to_owned(), run);
         n += 1;
     }
@@ -138,6 +142,40 @@ async fn history(native: &Native, provider: Provider, session: &str) -> Vec<Valu
     .ok()
     .flatten()
     .unwrap_or_default()
+}
+
+/// Hand the agent relay's incoming messages to the run that listens, as fast as its inbox takes them.
+pub async fn bridge() {
+    let every = std::env::var("TRAME_RELAY_POLL_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3000);
+    loop {
+        tokio::time::sleep(Duration::from_millis(every)).await;
+        let listener = runs().lock().unwrap().values().find(|r| r.relay()).cloned();
+        let Some(run) = listener else {
+            continue;
+        };
+        let room = run.room();
+        if room == 0 {
+            continue;
+        }
+        let Some(relay) = relay::locate() else {
+            run.relay_error(Some("no agent relay is set up on this machine"));
+            continue;
+        };
+        match relay.take(room).await {
+            Ok(messages) => {
+                run.relay_error(None);
+                for m in messages {
+                    let from = m["from"].as_str().unwrap_or("an unknown peer");
+                    let body = m["body"].as_str().unwrap_or_default();
+                    let _ = run.deliver(&format!("relay peer {from}"), &relay::prompt(from, body));
+                }
+            }
+            Err(e) => run.relay_error(Some(&e)),
+        }
+    }
 }
 
 /// Kill every agent child on the way out; their records stay for the next launch.
@@ -289,6 +327,26 @@ pub async fn serve(native: Native, req: Request<Body>) -> Response {
             }
         }
         (Method::POST, ["", "api", "agent", "runs", id, "handoff"]) => to_terminal(id).await,
+        // `{on}`: this run takes the agent relay's incoming messages; one run at a time does
+        (Method::POST, ["", "api", "agent", "runs", id, "relay"]) => {
+            let Some(run) = get(id) else {
+                return json_response(404, json!({"error":"no such run"}));
+            };
+            let on = body["on"] == true;
+            if on {
+                for other in runs()
+                    .lock()
+                    .unwrap()
+                    .values()
+                    .filter(|r| r.id != run.id && r.relay())
+                {
+                    other.set_relay(false);
+                }
+            }
+            run.set_relay(on);
+            save();
+            json_response(200, json!({"on":on}))
+        }
         // what a hook posts with: the run's inbox URL and its secret
         (Method::GET, ["", "api", "agent", "runs", id, "hook"]) => match get(id) {
             Some(run) => {
