@@ -540,7 +540,7 @@ export function TermCards(
         name: sessionLabel(x),
         project: projectOf(x) ? projectName(board, projectOf(x)!) : "No project",
         repo: repoOf(x) ?? "",
-        what: [shortModel(liveOf(x)?.a.model), working ? "working" : x.done ? "done" : "idle"].filter(Boolean).join(" · "),
+        what: [shortModel(liveOf(x)?.a.model ?? x.model), working ? "working" : x.done ? "done" : "idle"].filter(Boolean).join(" · "),
         working,
       };
     });
@@ -896,7 +896,7 @@ function AgentLine({ l, x, fu = [], repo }: { l?: Live; x?: TermSession; fu?: Fo
   const working = !waiting && (l?.state === "working" || !!x?.busy);
   const done = !waiting && !working && !!x?.done;
   const detail = waiting ? l?.a.question ?? x?.waiting ?? "waiting for input" : working ? l?.a.step : undefined;
-  const model = shortModel(l?.a.model);
+  const model = shortModel(l?.a.model ?? x?.model);
   return (
     <span className="flex w-full flex-col pl-[15px] pt-0.5 text-[11px]">
       <span className="flex w-full items-center gap-1.5 text-ink-faint">

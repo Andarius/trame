@@ -12,6 +12,7 @@ export type TermSession = {
   updated_at: number | null; // epoch ms of its last status change, Claude only
   done: boolean; // idle, and its last reply ended with "Follow-ups: none"
   follow_ups?: string[] | null; // idle: the items of its last reply's follow-ups list
+  model?: string | null; // its latest reply's model (`claude-opus-5-5`), Claude only
   asleep?: boolean; // restored at launch, resumes when its shell is first shown
 };
 
