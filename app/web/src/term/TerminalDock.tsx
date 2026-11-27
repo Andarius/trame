@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { AgentIcon, useAgents } from "../agents/agents";
 import type { BoardData, Project } from "../api";
 import { projectFor } from "./project-for";
 import { appConfirm, EntityIcon, IconButton, MenuRow, Popover, PresenceDot, useLocalStorage } from "../ui/ui";
 import { needsYou } from "./attention";
-import { ChevronIcon, MaximizeIcon, PlusIcon, PopOutIcon, SidebarIcon, SplitDownIcon, SplitRightIcon } from "../ui/icons";
+import { ChevronIcon, MaximizeIcon, PlusIcon, PopOutIcon, SidebarIcon, SplitDownIcon, SplitRightIcon, TerminalIcon } from "../ui/icons";
 import { moveIn } from "./move-in";
 import { NewTerminalDialog } from "./NewTerminalDialog";
 import { TerminalView } from "./TerminalView";
@@ -48,11 +48,16 @@ import {
   useTermDock,
 } from "./term-api";
 
-function ProjectMark({ project }: { project: Project | null }) {
+// a tab's mark: its project's icon (or colour), else the agent running in it, else a plain shell's
+function TabMark({ project, agent }: { project: Project | null; agent?: string | null }) {
   if (project?.icon) return <EntityIcon icon={project.icon} size={14} />;
   if (project?.color) return <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: project.color }} />;
-  return null;
+  if (agent) return <AgentIcon a={{ harness: agent, icon: null }} />;
+  return <span className="shrink-0 text-ink-faint"><TerminalIcon size={13} /></span>;
 }
+
+// the board, for the pane strips' project marks
+const BoardContext = createContext<BoardData | null>(null);
 
 const HEIGHT_CODEC = { parse: (r: string) => Math.max(120, Number(r) || 300), stringify: String };
 
@@ -197,7 +202,7 @@ export default function TerminalDock(
     <section
       className={`relative flex flex-col bg-panel ${full ? "min-h-0 flex-1" : "shrink-0 border-t border-line"}`}
       style={open && !full ? { height, maxHeight: "calc(100vh - 120px)" } : undefined}
-      // ⌘⇧P / Ctrl+Shift+P jump to a terminal, ⌘T / Ctrl+T new tab (Ctrl+T no longer reaches the shell), ⌘D / ⌘⇧D split like iTerm and Ghostty, Ctrl+( / Ctrl+), Ctrl+Shift+E and Ctrl+Shift+←/→ (tabs) like Konsole, before the shell sees the key
+      // ⌘⇧P / Ctrl+Shift+P jump to a terminal, ⌘T / Ctrl+T new tab (Ctrl+T no longer reaches the shell), ⌘D / ⌘⇧D split like iTerm and Ghostty, Konsole's defaults (Ctrl+Shift+T/W, Ctrl+( / Ctrl+), Ctrl+Shift+E, Shift+←/→, Ctrl+PgUp/PgDn), before the shell sees the key
       onKeyDownCapture={(e) => {
         const ctrl = e.ctrlKey && !e.metaKey && !e.altKey;
         const run = (f: () => void) => {
@@ -205,7 +210,14 @@ export default function TerminalDock(
           e.stopPropagation();
           f();
         };
+        const plainShift = e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey;
+        const step = (by: number) => {
+          const at = tabs.findIndex((t) => t.id === active);
+          run(() => selectTab(tabs[(at + by + tabs.length) % tabs.length].id));
+        };
         if ((e.metaKey || e.ctrlKey) && !(e.metaKey && e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "t") run(() => void openNew(undefined, true));
+        else if (ctrl && e.shiftKey && e.code === "KeyT") run(() => void openNew());
+        else if (ctrl && e.shiftKey && e.code === "KeyW" && current) run(() => void closeTerminal(current.focus));
         else if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.code === "KeyP") run(() => dispatchEvent(new Event(FIND_TERMINAL)));
         else if (e.metaKey && !e.altKey && !e.ctrlKey && e.key.toLowerCase() === "d") run(() => split(e.shiftKey ? "col" : "row"));
         else if (ctrl && e.key === "(") run(() => split("row"));
@@ -216,10 +228,10 @@ export default function TerminalDock(
               ? setZoomed(zoomed === current.focus ? null : current.focus)
               : !scope && setDockMax(!full)
           );
-        } else if (ctrl && e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight") && tabs.length > 1) {
-          const at = tabs.findIndex((t) => t.id === active);
-          const next = tabs[(at + (e.key === "ArrowLeft" ? -1 : 1) + tabs.length) % tabs.length];
-          run(() => selectTab(next.id));
+        } else if (tabs.length > 1 && ((ctrl && e.shiftKey) || plainShift) && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+          step(e.key === "ArrowLeft" ? -1 : 1);
+        } else if (tabs.length > 1 && ctrl && !e.shiftKey && (e.key === "PageUp" || e.key === "PageDown")) {
+          step(e.key === "PageUp" ? -1 : 1);
         }
       }}
       // the shell owns the keyboard: Escape, ⌘P, ⌘Enter must not reach the app's window handlers
@@ -242,7 +254,7 @@ export default function TerminalDock(
         <span className="pr-1 text-[11px] font-medium text-ink-muted">{scope ? "Agents" : "Terminal"}</span>
         {/* scrollbar hidden: it overlays the tab labels; the wheel scrolls the strip sideways */}
         <div
-          className="flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="flex min-w-0 items-stretch self-stretch border-l border-line overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           onWheel={(e) => {
             if (e.deltaX === 0) e.currentTarget.scrollLeft += e.deltaY;
           }}
@@ -288,29 +300,26 @@ export default function TerminalDock(
                   }
                 }}
                 onDragLeave={() => clearTimeout(hoverTimer.current)}
-                className={`group flex shrink-0 cursor-grab items-center gap-1 rounded-md px-2.5 py-1 text-[13px] ${
-                  why
-                    ? "bg-wait/15 text-wait"
-                    : t.id === active && open && !cover
-                    ? "bg-tab-active text-ink"
-                    : "text-ink-muted hover:text-ink-soft"
+                className={`group flex w-56 min-w-0 shrink-0 cursor-grab items-center gap-1 border-r border-line pl-3 pr-1.5 text-[13px] ${
+                  t.id === active && open && !cover
+                    ? `bg-tab-active ${why ? "text-wait" : "text-ink"}`
+                    : why
+                    ? "bg-wait/10 text-wait"
+                    : "text-ink-muted hover:bg-hover hover:text-ink-soft"
                 } ${drag?.kind === "tab" && drag.id === t.id ? "opacity-50" : ""}`}
               >
                 <button
                   type="button"
                   title={[name, project ? `${project.name} · ${lead?.cwd}` : lead?.cwd].filter(Boolean).join("\n")}
-                  className="flex min-w-0 items-center gap-1.5"
+                  className="flex min-w-0 flex-1 items-center gap-2 self-stretch"
                   onClick={() => {
                     if (cover) onUncover?.(t.focus);
                     if (t.id === active && open && !scope) setDockOpen(false);
                     else selectTab(t.id);
                   }}
                 >
-                  {/* one mark: the project's, else the agent's */}
-                  {project?.icon || project?.color || !agent
-                    ? <ProjectMark project={project} />
-                    : <AgentIcon a={{ harness: agent, icon: null }} />}
-                  <span className={`max-w-56 truncate ${exited ? "opacity-50" : ""}`}>{name}</span>
+                  <TabMark project={project ?? null} agent={agent} />
+                  <span className={`truncate ${exited ? "opacity-50" : ""}`}>{name}</span>
                   {why && (
                     <span title={why} className="flex">
                       <PresenceDot state="waiting" />
@@ -322,7 +331,7 @@ export default function TerminalDock(
                   tone="close"
                   aria-label={`Close ${name}`}
                   title={panes.length > 1 ? "close the tab (ends its processes)" : "close (ends the process)"}
-                  className="opacity-0 group-hover:opacity-100"
+                  className={`shrink-0 px-1 ${t.id === active && open && !cover ? "" : "opacity-0 group-hover:opacity-100"}`}
                   onClick={() => void closeTab(t.id)}
                 >
                   ×
@@ -356,7 +365,7 @@ export default function TerminalDock(
           <IconButton
             tone="close"
             className="grid h-7 w-7 place-items-center rounded-md hover:bg-hover"
-            title="new tab: terminal or agent"
+            title="new tab: terminal or agent (Ctrl+T, ⌘T on Mac)"
             aria-label="New terminal or agent"
             onClick={() => void openNew()}
           >
@@ -482,6 +491,7 @@ export default function TerminalDock(
           </div>
         )}
         {/* every tab's shells in one list keyed by shell id: hiding or moving a shell to another tab never remounts it */}
+        <BoardContext.Provider value={board ?? null}>
         <Panes
           tabs={allTabs}
           shown={open ? active : null}
@@ -492,6 +502,7 @@ export default function TerminalDock(
           }}
           drag={drag}
         />
+        </BoardContext.Provider>
       </div>
     </section>
     {newTerm && (
@@ -790,6 +801,9 @@ function ShellTab({ id, tab, shown, focused }: { id: string; tab: string; shown:
   const running = sessions.find((x) => x.term === id);
   const title = [(running?.named && running.name) || folder, shown && now?.process].filter(Boolean).join(" : ");
   const why = needsYou([running], useUnseenTerms());
+  const board = useContext(BoardContext);
+  const t = terms[id];
+  const project = projectOf(board, t?.card, cwd ?? t?.cwd, t?.project) || null;
   return (
     <div
       draggable
@@ -804,12 +818,12 @@ function ShellTab({ id, tab, shown, focused }: { id: string; tab: string; shown:
         if (droppedOutside(e.nativeEvent)) popOut(id);
       }}
       onClick={() => focusPane(tab, id)}
-      className={`group flex max-w-56 shrink-0 cursor-pointer items-center gap-1.5 pl-2.5 pr-1 text-[12px] ${
-        why ? "text-wait" : shown ? "text-ink" : "text-ink-faint hover:text-ink-soft"
-      } ${focused ? "shadow-[inset_0_-2px_0_var(--color-copper)]" : ""}`}
+      className={`group flex w-48 min-w-0 shrink-0 cursor-pointer items-center gap-1.5 border-r border-line pl-2.5 pr-1 text-[12px] ${
+        why ? "text-wait" : shown ? "text-ink" : "text-ink-faint hover:bg-hover hover:text-ink-soft"
+      } ${shown ? "bg-tab-active" : ""} ${focused ? "shadow-[inset_0_-2px_0_var(--color-copper)]" : ""}`}
     >
-      {running?.agent && <AgentIcon a={{ harness: running.agent, icon: null }} />}
-      <span className="truncate">{title}</span>
+      <TabMark project={project} agent={running?.agent} />
+      <span className="flex-1 truncate">{title}</span>
       {why && (
         <span title={why} className="flex">
           <PresenceDot state="waiting" />

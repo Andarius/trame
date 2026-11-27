@@ -55,7 +55,9 @@ pub(crate) fn open(
         Err(error) => return eprintln!("could not open a terminal window: {error}"),
     };
     let (app, id) = (app.clone(), id.to_owned());
+    let dropped = window.clone();
     window.on_window_event(move |event| {
+        crate::file_drop::forward(&dropped, event);
         if !matches!(event, WindowEvent::Destroyed) {
             return;
         }

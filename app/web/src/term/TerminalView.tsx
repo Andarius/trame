@@ -16,6 +16,7 @@ import { termBindingKey } from "./key-bindings";
 import { FONT_STACK, onTermZoom, scrollbar, termFontSize, termZoomKey, theme, URL_RE } from "./xterm-look";
 import { LinkPreview, type LinkHover, previewable } from "./LinkPreview";
 import { openLink } from "./open-link";
+import { FILE_DROP, type FileDrop, shellWord } from "./shell-quote";
 
 type Notice = "superseded" | "gone" | null;
 // an image path under the mouse (a thumbnail by it) or clicked (full size)
@@ -277,6 +278,14 @@ export function TerminalView(
     media.addEventListener("change", restyle);
 
     // attach on first show: a collapsed dock in another window must not take the shell over
+    // files dropped from the file manager (the desktop shell forwards them): their paths go to the shell under the pointer
+    const onFileDrop = (e: Event) => {
+      const { paths, x, y } = (e as CustomEvent<FileDrop>).detail;
+      if (!paths.length || !el.contains(document.elementFromPoint(x, y))) return;
+      term.paste(`${paths.map(shellWord).join(" ")} `);
+      term.focus();
+    };
+    addEventListener(FILE_DROP, onFileDrop);
     let started = false;
     api.current = {
       start: () => {
@@ -300,6 +309,7 @@ export function TerminalView(
     };
 
     return () => {
+      removeEventListener(FILE_DROP, onFileDrop);
       unzoom();
       done = true;
       clearTimeout(timer);
