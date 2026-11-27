@@ -417,14 +417,23 @@ export function TermCards(
         key={`fork:${f.job}`}
         type="button"
         title={`${f.name ?? label} · background fork, ${state} · click to attach (claude attach ${f.job})`}
-        onClick={() =>
-          void openTerminal({
+        onClick={async () => {
+          // select the shell, so the dock shows it; a second click goes back to the same one
+          const open = attached.get(f.job);
+          if (open && terms[open] && !terms[open].exited) {
+            onSelectTerm(open, label);
+            return void revealTerminal(open);
+          }
+          const info = await openTerminal({
             cwd: f.cwd ?? t?.cwd,
             card: t?.card ?? null,
             project: t?.project ?? null,
             title: label,
             command: `claude attach ${f.job}`,
-          })}
+          });
+          attached.set(f.job, info.id);
+          onSelectTerm(info.id, label);
+        }}
         className="ml-[11px] flex w-[calc(100%-11px)] items-center gap-1.5 rounded-md px-2 py-0.5 text-left text-[11.5px] text-ink-muted hover:bg-active-row hover:text-ink-soft"
       >
         <span aria-hidden="true" className="-mt-2 h-2.5 w-2 shrink-0 rounded-bl-sm border-b border-l border-ink-faint" />
@@ -901,6 +910,8 @@ const subAge = (a: Subagent) => {
   const at = a.done ? a.updated_at : a.started_at;
   return at ? age(at) : "";
 };
+// the shell each fork was attached in from here, by job
+const attached = new Map<string, string>();
 const FORK_DONE_MS = 12 * 3600_000; // a finished fork stays listed this long
 // waiting on you first, then working, then finished
 const forkRank = (f: Fork) => (f.state === "blocked" ? 0 : f.state === "done" ? 2 : 1);
