@@ -118,7 +118,14 @@ const goActive = () => {
 
 // save where we are into the current workspace, then go to where `id` was left
 export function switchWorkspace(id: string) {
-  if (id === state.active || !state.list.some((w) => w.id === id)) return;
+  const w = state.list.find((x) => x.id === id);
+  if (!w) return;
+  // the active one again: back to its own place (the card, or home's default view)
+  if (id === state.active) {
+    const home = placeOf({ ...w, search: "" });
+    if (home !== location.search) navigate?.(home);
+    return;
+  }
   setWorkspaces((s) => activate(save(s, location.search), id));
   goActive();
 }
