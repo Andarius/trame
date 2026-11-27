@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { AgentIcon, useAgents } from "../agents/agents";
 import type { BoardData, Project } from "../api";
 import { projectFor } from "./project-for";
 import { appConfirm, EntityIcon, IconButton, MenuRow, Popover, PresenceDot, useLocalStorage } from "../ui/ui";
 import { needsYou } from "./attention";
-import { ChevronIcon, MaximizeIcon, PlusIcon, PopOutIcon, SidebarIcon, SplitDownIcon, SplitRightIcon } from "../ui/icons";
+import { ChevronIcon, MaximizeIcon, PlusIcon, PopOutIcon, SidebarIcon, SplitDownIcon, SplitRightIcon, TerminalIcon } from "../ui/icons";
 import { moveIn } from "./move-in";
 import { NewTerminalDialog } from "./NewTerminalDialog";
 import { TerminalView } from "./TerminalView";
@@ -48,11 +48,16 @@ import {
   useTermDock,
 } from "./term-api";
 
-function ProjectMark({ project }: { project: Project | null }) {
+// a tab's mark: its project's icon (or colour), else the agent running in it, else a plain shell's
+function TabMark({ project, agent }: { project: Project | null; agent?: string | null }) {
   if (project?.icon) return <EntityIcon icon={project.icon} size={14} />;
   if (project?.color) return <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: project.color }} />;
-  return null;
+  if (agent) return <AgentIcon a={{ harness: agent, icon: null }} />;
+  return <span className="shrink-0 text-ink-faint"><TerminalIcon size={13} /></span>;
 }
+
+// the board, for the pane strips' project marks
+const BoardContext = createContext<BoardData | null>(null);
 
 const HEIGHT_CODEC = { parse: (r: string) => Math.max(120, Number(r) || 300), stringify: String };
 
@@ -313,10 +318,7 @@ export default function TerminalDock(
                     else selectTab(t.id);
                   }}
                 >
-                  {/* one mark: the project's, else the agent's */}
-                  {project?.icon || project?.color || !agent
-                    ? <ProjectMark project={project} />
-                    : <AgentIcon a={{ harness: agent, icon: null }} />}
+                  <TabMark project={project ?? null} agent={agent} />
                   <span className={`truncate ${exited ? "opacity-50" : ""}`}>{name}</span>
                   {why && (
                     <span title={why} className="flex">
@@ -489,6 +491,7 @@ export default function TerminalDock(
           </div>
         )}
         {/* every tab's shells in one list keyed by shell id: hiding or moving a shell to another tab never remounts it */}
+        <BoardContext.Provider value={board ?? null}>
         <Panes
           tabs={allTabs}
           shown={open ? active : null}
@@ -499,6 +502,7 @@ export default function TerminalDock(
           }}
           drag={drag}
         />
+        </BoardContext.Provider>
       </div>
     </section>
     {newTerm && (
@@ -792,6 +796,9 @@ function ShellTab({ id, tab, shown, focused }: { id: string; tab: string; shown:
   const running = sessions.find((x) => x.term === id);
   const title = [(running?.named && running.name) || folder, shown && now?.process].filter(Boolean).join(" : ");
   const why = needsYou([running], useUnseenTerms());
+  const board = useContext(BoardContext);
+  const t = terms[id];
+  const project = projectOf(board, t?.card, cwd ?? t?.cwd, t?.project) || null;
   return (
     <div
       draggable
@@ -810,7 +817,7 @@ function ShellTab({ id, tab, shown, focused }: { id: string; tab: string; shown:
         why ? "text-wait" : shown ? "text-ink" : "text-ink-faint hover:bg-hover hover:text-ink-soft"
       } ${shown ? "bg-tab-active" : ""} ${focused ? "shadow-[inset_0_-2px_0_var(--color-copper)]" : ""}`}
     >
-      {running?.agent && <AgentIcon a={{ harness: running.agent, icon: null }} />}
+      <TabMark project={project} agent={running?.agent} />
       <span className="flex-1 truncate">{title}</span>
       {why && (
         <span title={why} className="flex">
