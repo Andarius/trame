@@ -2,8 +2,11 @@ import { type ReactNode, useEffect, useEffectEvent, useState } from "react";
 import type { Block } from "../api";
 import { isText } from "./editor-text";
 
-// a block row wider than the text column, centred on it (wide graphs, tables, databases)
-export const spanStyle = (w: string) => ({ width: w, marginLeft: `calc((100% - ${w}) / 2)` });
+// a block row wider than the text column, centred on it (wide graphs, tables, databases); never narrower
+export const spanStyle = (span: string) => {
+  const w = `max(100%, ${span})`;
+  return { width: w, marginLeft: `calc((100% - ${w}) / 2)` };
+};
 
 export function useBlockDrag(
   blocks: Block[],
