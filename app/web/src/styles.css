@@ -149,10 +149,11 @@ body,
   overflow: clip; /* views scroll inside; a wheel or focus must never scroll the whole app off-screen */
 }
 
-/* thin scrollbars everywhere (the platform-native ones glare against either theme) */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-chipline) transparent;
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-chipline) transparent;
+  }
 }
 /* WebKitGTK paints overlay scrollbars above every layer, popovers included */
 html.popover-open * {
