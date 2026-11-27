@@ -1,7 +1,7 @@
 # Telegram Mini App of due todos: `tramecli miniapp serve` behind Traefik at /tg/
 services:
   miniapp:
-    image: ubuntu:24.04 # glibc 2.39, like the host that builds tramecli
+    image: ubuntu:24.04@sha256:562111b88caa79c71391c0c4d3c2114a7d5c35915c20561fd893cb1e07929e6b # glibc 2.39, like the host that builds tramecli
     restart: unless-stopped
     # the host user: settings.json written here must stay readable by its tramecli timer
     user: "${UID:-1000}:${GID:-1000}"
