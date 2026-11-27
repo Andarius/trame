@@ -6,6 +6,7 @@
 
 #[cfg(target_os = "linux")]
 mod appimage;
+mod file_drop;
 mod geometry;
 mod popout;
 #[cfg(target_os = "linux")]
@@ -211,6 +212,7 @@ fn main() -> anyhow::Result<()> {
         let last = Arc::new(Mutex::new(saved));
         let tracked = window.clone();
         window.on_window_event(move |event| {
+            file_drop::forward(&tracked, event);
             #[cfg(target_os = "linux")]
             if matches!(event, WindowEvent::CloseRequested { .. }) {
                 webkit::kill_web_processes();
