@@ -94,7 +94,7 @@ services:
   # Rust hub (crates/trame-hub) next to Bun, which keeps /sync, /ws and /l/* until it is ported:
   # desktops use it for /api/fleet (the agents running on each device). Same DB, tokens and certs.
   trame-hub:
-    image: ubuntu:24.04 # glibc 2.39, like the host that builds trame-hub
+    image: ubuntu:24.04@sha256:562111b88caa79c71391c0c4d3c2114a7d5c35915c20561fd893cb1e07929e6b # glibc 2.39, like the host that builds trame-hub
     container_name: trame-hub
     restart: unless-stopped
     depends_on:
