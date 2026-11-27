@@ -120,6 +120,7 @@ export function Rail(
       : shells > 0
       ? count(shells)
       : undefined;
+  const shown = plugins.filter((p) => p.enabled && FRONTEND_PLUGINS.some((f) => f.id === p.id && f.Panel));
   return (
     <nav aria-label="Views" className="flex w-[52px] shrink-0 flex-col items-center gap-1 border-r border-line py-3">
       <div className="mb-3">
@@ -158,8 +159,8 @@ export function Rail(
       >
         <CalendarIcon />
       </RailButton>
-      <div className="my-1.5 h-px w-6 bg-line" />
-      {plugins.filter((p) => p.enabled && FRONTEND_PLUGINS.some((f) => f.id === p.id && f.Panel)).map((p) => (
+      {shown.length > 0 && <div className="my-1.5 h-px w-6 bg-line" />}
+      {shown.map((p) => (
         <RailButton
           key={p.id}
           label={p.label}
