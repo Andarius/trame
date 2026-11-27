@@ -77,6 +77,8 @@ pub struct Term {
     kick: Mutex<Option<oneshot::Sender<()>>>,
     /// A restored agent not resumed yet: it starts when the shell is first shown.
     asleep: Mutex<Option<SavedAgent>>,
+    /// Opened to run a command or resume an agent: once that ends, the shell is a leftover.
+    task: AtomicBool,
 }
 
 /// What a new attachment replays before streaming live output.
@@ -128,6 +130,14 @@ impl Term {
             .process_group_leader()
             .or(self.pid)?;
         process_name(leader)
+    }
+
+    /// Its task is over: the shell is back in the foreground with no agent left to resume.
+    fn task_done(&self) -> bool {
+        self.task.load(Ordering::SeqCst)
+            && self.asleep.lock().unwrap().is_none()
+            && self.pid.is_some()
+            && self.master.lock().unwrap().process_group_leader() == self.pid
     }
 
     /// Snapshot and subscribe under one lock so no output falls between replay and live.
@@ -182,6 +192,7 @@ impl Term {
         let agent = self.asleep.lock().unwrap().take();
         // a leading space keeps it out of the shell's history (HIST_IGNORE_SPACE)
         if let Some(command) = agent.as_ref().and_then(resume_command) {
+            self.task.store(true, Ordering::SeqCst);
             self.write(format!(" {command}\r").as_bytes());
         }
     }
@@ -285,6 +296,7 @@ pub fn spawn(
         tx,
         kick: Mutex::new(None),
         asleep: Mutex::new(None),
+        task: AtomicBool::new(command.is_some()),
     });
     let (drained_tx, drained) = mpsc::channel::<()>();
     let out = term.clone();
@@ -1560,13 +1572,17 @@ fn snapshot() -> Vec<Saved> {
     });
     terms
         .iter()
-        .map(|t| {
+        .filter_map(|t| {
             let agent = running.iter().find(|r| r.term == t.id);
+            // a finished agent's shell is not reopened under that agent's title
+            if agent.is_none() && t.task_done() {
+                return None;
+            }
             let cwd = agent
                 .and_then(|r| process_cwd(i32::try_from(r.pid).ok()?))
                 .or_else(|| t.live_cwd())
                 .unwrap_or_else(|| t.cwd.clone());
-            Saved {
+            Some(Saved {
                 id: t.id.clone(),
                 title: t.title.clone(),
                 cwd,
@@ -1580,7 +1596,7 @@ fn snapshot() -> Vec<Saved> {
                         named: r.session.named,
                     })
                     .or_else(|| t.asleep.lock().unwrap().clone()),
-            }
+            })
         })
         .collect()
 }
@@ -2323,6 +2339,22 @@ mod tests {
         ] {
             let s = parse_claude_session(&file).unwrap();
             assert_eq!((s.busy, s.waiting.as_deref()), (busy, waiting), "{file}");
+        }
+    }
+
+    #[test]
+    fn a_shell_whose_task_ended_is_a_leftover_and_a_plain_one_is_not() {
+        let cwd = std::env::temp_dir().to_string_lossy().into_owned();
+        let task = super::spawn(None, &cwd, Some("true"), "task", None, None).unwrap();
+        let plain = super::spawn(None, &cwd, None, "plain", None, None).unwrap();
+        let done = (0..100).any(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            task.task_done()
+        });
+        assert!(done);
+        assert!(!plain.task_done());
+        for t in [task, plain] {
+            t.signal(libc::SIGKILL);
         }
     }
 
