@@ -32,3 +32,9 @@ export function needsYou(shells: (TermSession | undefined)[], unseen: ReadonlySe
   if (asking) return `needs you: ${asking}`;
   return shells.some((s) => s && unseen.has(s.term)) ? "finished" : null;
 }
+
+// the shells among `ids` that outlive their tab being closed: those an agent runs in
+export const keptOnClose = (ids: string[], sessions: TermSession[]): ReadonlySet<string> => {
+  const agents = new Set(sessions.map((s) => s.term));
+  return new Set(ids.filter((id) => agents.has(id)));
+};

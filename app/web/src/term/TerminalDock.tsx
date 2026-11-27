@@ -10,7 +10,7 @@ import { NewTerminalDialog } from "./NewTerminalDialog";
 import { TerminalView } from "./TerminalView";
 import {
   closeTab,
-  closeTerminal,
+  dismissTerminals,
   type DropSide,
   droppedOutside,
   focusPane,
@@ -158,7 +158,7 @@ export default function TerminalDock(
   const [tabMenu, setTabMenu] = useState<string | null>(null);
   const closeTabs = async (ids: string[]) => {
     const n = ids.length;
-    if (!(await appConfirm(`Close ${n} tab${n === 1 ? "" : "s"}? Agents running in them stop.`, "Close"))) return;
+    if (!(await appConfirm(`Close ${n} tab${n === 1 ? "" : "s"}? Agents keep running, in the sidebar; other shells end.`, "Close"))) return;
     for (const id of ids) await closeTab(id);
   };
   // the tab shown before the current one: dragging the current tab drops it beside that one
@@ -217,7 +217,7 @@ export default function TerminalDock(
         };
         if ((e.metaKey || e.ctrlKey) && !(e.metaKey && e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "t") run(() => void openNew(undefined, true));
         else if (ctrl && e.shiftKey && e.code === "KeyT") run(() => void openNew());
-        else if (ctrl && e.shiftKey && e.code === "KeyW" && current) run(() => void closeTerminal(current.focus));
+        else if (ctrl && e.shiftKey && e.code === "KeyW" && current) run(() => void dismissTerminals([current.focus]));
         else if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.code === "KeyP") run(() => dispatchEvent(new Event(FIND_TERMINAL)));
         else if (e.metaKey && !e.altKey && !e.ctrlKey && e.key.toLowerCase() === "d") run(() => split(e.shiftKey ? "col" : "row"));
         else if (ctrl && e.key === "(") run(() => split("row"));
@@ -330,7 +330,7 @@ export default function TerminalDock(
                 <IconButton
                   tone="close"
                   aria-label={`Close ${name}`}
-                  title={panes.length > 1 ? "close the tab (ends its processes)" : "close (ends the process)"}
+                  title="close (an agent keeps running, in the sidebar)"
                   className={`shrink-0 px-1 ${t.id === active && open && !cover ? "" : "opacity-0 group-hover:opacity-100"}`}
                   onClick={() => void closeTab(t.id)}
                 >
@@ -832,11 +832,11 @@ function ShellTab({ id, tab, shown, focused }: { id: string; tab: string; shown:
       <IconButton
         tone="close"
         className={`px-1 ${shown ? "" : "invisible group-hover:visible"}`}
-        title="close (ends the process)"
+        title="close (an agent keeps running, in the sidebar)"
         aria-label={`Close ${title}`}
         onClick={(e) => {
           e.stopPropagation();
-          void closeTerminal(id);
+          void dismissTerminals([id]);
         }}
       >
         ×
