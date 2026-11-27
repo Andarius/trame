@@ -2,7 +2,7 @@
 // holds the per-launch token in memory and the dock's tab list.
 import { useSyncExternalStore } from "react";
 import { readStore, writeStore } from "../ui/storage";
-import { nextUnseen, type TermSession } from "./attention";
+import { keptOnClose, nextUnseen, type TermSession } from "./attention";
 import { activate, addTerms, type DropSide, group, groupOf, groups, insertAt, isGroup, leaves, type PaneNode, prune, type SplitDir, splitAt } from "./pane-tree";
 export { type DropSide, groups, isGroup, leaves, type PaneGroup, type PaneNode, type SplitDir } from "./pane-tree";
 
@@ -180,9 +180,24 @@ export async function restoreTerminals() {
   const out = Object.fromEntries(
     [...await openPopouts()].filter(([id]) => terms[id]).map(([id, group]) => [id, { tab: "", near: null, group }]),
   );
-  const tabs = savedTabs(list.filter((t) => !out[t.id]).map((t) => t.id));
+  const away = parked().filter((id) => terms[id] && !out[id]);
+  setParked(away);
+  const tabs = savedTabs(list.filter((t) => !out[t.id] && !away.includes(t.id)).map((t) => t.id));
   set({ terms, out, tabs, active: tabs[0]?.id ?? null });
 }
+
+// shells whose tab was closed while an agent ran in them: alive without a tab, until revealed again
+const PARKED_KEY = "trame:termParked";
+function parked(): string[] {
+  try {
+    const ids = JSON.parse(readStore(PARKED_KEY) ?? "[]");
+    return Array.isArray(ids) ? ids : [];
+  } catch {
+    return [];
+  }
+}
+const setParked = (ids: string[]) => writeStore(PARKED_KEY, ids.length ? JSON.stringify(ids) : null);
+const unpark = (id: string) => parked().includes(id) && setParked(parked().filter((x) => x !== id));
 
 // `ids` laid out as the saved layout left them, a tab each for the others
 function savedTabs(ids: string[]) {
@@ -336,7 +351,21 @@ export async function closeTerminal(id: string) {
   const { [id]: _, ...terms } = state.terms;
   const { [id]: _o, ...out } = state.out;
   set({ ...unplace(id), terms, out });
+  unpark(id);
   await kill(id);
+}
+
+// closes shells from their tab or pane: one an agent runs in stays alive (the sidebar lists it), the others end
+export async function dismissTerminals(ids: string[]) {
+  const live = await (call("/api/term/sessions") as Promise<TermSession[]>).catch(() => sessions);
+  const kept = keptOnClose(ids, live);
+  for (const id of ids) {
+    if (!kept.has(id)) await closeTerminal(id);
+    else if (state.tabs.some((t) => leaves(t.root).includes(id))) {
+      setParked([...parked().filter((x) => x !== id), id]);
+      set(unplace(id));
+    }
+  }
 }
 
 // a background session `/fork` started, by the session it was forked from
@@ -389,7 +418,7 @@ export const interruptTerminal = (id: string) => call(`/api/term/${id}/interrupt
 
 export async function closeTab(tabId: string) {
   const t = state.tabs.find((x) => x.id === tabId);
-  for (const id of t ? leaves(t.root) : []) await closeTerminal(id);
+  if (t) await dismissTerminals(leaves(t.root));
 }
 
 // window event: open the palette on the terminals (the shell swallows Ctrl+Shift+P otherwise)
@@ -449,6 +478,7 @@ export async function revealTerminal(term: string) {
   const info = ((await call("/api/term")) as TermInfo[]).find((x) => x.id === term && !x.exited);
   if (!info) return false;
   const own = tab(group([term]));
+  unpark(term);
   set({ terms: { ...state.terms, [term]: info }, tabs: [...state.tabs, own], active: own.id, open: true });
   return true;
 }

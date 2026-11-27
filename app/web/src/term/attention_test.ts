@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { needsYou, nextUnseen, type TermSession } from "./attention.ts";
+import { keptOnClose, needsYou, nextUnseen, type TermSession } from "./attention.ts";
 
 const s = (term: string, busy: boolean, waiting: string | null = null): TermSession => ({
   term,
@@ -31,4 +31,11 @@ test.each([
   ["no agent", [undefined], [], null],
 ] as const)("%s", (_, shells, unseen, want) => {
   expect(needsYou([...shells], new Set(unseen))).toBe(want);
+});
+
+test.each([
+  ["an agent's shell outlives its tab", ["t1", "t2"], [s("t1", false)], ["t1"]],
+  ["a shell with no agent ends", ["t2"], [s("t1", true)], []],
+] as const)("%s", (_, ids, sessions, want) => {
+  expect([...keptOnClose([...ids], [...sessions])]).toEqual([...want]);
 });
