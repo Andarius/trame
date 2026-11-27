@@ -724,7 +724,12 @@ function PaneStrip(
   const icon = "grid h-6 w-6 place-items-center rounded-md hover:bg-hover";
   return (
     <div className="absolute z-10 flex items-center border-b border-line bg-panel pr-1" style={{ ...style, height: STRIP_PX }}>
-      <div className="flex h-full min-w-0 flex-1 items-stretch overflow-x-auto [scrollbar-width:none]">
+      <div
+        className="flex h-full min-w-0 flex-1 items-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        onWheel={(e) => {
+          if (e.deltaX === 0) e.currentTarget.scrollLeft += e.deltaY;
+        }}
+      >
         {g.terms.map((id) => (
           <ShellTab key={id} id={id} tab={tab.id} shown={id === g.active} focused={focused && id === g.active} />
         ))}
