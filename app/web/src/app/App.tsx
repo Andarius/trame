@@ -32,6 +32,7 @@ import { AgentsContext } from "../agents/agents";
 import { closeWorkspaces, onWorkspaceNavigate, openWorkspace, save, setWorkspaces, workspaceKeys } from "./workspaces";
 import { AgentSessions } from "../agents/AgentSessions";
 import { RecentSession } from "../agents/RecentSession";
+import { AgentView } from "../agents/AgentView";
 import { cachedScan } from "../agents/scan";
 import { Board } from "../sessions/Board";
 import { Drawer, TOPBAR_SLOT } from "../sessions/Drawer";
@@ -713,11 +714,13 @@ export function App() {
   // a past session ("recent:<transcript id>") or every one ("history"), over the shells
   const termHistory = termSel === "history";
   const termRecentId = termSel?.startsWith("recent:") ? termSel.slice("recent:".length) : null;
+  // a run Trame owns in the agent view ("agent:<run id>")
+  const termAgentId = termSel?.startsWith("agent:") ? termSel.slice("agent:".length) : null;
   const termRecent = termRecentId
     ? (recentPick?.claudeId === termRecentId ? recentPick : null) ??
       cachedScan(7)?.groups.flatMap((g) => g.sessions).find((s) => s.claudeId === termRecentId) ?? null
     : null;
-  const termCard = termSel === "plain" || termAll || termProject || termShell || termHistory || termRecentId
+  const termCard = termSel === "plain" || termAll || termProject || termShell || termHistory || termRecentId || termAgentId
     ? null
     : termSel ?? board?.sessions.find((s) => Object.values(termDock.terms).some((t) => t.card === s.id))?.id ?? null;
   const termSession = termCard ? board?.sessions.find((s) => s.id === termCard) ?? null : null;
@@ -808,6 +811,8 @@ export function App() {
                 setTermSel(`recent:${x.claudeId}`);
               }}
               onSelectHistory={() => setTermSel("history")}
+              agentRun={termAgentId}
+              onSelectAgent={(id) => setTermSel(`agent:${id}`)}
             />
           )
           : view === "explore" || view === "agents" || (view === "plugin" && pluginColumn)
@@ -1121,7 +1126,7 @@ export function App() {
               board={board}
               scope={terminals
                 ? {
-                  all: termAll || termHistory || !!termRecentId,
+                  all: termAll || termHistory || !!termRecentId || !!termAgentId,
                   term: termShell,
                   card: termCard,
                   project: termProject,
@@ -1133,6 +1138,8 @@ export function App() {
               onToggleDetails={() => setTermDetails(!termDetails)}
               cover={!terminals || !board
                 ? undefined
+                : termAgentId
+                ? <AgentView key={termAgentId} runId={termAgentId} onClosed={() => setTermSel(null)} />
                 : termHistory
                 ? <AgentSessions board={board} onOpenSession={(id) => openSession(id)} embedded />
                 : termRecent
@@ -1142,6 +1149,7 @@ export function App() {
                     board={board}
                     onOpenSession={(id) => openSession(id)}
                     onResumed={(term) => setTermSel(`term:${term}`)}
+                    onAgent={(run) => setTermSel(`agent:${run}`)}
                   />
                 )
                 : termRecentId

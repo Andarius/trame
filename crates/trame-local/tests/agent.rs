@@ -46,10 +46,13 @@ async fn attach(base: &str, run: &str, hello: Value) -> Ws {
     ws
 }
 
-/// Send a command and return the server's reply to it.
+/// Send a prompt-style command and return the server's reply to it.
 async fn command(ws: &mut Ws, id: &str, epoch: &str, kind: &str, text: &str) -> Value {
-    let cmd =
-        json!({"type":"command","commandId":id,"epoch":epoch,"kind":kind,"payload":{"text":text}});
+    send(ws, id, epoch, kind, json!({"text":text})).await
+}
+
+async fn send(ws: &mut Ws, id: &str, epoch: &str, kind: &str, payload: Value) -> Value {
+    let cmd = json!({"type":"command","commandId":id,"epoch":epoch,"kind":kind,"payload":payload});
     ws.send(Message::Text(cmd.to_string().into()))
         .await
         .unwrap();
@@ -66,8 +69,8 @@ fn assistant_texts(frames: &[Value]) -> Vec<String> {
 }
 
 #[test]
-fn agent_view_is_off_without_the_development_flag() {
-    let t = TestDb::new();
+fn agent_view_can_be_turned_off() {
+    let t = TestDb::with_env(&[("TRAME_AGENT_VIEW", "0")]);
     let rt = tokio::runtime::Runtime::new().unwrap();
     let status = rt.block_on(async {
         reqwest::get(format!("{}/api/agent/runs", t.base_url()))
@@ -86,7 +89,6 @@ fn supervisor_runs_turns_denies_decisions_and_reconnects() {
         uuid::Uuid::new_v4().simple()
     ));
     let t = TestDb::with_env(&[
-        ("TRAME_AGENT_VIEW", "1"),
         ("TRAME_CLAUDE_BIN", fake),
         ("FAKE_LOG", log.to_str().unwrap()),
         // the launching agent's own session must not leak into the child
@@ -133,12 +135,14 @@ fn supervisor_runs_turns_denies_decisions_and_reconnects() {
             assert_eq!((r["accepted"].clone(), r["reason"].clone()), (json!(false), json!(reason)));
         }
 
-        // a blocking request the view can't answer yet is denied, not left hanging
+        // a tool the CLI asks about waits for the user's decision
         command(&mut w, "c3", &epoch, "prompt", "write").await;
+        let asked = until(&mut w, kind("interaction.requested")).await;
+        let request = asked.last().unwrap()["payload"]["requestId"].clone();
+        let r = send(&mut w, "c3b", &epoch, "answer", json!({"requestId":request,"decision":"deny","message":"no"})).await;
+        assert_eq!(r["accepted"], true);
         let turn = until(&mut w, kind("turn.finished")).await;
-        let denied = turn.iter().find(|v| v["kind"] == "interaction.denied").unwrap();
-        assert_eq!(denied["payload"]["tool"], "Write");
-        assert_eq!(assistant_texts(&turn), ["tool deny"]);
+        assert_eq!(assistant_texts(&turn), ["Write deny: no"]);
 
         // a malformed frame is reported and skipped
         command(&mut w, "c4", &epoch, "prompt", "garbage").await;
@@ -218,6 +222,140 @@ fn supervisor_runs_turns_denies_decisions_and_reconnects() {
             .unwrap();
         assert_eq!(stopped.status(), 200);
         until(&mut w2, status("stopped")).await;
+    });
+    let _ = std::fs::remove_file(&log);
+}
+
+/// Start a run of the fake CLI and attach a writer once it is ready.
+async fn ready_run(base: &str, token: &str, body: Value) -> (String, String, Ws) {
+    let created: Value = reqwest::Client::new()
+        .post(format!("{base}/api/agent/runs"))
+        .header(TOKEN_HEADER, token)
+        .json(&body)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let run = created["id"].as_str().unwrap().to_owned();
+    let epoch = created["epoch"].as_str().unwrap().to_owned();
+    let mut ws = attach(
+        base,
+        &run,
+        json!({"type":"attach","token":token,"role":"writer"}),
+    )
+    .await;
+    until(&mut ws, status("ready")).await;
+    (run, epoch, ws)
+}
+
+/// Prompt `text`, wait for the request it raises and return its ID.
+async fn ask(ws: &mut Ws, epoch: &str, id: &str, text: &str, want: &str) -> Value {
+    command(ws, id, epoch, "prompt", text).await;
+    let asked = until(ws, kind("interaction.requested")).await;
+    let payload = &asked.last().unwrap()["payload"];
+    assert_eq!(payload["kind"], want, "{text}");
+    payload["requestId"].clone()
+}
+
+#[test]
+fn decisions_reach_the_cli_once_and_expire_with_it() {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fake-claude.py");
+    let log = trame_local::workspace().join(format!(
+        ".scratch/agent-argv-{}.log",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let t = TestDb::with_env(&[
+        ("TRAME_CLAUDE_BIN", fake),
+        ("FAKE_LOG", log.to_str().unwrap()),
+    ]);
+    let base = t.base_url();
+    let cwd = t.root.to_str().unwrap().to_owned();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let token = reqwest::get(format!("{base}/api/term/token")).await.unwrap().json::<Value>().await.unwrap()["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let bad_mode = reqwest::Client::new()
+            .post(format!("{base}/api/agent/runs"))
+            .header(TOKEN_HEADER, &token)
+            .json(&json!({"cwd":cwd,"mode":"bypassPermissions"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(bad_mode.status(), 400);
+        let (run, epoch, mut w) = ready_run(&base, &token, json!({"cwd":cwd,"mode":"plan"})).await;
+        let argv = std::fs::read_to_string(&log).unwrap();
+        assert!(argv.contains(r#""--permission-mode", "plan""#), "{argv}");
+
+        // allow, once
+        let req = ask(&mut w, &epoch, "p1", "write", "permission").await;
+        assert_eq!(send(&mut w, "a1", &epoch, "answer", json!({"requestId":req,"decision":"allow"})).await["accepted"], true);
+        assert_eq!(assistant_texts(&until(&mut w, kind("turn.finished")).await), ["Write allow"]);
+        let again = send(&mut w, "a2", &epoch, "answer", json!({"requestId":req,"decision":"deny"})).await;
+        assert_eq!(again["reason"], "no such request");
+
+        // a question gets its answers in the tool input
+        let req = ask(&mut w, &epoch, "p2", "ask", "question").await;
+        let bad = send(&mut w, "a3", &epoch, "answer", json!({"requestId":req,"decision":"answer","answers":{"Which db?":1}})).await;
+        assert_eq!(bad["accepted"], false);
+        let ok = send(&mut w, "a4", &epoch, "answer", json!({"requestId":req,"decision":"answer","answers":{"Which db?":"pg"}})).await;
+        assert_eq!(ok["accepted"], true);
+        assert_eq!(assistant_texts(&until(&mut w, kind("turn.finished")).await), [r#"answered {"Which db?": "pg"}"#]);
+
+        // a plan is revised with feedback, then accepted; the CLI reports the mode it left plan for
+        let req = ask(&mut w, &epoch, "p3", "plan", "plan").await;
+        send(&mut w, "a5", &epoch, "answer", json!({"requestId":req,"decision":"revise","message":"smaller"})).await;
+        assert_eq!(
+            assistant_texts(&until(&mut w, kind("turn.finished")).await),
+            ["ExitPlanMode deny: The user wants changes to the plan: smaller"]
+        );
+        let req = ask(&mut w, &epoch, "p4", "plan", "plan").await;
+        send(&mut w, "a6", &epoch, "answer", json!({"requestId":req,"decision":"accept"})).await;
+        let turn = until(&mut w, kind("turn.finished")).await;
+        assert!(turn.iter().any(|v| v["kind"] == "run.info" && v["payload"]["mode"] == "default"));
+        assert_eq!(assistant_texts(&turn), ["ExitPlanMode allow"]);
+
+        // switching mode waits for the CLI's acknowledgement
+        assert_eq!(send(&mut w, "m1", &epoch, "setMode", json!({"mode":"acceptEdits"})).await["accepted"], true);
+        until(&mut w, |v| v["kind"] == "run.info" && v["payload"]["mode"] == "acceptEdits").await;
+        assert_eq!(send(&mut w, "m2", &epoch, "setMode", json!({"mode":"bypassPermissions"})).await["reason"], "unknown mode");
+
+        // a withdrawn request can't be answered late
+        command(&mut w, "p5", &epoch, "prompt", "cancelme").await;
+        let turn = until(&mut w, kind("turn.finished")).await;
+        let cancelled = turn.iter().find(|v| v["kind"] == "interaction.cancelled").unwrap();
+        let late = send(&mut w, "a7", &epoch, "answer", json!({"requestId":cancelled["payload"]["requestId"],"decision":"allow"})).await;
+        assert_eq!(late["reason"], "no such request");
+
+        // interrupting a pending question withdraws it
+        ask(&mut w, &epoch, "p6", "ask", "question").await;
+        send(&mut w, "i1", &epoch, "interrupt", json!({})).await;
+        let turn = until(&mut w, kind("turn.finished")).await;
+        assert!(turn.iter().any(|v| v["kind"] == "interaction.cancelled"));
+        assert_eq!(turn.last().unwrap()["payload"]["outcome"], "interrupted");
+
+        // a client reconnecting while a decision is pending sees it in the snapshot; the old writer can't answer
+        let req = ask(&mut w, &epoch, "p7", "write", "permission").await;
+        let mut w2 = attach(&base, &run, json!({"type":"attach","token":token,"role":"writer"})).await;
+        let snap = until(&mut w2, |v| v["type"] == "snapshot").await;
+        let pending = &snap.last().unwrap()["state"]["interactions"];
+        assert_eq!(pending.as_array().unwrap().len(), 1);
+        assert_eq!(pending[0]["requestId"], req);
+        let stale = send(&mut w, "a8", &epoch, "answer", json!({"requestId":req,"decision":"allow"})).await;
+        assert_eq!(stale["reason"], "not the writer");
+
+        // stopping the run expires what it was waiting on
+        reqwest::Client::new()
+            .delete(format!("{base}/api/agent/runs/{run}"))
+            .header(TOKEN_HEADER, &token)
+            .send()
+            .await
+            .unwrap();
+        let end = until(&mut w2, status("stopped")).await;
+        assert!(end.iter().any(|v| v["kind"] == "interaction.cancelled" && v["payload"]["reason"] == "exited"));
     });
     let _ = std::fs::remove_file(&log);
 }

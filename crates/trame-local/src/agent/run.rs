@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
     process::Stdio,
     sync::{Arc, Mutex},
@@ -24,6 +24,8 @@ const MAX_LINE: usize = 16 << 20;
 const STDERR_LINES: usize = 40;
 const SEEN_COMMANDS: usize = 256;
 const STDIN_QUEUE: usize = 64;
+/// Permission modes a client may switch to; bypassing every check is left to the terminal.
+const MODES: &[&str] = &["default", "acceptEdits", "plan"];
 
 /// One live agent run: its child, its reduced state and the clients following it.
 pub struct Run {
@@ -48,11 +50,16 @@ struct Inner {
     child_pid: Option<i32>,
     requests: u64,
     stopping: bool,
+    /// requests the CLI is blocked on, by request ID: what was asked, to build the answer
+    pending: HashMap<String, Value>,
+    /// our own control requests still waiting for the CLI's answer: the mode asked for
+    modes: HashMap<String, String>,
 }
 
 #[derive(Default)]
 struct State {
     status: &'static str,
+    cwd: String,
     session: String,
     model: Option<String>,
     mode: Option<String>,
@@ -62,12 +69,14 @@ struct State {
     partial: String,
     error: Option<String>,
     stderr: VecDeque<String>,
+    interactions: Vec<Value>,
 }
 
 impl State {
     fn to_json(&self) -> Value {
         json!({
             "status": self.status,
+            "cwd": self.cwd,
             "sessionId": self.session,
             "model": self.model,
             "mode": self.mode,
@@ -76,6 +85,7 @@ impl State {
             "droppedItems": self.dropped,
             "partial": self.partial,
             "error": self.error,
+            "interactions": self.interactions,
         })
     }
 }
@@ -97,8 +107,10 @@ impl Run {
         cwd: PathBuf,
         bin: String,
         resume: Option<String>,
+        mode: Option<String>,
     ) -> std::io::Result<Arc<Self>> {
         let (tx, _) = broadcast::channel(1024);
+        let shown = cwd.display().to_string();
         let resumed = resume.is_some();
         let session = resume.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let run = Arc::new(Self {
@@ -111,7 +123,9 @@ impl Run {
                 seq: 0,
                 ring: VecDeque::new(),
                 state: State {
+                    cwd: shown,
                     session,
+                    mode,
                     ..State::default()
                 },
                 seen: VecDeque::new(),
@@ -122,6 +136,8 @@ impl Run {
                 child_pid: None,
                 requests: 0,
                 stopping: false,
+                pending: HashMap::new(),
+                modes: HashMap::new(),
             }),
         });
         run.spawn(resumed)?;
@@ -137,15 +153,22 @@ impl Run {
     }
 
     fn spawn(self: &Arc<Self>, resume: bool) -> std::io::Result<()> {
-        let session = self.inner.lock().unwrap().state.session.clone();
+        let (session, mode) = {
+            let inner = self.inner.lock().unwrap();
+            (inner.state.session.clone(), inner.state.mode.clone())
+        };
         let mut cmd = Command::new(&self.bin);
-        cmd.args(claude::args(resume.then_some(session.as_str()), &session))
-            .current_dir(&self.cwd)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .process_group(0);
+        cmd.args(claude::args(
+            resume.then_some(session.as_str()),
+            &session,
+            mode.as_deref(),
+        ))
+        .current_dir(&self.cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .process_group(0);
         for (key, _) in std::env::vars_os() {
             if key.to_str().is_some_and(crate::pty::agent_host_var) {
                 cmd.env_remove(&key);
@@ -288,7 +311,9 @@ impl Run {
                 (Some("prompt"), _) => return Err("busy"),
                 (Some("interrupt"), "busy") => {}
                 (Some("interrupt"), _) => return Err("nothing to interrupt"),
-                (Some("stop"), _) => {}
+                (Some("stop" | "answer"), _) => {}
+                (Some("setMode"), "ready" | "busy") => {}
+                (Some("setMode"), _) => return Err("not ready"),
                 _ => return Err("unknown command"),
             }
             text = cmd["payload"]["text"]
@@ -307,7 +332,7 @@ impl Run {
                 self.publish("turn.started", json!({}));
                 self.publish(
                     "item.completed",
-                    json!({"kind":"user","text":text,"truncated":false}),
+                    json!({"kind":"user","text":text,"truncated":false,"ts":now()}),
                 );
             }
             Some("interrupt") => {
@@ -317,8 +342,81 @@ impl Run {
                 }
                 self.status("interrupting");
             }
+            Some("answer") => return self.answer(&cmd["payload"]),
+            Some("setMode") => {
+                let mode = cmd["payload"]["mode"].as_str().unwrap_or_default();
+                if !MODES.contains(&mode) {
+                    return Err("unknown mode");
+                }
+                let id = self.next_request();
+                self.inner
+                    .lock()
+                    .unwrap()
+                    .modes
+                    .insert(id.clone(), mode.to_owned());
+                if !self.send(&claude::set_mode(&id, mode)) {
+                    return Err("input queue full");
+                }
+            }
             _ => self.stop(),
         }
+        Ok(())
+    }
+
+    /// Answer a request the CLI is blocked on, once; a withdrawn or answered request is refused.
+    fn answer(&self, p: &Value) -> Reply {
+        let id = p["requestId"].as_str().ok_or("requestId required")?;
+        let request = self
+            .inner
+            .lock()
+            .unwrap()
+            .pending
+            .remove(id)
+            .ok_or("no such request")?;
+        let input = &request["input"];
+        let decision = p["decision"].as_str().unwrap_or_default();
+        let message = p["message"].as_str().filter(|m| !m.trim().is_empty());
+        let allow = |updated: &Value| json!({"behavior":"allow","updatedInput":updated});
+        let deny = |text: &str| json!({"behavior":"deny","message":text});
+        let response = match (request["kind"].as_str(), decision) {
+            (Some("permission"), "allow") | (Some("plan"), "accept") => allow(input),
+            (Some("question"), "answer") => {
+                let Some(answers) = p["answers"]
+                    .as_object()
+                    .filter(|a| a.values().all(Value::is_string))
+                else {
+                    self.inner
+                        .lock()
+                        .unwrap()
+                        .pending
+                        .insert(id.to_owned(), request);
+                    return Err("answers must map each question to text");
+                };
+                let mut updated = input.clone();
+                updated["answers"] = Value::Object(answers.clone());
+                allow(&updated)
+            }
+            (Some("plan"), "revise") => deny(&format!(
+                "The user wants changes to the plan: {}",
+                message.unwrap_or("keep planning")
+            )),
+            (_, "deny") => deny(message.unwrap_or("The user declined this.")),
+            _ => {
+                self.inner
+                    .lock()
+                    .unwrap()
+                    .pending
+                    .insert(id.to_owned(), request);
+                return Err("unknown decision");
+            }
+        };
+        if !self.send(&claude::respond(id, &response)) {
+            return Err("input queue full");
+        }
+        self.publish(
+            "interaction.resolved",
+            json!({"requestId":id,"decision":decision}),
+        );
         Ok(())
     }
 
@@ -391,6 +489,20 @@ impl Run {
         let code = child.wait().await.ok().and_then(|s| s.code());
         // the exit reason is usually the last thing on stderr
         let _ = tokio::time::timeout(Duration::from_secs(1), errors).await;
+        let expired: Vec<String> = self
+            .inner
+            .lock()
+            .unwrap()
+            .pending
+            .drain()
+            .map(|(id, _)| id)
+            .collect();
+        for id in expired {
+            self.publish(
+                "interaction.cancelled",
+                json!({"requestId":id,"reason":"exited"}),
+            );
+        }
         let (stopping, tail) = {
             let mut inner = self.inner.lock().unwrap();
             inner.stdin = None;
@@ -438,7 +550,11 @@ impl Run {
             }
             Frame::Delta(text) => self.publish("item.delta", json!({"text":text})),
             Frame::Message(event) => {
-                for item in claude_items(&event) {
+                for mut item in claude_items(&event) {
+                    // stream-json frames carry no time; the arrival time gives turns a duration
+                    if item.get("ts").is_none() {
+                        item["ts"] = now().into();
+                    }
                     self.publish("item.completed", item);
                 }
             }
@@ -459,35 +575,63 @@ impl Run {
                     json!({"outcome":outcome,"subtype":subtype,"cost":cost}),
                 );
             }
-            Frame::Request { id, subtype, body } => {
-                // decisions arrive in a later PR: deny rather than leave the turn hanging
-                let reason = "Trame's agent view can't answer this yet";
-                let reply = if subtype == "can_use_tool" {
-                    claude::respond(&id, &json!({"behavior":"deny","message":reason}))
-                } else {
-                    claude::refuse(&id, reason)
+            Frame::Request { id, subtype, body } if subtype == "can_use_tool" => {
+                let kind = match body["tool_name"].as_str() {
+                    Some("AskUserQuestion") => "question",
+                    Some("ExitPlanMode") => "plan",
+                    _ => "permission",
                 };
-                self.send(&reply);
+                let request = json!({
+                    "requestId": id, "kind": kind, "tool": body["tool_name"],
+                    "toolUseId": body["tool_use_id"], "input": body["input"],
+                });
+                self.inner
+                    .lock()
+                    .unwrap()
+                    .pending
+                    .insert(id, request.clone());
+                self.publish("interaction.requested", request);
+            }
+            Frame::Request { id, subtype, body } => {
+                // a blocking request with no UI must fail, not leave the turn hanging
+                self.send(&claude::refuse(
+                    &id,
+                    "Trame's agent view can't answer this request",
+                ));
                 self.publish(
                     "interaction.denied",
-                    json!({"requestId":id,"subtype":subtype,"tool":body["tool_name"],"input":body["input"]}),
+                    json!({"requestId":id,"subtype":subtype,"tool":body["tool_name"]}),
                 );
             }
             Frame::Response { id, error } => {
+                // taken out of the lock first: publish locks it again
+                let mode = self.inner.lock().unwrap().modes.remove(&id);
                 if init_id.as_deref() == Some(id.as_str()) {
                     *init_id = None;
                     match error {
                         None => self.status("ready"),
                         Some(e) => self.publish("run.state", json!({"status":"failed","error":e})),
                     }
+                } else if let Some(mode) = mode.filter(|_| error.is_none()) {
+                    self.publish("run.info", json!({"mode":mode}));
                 } else if let Some(e) = error {
                     self.publish("run.warning", json!({"text":e,"requestId":id}));
                 }
             }
-            Frame::Cancel(id) => self.publish("interaction.cancelled", json!({"requestId":id})),
+            Frame::Mode(mode) => self.publish("run.info", json!({"mode":mode})),
+            Frame::Cancel(id) => {
+                // withdrawn by the CLI: a late answer must not reach it
+                if self.inner.lock().unwrap().pending.remove(&id).is_some() {
+                    self.publish("interaction.cancelled", json!({"requestId":id}));
+                }
+            }
             Frame::Other(_) => {}
         }
     }
+}
+
+fn now() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
 fn snapshot(inner: &Inner) -> Value {
@@ -530,6 +674,12 @@ fn apply(state: &mut State, kind: &str, p: &Value) {
         "turn.finished" => {
             state.status = "ready";
             state.partial.clear();
+        }
+        "interaction.requested" => state.interactions.push(p.clone()),
+        "interaction.resolved" | "interaction.cancelled" => {
+            state
+                .interactions
+                .retain(|i| i["requestId"] != p["requestId"]);
         }
         "item.delta" => state
             .partial

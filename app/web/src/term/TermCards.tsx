@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { BoardData, ClaudeSession } from "../api";
 import { RecentList } from "../agents/RecentList";
+import { AgentRuns } from "../agents/AgentRuns";
 import { AgentIcon, Elapsed, type Live, useAgents } from "../agents/agents";
 import { GroupMenu } from "../ui/GroupMenu";
 import { DeviceIcon, FolderIcon, PinIcon, PlusIcon, PopOutIcon } from "../ui/icons";
@@ -54,6 +55,8 @@ export function TermCards(
     onSelectProject,
     onSelectRecent,
     onSelectHistory,
+    agentRun,
+    onSelectAgent,
   }: {
     board: BoardData | null;
     selected: string | null;
@@ -68,6 +71,8 @@ export function TermCards(
     history: boolean; // All sessions is shown
     onSelectRecent: (s: ClaudeSession) => void;
     onSelectHistory: () => void;
+    agentRun: string | null; // the agent-view run shown
+    onSelectAgent: (run: string) => void;
   },
 ) {
   const { terms: dockTerms, out } = useTermDock();
@@ -715,6 +720,7 @@ export function TermCards(
             project={selectedProject ?? undefined}
             onClose={() => setNewOpen(false)}
             onOpened={(card, project) => (card ? onSelect(card) : project ? onSelectProject(project) : onSelect(null))}
+            onAgent={onSelectAgent}
           />
         )}
       </div>
@@ -794,6 +800,7 @@ export function TermCards(
                   project={project}
                   onClose={() => setMenuFor(null)}
                   onOpened={(card, project) => (card ? onSelect(card) : project ? onSelectProject(project) : onSelect(null))}
+            onAgent={onSelectAgent}
                 />
               )}
             </div>
@@ -874,6 +881,7 @@ export function TermCards(
           {shellsOpen && plain.map(shellRow)}
         </section>
       )}
+      <AgentRuns selected={agentRun} onSelect={onSelectAgent} />
       <RecentList board={board} selected={recent} history={history} onSelect={onSelectRecent} onHistory={onSelectHistory} />
       {linkFor && (
         <LinkCardDialog

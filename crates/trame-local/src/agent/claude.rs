@@ -1,7 +1,7 @@
 use serde_json::{Value, json};
 
 /// Arguments for a Claude Code child speaking NDJSON on stdio, resuming `resume` or starting `session`.
-pub(crate) fn args(resume: Option<&str>, session: &str) -> Vec<String> {
+pub(crate) fn args(resume: Option<&str>, session: &str, mode: Option<&str>) -> Vec<String> {
     let mut out: Vec<String> = [
         "-p",
         "--verbose",
@@ -10,13 +10,13 @@ pub(crate) fn args(resume: Option<&str>, session: &str) -> Vec<String> {
         "--output-format",
         "stream-json",
         "--include-partial-messages",
-        "--permission-mode",
-        "default",
         "--permission-prompt-tool",
         "stdio",
     ]
     .map(str::to_owned)
     .to_vec();
+    // a resumed run states its mode: the CLI does not restore plan mode by itself
+    out.extend(["--permission-mode".into(), mode.unwrap_or("default").into()]);
     match resume {
         Some(id) => out.extend(["--resume".into(), id.into()]),
         None => out.extend(["--session-id".into(), session.into()]),
@@ -30,6 +30,10 @@ pub(crate) fn initialize(request_id: &str) -> Value {
 
 pub(crate) fn interrupt(request_id: &str) -> Value {
     json!({"type":"control_request","request_id":request_id,"request":{"subtype":"interrupt"}})
+}
+
+pub(crate) fn set_mode(request_id: &str, mode: &str) -> Value {
+    json!({"type":"control_request","request_id":request_id,"request":{"subtype":"set_permission_mode","mode":mode}})
 }
 
 pub(crate) fn user_message(text: &str) -> Value {
@@ -58,6 +62,8 @@ pub(crate) enum Frame {
     },
     /// streamed assistant text, superseded by the completed message
     Delta(String),
+    /// the permission mode the CLI reports it is in now
+    Mode(String),
     /// a completed assistant message or tool results, in transcript shape
     Message(Value),
     Result {
@@ -92,6 +98,9 @@ pub(crate) fn decode(line: &str) -> Option<Frame> {
             model: s(&v["model"]),
             mode: s(&v["permissionMode"]),
         },
+        "system" if v["permissionMode"].is_string() => {
+            Frame::Mode(s(&v["permissionMode"]).unwrap_or_default())
+        }
         "stream_event" => {
             let delta = &v["event"]["delta"];
             match (v["event"]["type"].as_str(), delta["type"].as_str()) {
