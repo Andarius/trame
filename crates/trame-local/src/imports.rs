@@ -9,6 +9,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+pub mod history;
 pub mod transcript;
 
 pub(crate) fn transcript_dir(db: &Db, key: &str, fallback: &str) -> Result<PathBuf> {
@@ -475,6 +476,7 @@ pub fn owns(_method: &str, path: &str) -> bool {
             | "/api/import/claude/ignore"
             | "/api/import/claude/star"
             | "/api/import/claude/tail"
+            | "/api/import/claude/history"
     )
 }
 pub fn handle(
@@ -507,6 +509,27 @@ pub fn handle(
                     Some(tail) => tail,
                     None => return Ok((404, json!({"error":"transcript not found"}))),
                 }
+            }
+            (_, "/api/import/claude/history") => {
+                let params = reqwest::Url::parse(&format!("http://localhost/?{query}"))?;
+                let get = |key: &str| {
+                    params
+                        .query_pairs()
+                        .find(|(k, _)| k == key)
+                        .map(|(_, v)| v.into_owned())
+                };
+                let offset = |key: &str| get(key).and_then(|v| v.parse::<u64>().ok());
+                let source = get("source").unwrap_or_default();
+                let Some(path) = transcript_path(db, &source, &get("id").unwrap_or_default())?
+                else {
+                    return Ok((404, json!({"error":"transcript not found"})));
+                };
+                let codex = source == "codex";
+                match offset("after") {
+                    Some(at) => history::after(&path, at, codex)?,
+                    None => history::before(&path, offset("before"), codex)?,
+                }
+                .to_json()
             }
             (_, "/api/import/claude") => {
                 let params = reqwest::Url::parse(&format!("http://localhost/?{query}"))?;

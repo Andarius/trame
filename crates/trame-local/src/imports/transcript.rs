@@ -122,7 +122,7 @@ fn said(text: &str) -> Option<String> {
 }
 
 /// A user turn the harness wrote (another session's message, a context summary): a short note instead.
-fn harness_note(text: &str) -> Option<&'static str> {
+pub(crate) fn harness_note(text: &str) -> Option<&'static str> {
     [
         (
             "Another Claude session sent a message",
