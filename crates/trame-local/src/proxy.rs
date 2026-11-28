@@ -117,6 +117,9 @@ async fn route(state: &Proxy, req: Request<Body>) -> Response {
     if crate::demo::owns(req.uri().path()) {
         return crate::demo::serve(native, &req);
     }
+    if crate::agent::owns(req.uri().path()) {
+        return crate::agent::serve(req).await;
+    }
     if crate::pty::owns(req.uri().path()) {
         return crate::pty::serve(&native.root, req).await;
     }

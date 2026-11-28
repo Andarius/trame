@@ -215,6 +215,11 @@ fn registry() -> &'static Registry {
     })
 }
 
+/// The local capability token terminals and agent runs require.
+pub fn token() -> &'static str {
+    &registry().token
+}
+
 pub fn get(id: &str) -> Option<Arc<Term>> {
     registry().terms.lock().unwrap().get(id).cloned()
 }
@@ -400,7 +405,7 @@ fn save_folder(root: &Path, from: &str, to: &str) -> std::io::Result<()> {
 }
 
 /// Variables an agent harness sets for its own children (Claude Code, Codex, Anthropic SDK).
-fn agent_host_var(key: &str) -> bool {
+pub(crate) fn agent_host_var(key: &str) -> bool {
     ["CLAUDE", "ANTHROPIC_", "CODEX_", "OPENAI_"]
         .iter()
         .any(|prefix| key.starts_with(prefix))

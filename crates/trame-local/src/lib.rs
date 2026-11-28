@@ -4,6 +4,7 @@
     reason = "CLI output is the product; stderr is the app log"
 )]
 
+pub mod agent;
 pub mod assets;
 pub mod blocking;
 pub mod cli;
@@ -360,6 +361,7 @@ pub async fn run(
     let _ = shutdown_tx.send(());
     // open terminals hold WebSocket connections the graceful shutdown would wait on
     let _ = blocking::spawn(pty::shutdown).await;
+    agent::shutdown();
     let _ = blocking::spawn(plugins::stop_all).await;
     for task in plugin_tasks.into_iter().chain(
         [updater, notifier, seeder, term_saver]

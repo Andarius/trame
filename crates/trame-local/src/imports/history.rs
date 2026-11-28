@@ -200,7 +200,7 @@ fn content_text(content: &Value, kinds: &[&str]) -> String {
         .unwrap_or_default()
 }
 
-fn claude_items(event: &Value) -> Vec<Value> {
+pub(crate) fn claude_items(event: &Value) -> Vec<Value> {
     // subagent turns are folded into their Agent tool call
     if event["isSidechain"] == true || event["isMeta"] == true {
         return Vec::new();
